@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.md$|\\\\.html$|\\\\.py$\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\agath\\\\Documents\\\\CIPL\\\\CIPL_Test\" -Recurse -Include \"*.js\", \"*.jsx\", \"*.ts\", \"*.tsx\", \"*.vue\", \"*.json\")",
+      "Bash(Select-Object -First 30)",
+      "Skill(assets-find)",
+      "Skill(assets-find:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "ai-game-developer"
+  ]
+}
