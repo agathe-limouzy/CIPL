@@ -27,7 +27,7 @@ public class Batiment : Data
 
     // Travaux
     public bool travauxEnCours;
-    public float coutTravaux;
+    public TravauxFinancement travaux = new TravauxFinancement();
 
     // Objectifs
     public ObjectiveList objectifs = new ObjectiveList();
@@ -59,7 +59,6 @@ public class Batiment : Data
         }
     }
 
-    public float CoutTotal => coutAchat + coutTravaux;
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()

@@ -15,12 +15,13 @@ public class BatimentPrefab : PrefabBatLoc
     public InputAndText tailleTerrainText;
     public InputAndText coutEmprunt;
     public InputAndText coutAchatText;
-    public InputAndText coutTravauxText;
+
+    [Header("Travaux")]
+public TravauxController travauxController;
 
     public MapController mapController;
     public DateInputController dateAchatPrefab;
     public Toggle emprunt;
-    public Toggle travauxEnCours; 
     public ObjectivesManager objectivesManager;
     public TMP_Dropdown ParkingDropdown;
 
@@ -49,10 +50,10 @@ public class BatimentPrefab : PrefabBatLoc
     [Header("Navigation")]
     public Button btnRetourMenu;
 
+    public float GetCoutAchat() => batiment.coutAchat;
 
-
-// Méthodes utilitaires pour les cards et les stats
-public Batiment GetBatimentData()
+    // Méthodes utilitaires pour les cards et les stats
+    public Batiment GetBatimentData()
 {
     return BatimentManager.Instance.Batiments.Find(b => b.id == batiment.id);
 }
@@ -133,14 +134,16 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         objectivesManager.AddNeObjectif.AddListener(() => updateListObjectif());
         save.onClick.AddListener(() => SaveBatiment());
         modifyBatiment.onClick.AddListener(() => Modify());
-      
+       
 
         if (!NeedToModify)
         {
        
             string json = JsonUtility.ToJson(newBatiment);
             batiment = JsonUtility.FromJson<Batiment>(json);
-            
+            if (batiment.travaux == null)
+                batiment.travaux = new TravauxFinancement();
+            travauxController.Init(this, batiment.travaux);
             mapController.SetAdress(batiment.adressBatiment);
             tailleBatimentText.ApplySave ( batiment.tailleBatiment.ToString());
             tailleTerrainText.ApplySave(batiment.tailleTerrain.ToString());
@@ -152,9 +155,6 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             emprunt.interactable = false;
             coutEmprunt.ApplySave(batiment.empruntCout.ToString()) ;
             
-            travauxEnCours.isOn = batiment.travauxEnCours;
-            travauxEnCours.interactable=false;
-            coutTravauxText.ApplySave(batiment.coutTravaux.ToString());
             nameOfTheBuiding.ApplySave(batiment.Name.ToString());
             objectivesManager.LoadObjectives(batiment.objectifs);
             save.gameObject.SetActive(false);
@@ -257,14 +257,13 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         tailleTerrainText.Modify();
         coutEmprunt.Modify();
         coutAchatText.Modify();
-        coutTravauxText.Modify();
         mapController.ModifyAdress();
         dateAchatPrefab.ModifyDate();
         emprunt.interactable = true;
-        travauxEnCours.interactable = true;
         ParkingDropdown.interactable = true;
         save.gameObject.SetActive(true);
         modifyBatiment.gameObject.SetActive(false);
+        travauxController.Modify();
         Delete.gameObject.SetActive(true);
         _sectionStateSnapshot = new bool[sections.Length];
         for (int i = 0; i < sections.Length; i++)
@@ -303,9 +302,6 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         batiment.DateAchat=dateAchatPrefab.saveThedate();
         batiment.emprunt = emprunt.isOn;
         emprunt.interactable = false;
-        batiment.travauxEnCours = travauxEnCours.isOn;
-        SaveCorrectlyFloat(ref batiment.coutTravaux, coutTravauxText.GetNewSave());
-        travauxEnCours.interactable = false;
         batiment.parkingEtat = (ParkingState)ParkingDropdown.value;
         ParkingDropdown.interactable = false;
         BatimentManager.Instance.menuManager.UpdateTabLabel(this, batiment.Name);
@@ -313,6 +309,8 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         save.gameObject.SetActive(false);
         modifyBatiment.gameObject.SetActive(true);
         Delete.gameObject.SetActive(true);
+        batiment.travaux = travauxController.GetSaveData();
+        travauxController.ApplySave();
         if (_sectionStateSnapshot != null)
             for (int i = 0; i < sections.Length; i++)
                 sections[i].SetOpen(_sectionStateSnapshot[i]);
