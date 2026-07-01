@@ -24,12 +24,18 @@ public class BatimentPrefab : PrefabBatLoc
     public ObjectivesManager objectivesManager;
     public TMP_Dropdown ParkingDropdown;
 
+
+
     public Button btnPLU;
 
     private Batiment batiment;
-  
 
-    // Locataire
+    [Header("Loyer total")]
+    public TMP_Text txtLoyerTotalAnnuel;   // Affiché seulement si > 1 locataire
+    public GameObject loyerTotalContainer; // Le GameObject parent (label + valeur)
+
+
+    [Header("Locataire")]
     public List<Locataire> listLocataire = new List<Locataire>();
     public Dictionary<Locataire, LocatairePrefab> dictionnairelocataire = new Dictionary<Locataire, LocatairePrefab>();
     public GameObject locatairePrefab;
@@ -75,6 +81,20 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             loc.tailleLot = batiment.tailleBatiment;
             if (dictionnairelocataire.TryGetValue(loc, out var locPrefab))
                 locPrefab.RefreshTailleLot(batiment.tailleBatiment);
+        }
+    }
+
+    public void RefreshLoyerTotal()
+    {
+        if (loyerTotalContainer == null) return;
+
+        bool multiLocataire = listLocataire.Count > 1;
+        loyerTotalContainer.SetActive(multiLocataire);
+
+        if (multiLocataire && txtLoyerTotalAnnuel != null)
+        {
+            float total = GetLoyerTotal();
+            txtLoyerTotalAnnuel.text = $"{total:F2} € / an";
         }
     }
 
@@ -152,6 +172,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             if (listLocataire.Count > 0)
                 menulocataire.OnSelect(dictionnairelocataire.First().Value);
             RefreshTailleBatiment();
+            RefreshLoyerTotal();
         }
         else
         {
@@ -195,6 +216,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         batiment.locataireDuBatiment.Add(data);
 
         RefreshTailleBatiment();
+        RefreshLoyerTotal(); // ← ajouter
         return prefab;
 
 
@@ -214,6 +236,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
       
         batiment.locataireDuBatiment.Remove(locataire);
         RefreshTailleBatiment();
+        RefreshLoyerTotal(); // ← ajouter
         BatimentManager.Instance.SaveBatiment(batiment);
     }
 
@@ -221,6 +244,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     public void SaveAfterModifyToDoListLocataire()
     {
         RefreshTailleBatiment();
+        RefreshLoyerTotal();
         BatimentManager.Instance.SaveBatiment(batiment);
     }
 
