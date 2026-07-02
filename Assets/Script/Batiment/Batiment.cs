@@ -15,20 +15,10 @@ public class Batiment : Data
     public float tailleTerrain;
     public ParkingState parkingEtat;
 
-    // Achat
-    public string dateAchatISO; // JsonUtility ne gère pas DateTime
-    public float coutAchat;
-
-    // Emprunt
-    public bool emprunt;
-    public float empruntCout;
-    public float empruntDureeAnnees;
-    public float empruntTauxPourcent;
-
     // Travaux
     public bool travauxEnCours;
-    public TravauxFinancement travaux = new TravauxFinancement();
-
+    public List<AchatFinancement> historiquesAchat = new List<AchatFinancement>();
+    public List<TravauxFinancement> travaux = new List<TravauxFinancement>();
     // Objectifs
     public ObjectiveList objectifs = new ObjectiveList();
 
@@ -38,27 +28,11 @@ public class Batiment : Data
     // Propriété DateTime pratique (non sérialisée)
     [NonSerialized]
     private DateTime _dateAchat;
-    public DateTime DateAchat
-    {
-        get => DateTime.TryParse(dateAchatISO, out var d) ? d : DateTime.Today;
-        set => dateAchatISO = value.ToString("yyyy-MM-dd");
-    }
+
 
 
     // Propriétés calculées
-    public float MensualiteEmprunt
-    {
-        get
-        {
-            if (!emprunt || empruntCout <= 0) return 0f;
-            float tauxMensuel = (empruntTauxPourcent / 100f) / 12f;
-            int nbMois = (int)(empruntDureeAnnees * 12);
-            if (tauxMensuel == 0) return empruntCout / nbMois;
-            return empruntCout * tauxMensuel /
-                   (1f - Mathf.Pow(1f + tauxMensuel, -nbMois));
-        }
-    }
-
+  
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()

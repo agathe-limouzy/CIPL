@@ -13,15 +13,11 @@ public class BatimentPrefab : PrefabBatLoc
     public InputAndText nameOfTheBuiding;
     public InputAndText tailleBatimentText;
     public InputAndText tailleTerrainText;
-    public InputAndText coutEmprunt;
-    public InputAndText coutAchatText;
 
-    [Header("Travaux")]
-public TravauxController travauxController;
+    [Header("Rentabilité")]
+    public RentabiliteGlobaleController rentabiliteGlobale;
 
     public MapController mapController;
-    public DateInputController dateAchatPrefab;
-    public Toggle emprunt;
     public ObjectivesManager objectivesManager;
     public TMP_Dropdown ParkingDropdown;
 
@@ -49,8 +45,6 @@ public TravauxController travauxController;
 
     [Header("Navigation")]
     public Button btnRetourMenu;
-
-    public float GetCoutAchat() => batiment.coutAchat;
 
     // Méthodes utilitaires pour les cards et les stats
     public Batiment GetBatimentData()
@@ -97,6 +91,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             float total = GetLoyerTotal();
             txtLoyerTotalAnnuel.text = $"{total:F2} € / an";
         }
+        rentabiliteGlobale?.Refresh();
     }
 
     public override void InitializeBatiment(Batiment newBatiment, bool NeedToModify)
@@ -141,19 +136,16 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
        
             string json = JsonUtility.ToJson(newBatiment);
             batiment = JsonUtility.FromJson<Batiment>(json);
+            if (batiment.historiquesAchat == null)
+                batiment.historiquesAchat = new List<AchatFinancement>();
             if (batiment.travaux == null)
-                batiment.travaux = new TravauxFinancement();
-            travauxController.Init(this, batiment.travaux);
+                batiment.travaux = new List<TravauxFinancement>();
+            rentabiliteGlobale?.Init(this);
             mapController.SetAdress(batiment.adressBatiment);
             tailleBatimentText.ApplySave ( batiment.tailleBatiment.ToString());
             tailleTerrainText.ApplySave(batiment.tailleTerrain.ToString());
             ParkingDropdown.value = (int)batiment.parkingEtat;
             ParkingDropdown.interactable = false;
-            dateAchatPrefab.ApplyDate(batiment.DateAchat);
-            coutAchatText.ApplySave(batiment.coutAchat.ToString()) ;
-            emprunt.isOn = batiment.emprunt;
-            emprunt.interactable = false;
-            coutEmprunt.ApplySave(batiment.empruntCout.ToString()) ;
             
             nameOfTheBuiding.ApplySave(batiment.Name.ToString());
             objectivesManager.LoadObjectives(batiment.objectifs);
@@ -255,15 +247,10 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             tailleBatimentText.Modify(); // éditable seulement si 0 ou 1 locataire
                                          // si > 1 : reste en lecture seule (somme calculée)
         tailleTerrainText.Modify();
-        coutEmprunt.Modify();
-        coutAchatText.Modify();
         mapController.ModifyAdress();
-        dateAchatPrefab.ModifyDate();
-        emprunt.interactable = true;
         ParkingDropdown.interactable = true;
         save.gameObject.SetActive(true);
         modifyBatiment.gameObject.SetActive(false);
-        travauxController.Modify();
         Delete.gameObject.SetActive(true);
         _sectionStateSnapshot = new bool[sections.Length];
         for (int i = 0; i < sections.Length; i++)
@@ -295,13 +282,8 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             }
         }
         SaveCorrectlyFloat(ref batiment.tailleTerrain, tailleTerrainText.GetNewSave());
-        SaveCorrectlyFloat(ref batiment.empruntCout, coutEmprunt.GetNewSave());
-        SaveCorrectlyFloat(ref batiment.coutAchat, coutAchatText.GetNewSave());
         Debug.Log(batiment.tailleBatiment);
         batiment.adressBatiment = mapController.GetAdress();
-        batiment.DateAchat=dateAchatPrefab.saveThedate();
-        batiment.emprunt = emprunt.isOn;
-        emprunt.interactable = false;
         batiment.parkingEtat = (ParkingState)ParkingDropdown.value;
         ParkingDropdown.interactable = false;
         BatimentManager.Instance.menuManager.UpdateTabLabel(this, batiment.Name);
@@ -309,8 +291,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         save.gameObject.SetActive(false);
         modifyBatiment.gameObject.SetActive(true);
         Delete.gameObject.SetActive(true);
-        batiment.travaux = travauxController.GetSaveData();
-        travauxController.ApplySave();
+        rentabiliteGlobale?.Refresh();
         if (_sectionStateSnapshot != null)
             for (int i = 0; i < sections.Length; i++)
                 sections[i].SetOpen(_sectionStateSnapshot[i]);

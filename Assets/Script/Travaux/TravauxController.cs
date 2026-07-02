@@ -5,7 +5,7 @@ using UnityEngine.UI;
 
 public class TravauxController : MonoBehaviour
 {
-    [Header("Saisie")]
+  /*  [Header("Saisie")]
     public InputAndText txtCoutTotal;
     public InputAndText txtDescription;
     public DateInputController dateDebutTravaux;
@@ -266,4 +266,5 @@ public class TravauxController : MonoBehaviour
         for (int i = 0; i < Durees.Length; i++)
             if (Durees[i] == mois) { dropdownDuree.value = i; return; }
     }
+  */
 }
