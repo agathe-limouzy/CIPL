@@ -21,7 +21,7 @@ public class BatimentManager : MonoBehaviour
 
     // Dossier de sauvegarde — un JSON par bâtiment
     private string SaveFolder =>
-        Path.Combine(Application.persistentDataPath, "batiments");
+    Path.Combine(SaveLocationService.GetSaveRoot(), "batiments");
 
     private void Awake()
     {
@@ -31,6 +31,21 @@ public class BatimentManager : MonoBehaviour
 
     private void Start()
     {
+        BackupService.RunStartupBackup();
+        LoadAll();
+    }
+
+    public void ReloadFromDisk()
+    {
+        // Détruire les prefabs existants
+        foreach (var prefab in BatimentPrefab)
+        {
+            menuManager.RemoveTabAndBuilding(prefab);
+            Destroy(prefab.gameObject);
+        }
+        BatimentPrefab.Clear();
+        _batiments.Clear();
+
         LoadAll();
     }
 
