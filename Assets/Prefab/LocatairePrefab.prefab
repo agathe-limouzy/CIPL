@@ -836,7 +836,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 290, y: -841.9064}
+  m_AnchoredPosition: {x: 290, y: -590}
   m_SizeDelta: {x: 580, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &8483330807187905263
@@ -3741,7 +3741,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 1544.669, y: -428.4532}
+  m_AnchoredPosition: {x: 1544.669, y: -60}
   m_SizeDelta: {x: 850.274, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &5139383881349853739
@@ -4589,7 +4589,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 559.766, y: -542.5}
+  m_AnchoredPosition: {x: 559.766, y: -32.5}
   m_SizeDelta: {x: 1119.532, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &4301154630817132610
@@ -7409,7 +7409,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 3947616340029946857}
   m_HandleRect: {fileID: 6612271795320797516}
   m_Direction: 2
-  m_Value: 1
+  m_Value: 0
   m_Size: 1
   m_NumberOfSteps: 0
   m_OnValueChanged:
@@ -10325,7 +10325,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 559.766, y: -797.5}
+  m_AnchoredPosition: {x: 559.766, y: -745}
   m_SizeDelta: {x: 1119.532, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &3903470446429764283
@@ -12929,7 +12929,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 425.137, y: -648.4532}
+  m_AnchoredPosition: {x: 425.137, y: -522.5}
   m_SizeDelta: {x: 850.274, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &7125386345996841592
@@ -16785,7 +16785,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4885529951552951494, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
       propertyPath: m_Value
-      value: 0.9999988
+      value: 0.99999845
       objectReference: {fileID: 0}
     - target: {fileID: 6043443204088185033, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
       propertyPath: m_AnchorMax.y

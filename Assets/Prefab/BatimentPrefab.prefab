@@ -1690,6 +1690,8 @@ MonoBehaviour:
   bottomScrollContent: {fileID: 547493965128639179}
   minTop: 150
   minBottom: 150
+  resizeCursor: {fileID: 2800000, guid: 2d0d73642f2856b4ca3f03c665d9d881, type: 3}
+  cursorHotspot: {x: 16, y: 16}
 --- !u!1 &1342936436161478208
 GameObject:
   m_ObjectHideFlags: 0
@@ -5484,6 +5486,8 @@ MonoBehaviour:
   btnHome: {fileID: 0}
   generalMenuPanel: {fileID: 0}
   contentArea: {fileID: 0}
+  tabScrollRect: {fileID: 0}
+  searchField: {fileID: 0}
 --- !u!222 &7829450987525104459
 CanvasRenderer:
   m_ObjectHideFlags: 0
@@ -9674,7 +9678,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 5502662743232795708}
-  - component: {fileID: 3185790850238630552}
   - component: {fileID: 3649127651162182106}
   - component: {fileID: 8521983871258555570}
   - component: {fileID: 3728563728202226026}
@@ -9706,20 +9709,6 @@ RectTransform:
   m_AnchoredPosition: {x: 235.275, y: -17.5}
   m_SizeDelta: {x: 470.55, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
---- !u!114 &3185790850238630552
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7770625366058514852}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 98fc186491fab0549851b6338d0bc65d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  textSaved: {fileID: 115487612616004993}
-  inputModify: {fileID: 0}
 --- !u!114 &3649127651162182106
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -32,6 +32,33 @@ public class PanelResizer : MonoBehaviour,
     // Enfants directs de panelTop à étirer
     private readonly List<RectTransform> _topDirectChildren = new List<RectTransform>();
 
+
+    [Header("Curseur")]
+    public Texture2D resizeCursor;
+    public Vector2 cursorHotspot = new Vector2(16, 16);
+
+    private bool _hovering;
+    private bool _dragging;
+
+    public void OnBeginDrag(PointerEventData eventData) { _dragging = true; UpdateCursor(); }
+    public void OnEndDrag(PointerEventData eventData) { _dragging = false; UpdateCursor(); }
+    public void OnPointerEnter(PointerEventData e) { _hovering = true; UpdateCursor(); }
+    public void OnPointerExit(PointerEventData e) { _hovering = false; UpdateCursor(); }
+
+    private void UpdateCursor()
+    {
+        if (_hovering || _dragging)
+            Cursor.SetCursor(resizeCursor, cursorHotspot, CursorMode.Auto);
+        else
+            Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
+    }
+
+    private void OnDisable()
+    {
+        if (_hovering || _dragging)
+            Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
+        _hovering = _dragging = false;
+    }
     private void Awake()
     {
         var parent = transform.parent;
@@ -72,6 +99,9 @@ public class PanelResizer : MonoBehaviour,
 
         ApplySizes();
     }
+
+
+  
 
     private void ApplySizes()
     {
@@ -151,7 +181,13 @@ public class PanelResizer : MonoBehaviour,
         LayoutRebuilder.ForceRebuildLayoutImmediate(_parentRt);
     }
 
-    public void OnBeginDrag(PointerEventData eventData) { }
+
+   
+
+
+
+
+    
 
     public void OnDrag(PointerEventData eventData)
     {
@@ -164,7 +200,5 @@ public class PanelResizer : MonoBehaviour,
         ApplySizes();
     }
 
-    public void OnEndDrag(PointerEventData eventData) { }
-    public void OnPointerEnter(PointerEventData e) { }
-    public void OnPointerExit(PointerEventData e) { }
+  
 }

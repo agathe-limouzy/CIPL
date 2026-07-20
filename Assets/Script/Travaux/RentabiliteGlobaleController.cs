@@ -64,8 +64,17 @@ public class RentabiliteGlobaleController : MonoBehaviour
 
     public void Refresh()
     {
+        if (_bp == null) return;              // Init() pas encore appelé
         var bat = _bp.getBatiment();
+        if (bat == null) return;
+
+        if (bat.historiquesAchat == null)
+            bat.historiquesAchat = new List<AchatFinancement>();
+        if (bat.travaux == null)
+            bat.travaux = new List<TravauxFinancement>();
+
         float loyerAnnuel = _bp.GetLoyerTotal();
+     
 
         var loans = new List<LoanEntry>();
 

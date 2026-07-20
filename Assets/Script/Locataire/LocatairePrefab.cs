@@ -146,7 +146,24 @@ public class LocatairePrefab : PrefabBatLoc
             Modify();
         }
 
-        Delete.onClick.AddListener(() => batimentPrefabOrigin.DeleteLocataire(id));
+        Delete.onClick.AddListener(() =>
+        {
+            var loc = batimentPrefabOrigin.listLocataire.Find(b => b.id == id);
+            string nom = string.IsNullOrEmpty(loc?.Name) ? "ce locataire" : loc.Name;
+
+            ConfirmDialog.Instance.Show(
+                "Supprimer le locataire",
+                $"Supprimer « {nom} » ?",
+                () =>
+                {
+                    string backup = JsonUtility.ToJson(loc);
+                    var bp = batimentPrefabOrigin;
+                    bp.DeleteLocataire(id);
+
+                    UndoToast.Instance.Show($"« {nom} » supprimé",
+                        () => bp.RestoreLocataire(backup));
+                });
+        });
         locataireScrollContent?.SetDirty();
     }
 

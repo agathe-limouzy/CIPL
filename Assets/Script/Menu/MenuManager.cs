@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -27,6 +28,10 @@ public class MenuManager : MonoBehaviour
     public Button btnHome;
     public GeneralMenuPanel generalMenuPanel;
     public GameObject contentArea;   // le panel qui affiche les bâtiments
+
+    [Header("Navigation tabs")]
+    public ScrollRect tabScrollRect;      // ScrollRect horizontal de la barre d'onglets (optionnel)
+    public TMP_InputField searchField;    // Champ de recherche pour filtrer les onglets (optionnel)
 
     // Dans Start() ou Init()
 
@@ -60,6 +65,52 @@ public class MenuManager : MonoBehaviour
             batimentPrefabOwned = GetComponentInParent<BatimentPrefab>();
             addTabButton.onClick.AddListener(OnAddTabLocataire);
         }
+
+        if (searchField != null)
+            searchField.onValueChanged.AddListener(FilterTabs);
+    }
+
+    // ── Filtre de recherche ──────────────────────────────────────────────────
+    private void FilterTabs(string recherche)
+    {
+        string r = recherche.Trim().ToLowerInvariant();
+
+        foreach (var pair in dictionnaryMenu)
+        {
+            bool visible = string.IsNullOrEmpty(r)
+                || pair.Key.getName().ToLowerInvariant().Contains(r);
+            pair.Value.gameObject.SetActive(visible);
+        }
+    }
+
+    // ── Auto-scroll vers l'onglet actif ──────────────────────────────────────
+    private void ScrollToTab(MenuItem tab)
+    {
+        if (tabScrollRect == null || tab == null) return;
+        if (!gameObject.activeInHierarchy) return;
+        StartCoroutine(ScrollToTabRoutine(tab));
+    }
+
+    private IEnumerator ScrollToTabRoutine(MenuItem tab)
+    {
+        yield return null;   // attendre le layout
+        if (tab == null) yield break;
+        Canvas.ForceUpdateCanvases();
+
+        RectTransform content  = tabScrollRect.content;
+        RectTransform viewport = tabScrollRect.viewport;
+        RectTransform tabRect  = tab.transform as RectTransform;
+
+        float contentWidth  = content.rect.width;
+        float viewportWidth = viewport.rect.width;
+        if (contentWidth <= viewportWidth) yield break;   // tout tient, rien à faire
+
+        // Position du centre de l'onglet dans le content
+        float tabCenter = Mathf.Abs(tabRect.anchoredPosition.x) + tabRect.rect.width * 0.5f;
+
+        // Normalise pour centrer l'onglet dans le viewport
+        float target = (tabCenter - viewportWidth * 0.5f) / (contentWidth - viewportWidth);
+        tabScrollRect.horizontalNormalizedPosition = Mathf.Clamp01(target);
     }
 
   
@@ -91,8 +142,9 @@ public class MenuManager : MonoBehaviour
         var go = Instantiate(tabItemPrefab, ContentItem.transform);
         var tab = go.GetComponent<MenuItem>();
 
-        // Place le bouton "+" toujours en dernier
-        go.transform.SetSiblingIndex(ContentItem.transform.childCount - 2);
+        // Si le bouton "+" est encore dans le content, le garder en dernier
+        if (addTabButton != null && addTabButton.transform.parent == ContentItem.transform)
+            addTabButton.transform.SetAsLastSibling();
 
         tab.Setup(prefabBatLoc, this);
         dictionnaryMenu.Add(prefabBatLoc, tab);
@@ -114,6 +166,10 @@ public class MenuManager : MonoBehaviour
         // Met à jour le style de tous les onglets
         foreach (var tab in dictionnaryMenu)
             tab.Value.SetActive(tab.Value._BatLocLinked == _activePrefab);
+
+        // Centre l'onglet sélectionné dans la barre scrollable
+        if (dictionnaryMenu.TryGetValue(prefabSelected, out var selectedTab))
+            ScrollToTab(selectedTab);
 
         // Affiche le prefab correspondant
         ShowBatimentPrefab(prefabSelected, needToModify);

@@ -16,15 +16,38 @@ public class GeoCodingService : MonoBehaviour
 {
 
    
-        public static GeoCodingService Instance { get; private set; }
 
-        private void Awake()
+    // ── Avant ──
+
+ 
+
+    // ── Après ──
+    private static GeoCodingService _instance;
+
+    /// Point d'accès global : renvoie n'importe quelle instance vivante
+    /// (chaque MapController a la sienne, on ne détruit plus les doublons)
+    public static GeoCodingService Instance
+    {
+        get
         {
-            if (Instance != null) { Destroy(gameObject); return; }
-            Instance = this;
+            if (_instance == null)
+                _instance = FindObjectOfType<GeoCodingService>();
+            return _instance;
         }
+    }
 
-   
+    private void Awake()
+    {
+        if (_instance == null)
+            _instance = this;
+    }
+
+    private void OnDestroy()
+    {
+        if (_instance == this)
+            _instance = null;
+    }
+
     // API Adresse - gouvernement français (gratuit, sans clé, adresses FR)
     private const string ADRESSE_GOV_URL = "https://api-adresse.data.gouv.fr/search/";
 
@@ -36,18 +59,16 @@ public class GeoCodingService : MonoBehaviour
         // Tente d'abord l'API gouvernementale française
         bool found = false;
 
-        yield return StartCoroutine(
-            TryAdresseGouv(address,
-                onSuccess: (lat, lon) => { found = true; onSuccess?.Invoke(lat, lon); },
-                onError: _ => { /* silencieux, on essaie le fallback */ }
-            )
+        yield return TryAdresseGouv(address,
+            onSuccess: (lat, lon) => { found = true; onSuccess?.Invoke(lat, lon); },
+            onError: _ => { /* silencieux, on essaie le fallback */ }
         );
 
         if (found) yield break;
 
         // Fallback : Nominatim
         Debug.Log("[GeoCoding] API gouv échouée, fallback Nominatim...");
-        yield return StartCoroutine(TryNominatim(address, onSuccess, onError));
+        yield return TryNominatim(address, onSuccess, onError);
     }
 
     // ── API adresse.data.gouv.fr ──────────────────────────────────────────────

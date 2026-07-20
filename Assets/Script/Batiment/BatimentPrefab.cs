@@ -171,10 +171,30 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
 
             string json = JsonUtility.ToJson(newBatiment);
             batiment = JsonUtility.FromJson<Batiment>(json);
+
+            if (batiment.historiquesAchat == null)
+                batiment.historiquesAchat = new List<AchatFinancement>();
+            if (batiment.travaux == null)
+                batiment.travaux = new List<TravauxFinancement>();
+            rentabiliteGlobale?.Init(this);
+
             Modify();
         }
 
-        Delete.onClick.AddListener(() => BatimentManager.Instance.DeleteBatiment(batiment.id));
+        Delete.onClick.AddListener(() =>
+            ConfirmDialog.Instance.Show(
+                "Supprimer le bâtiment",
+                $"Supprimer « {batiment.Name} » et tous ses locataires ?",
+                () =>
+                {
+                    // Clone AVANT suppression pour pouvoir restaurer
+                    string backup = JsonUtility.ToJson(batiment);
+                    string nom = batiment.Name;
+                    BatimentManager.Instance.DeleteBatiment(batiment.id);
+
+                    UndoToast.Instance.Show($"« {nom} » supprimé",
+                        () => BatimentManager.Instance.RestoreBatiment(backup));
+                }));
     }
 
 
@@ -229,6 +249,23 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         batiment.locataireDuBatiment.Remove(locataire);
         RefreshTailleBatiment();
         RefreshLoyerTotal(); // ← ajouter
+        BatimentManager.Instance.SaveBatiment(batiment);
+    }
+
+    public void RestoreLocataire(string json)
+    {
+        var data = JsonUtility.FromJson<Locataire>(json);
+        if (data == null) return;
+
+        var prefab = SpawnPrefabLocataireInPanel(data, menulocataire.ContentPrefab.transform, false);
+        listLocataire.Add(data);
+        dictionnairelocataire.Add(data, prefab);
+        batiment.locataireDuBatiment.Add(data);
+        menulocataire.CreateTab(prefab);
+        menulocataire.OnSelect(prefab);
+
+        RefreshTailleBatiment();
+        RefreshLoyerTotal();
         BatimentManager.Instance.SaveBatiment(batiment);
     }
 

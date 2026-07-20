@@ -85,6 +85,24 @@ public class BatimentManager : MonoBehaviour
         Debug.Log($"[BatimentManager] Bâtiment '{id}' supprimé");
     }
 
+    // ── Restauration (annuler une suppression) ───────────────────────────────
+
+    public void RestoreBatiment(string json)
+    {
+        var data = JsonUtility.FromJson<Batiment>(json);
+        if (data == null) return;
+
+        _batiments.Add(data);
+        SaveBatiment(data);   // réécrit le fichier JSON supprimé
+
+        var prefab = SpawnPrefabInPanel(data, batimentsContainerPanel, false);
+        BatimentPrefab.Add(prefab);
+        menuManager.CreateTab(prefab);
+        menuManager.OnSelect(prefab);
+
+        Debug.Log($"[BatimentManager] Bâtiment '{data.Name}' restauré");
+    }
+
     // ── Sauvegarde — 1 JSON par bâtiment ─────────────────────────────────────
 
     public void SaveBatiment(Batiment data)

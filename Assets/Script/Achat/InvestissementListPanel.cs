@@ -54,7 +54,7 @@ public class InvestissementListPanel : MonoBehaviour
                 var go = Instantiate(achatItemPrefab, listContent);
                 go.GetComponent<AchatItemUI>().Setup(achat,
                     () => achatFormPanel.Open(achat, OnAchatSaved),
-                    () => { _batiment.getBatiment().historiquesAchat.RemoveAll(a => a.id == achat.id); SaveAndRefresh(); });
+                    () => DemanderSuppressionAchat(achat));
             }
         }
         else
@@ -64,7 +64,7 @@ public class InvestissementListPanel : MonoBehaviour
                 var go = Instantiate(travauxItemPrefab, listContent);
                 go.GetComponent<TravauxItemUI>().Setup(travaux,
                     () => travauxFormPanel.Open(travaux, OnTravauxSaved),
-                    () => { _batiment.getBatiment().travaux.RemoveAll(t => t.id == travaux.id); SaveAndRefresh(); });
+                    () => DemanderSuppressionTravaux(travaux));
             }
         }
 
@@ -109,10 +109,43 @@ public class InvestissementListPanel : MonoBehaviour
         SaveAndRefresh();
     }
 
+    private void DemanderSuppressionAchat(AchatFinancement achat)
+    {
+        string nom = string.IsNullOrEmpty(achat.label) ? "cet achat" : achat.label;
+        ConfirmDialog.Instance.Show("Supprimer l'achat", $"Supprimer « {nom} » ?", () =>
+        {
+            _batiment.getBatiment().historiquesAchat.RemoveAll(a => a.id == achat.id);
+            SaveAndRefresh();
+
+            UndoToast.Instance.Show("Achat supprimé", () =>
+            {
+                _batiment.getBatiment().historiquesAchat.Add(achat);
+                SaveAndRefresh();
+            });
+        });
+    }
+
+    private void DemanderSuppressionTravaux(TravauxFinancement travaux)
+    {
+        string nom = string.IsNullOrEmpty(travaux.description) ? "ces travaux" : travaux.description;
+        ConfirmDialog.Instance.Show("Supprimer les travaux", $"Supprimer « {nom} » ?", () =>
+        {
+            _batiment.getBatiment().travaux.RemoveAll(t => t.id == travaux.id);
+            SaveAndRefresh();
+
+            UndoToast.Instance.Show("Travaux supprimés", () =>
+            {
+                _batiment.getBatiment().travaux.Add(travaux);
+                SaveAndRefresh();
+            });
+        });
+    }
+
     private void SaveAndRefresh()
     {
         BatimentManager.Instance.SaveBatiment(_batiment.getBatiment());
         _onChanged?.Invoke();
-        Rebuild();
+        if (gameObject.activeInHierarchy)
+            Rebuild();
     }
 }
