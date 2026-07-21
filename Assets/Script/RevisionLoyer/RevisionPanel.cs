@@ -63,13 +63,17 @@ public class RevisionPanel : MonoBehaviour
         periodiciteDropdown.value = (int)loc.periodiciteLoyer;
 
         // Champs bail
-        loyerDepart.text=loc.loyerDepart.ToString();
+        loyerDepart.text=(loc.loyerDepart.ToString());
         trimestreDepart.Init();
         if (!string.IsNullOrEmpty(loc.trimestreDeRevision))
             trimestreDepart.SetTrimestre(loc.trimestreDeRevision);
         trimestreDepart.CanModify();
+
+        // Date de révision : toujours éditable, sauvegardée à chaque modification
         dateDeRevision.ApplyDate(loc.MoisDeRevision);
         dateDeRevision.ModifyDate();
+        dateDeRevision.OnModify.RemoveAllListeners();
+        dateDeRevision.OnModify.AddListener(OnDateRevisionModifiee);
 
         // Trimestre de révision : toujours visible, pré-rempli sur
         // le trimestre anniversaire de l'année en cours (modifiable)
@@ -88,7 +92,7 @@ public class RevisionPanel : MonoBehaviour
         toggleProvisions.onValueChanged.RemoveAllListeners();
         toggleProvisions.onValueChanged.AddListener(on => provisionValue.gameObject.SetActive(on));
         provisionValue.gameObject.SetActive(loc.provisionPourCharges);
-        provisionValue.text=loc.provisionPourChargeValue.ToString();
+        provisionValue.text=(loc.provisionPourChargeValue.ToString());
 
         // Infos
         txtIndiceDepart.text = string.IsNullOrEmpty(loc.indiceImmoAuDepart) ? "—" : loc.indiceImmoAuDepart;
@@ -107,6 +111,16 @@ public class RevisionPanel : MonoBehaviour
         btnReviser.onClick.AddListener(() => StartCoroutine(Reviser()));
         btnFermer.onClick.RemoveAllListeners();
         btnFermer.onClick.AddListener(() => gameObject.SetActive(false));
+    }
+
+    // ── Date de révision modifiée manuellement ────────────────────────────────
+
+    private void OnDateRevisionModifiee()
+    {
+        if (_loc == null) return;
+        _loc.MoisDeRevision = dateDeRevision.SelectedDate;
+        statusText.text = $"Prochaine révision : {_loc.MoisDeRevision:dd/MM/yyyy}";
+        _onSaved?.Invoke();   // sauvegarde + refresh badge/résumé
     }
 
     // ── Initialisation (nouveau bail) ─────────────────────────────────────────
@@ -202,10 +216,11 @@ public class RevisionPanel : MonoBehaviour
         _loc.indiceImmoActuel = $"{obsActuel.valeur:F2}  ({obsActuel.periode})";
         _loc.dernierRevision = DateTime.Now.ToString("yyyy-MM-dd");
 
-        // Prochaine révision = date saisie + 1 an
-        var d = dateDeRevision.saveThedate();
+        // Prochaine révision = date saisie + 1 an — champ toujours éditable après
+        var d = dateDeRevision.SelectedDate;
         _loc.MoisDeRevision = new DateTime(d.Year + 1, d.Month, d.Day);
         dateDeRevision.ApplyDate(_loc.MoisDeRevision);
+        dateDeRevision.ModifyDate();
 
         AppliquerChampsCommuns(revision: true);
 
@@ -226,7 +241,7 @@ public class RevisionPanel : MonoBehaviour
         _loc.periodiciteLoyer = (Periodicite)periodiciteDropdown.value;
         _loc.trimestreDeRevision = trimestreDepart.TrimestreValue;
         if (!revision)
-            _loc.MoisDeRevision = dateDeRevision.saveThedate();
+            _loc.MoisDeRevision = dateDeRevision.SelectedDate;
 
         _loc.provisionPourCharges = toggleProvisions.isOn;
         float.TryParse(provisionValue.text?.Replace(',', '.'),
