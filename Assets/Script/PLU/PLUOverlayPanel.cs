@@ -61,6 +61,21 @@ public class PLUOverlayPanel : MonoBehaviour
         overlayRoot.SetActive(false);
     }
 
+    private IEnumerator RebuildPanelAtOpen()
+    {
+        yield return null;
+        yield return new WaitForEndOfFrame();
+        Canvas.ForceUpdateCanvases();
+
+        var rt = overlayRoot.transform as RectTransform;
+        LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+
+        var contentRt = contentPanel != null ? contentPanel.GetComponent<RectTransform>() : null;
+        if (contentRt != null) LayoutRebuilder.ForceRebuildLayoutImmediate(contentRt);
+
+        Canvas.ForceUpdateCanvases();
+    }
+
     // ── API publique ──────────────────────────────────────────────────────────
 
     /// <summary>
@@ -69,6 +84,10 @@ public class PLUOverlayPanel : MonoBehaviour
     /// </summary>
     public void OpenWithBatiment(string adresse)
     {
+
+        
+
+
         _mode = Mode.Batiment;
         _lastAddress = adresse;
 
@@ -77,6 +96,8 @@ public class PLUOverlayPanel : MonoBehaviour
         btnRechercher.gameObject.SetActive(false);
 
         overlayRoot.SetActive(true);
+        overlayRoot.transform.SetAsLastSibling();   // ← passe devant le menu général
+        StartCoroutine(RebuildPanelAtOpen());       // ← répare la mise en page
         ShowLoading();
         StartCoroutine(RechercherPLU(adresse));
     }
@@ -94,6 +115,8 @@ public class PLUOverlayPanel : MonoBehaviour
         btnRechercher.gameObject.SetActive(true);
 
         overlayRoot.SetActive(true);
+        overlayRoot.transform.SetAsLastSibling();
+        StartCoroutine(RebuildPanelAtOpen());
         ShowEmpty();
     }
 
