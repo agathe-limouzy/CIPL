@@ -59,6 +59,8 @@ trackedText.gameObject.activeSelf)
 
     private IEnumerator Rebuild()
     {
+        // 2 frames : laisse TMP, CollapsibleSection et les layouts imbriqués se stabiliser
+        yield return null;
         yield return new WaitForEndOfFrame();
 
         // Force une hauteur minimale sur l'inputField tracké si vide
@@ -69,11 +71,15 @@ trackedText.gameObject.activeSelf)
                 rt.sizeDelta = new Vector2(rt.sizeDelta.x, trackedInputMinHeight);
         }
 
+        Canvas.ForceUpdateCanvases();   // ← ajouter : synchronise avant le rebuild
+
         LayoutRebuilder.ForceRebuildLayoutImmediate(_rt);
 
         foreach (var parent in parentContentRects)
             if (parent != null)
                 LayoutRebuilder.ForceRebuildLayoutImmediate(parent);
+
+        Canvas.ForceUpdateCanvases();   // ← ajouter : propage le résultat
     }
 
     // Scroll vers le bas après injection Pappers

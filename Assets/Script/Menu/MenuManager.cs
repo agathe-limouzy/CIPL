@@ -52,6 +52,11 @@ public class MenuManager : MonoBehaviour
         GeneralMenuPanel.Instance.Show();
     }
 
+    public void SetTabAlert(PrefabBatLoc prefab, bool on)
+    {
+        if (dictionnaryMenu.TryGetValue(prefab, out var tab))
+            tab.SetAlert(on);
+    }
 
     void Start()
     {

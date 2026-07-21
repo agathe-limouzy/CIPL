@@ -217,7 +217,6 @@ public class LoyerRevisionController : MonoBehaviour
             ? $"Bail initialisé — indice {obsRef.periode} utilisé ({periodeDepart} non encore publié)"
             : $"Bail initialisé — indice {obsRef.periode} : {obsRef.valeur:F2}";
 
-        locatairePrefab.CalculAllLoyerType();
 
         // Bascule automatiquement en Bail en cours
         SetMode(RevisionMode.BailEnCours);
@@ -323,7 +322,6 @@ public class LoyerRevisionController : MonoBehaviour
             statusText.text = $"{indice.label} — données au {obsActuel.periode}";
         }
 
-        locatairePrefab.CalculAllLoyerType();
         calculateButton.interactable = true;
         CheckStateButtonLoyerRevision();
     }

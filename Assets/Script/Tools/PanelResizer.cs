@@ -84,6 +84,8 @@ public class PanelResizer : MonoBehaviour,
 
     private void InitLayout()
     {
+
+
         if (_csfTop != null) _csfTop.enabled = false;
         if (_csfBottom != null) _csfBottom.enabled = false;
         if (_csfScrollContent != null) _csfScrollContent.enabled = false;
@@ -94,9 +96,14 @@ public class PanelResizer : MonoBehaviour,
         float resizerH = GetComponent<RectTransform>().rect.height;
         float containerH = _parentRt.rect.height;
 
-        _topHeight = Mathf.Max(minTop, panelTop.rect.height);
-        _bottomHeight = Mathf.Max(minBottom, containerH - resizerH - _topHeight);
+        // Espace consommé par le layout parent (padding + espacements entre les 3 blocs)
+        float extra = 0f;
+        if (_parentVLG != null)
+            extra = _parentVLG.padding.vertical + _parentVLG.spacing * 2f;
 
+        _topHeight = Mathf.Max(minTop, panelTop.rect.height);
+        _bottomHeight = Mathf.Max(minBottom,
+            containerH - resizerH - _topHeight - GetHauteurAutresElements());
         ApplySizes();
     }
 
@@ -146,6 +153,10 @@ public class PanelResizer : MonoBehaviour,
 
     public void OnPointerDown(PointerEventData eventData)
     {
+
+
+      
+
         if (_csfTop != null) _csfTop.enabled = false;
         if (_csfBottom != null) _csfBottom.enabled = false;
         if (_csfScrollContent != null) _csfScrollContent.enabled = false;
@@ -154,9 +165,12 @@ public class PanelResizer : MonoBehaviour,
         Canvas.ForceUpdateCanvases();
 
         float resizerH = GetComponent<RectTransform>().rect.height;
-        _topHeight = panelTop.rect.height;
-        _bottomHeight = _parentRt.rect.height - resizerH - _topHeight; // remplit exactement
+        float extra = 0f;
+        if (_parentVLG != null)
+            extra = _parentVLG.padding.vertical + _parentVLG.spacing * 2f;
 
+        _topHeight = panelTop.rect.height;
+        _bottomHeight = _parentRt.rect.height - resizerH - _topHeight - GetHauteurAutresElements();
         // Applique immédiatement pour que les panels remplissent le conteneur
         panelBottom.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, _bottomHeight);
         if (bottomScrollContent != null)
@@ -182,12 +196,28 @@ public class PanelResizer : MonoBehaviour,
     }
 
 
-   
+
+    // Hauteur consommée par tout ce qui n'est ni panelTop, ni panelBottom, ni le resizer
+    private float GetHauteurAutresElements()
+    {
+        float h = 0f;
+        int actifs = 0;
+        foreach (Transform child in _parentRt)
+        {
+            if (!child.gameObject.activeSelf) continue;
+            actifs++;
+            var rt = child as RectTransform;
+            if (rt == panelTop || rt == panelBottom || child == transform) continue;
+            h += rt.rect.height;
+        }
+        if (_parentVLG != null)
+            h += _parentVLG.padding.vertical + _parentVLG.spacing * Mathf.Max(0, actifs - 1);
+        return h;
+    }
 
 
 
 
-    
 
     public void OnDrag(PointerEventData eventData)
     {

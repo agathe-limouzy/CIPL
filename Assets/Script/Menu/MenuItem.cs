@@ -17,12 +17,18 @@ public class MenuItem : MonoBehaviour
     private static readonly Color ColorInactive = new Color(0.15f, 0.15f, 0.15f);
 
     public PrefabBatLoc _BatLocLinked;
-    
 
 
 
+    [Header("Alerte")]
+    public GameObject alertBadge;   // pastille rouge, optionnelle
 
- 
+    public void SetAlert(bool on)
+    {
+        if (alertBadge != null) alertBadge.SetActive(on);
+    }
+
+
 
     public void Setup(PrefabBatLoc prefabBatLoc, MenuManager MainMenu)
     {

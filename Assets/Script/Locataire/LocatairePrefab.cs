@@ -17,18 +17,14 @@ public class LocatairePrefab : PrefabBatLoc
     public InputAndText tailleLotTxt;
     public TMP_Dropdown typedeBailDropDown;
     public InputAndText cadastralTxt;
-    public LoyerRevisionController loyerRevisionController;
+
     public DateInputController dateDebutBail;
     public DateInputController dateFinBail;
     public InputAndText depotDeGarantieTxt;
-    public Toggle provisionPourCharge;
-    public InputAndText provisionPourChargeValue;
     public InputAndText tauxDeRentabilité;
-    public TMP_Text loyerMcarre;
-    public TMP_Text loyerAnnuelTVA;
-    public TMP_Dropdown dropdownPeriodicite;
-    public TMP_Text loyerPeriodeHT;
-    public TMP_Text loyerPeriodeTout;
+
+    [Header("Loyer")]
+    public LoyerSummaryUI loyerSummary;
 
     public ObjectivesManager objectivesManager;
     public string id;
@@ -48,6 +44,19 @@ public class LocatairePrefab : PrefabBatLoc
 
     // ─────────────────────────────────────────────────────────────────────────
 
+
+    public Locataire GetLocataire()
+    => batimentPrefabOrigin.listLocataire.Find(b => b.id == id);
+
+    /// Appelé par le RevisionPanel après initialisation ou révision
+
+
+    public void RefreshRevisionAlert(Locataire loc)
+    {
+        bool due = LoyerSummaryUI.EstRevisionDue(loc);
+        batimentPrefabOrigin.menulocataire.SetTabAlert(this, due);
+    }
+
     public void OnEnable()
     {
         locataireScrollContent?.SetDirty();
@@ -66,21 +75,12 @@ public class LocatairePrefab : PrefabBatLoc
             Enum.GetNames(typeof(BailType))
                 .Select(n => new TMP_Dropdown.OptionData(n)).ToList());
 
-        dropdownPeriodicite.ClearOptions();
-        dropdownPeriodicite.AddOptions(
-            Enum.GetNames(typeof(Periodicite))
-                .Select(n => new TMP_Dropdown.OptionData(n)).ToList());
-
-        // Listeners
-        dropdownPeriodicite.onValueChanged.RemoveAllListeners();
-        dropdownPeriodicite.onValueChanged.AddListener(AfficherloyerPossible);
-        provisionPourCharge.onValueChanged.RemoveAllListeners();
-        provisionPourCharge.onValueChanged.AddListener(AfficherProvisionPourChargeValue);
 
         id = newLocataire.id;
+        loyerSummary.Init(this);
 
-        // Init du contrôleur de révision (toujours en premier)
-        loyerRevisionController.Init();
+
+
 
         // Listeners boutons
         save.onClick.RemoveAllListeners();
@@ -95,8 +95,6 @@ public class LocatairePrefab : PrefabBatLoc
         pappersBtn.onClick.AddListener(OnPappersClick);
         resumeSocieteBtn.onClick.RemoveAllListeners();
         resumeSocieteBtn.onClick.AddListener(CreateResume);
-        provisionPourChargeValue.inputModify.onSubmit.RemoveAllListeners();
-        provisionPourChargeValue.inputModify.onSubmit.AddListener(_ => CalculLoyer());
 
         if (!NeedToModify)
         {
@@ -110,31 +108,17 @@ public class LocatairePrefab : PrefabBatLoc
             typedeBailDropDown.interactable = false;
             cadastralTxt.ApplySave(newLocataire.cadastral);
 
-            // Auto-détection du mode selon les données sauvegardées
-            loyerRevisionController.SetLoyerAndIndice(
-                newLocataire.loyerAnnuel,
-                newLocataire.indiceImmoActuel,
-                newLocataire.trimestreDeRevision,
-                newLocataire.indiceTypeImmo,
-                newLocataire.indiceImmoAuDepart,
-                newLocataire.loyerDepart,
-                newLocataire.loyerAnnuelPrecedent,
-                newLocataire.MoisDeRevision);
+            loyerSummary.Refresh(newLocataire);
+            RefreshRevisionAlert(newLocataire);
 
             dateDebutBail.ApplyDate(newLocataire.DateDebutBail);
             dateFinBail.ApplyDate(newLocataire.DateFinBail);
             depotDeGarantieTxt.ApplySave(newLocataire.depotDeGarantie.ToString());
-            provisionPourCharge.isOn = newLocataire.provisionPourCharges;
-            provisionPourCharge.interactable = false;
-            dropdownPeriodicite.value = (int)newLocataire.periodiciteLoyer;
-            dropdownPeriodicite.interactable = false;
-            provisionPourChargeValue.ApplySave(newLocataire.provisionPourChargeValue.ToString());
             tauxDeRentabilité.ApplySave(newLocataire.tauxDeRentabilité.ToString());
             siret.ApplySave(newLocataire.siretNumber);
             Commentaire.ApplySave(newLocataire.commentaire);
 
-            CalculAllLoyerType();
-
+     
             save.gameObject.SetActive(false);
             modifyBatiment.gameObject.SetActive(true);
             Delete.gameObject.SetActive(true);
@@ -142,7 +126,7 @@ public class LocatairePrefab : PrefabBatLoc
         else
         {
             // ── Nouveau locataire : l'utilisateur choisit le mode ────────────
-            loyerRevisionController.InitForNewTenant();
+            loyerSummary.Refresh(newLocataire);
             Modify();
         }
 
@@ -190,23 +174,11 @@ public class LocatairePrefab : PrefabBatLoc
 
         locataire.typeDeBail = (BailType)typedeBailDropDown.value;
         typedeBailDropDown.interactable = false;
-        locataire.periodiciteLoyer = (Periodicite)dropdownPeriodicite.value;
-        dropdownPeriodicite.interactable = false;
         locataire.cadastral = cadastralTxt.GetNewSave();
         locataire.DateDebutBail = dateDebutBail.saveThedate();
         locataire.DateFinBail = dateFinBail.saveThedate();
-        locataire.MoisDeRevision = loyerRevisionController.getPeriodeDeRevision();
 
         SaveCorrectlyFloat(ref locataire.tauxDeRentabilité, tauxDeRentabilité.GetNewSave());
-        locataire.indiceTypeImmo = loyerRevisionController.getTypeIndice();
-        locataire.indiceImmoAuDepart = loyerRevisionController.getIndiceDepart();
-        locataire.indiceImmoActuel = loyerRevisionController.getIndiceActuel();
-        SaveCorrectlyFloat(ref locataire.loyerAnnuel, loyerRevisionController.getLoyerAnnuel());
-        SaveCorrectlyFloat(ref locataire.loyerDepart, loyerRevisionController.getLoyerDepart());
-        SaveCorrectlyFloat(ref locataire.loyerAnnuelPrecedent, loyerRevisionController.getLoyerAnnuelPrecende());
-        SaveCorrectlyFloat(ref locataire.provisionPourChargeValue, provisionPourChargeValue.GetNewSave());
-        locataire.trimestreDeRevision = loyerRevisionController.getTrimestredeReference();
-        locataire.provisionPourCharges = provisionPourCharge.isOn;
         locataire.siretNumber = siret.GetNewSave();
         locataire.commentaire = Commentaire.GetNewSave();
 
@@ -223,6 +195,9 @@ public class LocatairePrefab : PrefabBatLoc
             for (int i = 0; i < sections.Length; i++)
                 sections[i].SetOpen(_sectionStateSnapshot[i]);
 
+        loyerSummary.Refresh(locataire);
+        RefreshRevisionAlert(locataire);
+
         InitializeLocataire(locataire, false);
         locataireScrollContent?.SetDirty();
     }
@@ -236,18 +211,14 @@ public class LocatairePrefab : PrefabBatLoc
         if (batimentPrefabOrigin.listLocataire.Count > 1)
             tailleLotTxt.Modify();
         typedeBailDropDown.interactable = true;
-        dropdownPeriodicite.interactable = true;
         cadastralTxt.Modify();
-        loyerRevisionController.Modify();
         dateDebutBail.ModifyDate();
         dateFinBail.ModifyDate();
         depotDeGarantieTxt.Modify();
-        provisionPourCharge.interactable = true;
         tauxDeRentabilité.Modify();
         save.gameObject.SetActive(true);
         modifyBatiment.gameObject.SetActive(false);
         Delete.gameObject.SetActive(true);
-        provisionPourChargeValue.Modify();
         siret.Modify();
         Commentaire.Modify();
 
@@ -258,53 +229,16 @@ public class LocatairePrefab : PrefabBatLoc
 
         locataireScrollContent?.SetDirty();
     }
-
-    // ── Calculs loyer ─────────────────────────────────────────────────────────
-
-    public void CalculAllLoyerType()
+    public void OnRevisionSaved()
     {
-        CalculLoyer();
-        CalculLoyerm2();
-        CalculTVA();
+        var loc = GetLocataire();
+        loyerSummary.Refresh(loc);
+        RefreshRevisionAlert(loc);
+        batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+        locataireScrollContent?.SetDirty();   // ← ajouter
     }
 
-    private void CalculLoyer()
-    {
-        var periode = (Periodicite)dropdownPeriodicite.value;
-        float valueloyer = 0;
-        SaveCorrectlyFloat(ref valueloyer, loyerRevisionController.getLoyerAnnuel());
-        float provision = 0;
-        float loyer = 0;
 
-        switch (periode)
-        {
-            case Periodicite.mensuel: loyer = valueloyer / 12f; break;
-            case Periodicite.trimestriel: loyer = valueloyer / 4f; break;
-            case Periodicite.BiAnnuel: loyer = valueloyer / 2f; break;
-        }
-
-        SaveCorrectlyFloat(ref provision, provisionPourChargeValue.GetValue());
-        loyer += provision;
-        loyerPeriodeHT.text = loyer.ToString();
-        loyerPeriodeTout.text = (loyer * 1.2f).ToString();
-    }
-
-    private void CalculLoyerm2()
-    {
-        float valueTaille = 0;
-        float valueloyer = 0;
-        SaveCorrectlyFloat(ref valueTaille, tailleLotTxt.textSaved.text);
-        SaveCorrectlyFloat(ref valueloyer, loyerRevisionController.getLoyerAnnuel());
-        if (valueTaille != 0)
-            loyerMcarre.text = (valueloyer / valueTaille).ToString();
-    }
-
-    private void CalculTVA()
-    {
-        float valueloyer = 0;
-        SaveCorrectlyFloat(ref valueloyer, loyerRevisionController.getLoyerAnnuel());
-        loyerAnnuelTVA.text = (valueloyer * 1.2f).ToString();
-    }
 
     // ── Pappers ───────────────────────────────────────────────────────────────
 
@@ -401,18 +335,7 @@ public class LocatairePrefab : PrefabBatLoc
 
     // ── Divers ────────────────────────────────────────────────────────────────
 
-    private void AfficherProvisionPourChargeValue(bool state)
-    {
-        provisionPourChargeValue.gameObject.SetActive(state);
-    }
-
-    private void AfficherloyerPossible(int arg0)
-    {
-        bool visible = (Periodicite)arg0 != Periodicite.Annuel;
-        loyerPeriodeHT.gameObject.SetActive(visible);
-        loyerPeriodeTout.gameObject.SetActive(visible);
-        CalculLoyer();
-    }
+ 
 
     public override string getName()
     {
