@@ -26,6 +26,9 @@ public class LocatairePrefab : PrefabBatLoc
     [Header("Loyer")]
     public LoyerSummaryUI loyerSummary;
 
+    [Header("Bail")]
+    public BailFileUI bailFile;
+
     public ObjectivesManager objectivesManager;
     public string id;
     public BatimentPrefab batimentPrefabOrigin;
@@ -78,6 +81,7 @@ public class LocatairePrefab : PrefabBatLoc
 
         id = newLocataire.id;
         loyerSummary.Init(this);
+        bailFile?.Init(this);
 
 
 

@@ -31,6 +31,7 @@ public class Locataire : Data
     public string moisDeRevisionISO;
     public string dernierRevision;
     public string commentaire;
+    public string cheminBail;   // chemin du fichier bail (PDF, scan…)
     public Periodicite periodiciteLoyer;
 
     // Objectifs
