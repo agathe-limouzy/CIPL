@@ -7,9 +7,9 @@ public class RentabiliteRow : MonoBehaviour
     public TMP_Text txtNet;
     public TMP_Text txtCumulatif;
 
-    private static readonly Color ColorPositif = new Color(0.18f, 0.65f, 0.35f);
-    private static readonly Color ColorNegatif = new Color(0.85f, 0.25f, 0.25f);
-    private static readonly Color ColorSeuil = new Color(0.95f, 0.75f, 0.10f);
+    private static readonly Color ColorPositif = UITheme.Primaire;
+    private static readonly Color ColorNegatif = UITheme.Alerte;
+    private static readonly Color ColorSeuil = UITheme.Attention;
 
     public void Setup(int annee, float netAnnee, float cumulatif, bool seuilAtteint)
     {

@@ -39,6 +39,17 @@ public class BatimentPrefab : PrefabBatLoc
     public GameObject locataireContent;
     public MenuManager menulocataire;
 
+    [Header("Vue résumé / fiche complète")]
+    public BatimentSummaryView summaryView;   // la vue résumé (carte + liste + bande)
+    public GameObject fichePanel;             // le Content Prefab existant (fiche détaillée)
+    public Button btnRetourResume;            // dans la fiche : retour au résumé
+    public GameObject vueLocatairePanel;      // vue plein écran des fiches locataires
+    public Button btnRetourResumeLocataire;   // dans la vue locataire : retour au résumé
+
+    [Header("Liste locataires (lignes cliquables)")]
+    public Transform locataireRowContainer;
+    public GameObject locataireRowPrefab;
+
     [Header("Sections repliables")]
     public CollapsibleSection[] sections; // assigner dans l'Inspector
     private bool[] _sectionStateSnapshot;
@@ -79,6 +90,100 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         }
     }
 
+    // ── Bascule vue résumé / fiche complète ──────────────────────────────────
+    // La fiche est masquée via CanvasGroup (invisible mais ACTIVE) pour que
+    // le MapController continue de charger la carte → vignette du résumé.
+
+    private CanvasGroup _ficheGroup;
+    private CanvasGroup FicheGroup
+    {
+        get
+        {
+            if (_ficheGroup == null && fichePanel != null)
+            {
+                _ficheGroup = fichePanel.GetComponent<CanvasGroup>();
+                if (_ficheGroup == null)
+                    _ficheGroup = fichePanel.AddComponent<CanvasGroup>();
+            }
+            return _ficheGroup;
+        }
+    }
+
+    public void ShowSummary()
+    {
+        if (FicheGroup != null)
+        {
+            FicheGroup.alpha = 0f;
+            FicheGroup.interactable = false;
+            FicheGroup.blocksRaycasts = false;
+        }
+        vueLocatairePanel?.SetActive(false);
+        if (summaryView != null)
+        {
+            summaryView.gameObject.SetActive(true);
+            summaryView.Refresh();
+        }
+    }
+
+    public void ShowFiche()
+    {
+        if (summaryView != null) summaryView.gameObject.SetActive(false);
+        vueLocatairePanel?.SetActive(false);
+        if (FicheGroup != null)
+        {
+            FicheGroup.alpha = 1f;
+            FicheGroup.interactable = true;
+            FicheGroup.blocksRaycasts = true;
+        }
+    }
+
+    public void ShowLocataireView()
+    {
+        if (summaryView != null) summaryView.gameObject.SetActive(false);
+        if (FicheGroup != null)
+        {
+            FicheGroup.alpha = 0f;
+            FicheGroup.interactable = false;
+            FicheGroup.blocksRaycasts = false;
+        }
+        vueLocatairePanel?.SetActive(true);
+    }
+
+    // ── Liste des locataires (lignes compactes triées par urgence) ───────────
+
+    public void RebuildLocataireRows()
+    {
+        if (locataireRowContainer == null || locataireRowPrefab == null) return;
+
+        foreach (Transform child in locataireRowContainer)
+            Destroy(child.gameObject);
+
+        var tries = listLocataire.OrderBy(TriUrgence).ThenBy(l => l.lotBatiment).ToList();
+        foreach (var loc in tries)
+        {
+            var go = Instantiate(locataireRowPrefab, locataireRowContainer);
+            var l = loc;
+            go.GetComponent<LocataireRowUI>().Setup(l, () =>
+            {
+                ShowLocataireView();   // la ligne ouvre la fiche du locataire
+                if (dictionnairelocataire.TryGetValue(l, out var prefab))
+                    menulocataire.OnSelect(prefab);
+            });
+        }
+    }
+
+    // 0 = retard, 1 = à initialiser, 2 = bientôt, 3 = ok
+    private static int TriUrgence(Locataire loc)
+    {
+        bool initialise = !string.IsNullOrEmpty(loc.indiceImmoAuDepart)
+                          && loc.indiceImmoAuDepart != "—";
+        if (!initialise) return 1;
+        double jours = (loc.MoisDeRevision - DateTime.Now).TotalDays;
+        if (jours < 0) return 0;
+        if (jours <= 90) return 2;
+        return 3;
+    }
+
     public void RefreshLoyerTotal()
     {
         if (loyerTotalContainer == null) return;
@@ -92,6 +197,8 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             txtLoyerTotalAnnuel.text = $"{total:F2} € / an";
         }
         rentabiliteGlobale?.Refresh();
+        if (summaryView != null && summaryView.gameObject.activeSelf)
+            summaryView.Refresh();
     }
 
     public override void InitializeBatiment(Batiment newBatiment, bool NeedToModify)
@@ -113,6 +220,18 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         btnRetourMenu.onClick.RemoveAllListeners();
         btnRetourMenu.onClick.AddListener(() =>
             BatimentManager.Instance.menuManager.OpenGeneralMenu());
+
+        if (btnRetourResume != null)
+        {
+            btnRetourResume.onClick.RemoveAllListeners();
+            btnRetourResume.onClick.AddListener(ShowSummary);
+        }
+
+        if (btnRetourResumeLocataire != null)
+        {
+            btnRetourResumeLocataire.onClick.RemoveAllListeners();
+            btnRetourResumeLocataire.onClick.AddListener(ShowSummary);
+        }
       
 
 
@@ -165,6 +284,11 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
                 menulocataire.OnSelect(dictionnairelocataire.First().Value);
             RefreshTailleBatiment();
             RefreshLoyerTotal();
+            RebuildLocataireRows();
+
+            // Bâtiment existant → on arrive sur la vue résumé
+            summaryView?.Init(this);
+            ShowSummary();
         }
         else
         {
@@ -178,6 +302,9 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
                 batiment.travaux = new List<TravauxFinancement>();
             rentabiliteGlobale?.Init(this);
 
+            // Nouveau bâtiment → direct sur la fiche en mode édition
+            summaryView?.Init(this);
+            ShowFiche();
             Modify();
         }
 
@@ -229,6 +356,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
 
         RefreshTailleBatiment();
         RefreshLoyerTotal(); // ← ajouter
+        RebuildLocataireRows();
         return prefab;
 
 
@@ -249,6 +377,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         batiment.locataireDuBatiment.Remove(locataire);
         RefreshTailleBatiment();
         RefreshLoyerTotal(); // ← ajouter
+        RebuildLocataireRows();
         BatimentManager.Instance.SaveBatiment(batiment);
     }
 
@@ -274,6 +403,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     {
         RefreshTailleBatiment();
         RefreshLoyerTotal();
+        RebuildLocataireRows();
         BatimentManager.Instance.SaveBatiment(batiment);
     }
 

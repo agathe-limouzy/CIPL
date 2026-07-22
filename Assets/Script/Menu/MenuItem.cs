@@ -12,9 +12,9 @@ public class MenuItem : MonoBehaviour
     public Image tabBackground;
 
 
-    // Couleurs actif/inactif
-    private static readonly Color ColorActive = new Color(0.2f, 0.5f, 0.9f);
-    private static readonly Color ColorInactive = new Color(0.15f, 0.15f, 0.15f);
+    // Couleurs actif/inactif — palette UITheme
+    private static readonly Color ColorActive = UITheme.Primaire;
+    private static readonly Color ColorInactive = UITheme.Carte;
 
     public PrefabBatLoc _BatLocLinked;
 
@@ -44,6 +44,7 @@ public class MenuItem : MonoBehaviour
     public void SetActive(bool active)
     {
         tabBackground.color = active ? ColorActive : ColorInactive;
+        tabLabel.color = active ? UITheme.PrimaireClair : UITheme.TexteSecondaire;
         tabLabel.fontStyle = active ? TMPro.FontStyles.Bold : TMPro.FontStyles.Normal;
     }
 

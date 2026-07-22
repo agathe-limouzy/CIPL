@@ -17,7 +17,15 @@ public class InputAndText : MonoBehaviour
 
     private void Awake()
     {
-        _scrollAutoResizes = GetComponentsInParent<ScrollAutoResize>(true);
+        EnsureInit();
+    }
+
+    // Awake ne tourne pas si l'objet est instancié sous un parent inactif :
+    // on initialise à la demande.
+    private void EnsureInit()
+    {
+        if (_scrollAutoResizes == null)
+            _scrollAutoResizes = GetComponentsInParent<ScrollAutoResize>(true);
     }
 
     public void Start()
@@ -27,13 +35,13 @@ public class InputAndText : MonoBehaviour
 
     public void Modify()
     {
+        EnsureInit();
         inputModify.gameObject.SetActive(true);
         textSaved.gameObject.SetActive(false);
-       
-            ForceRebuildLayout();
-            foreach (var sar in _scrollAutoResizes)
-                sar.SetDirty();
-        
+
+        ForceRebuildLayout();
+        foreach (var sar in _scrollAutoResizes)
+            sar.SetDirty();
     }
 
     // Rebuild immédiat de toute la hiérarchie jusqu'au ScrollRect
@@ -54,6 +62,7 @@ public class InputAndText : MonoBehaviour
 
     public void ShowSaveElement()
     {
+        EnsureInit();
         inputModify.gameObject.SetActive(false);
         textSaved.gameObject.SetActive(true);
         ForceRebuildLayout();

@@ -29,6 +29,12 @@ public class LocatairePrefab : PrefabBatLoc
     [Header("Bail")]
     public BailFileUI bailFile;
 
+    [Header("En-tête fiche")]
+    public Image headerAvatarBg;
+    public TMP_Text headerInitiales;
+    public TMP_Text headerNom;
+    public TMP_Text headerSousTitre;
+
     public ObjectivesManager objectivesManager;
     public string id;
     public BatimentPrefab batimentPrefabOrigin;
@@ -70,6 +76,39 @@ public class LocatairePrefab : PrefabBatLoc
         tailleLotTxt.ApplySave(value.ToString());
     }
 
+    // ── En-tête de fiche (avatar + nom + bâtiment · lot) ─────────────────────
+
+    public void RefreshHeader(Locataire loc)
+    {
+        if (loc == null) return;
+        string nom = string.IsNullOrEmpty(loc.Name) ? "Nouveau locataire" : loc.Name;
+
+        if (headerNom != null) headerNom.text = nom;
+        if (headerInitiales != null) headerInitiales.text = Initiales(nom);
+        if (headerSousTitre != null)
+        {
+            string batNom = batimentPrefabOrigin != null ? batimentPrefabOrigin.getName() : "";
+            headerSousTitre.text = string.IsNullOrEmpty(batNom)
+                ? $"Lot {loc.lotBatiment}"
+                : $"{batNom} · Lot {loc.lotBatiment}";
+        }
+        if (headerAvatarBg != null)
+        {
+            bool due = LoyerSummaryUI.EstRevisionDue(loc);
+            headerAvatarBg.color = due ? UITheme.AlerteClair : UITheme.PrimaireClair;
+            if (headerInitiales != null)
+                headerInitiales.color = due ? UITheme.AlerteTexte : UITheme.Primaire;
+        }
+    }
+
+    private static string Initiales(string nom)
+    {
+        var mots = nom.Split(new[] { ' ', '-' }, StringSplitOptions.RemoveEmptyEntries);
+        if (mots.Length == 0) return "?";
+        if (mots.Length == 1) return mots[0].Substring(0, Mathf.Min(2, mots[0].Length)).ToUpper();
+        return (mots[0].Substring(0, 1) + mots[1].Substring(0, 1)).ToUpper();
+    }
+
     public override void InitializeLocataire(Locataire newLocataire, bool NeedToModify)
     {
         // Dropdowns
@@ -82,6 +121,7 @@ public class LocatairePrefab : PrefabBatLoc
         id = newLocataire.id;
         loyerSummary.Init(this);
         bailFile?.Init(this);
+        RefreshHeader(newLocataire);
 
 
 
