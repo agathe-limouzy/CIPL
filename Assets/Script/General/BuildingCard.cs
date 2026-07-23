@@ -1,93 +1,70 @@
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
+/// Carte d'un bâtiment (mode grille, ≤ 10 bâtiments).
+/// Pastille de couleur seule + vignette carte optionnelle.
 public class BuildingCard : MonoBehaviour
 {
     [Header("UI")]
     public TMP_Text txtNom;
-    public TMP_Text txtAdresse;
-    public TMP_Text txtNbLocataires;
+    public TMP_Text txtSousTitre;    // "Ville · N lots"
     public TMP_Text txtLoyer;
     public Button btnOuvrir;
 
-    [Header("Alerte révision")]
-    public GameObject alertBadge;
-    public TMP_Text txtAlerteBadge;
-    public Image alertBadgeBg;
+    [Header("État")]
+    public Image pastille;           // pastille de couleur (coin vignette)
 
-    private static readonly Color ColorEnRetard = new Color(0.95f, 0.20f, 0.20f);
-    private static readonly Color ColorUrgent = new Color(0.95f, 0.55f, 0.10f);
-    private static readonly Color ColorBientot = new Color(0.20f, 0.60f, 0.95f);
-
-    private const int SEUIL_URGENT = 30;
-    private const int SEUIL_BIENTOT = 90;
+    [Header("Vignette")]
+    public RawImage vignetteCarte;   // miroir de la carte Mapbox du bâtiment
 
     public void Setup(BatimentPrefab batiment, Action<BatimentPrefab> onClick)
     {
-        var data = batiment.GetBatimentData();
+        var data = batiment.getBatiment();
         int nbLoc = batiment.listLocataire.Count;
 
         if (txtNom != null)
-            txtNom.text = string.IsNullOrEmpty(data.Name) ? "Bâtiment sans nom" : data.Name;
+            txtNom.text = string.IsNullOrEmpty(data.Name) ? "Sans nom" : data.Name;
 
-        if (txtAdresse != null)
-            txtAdresse.text = string.IsNullOrEmpty(data.adressBatiment) ? "—" : data.adressBatiment;
-
-        if (txtNbLocataires != null)
-            txtNbLocataires.text = $"{nbLoc} locataire{(nbLoc > 1 ? "s" : "")}";
+        if (txtSousTitre != null)
+            txtSousTitre.text = $"{BuildingRowUI.Ville(data.adressBatiment)} · {nbLoc} lot{(nbLoc > 1 ? "s" : "")}";
 
         if (txtLoyer != null)
-            txtLoyer.text = $"{batiment.GetLoyerTotal():F0} € / an";
+            txtLoyer.text = $"{batiment.GetLoyerTotal():N0} €/an";
 
-        btnOuvrir.onClick.RemoveAllListeners();
-        btnOuvrir.onClick.AddListener(() => onClick?.Invoke(batiment));
+        if (pastille != null)
+            pastille.color = BatimentEtatHelper.Couleur(BatimentEtatHelper.GetEtat(batiment));
 
-        RefreshRevisionAlert(batiment.listLocataire);
-    }
-
-    private void RefreshRevisionAlert(List<Locataire> locataires)
-    {
-        if (alertBadge == null) return;
-
-        var today = DateTime.Today;
-        int retard = 0, urgent = 0, bientot = 0;
-        int joursMin = int.MaxValue;
-
-        foreach (var loc in locataires)
+        // Vignette : texture de la fiche si déjà chargée, sinon service de
+        // vignettes (indispensable au démarrage sur le home, où les cartes
+        // des fiches ne sont pas actives).
+        if (vignetteCarte != null)
         {
-            if (string.IsNullOrEmpty(loc.indiceImmoAuDepart) || loc.indiceImmoAuDepart == "—")
-                continue;
-
-            int jours = (loc.MoisDeRevision - today).Days;
-
-            if (jours < 0) { retard++; joursMin = Math.Min(joursMin, jours); }
-            else if (jours <= SEUIL_URGENT) { urgent++; joursMin = Math.Min(joursMin, jours); }
-            else if (jours <= SEUIL_BIENTOT) { bientot++; joursMin = Math.Min(joursMin, jours); }
+            if (batiment.mapController != null
+                && batiment.mapController.mapImage != null
+                && batiment.mapController.mapImage.texture != null)
+            {
+                vignetteCarte.texture = batiment.mapController.mapImage.texture;
+                vignetteCarte.color = Color.white;
+            }
+            else
+            {
+                MapThumbnailService.Charge(this, data.adressBatiment, tex =>
+                {
+                    if (this != null && vignetteCarte != null)
+                    {
+                        vignetteCarte.texture = tex;
+                        vignetteCarte.color = Color.white;
+                    }
+                });
+            }
         }
 
-        int total = retard + urgent + bientot;
-
-        if (total == 0) { alertBadge.SetActive(false); return; }
-
-        alertBadge.SetActive(true);
-
-        if (retard > 0)
+        if (btnOuvrir != null)
         {
-            if (alertBadgeBg != null) alertBadgeBg.color = ColorEnRetard;
-            txtAlerteBadge.text = retard == 1 ? "⚠ Révision en retard" : $"⚠ {retard} révisions en retard";
-        }
-        else if (urgent > 0)
-        {
-            if (alertBadgeBg != null) alertBadgeBg.color = ColorUrgent;
-            txtAlerteBadge.text = urgent == 1 ? $"🔔 Révision dans {joursMin}j" : $"🔔 {urgent} révisions < {SEUIL_URGENT}j";
-        }
-        else
-        {
-            if (alertBadgeBg != null) alertBadgeBg.color = ColorBientot;
-            txtAlerteBadge.text = bientot == 1 ? $"📅 Révision dans {joursMin}j" : $"📅 {bientot} révisions à venir";
+            btnOuvrir.onClick.RemoveAllListeners();
+            btnOuvrir.onClick.AddListener(() => onClick?.Invoke(batiment));
         }
     }
 }

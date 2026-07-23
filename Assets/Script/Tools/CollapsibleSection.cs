@@ -15,15 +15,25 @@ public class CollapsibleSection : MonoBehaviour
 
     public bool IsOpen => toggleButton != null ? toggleButton.isOn : false;
 
+    private bool _wired;
+
     private void Awake()
     {
-        _scrollAutoResizes = GetComponentsInParent<ScrollAutoResize>(true);
+        EnsureInit();
 
         if (toggleButton != null)
         {
             toggleButton.isOn = startOpen;
-            toggleButton.onValueChanged.AddListener(OnToggleChanged);
+            if (!_wired) { toggleButton.onValueChanged.AddListener(OnToggleChanged); _wired = true; }
         }
+    }
+
+    // Awake ne tourne pas si l'objet est instancié sous un parent inactif :
+    // on initialise à la demande.
+    private void EnsureInit()
+    {
+        if (_scrollAutoResizes == null)
+            _scrollAutoResizes = GetComponentsInParent<ScrollAutoResize>(true);
     }
 
     private void Start()
@@ -53,7 +63,7 @@ public class CollapsibleSection : MonoBehaviour
 
     private void ApplyState(bool open, bool notify)
     {
-        content.SetActive(open);
+        if (content != null) content.SetActive(open);
 
         if (arrowIcon != null)
             arrowIcon.localRotation = Quaternion.Euler(0f, 0f, open ? 0f : -90f);
@@ -61,8 +71,10 @@ public class CollapsibleSection : MonoBehaviour
         if (notify)
         {
             ForceRebuildLayout();
-            foreach (var sar in _scrollAutoResizes)
-                sar.SetDirty();
+            EnsureInit();
+            if (_scrollAutoResizes != null)
+                foreach (var sar in _scrollAutoResizes)
+                    sar?.SetDirty();
         }
     }
 

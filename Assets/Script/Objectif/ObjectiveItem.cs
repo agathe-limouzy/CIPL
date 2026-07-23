@@ -20,11 +20,18 @@ public class ObjectiveItem : MonoBehaviour
     private Action<Objective> _onStatusChanged;
     private Action<Objective> _onDeleted;
 
-    private static readonly Color ColorAFaire = new Color(0.55f, 0.55f, 0.60f);
-    private static readonly Color ColorEnCours = new Color(0.20f, 0.55f, 0.95f);
-    private static readonly Color ColorFait = new Color(0.20f, 0.78f, 0.45f);
-    private static readonly Color ColorObligatoire = new Color(0.95f, 0.25f, 0.25f);
-    private static readonly Color ColorRappel = new Color(0.95f, 0.65f, 0.10f);
+    // Paires fond pastel / texte foncé, alignées sur le thème
+    private static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+    private static readonly Color BgAFaire = Hex("#F1EFE8");
+    private static readonly Color TxAFaire = Hex("#5F5E5A");
+    private static readonly Color BgEnCours = Hex("#E6F1FB");
+    private static readonly Color TxEnCours = Hex("#185FA5");
+    private static readonly Color BgFait = Hex("#E1F5EE");
+    private static readonly Color TxFait = Hex("#0F6E56");
+    private static readonly Color BgObligatoire = Hex("#FAECE7");
+    private static readonly Color TxObligatoire = Hex("#712B13");
+    private static readonly Color BgRappel = Hex("#FAEEDA");
+    private static readonly Color TxRappel = Hex("#633806");
 
     // ── Setup normal (bâtiment / locataire) ──────────────────────────────────
 
@@ -64,21 +71,19 @@ public class ObjectiveItem : MonoBehaviour
 
     private void UpdateStatusVisuals()
     {
-        Color statusColor = GetStatusColor(_objective.status);
-        string statusLabel = GetStatusLabel(_objective.status);
-
-        statusBadge.text = statusLabel;
-        statusIndicator.color = statusColor;
+        statusBadge.text = GetStatusLabel(_objective.status);
+        statusBadge.color = GetStatusTextColor(_objective.status);
+        statusIndicator.color = GetStatusColor(_objective.status);   // fond pastel du badge
 
         if (_objective.status == Objective.ObjectiveStatus.Fait)
         {
             objectiveText.fontStyle = FontStyles.Strikethrough;
-            objectiveText.color = new Color(0.5f, 0.5f, 0.5f, 0.6f);
+            objectiveText.color = new Color(0.45f, 0.45f, 0.42f, 0.7f);
         }
         else
         {
             objectiveText.fontStyle = FontStyles.Normal;
-            objectiveText.color = Color.white;
+            objectiveText.color = UITheme.TextePrincipal;
         }
     }
 
@@ -96,23 +101,35 @@ public class ObjectiveItem : MonoBehaviour
         _onStatusChanged?.Invoke(_objective);
     }
 
+    /// Fond pastel du badge
     public static Color GetStatusColor(Objective.ObjectiveStatus status) => status switch
     {
-        Objective.ObjectiveStatus.AFaire => ColorAFaire,
-        Objective.ObjectiveStatus.EnCours => ColorEnCours,
-        Objective.ObjectiveStatus.Fait => ColorFait,
-        Objective.ObjectiveStatus.Obligatoire => ColorObligatoire,
-        Objective.ObjectiveStatus.Rappel => ColorRappel,
+        Objective.ObjectiveStatus.AFaire => BgAFaire,
+        Objective.ObjectiveStatus.EnCours => BgEnCours,
+        Objective.ObjectiveStatus.Fait => BgFait,
+        Objective.ObjectiveStatus.Obligatoire => BgObligatoire,
+        Objective.ObjectiveStatus.Rappel => BgRappel,
         _ => Color.white
+    };
+
+    /// Texte foncé du badge
+    public static Color GetStatusTextColor(Objective.ObjectiveStatus status) => status switch
+    {
+        Objective.ObjectiveStatus.AFaire => TxAFaire,
+        Objective.ObjectiveStatus.EnCours => TxEnCours,
+        Objective.ObjectiveStatus.Fait => TxFait,
+        Objective.ObjectiveStatus.Obligatoire => TxObligatoire,
+        Objective.ObjectiveStatus.Rappel => TxRappel,
+        _ => Color.black
     };
 
     public static string GetStatusLabel(Objective.ObjectiveStatus status) => status switch
     {
-        Objective.ObjectiveStatus.AFaire => "À FAIRE",
-        Objective.ObjectiveStatus.EnCours => "EN COURS",
-        Objective.ObjectiveStatus.Fait => "✓ FAIT",
-        Objective.ObjectiveStatus.Obligatoire => "⚠ OBLIGATOIRE",
-        Objective.ObjectiveStatus.Rappel => "🔔 RAPPEL",
+        Objective.ObjectiveStatus.AFaire => "À faire",
+        Objective.ObjectiveStatus.EnCours => "En cours",
+        Objective.ObjectiveStatus.Fait => "✓ Fait",
+        Objective.ObjectiveStatus.Obligatoire => "Obligatoire",
+        Objective.ObjectiveStatus.Rappel => "Rappel",
         _ => ""
     };
 }

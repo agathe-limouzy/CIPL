@@ -33,6 +33,9 @@ public class BatimentManager : MonoBehaviour
     {
         BackupService.RunStartupBackup();
         LoadAll();
+
+        // L'application démarre sur le menu général (Home)
+        menuManager.OpenGeneralMenu();
     }
 
     public void ReloadFromDisk()
@@ -107,10 +110,17 @@ public class BatimentManager : MonoBehaviour
 
     public void SaveBatiment(Batiment data)
     {
+        // Synchronise la liste en mémoire : les prefabs travaillent sur des
+        // copies (clone JSON) — sans ça, Batiments reste périmée et le menu
+        // home (objectifs, stats) ne voit pas les changements.
+        int idx = _batiments.FindIndex(b => b.id == data.id);
+        if (idx >= 0) _batiments[idx] = data;
+        else _batiments.Add(data);
+
         Directory.CreateDirectory(SaveFolder);
         string json = JsonUtility.ToJson(data, prettyPrint: true);
         File.WriteAllText(GetFilePath(data.id), json);
-        Debug.Log($"[BatimentManager] Sauvegardé → {GetFilePath(data.id)}"+ json);
+        Debug.Log($"[BatimentManager] Sauvegardé → {GetFilePath(data.id)}");
     }
 
     public void SaveAll()
