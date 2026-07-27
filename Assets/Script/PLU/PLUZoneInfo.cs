@@ -172,14 +172,6 @@ public class CommerceEntry
         Status = status;
     }
 
-    public string StatusIcon => Status switch
-    {
-        CommerceStatus.Autorise => "✅",
-        CommerceStatus.SousConditions => "⚠️",
-        CommerceStatus.Interdit => "❌",
-        _ => "?"
-    };
-
     public string StatusLabel => Status switch
     {
         CommerceStatus.Autorise => "Autorisé",
@@ -188,12 +180,23 @@ public class CommerceEntry
         _ => "Inconnu"
     };
 
-    // Couleurs hex pour l'UI Unity
-    public string StatusColor => Status switch
+    // ── Couleurs harmonisées avec UITheme (pastille : fond clair + texte foncé) ──
+
+    /// Fond de la pastille de statut.
+    public string StatusBgColor => Status switch
     {
-        CommerceStatus.Autorise => "#4CAF50",
-        CommerceStatus.SousConditions => "#FF9800",
-        CommerceStatus.Interdit => "#F44336",
-        _ => "#9E9E9E"
+        CommerceStatus.Autorise => "#E1F5EE",       // PrimaireClair (vert)
+        CommerceStatus.SousConditions => "#FAEEDA",  // ambre clair
+        CommerceStatus.Interdit => "#FAECE7",        // AlerteClair (terracotta)
+        _ => "#F1EFE8"                                // Fond
+    };
+
+    /// Texte + éventuelle puce de la pastille de statut.
+    public string StatusTextColor => Status switch
+    {
+        CommerceStatus.Autorise => "#085041",       // vert foncé
+        CommerceStatus.SousConditions => "#633806",  // ambre foncé
+        CommerceStatus.Interdit => "#712B13",        // terracotta foncé
+        _ => "#5F5E5A"                                // TexteSecondaire
     };
 }

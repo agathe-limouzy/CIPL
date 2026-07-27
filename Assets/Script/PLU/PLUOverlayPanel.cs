@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -10,13 +11,24 @@ public class PLUOverlayPanel : MonoBehaviour
 
     [Header("Structure")]
     public GameObject overlayRoot;       // Le panel entier (SetActive)
-   // public Button btnBackground;         // Fond semi-transparent cliquable
     public Button btnFermer;
 
-    [Header("Adresse")]
+    [Header("Mode de recherche")]
+    public Button btnModeAdresse;        // onglet « Adresse »
+    public Button btnModeCadastre;       // onglet « Cadastre »
+    public GameObject groupeAdresse;     // conteneur : champ adresse + bouton
+    public GameObject groupeCadastre;    // conteneur : commune / section / numéro + bouton
+
+    [Header("Recherche adresse")]
     public TMP_InputField inputAdresse;
-    public Button btnRechercher;         // Visible seulement en mode libre
+    public Button btnRechercher;         // visible seulement en mode libre
     public TMP_Text txtModeLabel;        // ex: "Bâtiment : 6 route d'Agde"
+
+    [Header("Recherche cadastre")]
+    public TMP_InputField inputCommune;  // nom ou code postal
+    public TMP_InputField inputSection;  // ex: AB
+    public TMP_InputField inputNumero;   // ex: 0142
+    public Button btnRechercherCadastre;
 
     [Header("Infos zone")]
     public TMP_Text txtZone;
@@ -46,7 +58,17 @@ public class PLUOverlayPanel : MonoBehaviour
 
     private enum Mode { Batiment, Libre }
     private Mode _mode;
-    private string _lastAddress;
+
+    private enum SearchMode { Adresse, Cadastre }
+    private SearchMode _searchMode = SearchMode.Adresse;
+
+    // Dernière recherche lancée — rejouée par le bouton « Réessayer ».
+    private Func<IEnumerator> _lastSearch;
+
+    // Cache des résultats par mode : chaque mode conserve son dernier zonage,
+    // restauré quand on rebascule dessus (vide s'il n'a pas encore été cherché).
+    private PLUZoneInfo _cacheAdr, _cacheCad;
+    private double _cLatAdr, _cLonAdr, _cLatCad, _cLonCad;
 
     private void Awake()
     {
@@ -54,9 +76,12 @@ public class PLUOverlayPanel : MonoBehaviour
         Instance = this;
 
         btnFermer?.onClick.AddListener(Close);
-       // btnBackground?.onClick.AddListener(Close);
         btnRechercher?.onClick.AddListener(OnRechercher);
+        btnRechercherCadastre?.onClick.AddListener(OnRechercherCadastre);
         btnRefresh?.onClick.AddListener(OnRefresh);
+
+        btnModeAdresse?.onClick.AddListener(() => SetSearchMode(SearchMode.Adresse));
+        btnModeCadastre?.onClick.AddListener(() => SetSearchMode(SearchMode.Cadastre));
 
         overlayRoot.SetActive(false);
     }
@@ -79,50 +104,139 @@ public class PLUOverlayPanel : MonoBehaviour
     // ── API publique ──────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Ouverture depuis un bâtiment.
-    /// L'adresse est pré-remplie et non éditable.
+    /// Ouverture depuis un bâtiment : adresse pré-remplie et verrouillée.
+    /// L'utilisateur peut basculer sur le mode Cadastre (commune pré-remplie).
     /// </summary>
-    public void OpenWithBatiment(string adresse)
+    public void OpenWithBatiment(string adresse, string cadastral = null)
     {
-
-        
-
-
         _mode = Mode.Batiment;
-        _lastAddress = adresse;
+        _cacheAdr = null; _cacheCad = null;
 
         inputAdresse.text = adresse;
         inputAdresse.interactable = false;
-        btnRechercher.gameObject.SetActive(false);
+        if (btnRechercher != null) btnRechercher.gameObject.SetActive(false);
 
-        overlayRoot.SetActive(true);
-        overlayRoot.transform.SetAsLastSibling();   // ← passe devant le menu général
-        StartCoroutine(RebuildPanelAtOpen());       // ← répare la mise en page
-        ShowLoading();
-        StartCoroutine(RechercherPLU(adresse));
-    }
+        // Pré-remplit le mode cadastre : commune géocodée depuis l'adresse, section
+        // et numéro extraits de la référence cadastrale stockée sur le bâtiment.
+        if (inputCommune != null)
+        {
+            inputCommune.text = BuildingRowUI.Ville(adresse);   // estimation immédiate
+            // Lancée sur CadastreService (toujours actif) : le panneau n'est pas
+            // encore activé à ce stade, StartCoroutine dessus échouerait.
+            if (CadastreService.Instance != null && !string.IsNullOrWhiteSpace(adresse))
+                CadastreService.Instance.StartCoroutine(
+                    CadastreService.Instance.ResolveCityFromAddress(adresse, city =>
+                    {
+                        if (this != null && inputCommune != null && !string.IsNullOrEmpty(city))
+                            inputCommune.text = city;
+                    }));
+        }
+        ParseCadastral(cadastral, out var sec, out var num);
+        if (inputSection != null) inputSection.text = sec;
+        if (inputNumero != null) inputNumero.text = num;
 
-    /// <summary>
-    /// Ouverture depuis le menu général.
-    /// L'utilisateur saisit une adresse libre.
-    /// </summary>
-    public void OpenFreeSearch()
-    {
-        _mode = Mode.Libre;
+        if (txtModeLabel != null) txtModeLabel.text = $"Bâtiment : {adresse}";
 
-        inputAdresse.text = "";
-        inputAdresse.interactable = true;
-        btnRechercher.gameObject.SetActive(true);
+        SetSearchMode(SearchMode.Adresse);
 
         overlayRoot.SetActive(true);
         overlayRoot.transform.SetAsLastSibling();
         StartCoroutine(RebuildPanelAtOpen());
+
+        _lastSearch = () => RechercherPLU(adresse);
+        ShowLoading();
+        StartCoroutine(_lastSearch());
+    }
+
+    /// <summary>
+    /// Ouverture depuis le menu général : saisie libre (adresse ou cadastre).
+    /// </summary>
+    public void OpenFreeSearch()
+    {
+        _mode = Mode.Libre;
+        _cacheAdr = null; _cacheCad = null;
+
+        inputAdresse.text = "";
+        inputAdresse.interactable = true;
+        if (btnRechercher != null) btnRechercher.gameObject.SetActive(true);
+
+        if (inputCommune != null) inputCommune.text = "";
+        if (inputSection != null) inputSection.text = "";
+        if (inputNumero != null) inputNumero.text = "";
+
+        if (txtModeLabel != null) txtModeLabel.text = "";
+
+        SetSearchMode(SearchMode.Adresse);
+
+        overlayRoot.SetActive(true);
+        overlayRoot.transform.SetAsLastSibling();
+        StartCoroutine(RebuildPanelAtOpen());
+
+        _lastSearch = null;
         ShowEmpty();
     }
 
     public void Close()
     {
         overlayRoot.SetActive(false);
+    }
+
+    // ── Bascule de mode ─────────────────────────────────────────────────────────
+
+    private void SetSearchMode(SearchMode mode)
+    {
+        _searchMode = mode;
+
+        if (groupeAdresse != null) groupeAdresse.SetActive(mode == SearchMode.Adresse);
+        if (groupeCadastre != null) groupeCadastre.SetActive(mode == SearchMode.Cadastre);
+
+        StyleToggle(btnModeAdresse, mode == SearchMode.Adresse);
+        StyleToggle(btnModeCadastre, mode == SearchMode.Cadastre);
+
+        // Chaque mode affiche SES propres résultats : restaure le dernier zonage
+        // trouvé dans le mode ciblé, ou reste vide s'il n'a pas encore été cherché
+        // (les résultats d'une adresse ne débordent pas sur le cadastre).
+        var cached = mode == SearchMode.Adresse ? _cacheAdr : _cacheCad;
+        if (cached != null)
+            DisplayInfo(cached,
+                mode == SearchMode.Adresse ? _cLatAdr : _cLatCad,
+                mode == SearchMode.Adresse ? _cLonAdr : _cLonCad);
+        else
+            ShowEmpty();
+
+        if (isActiveAndEnabled) StartCoroutine(RebuildPanelAtOpen());
+    }
+
+    private static void StyleToggle(Button b, bool active)
+    {
+        if (b == null) return;
+        var img = b.GetComponent<Image>();
+        if (img != null) img.color = active ? Hex("#0F6E56") : Hex("#FCFBF8");
+        var txt = b.GetComponentInChildren<TMP_Text>(true);
+        if (txt != null) txt.color = active ? Hex("#E1F5EE") : Hex("#085041");
+    }
+
+    private static Color Hex(string h)
+    {
+        ColorUtility.TryParseHtmlString(h, out var c);
+        return c;
+    }
+
+    /// Extrait section (ex. "AB", "0A") et numéro (ex. "142") d'une référence
+    /// cadastrale saisie librement : "AB 142", "AB142", "0A-42", "AB/0142"…
+    private static void ParseCadastral(string reference, out string section, out string numero)
+    {
+        section = ""; numero = "";
+        if (string.IsNullOrWhiteSpace(reference)) return;
+
+        var m = System.Text.RegularExpressions.Regex.Match(
+            reference.Trim().ToUpperInvariant(),
+            @"([0-9]?[A-Z]{1,2})\s*[-/ ]?\s*([0-9]{1,4})");
+        if (m.Success)
+        {
+            section = m.Groups[1].Value;
+            numero = m.Groups[2].Value;
+        }
     }
 
     // ── Recherche ─────────────────────────────────────────────────────────────
@@ -135,21 +249,47 @@ public class PLUOverlayPanel : MonoBehaviour
             ShowError("Veuillez saisir une adresse.");
             return;
         }
-        _lastAddress = adresse;
+        _lastSearch = () => RechercherPLU(adresse);
         ShowLoading();
-        StartCoroutine(RechercherPLU(adresse));
+        StartCoroutine(_lastSearch());
+    }
+
+    private void OnRechercherCadastre()
+    {
+        string commune = inputCommune != null ? inputCommune.text.Trim() : "";
+        string section = inputSection != null ? inputSection.text.Trim() : "";
+        string numero = inputNumero != null ? inputNumero.text.Trim() : "";
+
+        if (string.IsNullOrEmpty(commune))
+        {
+            ShowError("Indiquez la commune (nom ou code postal).");
+            return;
+        }
+        if (string.IsNullOrEmpty(section) || string.IsNullOrEmpty(numero))
+        {
+            ShowError("Indiquez la section et le numéro de parcelle.");
+            return;
+        }
+        if (CadastreService.Instance == null)
+        {
+            ShowError("Service cadastre indisponible.");
+            return;
+        }
+
+        _lastSearch = () => RechercherParCadastre(commune, section, numero);
+        ShowLoading();
+        StartCoroutine(_lastSearch());
     }
 
     private void OnRefresh()
     {
-        if (string.IsNullOrEmpty(_lastAddress)) return;
+        if (_lastSearch == null) return;
         ShowLoading();
-        StartCoroutine(RechercherPLU(_lastAddress));
+        StartCoroutine(_lastSearch());
     }
 
     private IEnumerator RechercherPLU(string adresse)
     {
-        // 1 — Géocodage
         double lat = 0, lon = 0;
         bool geocodeOk = false;
         string geocodeError = "";
@@ -165,7 +305,31 @@ public class PLUOverlayPanel : MonoBehaviour
             yield break;
         }
 
-        // 2 — PLU
+        yield return RechercherPLUByPoint(lat, lon);
+    }
+
+    private IEnumerator RechercherParCadastre(string commune, string section, string numero)
+    {
+        double lat = 0, lon = 0;
+        bool ok = false;
+        string error = "";
+
+        yield return CadastreService.Instance.LocateParcelle(commune, section, numero,
+            (la, lo) => { lat = la; lon = lo; ok = true; },
+            err => { error = err; });
+
+        if (!ok)
+        {
+            ShowError(string.IsNullOrEmpty(error) ? "Parcelle introuvable." : error);
+            yield break;
+        }
+
+        yield return RechercherPLUByPoint(lat, lon);
+    }
+
+    /// Étape commune aux deux recherches : point (lat/lon) → zonage PLU.
+    private IEnumerator RechercherPLUByPoint(double lat, double lon)
+    {
         bool pluOk = false;
         PLUZoneInfo zoneInfo = null;
         string pluError = "";
@@ -174,7 +338,6 @@ public class PLUOverlayPanel : MonoBehaviour
             info => { zoneInfo = info; pluOk = true; },
             err => { pluError = err; });
 
-        // Attend la réponse PLU (callback asynchrone via coroutine interne)
         float timeout = 10f;
         float elapsed = 0f;
         while (!pluOk && string.IsNullOrEmpty(pluError) && elapsed < timeout)
@@ -191,6 +354,10 @@ public class PLUOverlayPanel : MonoBehaviour
             yield break;
         }
 
+        // Mémorise le résultat pour le mode courant (restauré à la bascule).
+        if (_searchMode == SearchMode.Adresse) { _cacheAdr = zoneInfo; _cLatAdr = lat; _cLonAdr = lon; }
+        else { _cacheCad = zoneInfo; _cLatCad = lat; _cLonCad = lon; }
+
         DisplayInfo(zoneInfo, lat, lon);
     }
 
@@ -200,7 +367,7 @@ public class PLUOverlayPanel : MonoBehaviour
     {
         ShowContent();
 
-        if (txtZone != null) txtZone.text = info.libelle ?? "—";
+        if (txtZone != null) txtZone.text = string.IsNullOrWhiteSpace(info.libelle) ? "—" : info.libelle.Trim();
         if (txtTypeLabel != null) txtTypeLabel.text = info.TypeLabel;
         if (txtDescription != null)
             txtDescription.text = string.IsNullOrEmpty(info.libelong) ? "—" : info.libelong;
@@ -219,7 +386,7 @@ public class PLUOverlayPanel : MonoBehaviour
 
         if (txtDisclaimer != null)
             txtDisclaimer.text =
-                "⚠ Données indicatives — vérifiez le règlement officiel de la commune.";
+                "Données indicatives — vérifiez le règlement officiel de la commune.";
 
         // Bouton règlement PDF
         if (btnReglement != null)
@@ -257,15 +424,16 @@ public class PLUOverlayPanel : MonoBehaviour
             if (txts.Length >= 1) txts[0].text = entry.Label;
             if (txts.Length >= 2)
             {
-                txts[1].text = $"{entry.StatusIcon} {entry.StatusLabel}";
-                if (ColorUtility.TryParseHtmlString(entry.StatusColor, out var col))
-                    txts[1].color = col;
+                txts[1].text = entry.StatusLabel;
+                if (ColorUtility.TryParseHtmlString(entry.StatusTextColor, out var tcol))
+                    txts[1].color = tcol;
             }
 
+            // Dernière image = fond de la pastille de statut.
             var imgs = row.GetComponentsInChildren<Image>();
             if (imgs.Length > 0 &&
-                ColorUtility.TryParseHtmlString(entry.StatusColor, out var imgCol))
-                imgs[imgs.Length - 1].color = imgCol;
+                ColorUtility.TryParseHtmlString(entry.StatusBgColor, out var bcol))
+                imgs[imgs.Length - 1].color = bcol;
         }
 
         StartCoroutine(RebuildLayout());

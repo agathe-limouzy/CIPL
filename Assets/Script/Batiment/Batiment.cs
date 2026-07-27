@@ -14,6 +14,7 @@ public class Batiment : Data
     public float tailleBatiment;
     public float tailleTerrain;
     public ParkingState parkingEtat;
+    public string cadastral;            // référence cadastrale du bâtiment
 
     // Travaux
     public bool travauxEnCours;

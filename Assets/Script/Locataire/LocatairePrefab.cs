@@ -16,7 +16,6 @@ public class LocatairePrefab : PrefabBatLoc
     public InputAndText lotBatimentTxt;
     public InputAndText tailleLotTxt;
     public TMP_Dropdown typedeBailDropDown;
-    public InputAndText cadastralTxt;
 
     public DateInputController dateDebutBail;
     public DateInputController dateFinBail;
@@ -150,7 +149,6 @@ public class LocatairePrefab : PrefabBatLoc
             tailleLotTxt.ApplySave(newLocataire.tailleLot.ToString());
             typedeBailDropDown.value = (int)newLocataire.typeDeBail;
             typedeBailDropDown.interactable = false;
-            cadastralTxt.ApplySave(newLocataire.cadastral);
 
             loyerSummary.Refresh(newLocataire);
             RefreshRevisionAlert(newLocataire);
@@ -218,7 +216,6 @@ public class LocatairePrefab : PrefabBatLoc
 
         locataire.typeDeBail = (BailType)typedeBailDropDown.value;
         typedeBailDropDown.interactable = false;
-        locataire.cadastral = cadastralTxt.GetNewSave();
         locataire.DateDebutBail = dateDebutBail.saveThedate();
         locataire.DateFinBail = dateFinBail.saveThedate();
 
@@ -255,7 +252,6 @@ public class LocatairePrefab : PrefabBatLoc
         if (batimentPrefabOrigin.listLocataire.Count > 1)
             tailleLotTxt.Modify();
         typedeBailDropDown.interactable = true;
-        cadastralTxt.Modify();
         dateDebutBail.ModifyDate();
         dateFinBail.ModifyDate();
         depotDeGarantieTxt.Modify();

@@ -14,7 +14,6 @@ public class Locataire : Data
     public int lotBatiment;
     public float tailleLot;
     public BailType typeDeBail;
-    public string cadastral;
     public IndiceImmo indiceTypeImmo;
     public string indiceImmoAuDepart;
     public string indiceImmoActuel;

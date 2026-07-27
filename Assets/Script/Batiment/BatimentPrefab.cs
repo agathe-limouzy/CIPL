@@ -13,6 +13,7 @@ public class BatimentPrefab : PrefabBatLoc
     public InputAndText nameOfTheBuiding;
     public InputAndText tailleBatimentText;
     public InputAndText tailleTerrainText;
+    public InputAndText cadastralTxt;      // référence cadastrale (info générale bâtiment)
 
     [Header("Rentabilité")]
     public RentabiliteGlobaleController rentabiliteGlobale;
@@ -215,7 +216,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         // ── Listeners — RemoveAllListeners AVANT d'ajouter ───────────────────
         btnPLU.onClick.RemoveAllListeners();
         btnPLU.onClick.AddListener(() =>
-            PLUOverlayPanel.Instance.OpenWithBatiment(mapController.GetAdress()));
+            PLUOverlayPanel.Instance.OpenWithBatiment(mapController.GetAdress(), batiment.cadastral));
 
         btnRetourMenu.onClick.RemoveAllListeners();
         btnRetourMenu.onClick.AddListener(() =>
@@ -267,6 +268,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             ParkingDropdown.interactable = false;
             
             nameOfTheBuiding.ApplySave(batiment.Name.ToString());
+            cadastralTxt?.ApplySave(batiment.cadastral ?? "");
             objectivesManager.LoadObjectives(batiment.objectifs);
             save.gameObject.SetActive(false);
             modifyBatiment.gameObject.SetActive(true);
@@ -414,6 +416,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             tailleBatimentText.Modify(); // éditable seulement si 0 ou 1 locataire
                                          // si > 1 : reste en lecture seule (somme calculée)
         tailleTerrainText.Modify();
+        cadastralTxt?.Modify();
         mapController.ModifyAdress();
         ParkingDropdown.interactable = true;
         save.gameObject.SetActive(true);
@@ -451,6 +454,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         SaveCorrectlyFloat(ref batiment.tailleTerrain, tailleTerrainText.GetNewSave());
         Debug.Log(batiment.tailleBatiment);
         batiment.adressBatiment = mapController.GetAdress();
+        if (cadastralTxt != null) batiment.cadastral = cadastralTxt.GetNewSave();
         batiment.parkingEtat = (ParkingState)ParkingDropdown.value;
         ParkingDropdown.interactable = false;
         BatimentManager.Instance.menuManager.UpdateTabLabel(this, batiment.Name);

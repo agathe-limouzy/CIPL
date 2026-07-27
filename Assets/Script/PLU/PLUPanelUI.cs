@@ -139,16 +139,15 @@ public class PLUPanelUI : MonoBehaviour
             if (txts.Length >= 1) txts[0].text = entry.Label;
             if (txts.Length >= 2)
             {
-                txts[1].text = $"{entry.StatusIcon} {entry.StatusLabel}";
-                if (ColorUtility.TryParseHtmlString(entry.StatusColor, out var col))
+                txts[1].text = entry.StatusLabel;
+                if (ColorUtility.TryParseHtmlString(entry.StatusTextColor, out var col))
                     txts[1].color = col;
             }
 
             var imgs = row.GetComponentsInChildren<Image>();
-            // imgs[0] = background de la row (si existe), imgs[1] = rond coloré
-            // On cible la dernière image comme badge couleur
+            // Dernière image = fond de la pastille de statut.
             if (imgs.Length > 0 &&
-                ColorUtility.TryParseHtmlString(entry.StatusColor, out var imgCol))
+                ColorUtility.TryParseHtmlString(entry.StatusBgColor, out var imgCol))
                 imgs[imgs.Length - 1].color = imgCol;
         }
 
