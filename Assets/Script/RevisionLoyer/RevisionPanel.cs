@@ -35,6 +35,17 @@ public class RevisionPanel : MonoBehaviour
     public Button btnReviser;        // visible sinon
     public Button btnFermer;
 
+    [Header("Redesign — type d'indice (chips)")]
+    public Button chipILC, chipIRL, chipILAT;   // pilotent indiceDropdown (0/1/2)
+
+    [Header("Redesign — mode (toggle)")]
+    public Button btnModeInit, btnModeReviser;
+    public GameObject sectionRevision;          // bloc « cette révision » (visible en mode révision)
+
+    [Header("Redesign — variation")]
+    public TMP_Text txtVariation;               // évolution % précédent → nouvel indice
+    public TMP_Text txtLoyerPrecedent;          // loyer de l'année précédente
+
     private Locataire _loc;
     private Action _onSaved;
 
@@ -83,15 +94,21 @@ public class RevisionPanel : MonoBehaviour
         if (!string.IsNullOrEmpty(loc.trimestreDeRevision))
         {
             string t = InseeIndiceService.Normalize(loc.trimestreDeRevision).Split('-')[1];
-            trimestreVoulu.SetTrimestre($"{DateTime.Now.Year}-{t}");
+            // Année précédente par défaut : le trimestre de l'année en cours
+            // n'est en général pas encore publié par l'INSEE (recherche exacte).
+            trimestreVoulu.SetTrimestre($"{DateTime.Now.Year - 1}-{t}");
         }
 
         // Provisions
         toggleProvisions.isOn = loc.provisionPourCharges;
         toggleProvisions.interactable = true;
         toggleProvisions.onValueChanged.RemoveAllListeners();
-        toggleProvisions.onValueChanged.AddListener(on => provisionValue.gameObject.SetActive(on));
-        provisionValue.gameObject.SetActive(loc.provisionPourCharges);
+        // Masque tout le conteneur (champ + « € ») et non le seul champ,
+        // sinon le « € » reste visible quand la provision est décochée.
+        var provContainer = provisionValue.transform.parent != null
+            ? provisionValue.transform.parent.gameObject : provisionValue.gameObject;
+        toggleProvisions.onValueChanged.AddListener(on => provContainer.SetActive(on));
+        provContainer.SetActive(loc.provisionPourCharges);
         provisionValue.text=(loc.provisionPourChargeValue.ToString());
 
         // Infos
@@ -100,17 +117,77 @@ public class RevisionPanel : MonoBehaviour
         txtLoyerCalcule.text = $"{loc.loyerAnnuel:N2} €";
         statusText.text = "";
 
-        // Boutons selon l'état du bail
-        bool initialise = !string.IsNullOrEmpty(loc.indiceImmoAuDepart) && loc.indiceImmoAuDepart != "—";
-        btnInitialiser.gameObject.SetActive(!initialise);
-        btnReviser.gameObject.SetActive(initialise);
+        // Type d'indice — chips
+        WireChips();
+        SetIndice((int)loc.indiceTypeImmo);
+        if (txtVariation != null) txtVariation.text = "—";
+        if (txtLoyerPrecedent != null)
+            txtLoyerPrecedent.text = loc.loyerAnnuelPrecedent > 0f
+                ? $"{loc.loyerAnnuelPrecedent:N2} €" : "—";
 
+        // Actions
         btnInitialiser.onClick.RemoveAllListeners();
         btnInitialiser.onClick.AddListener(() => StartCoroutine(Initialiser()));
         btnReviser.onClick.RemoveAllListeners();
         btnReviser.onClick.AddListener(() => StartCoroutine(Reviser()));
         btnFermer.onClick.RemoveAllListeners();
         btnFermer.onClick.AddListener(() => gameObject.SetActive(false));
+
+        // Mode (toggle) — auto-détecté selon l'état du bail, basculable
+        if (btnModeInit != null) { btnModeInit.onClick.RemoveAllListeners(); btnModeInit.onClick.AddListener(() => SetMode(true)); }
+        if (btnModeReviser != null) { btnModeReviser.onClick.RemoveAllListeners(); btnModeReviser.onClick.AddListener(() => SetMode(false)); }
+        bool initialise = !string.IsNullOrEmpty(loc.indiceImmoAuDepart) && loc.indiceImmoAuDepart != "—";
+        SetMode(!initialise);
+    }
+
+    // ── Redesign : chips indice + mode toggle ─────────────────────────────────
+
+    private void WireChips()
+    {
+        if (chipILC != null)  { chipILC.onClick.RemoveAllListeners();  chipILC.onClick.AddListener(() => SetIndice(0)); }
+        if (chipIRL != null)  { chipIRL.onClick.RemoveAllListeners();  chipIRL.onClick.AddListener(() => SetIndice(1)); }
+        if (chipILAT != null) { chipILAT.onClick.RemoveAllListeners(); chipILAT.onClick.AddListener(() => SetIndice(2)); }
+    }
+
+    private void SetIndice(int i)
+    {
+        if (indiceDropdown != null) indiceDropdown.value = i;
+        StyleChip(chipILC,  i == 0);
+        StyleChip(chipIRL,  i == 1);
+        StyleChip(chipILAT, i == 2);
+    }
+
+    private static void StyleChip(Button b, bool active)
+    {
+        if (b == null) return;
+        var img = b.GetComponent<Image>();
+        if (img != null) img.color = active ? Hex("#E1F5EE") : Hex("#FCFBF8");
+        var txt = b.GetComponentInChildren<TMP_Text>(true);
+        if (txt != null) txt.color = active ? Hex("#085041") : Hex("#888780");
+    }
+
+    private void SetMode(bool init)
+    {
+        if (btnInitialiser != null) btnInitialiser.gameObject.SetActive(init);
+        if (btnReviser != null) btnReviser.gameObject.SetActive(!init);
+        if (sectionRevision != null) sectionRevision.SetActive(!init);
+        StyleToggleBtn(btnModeInit, init);
+        StyleToggleBtn(btnModeReviser, !init);
+    }
+
+    private static void StyleToggleBtn(Button b, bool active)
+    {
+        if (b == null) return;
+        var img = b.GetComponent<Image>();
+        if (img != null) img.color = active ? Hex("#0F6E56") : new Color(0, 0, 0, 0);
+        var txt = b.GetComponentInChildren<TMP_Text>(true);
+        if (txt != null) txt.color = active ? Hex("#E1F5EE") : Hex("#5F5E5A");
+    }
+
+    private static Color Hex(string h)
+    {
+        ColorUtility.TryParseHtmlString(h, out var c);
+        return c;
     }
 
     // ── Date de révision modifiée manuellement ────────────────────────────────
@@ -159,6 +236,8 @@ public class RevisionPanel : MonoBehaviour
         txtIndiceDepart.text = _loc.indiceImmoAuDepart;
         txtIndiceActuel.text = "—";
         txtLoyerCalcule.text = $"{loyer:N2} €";
+        if (txtVariation != null) txtVariation.text = "—";
+        if (txtLoyerPrecedent != null) txtLoyerPrecedent.text = "—";
 
         bool estFallback = InseeIndiceService.Normalize(obsRef.periode) != periode;
         statusText.text = estFallback
@@ -227,6 +306,14 @@ public class RevisionPanel : MonoBehaviour
         txtIndiceDepart.text = _loc.indiceImmoAuDepart;
         txtIndiceActuel.text = _loc.indiceImmoActuel;
         txtLoyerCalcule.text = $"{loyerRevise:N2} €";
+        if (txtVariation != null)
+        {
+            float variation = obsDepart.valeur != 0f
+                ? (obsActuel.valeur / obsDepart.valeur - 1f) * 100f : 0f;
+            txtVariation.text = $"{(variation >= 0 ? "+" : "")}{variation:F1} %";
+        }
+        if (txtLoyerPrecedent != null)
+            txtLoyerPrecedent.text = $"{_loc.loyerAnnuelPrecedent:N2} €";
         statusText.text = $"{InseeIndiceService.GetLabel(type)} — loyer révisé : {loyerRevise:N2} € " +
                           $"(prochaine révision {_loc.MoisDeRevision:dd/MM/yyyy})";
 

@@ -30,7 +30,7 @@ public class TrimestreInput : MonoBehaviour
         IsValid = true;
 
         if (validationText != null)
-            validationText.text = $"✅ {t} {annee}";
+            validationText.text = $"{t} {annee}";
 
         OnTrimestreChanged?.Invoke(TrimestreValue);
     }
