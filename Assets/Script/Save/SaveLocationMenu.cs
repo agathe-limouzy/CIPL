@@ -15,6 +15,10 @@ public class SaveLocationMenu : MonoBehaviour
     public Toggle toggleMigrerDonnees;
     public TMP_Text txtStatus;
 
+    [Header("Redesign")]
+    public Button btnOuvrirDossier;   // ouvre le dossier dans l'explorateur
+    public TMP_Text txtMeta;          // "personnalisé/défaut · N bâtiments"
+
     private void OnEnable()
     {
         RefreshAffichage();
@@ -30,12 +34,39 @@ public class SaveLocationMenu : MonoBehaviour
 
         btnFermer.onClick.RemoveAllListeners();
         btnFermer.onClick.AddListener(() => gameObject.SetActive(false));
+
+        if (btnOuvrirDossier != null)
+        {
+            btnOuvrirDossier.onClick.RemoveAllListeners();
+            btnOuvrirDossier.onClick.AddListener(OuvrirDossier);
+        }
     }
 
     private void RefreshAffichage()
     {
-        txtCheminActuel.text = SaveLocationService.GetSaveRoot();
+        string root = SaveLocationService.GetSaveRoot();
+        txtCheminActuel.text = root;
         if (txtStatus != null) txtStatus.text = "";
+
+        if (txtMeta != null)
+        {
+            int n = 0;
+            string bat = Path.Combine(root, "batiments");
+            if (Directory.Exists(bat)) n = Directory.GetFiles(bat, "*.json").Length;
+            txtMeta.text = (SaveLocationService.IsCustom() ? "emplacement personnalisé" : "emplacement par défaut")
+                + $" · {n} bâtiment{(n > 1 ? "s" : "")}";
+        }
+    }
+
+    private void OuvrirDossier()
+    {
+        string path = SaveLocationService.GetSaveRoot();
+        if (!Directory.Exists(path)) return;
+#if UNITY_EDITOR || UNITY_STANDALONE_WIN
+        System.Diagnostics.Process.Start("explorer.exe", path.Replace('/', '\\'));
+#else
+        Application.OpenURL(path);
+#endif
     }
 
     private void OuvrirExplorateur()
@@ -62,7 +93,7 @@ public class SaveLocationMenu : MonoBehaviour
         {
             if (txtStatus != null)
             {
-                txtStatus.text = "⚠ Dossier introuvable";
+                txtStatus.text = "Dossier introuvable";
                 txtStatus.color = Color.red;
             }
             return;
@@ -79,7 +110,7 @@ public class SaveLocationMenu : MonoBehaviour
 
         if (txtStatus != null)
         {
-            txtStatus.text = "✅ Emplacement mis à jour";
+            txtStatus.text = "Emplacement mis à jour";
             txtStatus.color = Color.green;
         }
         RefreshAffichage();

@@ -18,6 +18,13 @@ public static class SaveLocationService
         return GetDefaultRoot();
     }
 
+    /// Vrai si l'utilisateur a défini un emplacement personnalisé (existant).
+    public static bool IsCustom()
+    {
+        string custom = PlayerPrefs.GetString(PREF_KEY, "");
+        return !string.IsNullOrEmpty(custom) && Directory.Exists(custom);
+    }
+
     public static string GetDefaultRoot()
     {
         string def = Path.Combine(Application.persistentDataPath, FOLDER_NAME);

@@ -19,6 +19,11 @@ public class BatimentSummaryView : MonoBehaviour
     public TMP_Text txtTerrain;
     public TMP_Text txtTravaux;
     public TMP_Text txtObjectifs;
+    public TMP_Text txtLoyerAnnuel;    // Loyers /an (cellule verte de la grille)
+    public TMP_Text txtInvesti;        // Investi total (achats + travaux)
+    public TMP_Text txtRendement;      // Rendement net %
+    public TMP_Text txtCadastre;       // Référence cadastrale
+    public TMP_Text txtPiluleEtat;     // pilule d'état (vacance)
     public Button btnFicheComplete;
 
     [Header("Locataires")]
@@ -88,13 +93,28 @@ public class BatimentSummaryView : MonoBehaviour
         Set(txtTravaux, ResumeTravaux(bat));
         Set(txtObjectifs, ResumeObjectifs(bat));
 
-        // Titre section locataires
+        // Loyer /an mis en avant + pilule état
         float loyerTotal = _bp.GetLoyerTotal();
+        Set(txtLoyerAnnuel, loyerTotal > 0 ? $"{loyerTotal:N0} € / an" : "—");
+        Set(txtPiluleEtat, EtatPilule(bat, out bool occupe));
+        if (txtPiluleEtat != null)
+        {
+            ColorUtility.TryParseHtmlString(occupe ? "#E1F5EE" : "#FAEEDA", out var bgc);
+            ColorUtility.TryParseHtmlString(occupe ? "#085041" : "#633806", out var txc);
+            var bg = txtPiluleEtat.transform.parent.GetComponent<Image>();
+            if (bg != null) bg.color = bgc;
+            txtPiluleEtat.color = txc;
+        }
         Set(txtTitreLocataires,
             $"Locataires   <size=70%><color=#5F5E5A>{nbLots} lot{(nbLots > 1 ? "s" : "")} · {loyerTotal:N0} € / an</color></size>");
 
         // Bande financière : loyers · cash flow · rendement
-        CalculFinances(bat, loyerTotal, out float cashFlowMois, out float rendementNet, out bool aDesCredits);
+        CalculFinances(bat, loyerTotal, out float cashFlowMois, out float rendementNet, out bool aDesCredits, out float investTotal);
+
+        // Grille : investi · rendement · cadastre
+        Set(txtInvesti, investTotal > 0 ? $"{investTotal:N0} €" : "—");
+        Set(txtRendement, rendementNet != 0 ? $"{rendementNet:F1} %" : "—");
+        Set(txtCadastre, string.IsNullOrWhiteSpace(bat.cadastral) ? "—" : bat.cadastral);
         string signe = cashFlowMois >= 0 ? "+" : "";
         string couleurCF = cashFlowMois >= 0 ? "#0F6E56" : "#D85A30";
         string finances = $"Loyers  <b>{loyerTotal:N0} € / an</b>";
@@ -121,9 +141,9 @@ public class BatimentSummaryView : MonoBehaviour
     // ── Calculs ───────────────────────────────────────────────────────────────
 
     private static void CalculFinances(Batiment bat, float loyerAnnuel,
-        out float cashFlowMois, out float rendementNet, out bool aDesCredits)
+        out float cashFlowMois, out float rendementNet, out bool aDesCredits, out float investTotal)
     {
-        float investTotal = 0f;
+        investTotal = 0f;
         float mensualites = 0f;
         aDesCredits = false;
 
@@ -202,6 +222,24 @@ public class BatimentSummaryView : MonoBehaviour
         if (obligatoires > 0)
             s += $" · <color=#D85A30>{obligatoires} obligatoire{(obligatoires > 1 ? "s" : "")}</color>";
         return s;
+    }
+
+    private static string EtatPilule(Batiment bat, out bool occupe)
+    {
+        occupe = false;
+        var locs = bat.locataireDuBatiment;
+        int total = locs?.Count ?? 0;
+        if (total == 0) return "Vacant";                       // aucun lot loué
+
+        int vacant = 0;
+        foreach (var l in locs)
+            if (string.IsNullOrEmpty(l.Name)) vacant++;
+
+        if (vacant >= total) return "Vacant";                  // tous les lots vides
+        if (vacant > 0) return vacant > 1 ? $"{vacant} lots vacants" : "1 lot vacant";
+
+        occupe = true;                                          // tous occupés
+        return "Occupé";
     }
 
     private static string LabelParking(ParkingState p) => p switch
