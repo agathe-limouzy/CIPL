@@ -11,7 +11,8 @@ public class ObjectiveItem : MonoBehaviour
     public Button statusButton;
     public Button deleteButton;
     public Image backgroundImage;
-    public Image statusIndicator;
+    public Image statusIndicator;   // liseré coloré à gauche (accent saturé)
+    public Image statusBadgeBg;     // fond pastel de la pastille de statut
 
     [Header("Source (optionnel — menu général uniquement)")]
     public TMP_Text txtSource;
@@ -73,7 +74,9 @@ public class ObjectiveItem : MonoBehaviour
     {
         statusBadge.text = GetStatusLabel(_objective.status);
         statusBadge.color = GetStatusTextColor(_objective.status);
-        statusIndicator.color = GetStatusColor(_objective.status);   // fond pastel du badge
+        if (statusBadgeBg != null)
+            statusBadgeBg.color = GetStatusColor(_objective.status);  // pastille pastel
+        statusIndicator.color = GetStatusAccent(_objective.status);   // liseré saturé
 
         if (_objective.status == Objective.ObjectiveStatus.Fait)
         {
@@ -110,6 +113,17 @@ public class ObjectiveItem : MonoBehaviour
         Objective.ObjectiveStatus.Obligatoire => BgObligatoire,
         Objective.ObjectiveStatus.Rappel => BgRappel,
         _ => Color.white
+    };
+
+    /// Accent saturé du liseré à gauche
+    public static Color GetStatusAccent(Objective.ObjectiveStatus status) => status switch
+    {
+        Objective.ObjectiveStatus.AFaire => Hex("#B4B2A9"),
+        Objective.ObjectiveStatus.EnCours => Hex("#378ADD"),
+        Objective.ObjectiveStatus.Fait => Hex("#0F6E56"),
+        Objective.ObjectiveStatus.Obligatoire => Hex("#D85A30"),
+        Objective.ObjectiveStatus.Rappel => Hex("#EF9F27"),
+        _ => Hex("#B4B2A9")
     };
 
     /// Texte foncé du badge

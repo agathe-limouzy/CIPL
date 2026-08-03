@@ -467,6 +467,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             for (int i = 0; i < sections.Length; i++)
                 sections[i].SetOpen(_sectionStateSnapshot[i]);
         InitializeBatiment(batiment, false);
+        ShowFiche();   // après sauvegarde : rester sur la fiche complète (pas de retour au résumé)
     }
    public override string getName()
     {

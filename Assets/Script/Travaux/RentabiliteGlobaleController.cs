@@ -134,12 +134,16 @@ public class RentabiliteGlobaleController : MonoBehaviour
         Set(txtCashFlowMensuel, Signe(cashFlowMois) + $"{cashFlowMois:N0} € / mois");
         Set(txtBreakEven, cashFlowAnnuel > 0 ? $"{breakEven:F1} ans" : "—");
 
+        Color cfCol = cashFlowAnnuel >= 0 ? Col("#0F6E56") : Col("#D85A30");
+        if (txtCashFlowAnnuel != null) txtCashFlowAnnuel.color = cfCol;
+        if (txtCashFlowMensuel != null) txtCashFlowMensuel.color = cfCol;
+
         if (txtStatus != null)
         {
-            if (cashFlowAnnuel < 0) { txtStatus.text = "Effort d'epargne mensuel"; txtStatus.color = Color.red; }
-            else if (breakEven <= 10f) { txtStatus.text = "Rentable < 10 ans"; txtStatus.color = Color.green; }
-            else if (breakEven <= 20f) { txtStatus.text = "Rentable < 20 ans"; txtStatus.color = Color.yellow; }
-            else { txtStatus.text = "Rentabilite longue"; txtStatus.color = Color.grey; }
+            if (cashFlowAnnuel < 0) { txtStatus.text = "Effort d'épargne"; txtStatus.color = Col("#D85A30"); }
+            else if (breakEven <= 10f) { txtStatus.text = "Rentable < 10 ans"; txtStatus.color = Col("#0F6E56"); }
+            else if (breakEven <= 20f) { txtStatus.text = "Rentable < 20 ans"; txtStatus.color = Col("#854F0B"); }
+            else { txtStatus.text = "Rentabilité longue"; txtStatus.color = Col("#888780"); }
         }
 
         // ── Tableau annuel ────────────────────────────────────────────────────
@@ -228,4 +232,5 @@ public class RentabiliteGlobaleController : MonoBehaviour
 
     private static void Set(TMP_Text t, string v) { if (t != null) t.text = v; }
     private static string Signe(float v) => v >= 0 ? "+" : "";
+    private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }
