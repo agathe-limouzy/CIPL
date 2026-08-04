@@ -102,6 +102,7 @@ public class BatimentManager : MonoBehaviour
         BatimentPrefab.Add(prefab);
         menuManager.CreateTab(prefab);
         menuManager.OnSelect(prefab);
+        prefab.RefreshBatimentTabAlert();
 
         Debug.Log($"[BatimentManager] Bâtiment '{data.Name}' restauré");
     }
@@ -158,6 +159,7 @@ public class BatimentManager : MonoBehaviour
                 var prefab= SpawnPrefabInPanel(data, batimentsContainerPanel,false);
                 BatimentPrefab.Add(prefab);
                 menuManager.CreateTab(prefab);
+                prefab.RefreshBatimentTabAlert();
             }
         }
         if (BatimentPrefab.Count > 0)

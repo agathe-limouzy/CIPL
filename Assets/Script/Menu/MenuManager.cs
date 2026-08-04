@@ -15,6 +15,12 @@ public class MenuManager : MonoBehaviour
     public Button addTabButton;
     public GameObject tabItemPrefab;
 
+    [Header("Couleurs onglets (propres à la barre)")]
+    public Color tabActiveBg = UITheme.Primaire;
+    public Color tabInactiveBg = UITheme.Carte;
+    public Color tabActiveText = UITheme.PrimaireClair;
+    public Color tabInactiveText = UITheme.TexteSecondaire;
+
     private PrefabBatLoc _activePrefab;
     public bool IsMenuBatiment = true;
     BatimentPrefab batimentPrefabOwned;

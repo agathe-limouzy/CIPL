@@ -30,11 +30,13 @@ public class TravauxFormPanel : MonoBehaviour
 
     private TravauxFinancement _data;
     private Action<TravauxFinancement> _onSave;
+    private Action _onClose;
 
-    public void Open(TravauxFinancement existing, Action<TravauxFinancement> onSave)
+    public void Open(TravauxFinancement existing, Action<TravauxFinancement> onSave, Action onClose = null)
     {
         _data = existing != null ? Clone(existing) : new TravauxFinancement();
         _onSave = onSave;
+        _onClose = onClose;
         gameObject.SetActive(true);
 
         InitDropdownDuree();
@@ -109,7 +111,7 @@ public class TravauxFormPanel : MonoBehaviour
         btnSauvegarder.onClick.RemoveAllListeners();
         btnSauvegarder.onClick.AddListener(Save);
         btnAnnuler.onClick.RemoveAllListeners();
-        btnAnnuler.onClick.AddListener(() => gameObject.SetActive(false));
+        btnAnnuler.onClick.AddListener(() => { gameObject.SetActive(false); _onClose?.Invoke(); });
     }
 
     private void ForceLayoutRebuild()
@@ -131,9 +133,9 @@ public class TravauxFormPanel : MonoBehaviour
         float coutCreditTotal = mens * duree;
 
         if (txtApport != null) txtApport.text = $"{Mathf.Max(0f, apport):N0} €";
-        if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? $"{mens:N2} € / mois" : "Comptant";
+        if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? $"{mens:N0} € / mois" : "Comptant";
         if (txtCoutTotalCredit != null) txtCoutTotalCredit.text = DropdownComptant.value == 1
-            ? $"Coût total crédit : {coutCreditTotal:N0} €" : "";
+            ? $"{coutCreditTotal:N0} €" : "—";
     }
 
     private void Save()
@@ -151,6 +153,7 @@ public class TravauxFormPanel : MonoBehaviour
         _data.dateDebutTravaux = datePicker?.saveThedate().ToString("yyyy-MM-dd") ?? "";
         _onSave?.Invoke(_data);
         gameObject.SetActive(false);
+        _onClose?.Invoke();
     }
 
     private float Parse(string s)

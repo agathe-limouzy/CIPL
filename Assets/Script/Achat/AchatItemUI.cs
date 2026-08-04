@@ -19,7 +19,8 @@ public class AchatItemUI : MonoBehaviour
         txtMensualite.text = data.emprunt
             ? $"{RentabiliteCalculator.Mensualite(data.montantEmprunte, data.tauxInteretAnnuel, data.dureeMois):N0} € / mois"
             : "Comptant";
-        txtDate.text = string.IsNullOrEmpty(data.dateAchat) ? "—" : data.dateAchat;
+        string dateA = string.IsNullOrEmpty(data.dateAchat) ? "—" : data.dateAchat;
+        txtDate.text = $"{dateA} · {(data.emprunt ? "emprunt" : "comptant")}";
 
         btnEdit.onClick.RemoveAllListeners();
         btnEdit.onClick.AddListener(() => onEdit());

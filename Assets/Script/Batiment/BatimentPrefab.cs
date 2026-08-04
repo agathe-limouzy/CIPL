@@ -202,6 +202,32 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             summaryView.Refresh();
     }
 
+    // Point d'alerte de l'onglet bâtiment : révision de loyer en retard (un
+    // locataire) OU objectif obligatoire non fait (bâtiment ou locataire).
+    public void RefreshBatimentTabAlert()
+    {
+        if (batiment == null) return;
+
+        bool alerte = false;
+        foreach (var loc in listLocataire)
+            if (loc != null && LoyerSummaryUI.EstRevisionDue(loc)) { alerte = true; break; }
+
+        if (!alerte && AUnObjectifObligatoire(batiment.objectifs)) alerte = true;
+        if (!alerte)
+            foreach (var loc in listLocataire)
+                if (loc != null && AUnObjectifObligatoire(loc.objectifs)) { alerte = true; break; }
+
+        BatimentManager.Instance.menuManager?.SetTabAlert(this, alerte);
+    }
+
+    private static bool AUnObjectifObligatoire(ObjectiveList list)
+    {
+        if (list?.items == null) return false;
+        foreach (var o in list.items)
+            if (o.status == Objective.ObjectiveStatus.Obligatoire) return true;
+        return false;
+    }
+
     public override void InitializeBatiment(Batiment newBatiment, bool NeedToModify)
     {
         foreach (var locPrefab in dictionnairelocataire.Values)
@@ -332,6 +358,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     {
         batiment.objectifs = objectivesManager.GetAllTheObjectif();
         BatimentManager.Instance.SaveBatiment(batiment);
+        RefreshBatimentTabAlert();
     }
 
 
@@ -407,6 +434,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         RefreshLoyerTotal();
         RebuildLocataireRows();
         BatimentManager.Instance.SaveBatiment(batiment);
+        RefreshBatimentTabAlert();
     }
 
     public override void Modify()
@@ -468,6 +496,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
                 sections[i].SetOpen(_sectionStateSnapshot[i]);
         InitializeBatiment(batiment, false);
         ShowFiche();   // après sauvegarde : rester sur la fiche complète (pas de retour au résumé)
+        RefreshBatimentTabAlert();
     }
    public override string getName()
     {

@@ -17,6 +17,7 @@ public class MenuItem : MonoBehaviour
     private static readonly Color ColorInactive = UITheme.Carte;
 
     public PrefabBatLoc _BatLocLinked;
+    private MenuManager _menu;   // pour lire les couleurs d'onglet propres à la barre
 
 
 
@@ -32,10 +33,11 @@ public class MenuItem : MonoBehaviour
 
     public void Setup(PrefabBatLoc prefabBatLoc, MenuManager MainMenu)
     {
+        _menu = MainMenu;
         _BatLocLinked = prefabBatLoc;
 
-
-        tabLabel.text = prefabBatLoc.getName();
+        string nom = prefabBatLoc.getName();
+        tabLabel.text = string.IsNullOrWhiteSpace(nom) ? "Sans nom" : nom;
 
         tabButton.onClick.AddListener(() => MainMenu.OnSelect(_BatLocLinked, this));
 
@@ -43,13 +45,21 @@ public class MenuItem : MonoBehaviour
 
     public void SetActive(bool active)
     {
-        tabBackground.color = active ? ColorActive : ColorInactive;
-        tabLabel.color = active ? UITheme.PrimaireClair : UITheme.TexteSecondaire;
+        if (_menu != null)
+        {
+            tabBackground.color = active ? _menu.tabActiveBg : _menu.tabInactiveBg;
+            tabLabel.color = active ? _menu.tabActiveText : _menu.tabInactiveText;
+        }
+        else
+        {
+            tabBackground.color = active ? ColorActive : ColorInactive;
+            tabLabel.color = active ? UITheme.PrimaireClair : UITheme.TexteSecondaire;
+        }
         tabLabel.fontStyle = active ? TMPro.FontStyles.Bold : TMPro.FontStyles.Normal;
     }
 
     public void UpdateLabel(string label)
     {
-        tabLabel.text = label;
+        tabLabel.text = string.IsNullOrWhiteSpace(label) ? "Sans nom" : label;
     }
 }

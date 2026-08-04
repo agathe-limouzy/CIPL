@@ -63,6 +63,7 @@ public class LocatairePrefab : PrefabBatLoc
     {
         bool due = LoyerSummaryUI.EstRevisionDue(loc);
         batimentPrefabOrigin.menulocataire.SetTabAlert(this, due);
+        batimentPrefabOrigin.RefreshBatimentTabAlert();
     }
 
     public void OnEnable()

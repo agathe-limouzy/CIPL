@@ -55,10 +55,20 @@ public class LoyerSummaryUI : MonoBehaviour
         Set(txtLoyerPeriodeHT, $"{periodeHT:N2} € / {labelP}");
         Set(txtLoyerPeriodeTTC, $"{periodeHT * TVA:N2} € / {labelP}");
 
-        // Badge rouge si révision dépassée
+        // Badge + bouton Réviser plus voyants si révision dépassée
+        bool due = EstRevisionDue(loc);
         if (badgeRevision != null)
-            badgeRevision.SetActive(EstRevisionDue(loc));
+            badgeRevision.SetActive(due);
+        if (btnOuvrirRevision != null)
+        {
+            var img = btnOuvrirRevision.GetComponent<Image>();
+            if (img != null) img.color = due ? Col("#D85A30") : Col("#0F6E56");
+            var lbl = btnOuvrirRevision.GetComponentInChildren<TMP_Text>(true);
+            if (lbl != null) lbl.color = due ? Color.white : Col("#E1F5EE");
+        }
     }
+
+    private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
     public static bool EstRevisionDue(Locataire loc)
     {

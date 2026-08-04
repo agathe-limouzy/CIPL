@@ -2422,7 +2422,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4692919446229931545, guid: 686aef2410fcc4b438b99021266859f3, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: -423.5
+      value: -439.5
       objectReference: {fileID: 0}
     - target: {fileID: 4772012109473577267, guid: 686aef2410fcc4b438b99021266859f3, type: 3}
       propertyPath: m_AnchorMax.y
@@ -2794,7 +2794,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6727097012722777304, guid: 686aef2410fcc4b438b99021266859f3, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: -628
+      value: -644
       objectReference: {fileID: 0}
     - target: {fileID: 7025643322828174184, guid: 686aef2410fcc4b438b99021266859f3, type: 3}
       propertyPath: m_AnchorMax.x
@@ -2974,7 +2974,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7374579408628121372, guid: 686aef2410fcc4b438b99021266859f3, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: -361.5
+      value: -369.5
       objectReference: {fileID: 0}
     - target: {fileID: 7375348511088177455, guid: 686aef2410fcc4b438b99021266859f3, type: 3}
       propertyPath: m_AnchorMax.y
@@ -5364,6 +5364,44 @@ MonoBehaviour:
   m_FlexibleWidth: -1
   m_FlexibleHeight: 0
   m_LayoutPriority: 1
+--- !u!114 &217074515
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 217074510}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Material: {fileID: 0}
+  m_Color: {r: 0.03137255, g: 0.3137255, b: 0.25490198, a: 1}
+  m_RaycastTarget: 1
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Sprite: {fileID: 0}
+  m_Type: 0
+  m_PreserveAspect: 0
+  m_FillCenter: 1
+  m_FillMethod: 4
+  m_FillAmount: 1
+  m_FillClockwise: 1
+  m_FillOrigin: 0
+  m_UseSpriteMesh: 0
+  m_PixelsPerUnitMultiplier: 1
+--- !u!222 &217074516
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 217074510}
+  m_CullTransparentMesh: 1
 --- !u!1 &219077185
 GameObject:
   m_ObjectHideFlags: 0
@@ -6461,7 +6499,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_Color: {r: 0.05882353, g: 0.43137255, b: 0.3372549, a: 1}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -6491,8 +6529,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_IgnoreLayout: 0
-  m_MinWidth: -1
-  m_MinHeight: -1
+  m_MinWidth: 170
+  m_MinHeight: 34
   m_PreferredWidth: 180
   m_PreferredHeight: -1
   m_FlexibleWidth: 0
@@ -12196,7 +12234,7 @@ Camera:
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 2
-  m_BackGroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 0}
+  m_BackGroundColor: {r: 0.03137255, g: 0.3137255, b: 0.25490198, a: 1}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
   m_FOVAxisMode: 0
@@ -15827,7 +15865,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Rechercher...
+  m_text: "Rechercher\u2026"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -15837,7 +15875,7 @@ MonoBehaviour:
   m_fontColor32:
     serializedVersion: 2
     rgba: 2572836447
-  m_fontColor: {r: 0.37254903, g: 0.36862746, b: 0.3529412, a: 0.6}
+  m_fontColor: {r: 0.62352943, g: 0.88235295, b: 0.79607844, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -15854,8 +15892,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 14
-  m_fontSizeBase: 14
+  m_fontSize: 13
+  m_fontSizeBase: 13
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -20070,6 +20108,10 @@ MonoBehaviour:
   ContentPrefab: {fileID: 279455257}
   addTabButton: {fileID: 1573230811}
   tabItemPrefab: {fileID: 2892259024169545105, guid: 86813c45361d2c641aef66fb5709cc09, type: 3}
+  tabActiveBg: {r: 0.9882353, g: 0.9843137, b: 0.972549, a: 1}
+  tabInactiveBg: {r: 0.05882353, g: 0.43137255, b: 0.3372549, a: 1}
+  tabActiveText: {r: 0.015686275, g: 0.20392157, b: 0.17254902, a: 1}
+  tabInactiveText: {r: 0.88235295, g: 0.9607843, b: 0.93333334, a: 1}
   IsMenuBatiment: 1
   btnHome: {fileID: 1914334619}
   generalMenuPanel: {fileID: 831503769}
@@ -28214,7 +28256,7 @@ MonoBehaviour:
   m_fontColor32:
     serializedVersion: 2
     rgba: 4280953900
-  m_fontColor: {r: 0.17254902, g: 0.17254902, b: 0.16470589, a: 1}
+  m_fontColor: {r: 0.88235295, g: 0.9607843, b: 0.93333334, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -28231,8 +28273,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 14
-  m_fontSizeBase: 14
+  m_fontSize: 13
+  m_fontSizeBase: 13
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -37107,7 +37149,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 0.9882353, g: 0.9843137, b: 0.972549, a: 1}
+  m_Color: {r: 0.88235295, g: 0.9607843, b: 0.93333334, a: 1}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -37165,8 +37207,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_IgnoreLayout: 0
-  m_MinWidth: -1
-  m_MinHeight: -1
+  m_MinWidth: 96
+  m_MinHeight: 34
   m_PreferredWidth: 160
   m_PreferredHeight: -1
   m_FlexibleWidth: 0
@@ -39012,7 +39054,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Home
+  m_text: Accueil
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -39022,7 +39064,7 @@ MonoBehaviour:
   m_fontColor32:
     serializedVersion: 2
     rgba: 4284112479
-  m_fontColor: {r: 0.37254903, g: 0.36862746, b: 0.3529412, a: 1}
+  m_fontColor: {r: 0.03137255, g: 0.3137255, b: 0.25490198, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -39039,13 +39081,13 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 44.75
-  m_fontSizeBase: 24
+  m_fontSize: 14
+  m_fontSizeBase: 14
   m_fontWeight: 400
-  m_enableAutoSizing: 1
+  m_enableAutoSizing: 0
   m_fontSizeMin: 18
   m_fontSizeMax: 72
-  m_fontStyle: 0
+  m_fontStyle: 1
   m_HorizontalAlignment: 2
   m_VerticalAlignment: 512
   m_textAlignment: 65535
@@ -42017,6 +42059,12 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 243200908996794571, guid: 67ec989d3e7872d42a7da427b30cbbc6, type: 3}
       insertIndex: -1
       addedObject: {fileID: 217074512}
+    - targetCorrespondingSourceObject: {fileID: 243200908996794571, guid: 67ec989d3e7872d42a7da427b30cbbc6, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 217074516}
+    - targetCorrespondingSourceObject: {fileID: 243200908996794571, guid: 67ec989d3e7872d42a7da427b30cbbc6, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 217074515}
     - targetCorrespondingSourceObject: {fileID: 3064057560657018304, guid: 67ec989d3e7872d42a7da427b30cbbc6, type: 3}
       insertIndex: -1
       addedObject: {fileID: 944173232828484787}
@@ -42039,9 +42087,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_IgnoreLayout: 0
-  m_MinWidth: -1
-  m_MinHeight: -1
-  m_PreferredWidth: 160
+  m_MinWidth: 118
+  m_MinHeight: 34
+  m_PreferredWidth: 124
   m_PreferredHeight: -1
   m_FlexibleWidth: 0
   m_FlexibleHeight: -1

@@ -15,6 +15,11 @@ public class InvestissementListPanel : MonoBehaviour
     public Button btnAjouter;
     public Button btnFermer;
 
+    [Header("Accent par type")]
+    public Image headerBg;
+    public Image ajouterBg;
+    public TMP_Text ajouterLabel;
+
     [Header("Form panels")]
     public AchatFormPanel achatFormPanel;
     public TravauxFormPanel travauxFormPanel;
@@ -29,9 +34,19 @@ public class InvestissementListPanel : MonoBehaviour
         _type = type;
         _onChanged = onChanged;
 
-        txtTitre.text = type == TypeInvestissement.Achat
-            ? "Historique des achats"
-            : "Historique des travaux";
+        bool achat = type == TypeInvestissement.Achat;
+        txtTitre.text = achat ? "Historique des achats" : "Historique des travaux";
+
+        Color acc = achat ? Col("#185FA5") : Col("#854F0B");
+        Color accT = achat ? Col("#E6F1FB") : Col("#FAEEDA");
+        if (headerBg != null) headerBg.color = acc;
+        if (txtTitre != null) txtTitre.color = accT;
+        if (ajouterBg != null) ajouterBg.color = acc;
+        if (ajouterLabel != null)
+        {
+            ajouterLabel.color = accT;
+            ajouterLabel.text = achat ? "+ Ajouter un achat" : "+ Ajouter des travaux";
+        }
 
         gameObject.SetActive(true);
         Rebuild();
@@ -53,7 +68,7 @@ public class InvestissementListPanel : MonoBehaviour
             {
                 var go = Instantiate(achatItemPrefab, listContent);
                 go.GetComponent<AchatItemUI>().Setup(achat,
-                    () => achatFormPanel.Open(achat, OnAchatSaved),
+                    () => OpenAchatForm(achat),
                     () => DemanderSuppressionAchat(achat));
             }
         }
@@ -63,7 +78,7 @@ public class InvestissementListPanel : MonoBehaviour
             {
                 var go = Instantiate(travauxItemPrefab, listContent);
                 go.GetComponent<TravauxItemUI>().Setup(travaux,
-                    () => travauxFormPanel.Open(travaux, OnTravauxSaved),
+                    () => OpenTravauxForm(travaux),
                     () => DemanderSuppressionTravaux(travaux));
             }
         }
@@ -88,9 +103,25 @@ public class InvestissementListPanel : MonoBehaviour
     private void OpenAddForm()
     {
         if (_type == TypeInvestissement.Achat)
-            achatFormPanel.Open(null, OnAchatSaved);
+            OpenAchatForm(null);
         else
-            travauxFormPanel.Open(null, OnTravauxSaved);
+            OpenTravauxForm(null);
+    }
+
+    // Ouvre un formulaire en masquant la carte liste dessous (pas de superposition),
+    // puis la ré-affiche quand le formulaire se ferme (sauvegarde ou annulation).
+    private void OpenAchatForm(AchatFinancement a)
+    {
+        var card = transform.childCount > 0 ? transform.GetChild(0).gameObject : null;
+        if (card != null) card.SetActive(false);
+        achatFormPanel.Open(a, OnAchatSaved, () => { if (card != null) card.SetActive(true); });
+    }
+
+    private void OpenTravauxForm(TravauxFinancement t)
+    {
+        var card = transform.childCount > 0 ? transform.GetChild(0).gameObject : null;
+        if (card != null) card.SetActive(false);
+        travauxFormPanel.Open(t, OnTravauxSaved, () => { if (card != null) card.SetActive(true); });
     }
 
     private void OnAchatSaved(AchatFinancement data)
@@ -140,6 +171,8 @@ public class InvestissementListPanel : MonoBehaviour
             });
         });
     }
+
+    private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
     private void SaveAndRefresh()
     {

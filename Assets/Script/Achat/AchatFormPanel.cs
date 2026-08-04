@@ -34,11 +34,13 @@ public class AchatFormPanel : MonoBehaviour
 
     private AchatFinancement _data;
     private Action<AchatFinancement> _onSave;
+    private Action _onClose;
 
-    public void Open(AchatFinancement existing, Action<AchatFinancement> onSave)
+    public void Open(AchatFinancement existing, Action<AchatFinancement> onSave, Action onClose = null)
     {
         _data = existing != null ? Clone(existing) : new AchatFinancement();
         _onSave = onSave;
+        _onClose = onClose;
         gameObject.SetActive(true);
 
         InitDropdownDuree();
@@ -123,7 +125,7 @@ public class AchatFormPanel : MonoBehaviour
         btnSauvegarder.onClick.RemoveAllListeners();
         btnSauvegarder.onClick.AddListener(Save);
         btnAnnuler.onClick.RemoveAllListeners();
-        btnAnnuler.onClick.AddListener(() => gameObject.SetActive(false));
+        btnAnnuler.onClick.AddListener(() => { gameObject.SetActive(false); _onClose?.Invoke(); });
     }
 
     private void ForceLayoutRebuild()
@@ -151,9 +153,9 @@ public class AchatFormPanel : MonoBehaviour
         float coutCreditTotal = mens * duree;
 
         if (txtApport != null) txtApport.text = $"{Mathf.Max(0f, apport):N0} €";
-        if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? $"{mens:N2} € / mois" : "Comptant";
+        if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? $"{mens:N0} € / mois" : "Comptant";
         if (txtCoutTotal != null) txtCoutTotal.text = DropdownComptant.value == 1
-            ? $"Coût total crédit : {coutCreditTotal:N0} €" : "";
+            ? $"{coutCreditTotal:N0} €" : "—";
     }
 
     private void Save()
@@ -181,6 +183,7 @@ public class AchatFormPanel : MonoBehaviour
 
         _onSave?.Invoke(_data);
         gameObject.SetActive(false);
+        _onClose?.Invoke();
     }
 
     private float GetFraisNotaire(float prix)
