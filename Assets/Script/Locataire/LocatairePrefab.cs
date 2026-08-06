@@ -33,6 +33,7 @@ public class LocatairePrefab : PrefabBatLoc
     public TMP_Text headerInitiales;
     public TMP_Text headerNom;
     public TMP_Text headerSousTitre;
+    public Button headerBtnResume;   // bouton "← Résumé" dans la bande titre
 
     public ObjectivesManager objectivesManager;
     public string id;
@@ -82,6 +83,12 @@ public class LocatairePrefab : PrefabBatLoc
     {
         if (loc == null) return;
         string nom = string.IsNullOrEmpty(loc.Name) ? "Nouveau locataire" : loc.Name;
+
+        if (headerBtnResume != null && batimentPrefabOrigin != null)
+        {
+            headerBtnResume.onClick.RemoveAllListeners();
+            headerBtnResume.onClick.AddListener(batimentPrefabOrigin.ShowSummary);
+        }
 
         if (headerNom != null) headerNom.text = nom;
         if (headerInitiales != null) headerInitiales.text = Initiales(nom);

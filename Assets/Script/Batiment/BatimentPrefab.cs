@@ -15,6 +15,10 @@ public class BatimentPrefab : PrefabBatLoc
     public InputAndText tailleTerrainText;
     public InputAndText cadastralTxt;      // référence cadastrale (info générale bâtiment)
 
+    [Header("En-tête fiche")]
+    public TMP_Text txtTitreFiche;         // titre du bandeau = nom du bâtiment
+    public TMP_Text avatarInitiales;       // initiales dans l'avatar du bandeau
+
     [Header("Rentabilité")]
     public RentabiliteGlobaleController rentabiliteGlobale;
 
@@ -136,6 +140,23 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             FicheGroup.interactable = true;
             FicheGroup.blocksRaycasts = true;
         }
+    }
+
+    // Met à jour le bandeau de la fiche (titre = nom du bâtiment, avatar = initiales)
+    private void RefreshFicheHeader()
+    {
+        string nom = (batiment == null || string.IsNullOrWhiteSpace(batiment.Name)) ? "Sans nom" : batiment.Name;
+        if (txtTitreFiche != null) txtTitreFiche.text = nom;
+        if (avatarInitiales != null) avatarInitiales.text = Initiales(nom);
+    }
+
+    private static string Initiales(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "?";
+        var p = s.Trim().Split(new[] { ' ', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+        if (p.Length >= 2) return ("" + char.ToUpper(p[0][0]) + char.ToUpper(p[1][0]));
+        string t = s.Trim();
+        return t.Substring(0, Math.Min(2, t.Length)).ToUpper();
     }
 
     public void ShowLocataireView()
@@ -294,6 +315,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             ParkingDropdown.interactable = false;
             
             nameOfTheBuiding.ApplySave(batiment.Name.ToString());
+            RefreshFicheHeader();
             cadastralTxt?.ApplySave(batiment.cadastral ?? "");
             objectivesManager.LoadObjectives(batiment.objectifs);
             save.gameObject.SetActive(false);

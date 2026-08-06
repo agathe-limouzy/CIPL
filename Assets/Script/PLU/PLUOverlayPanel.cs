@@ -211,9 +211,9 @@ public class PLUOverlayPanel : MonoBehaviour
     {
         if (b == null) return;
         var img = b.GetComponent<Image>();
-        if (img != null) img.color = active ? Hex("#0F6E56") : Hex("#FCFBF8");
+        if (img != null) img.color = active ? Hex("#534AB7") : Hex("#FCFBF8");
         var txt = b.GetComponentInChildren<TMP_Text>(true);
-        if (txt != null) txt.color = active ? Hex("#E1F5EE") : Hex("#085041");
+        if (txt != null) txt.color = active ? Hex("#EEEDFE") : Hex("#3C3489");
     }
 
     private static Color Hex(string h)

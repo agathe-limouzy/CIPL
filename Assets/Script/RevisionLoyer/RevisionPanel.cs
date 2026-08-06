@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Globalization;
 using TMPro;
 using UnityEngine;
@@ -63,6 +64,7 @@ public class RevisionPanel : MonoBehaviour
         _onSaved = onSaved;
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
+        ApplyTheme(LoyerSummaryUI.EstRevisionDue(loc));
 
         // Dropdowns
         indiceDropdown.ClearOptions();
@@ -140,6 +142,39 @@ public class RevisionPanel : MonoBehaviour
         SetMode(!initialise);
     }
 
+    // ── Thème dynamique : couleur de la modale = état de la révision ──────────
+    // Due -> terracotta (comme le bouton Réviser en alerte), sinon -> prune.
+    private static Color s_accent      = Hex("#8E3B5A");
+    private static Color s_accentDark  = Hex("#5E2438");
+    private static Color s_accentLight = Hex("#F6E5EB");
+
+    private void ApplyTheme(bool due)
+    {
+        s_accent      = Hex(due ? "#D85A30" : "#8E3B5A");
+        s_accentDark  = Hex(due ? "#712B13" : "#5E2438");
+        s_accentLight = Hex(due ? "#FAECE7" : "#F6E5EB");
+
+        var header = transform.Find("Content/titre")?.GetComponent<Image>();
+        if (header != null) header.color = s_accent;
+        ColorButton(btnInitialiser, s_accent);
+        ColorButton(btnReviser, s_accent);
+        ColorBox("Information");
+        ColorBox("SectionRevision");
+    }
+
+    private void ColorButton(Button b, Color bg)
+    {
+        if (b == null) return;
+        var img = b.GetComponent<Image>(); if (img != null) img.color = bg;
+        var t = b.GetComponentInChildren<TMP_Text>(true); if (t != null) t.color = Color.white;
+    }
+
+    private void ColorBox(string name)
+    {
+        var box = GetComponentsInChildren<Transform>(true).FirstOrDefault(x => x.name.Trim() == name);
+        if (box != null) { var img = box.GetComponent<Image>(); if (img != null) img.color = s_accentLight; }
+    }
+
     // ── Redesign : chips indice + mode toggle ─────────────────────────────────
 
     private void WireChips()
@@ -161,9 +196,9 @@ public class RevisionPanel : MonoBehaviour
     {
         if (b == null) return;
         var img = b.GetComponent<Image>();
-        if (img != null) img.color = active ? Hex("#E1F5EE") : Hex("#FCFBF8");
+        if (img != null) img.color = active ? s_accentLight : Hex("#FCFBF8");
         var txt = b.GetComponentInChildren<TMP_Text>(true);
-        if (txt != null) txt.color = active ? Hex("#085041") : Hex("#888780");
+        if (txt != null) txt.color = active ? s_accentDark : Hex("#888780");
     }
 
     private void SetMode(bool init)
@@ -179,9 +214,9 @@ public class RevisionPanel : MonoBehaviour
     {
         if (b == null) return;
         var img = b.GetComponent<Image>();
-        if (img != null) img.color = active ? Hex("#0F6E56") : new Color(0, 0, 0, 0);
+        if (img != null) img.color = active ? s_accent : new Color(0, 0, 0, 0);
         var txt = b.GetComponentInChildren<TMP_Text>(true);
-        if (txt != null) txt.color = active ? Hex("#E1F5EE") : Hex("#5F5E5A");
+        if (txt != null) txt.color = active ? Color.white : Hex("#5F5E5A");
     }
 
     private static Color Hex(string h)

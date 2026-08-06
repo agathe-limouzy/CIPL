@@ -62,9 +62,9 @@ public class LoyerSummaryUI : MonoBehaviour
         if (btnOuvrirRevision != null)
         {
             var img = btnOuvrirRevision.GetComponent<Image>();
-            if (img != null) img.color = due ? Col("#D85A30") : Col("#0F6E56");
+            if (img != null) img.color = due ? Col("#D85A30") : Col("#8E3B5A");
             var lbl = btnOuvrirRevision.GetComponentInChildren<TMP_Text>(true);
-            if (lbl != null) lbl.color = due ? Color.white : Col("#E1F5EE");
+            if (lbl != null) lbl.color = due ? Color.white : Col("#F6E5EB");
         }
     }
 

@@ -13,6 +13,7 @@ public class InputAndText : MonoBehaviour
     public TMP_InputField inputModify;
 
     private ScrollAutoResize[] _scrollAutoResizes;
+    private TMP_Text _quantite;
 
 
     private void Awake()
@@ -26,6 +27,22 @@ public class InputAndText : MonoBehaviour
     {
         if (_scrollAutoResizes == null)
             _scrollAutoResizes = GetComponentsInParent<ScrollAutoResize>(true);
+        if (_quantite == null)
+        {
+            var q = transform.Find("quantité");
+            if (q != null) _quantite = q.GetComponent<TMP_Text>();
+        }
+    }
+
+    // Masque l'unité (« quantité ») si elle est vide ou déjà contenue dans la valeur
+    // (évite les doublons « 6 789 € € »). Sinon la garde (%, m²…).
+    private void UpdateUnit()
+    {
+        if (_quantite == null) return;
+        string unit = _quantite.text != null ? _quantite.text.Trim() : "";
+        string val = textSaved != null ? textSaved.text : "";
+        bool show = unit.Length > 0 && (val == null || !val.Contains(unit));
+        _quantite.gameObject.SetActive(show);
     }
 
     public void Start()
@@ -93,12 +110,16 @@ public class InputAndText : MonoBehaviour
     private  void CopyValue()
     {
         textSaved.text = inputModify.text;
+        EnsureInit();
+        UpdateUnit();
     }
 
     public void ApplyValue(string text)
     {
         inputModify.text = text;
         textSaved.text = text;
+        EnsureInit();
+        UpdateUnit();
     }
 
     public void SetPlaceholder(string text)
