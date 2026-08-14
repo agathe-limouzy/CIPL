@@ -41,12 +41,18 @@ public class PLUService : MonoBehaviour
 
         using var req = UnityWebRequest.Get(url);
         req.SetRequestHeader("Accept", "application/json");
+        req.timeout = 15;
         yield return req.SendWebRequest();
 
         if (req.result != UnityWebRequest.Result.Success)
         {
-            string err = $"Erreur réseau ({req.responseCode}) : {req.error}";
-            Debug.LogError($"[PLU] {err}");
+            // responseCode 0 = pas de réponse serveur (DNS, timeout, hors ligne).
+            // apicarto.ign.fr est régulièrement indisponible : on le dit clairement
+            // et on renvoie vers le Géoportail (bouton déjà présent dans le panneau).
+            string err = req.responseCode == 0
+                ? "Serveur PLU (IGN) momentanément injoignable.\nRéessayez plus tard, ou ouvrez le Géoportail Urbanisme."
+                : $"Erreur du serveur PLU ({req.responseCode}).";
+            Debug.LogError($"[PLU] {req.responseCode} · {req.error}");
             onError?.Invoke(err);
             yield break;
         }

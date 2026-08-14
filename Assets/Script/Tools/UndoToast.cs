@@ -31,12 +31,27 @@ public class UndoToast : MonoBehaviour
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
 
+        if (btnAnnuler != null) btnAnnuler.gameObject.SetActive(true);
         btnAnnuler.onClick.RemoveAllListeners();
         btnAnnuler.onClick.AddListener(() =>
         {
             Cacher();
             _onUndo?.Invoke();
         });
+
+        if (_timer != null) StopCoroutine(_timer);
+        _timer = StartCoroutine(TimerFermeture());
+    }
+
+    /// Affiche un simple message d'info (sans bouton Annuler), auto-masqué.
+    public void ShowInfo(string message)
+    {
+        _onUndo = null;
+        txtMessage.text = message;
+        gameObject.SetActive(true);
+        transform.SetAsLastSibling();
+
+        if (btnAnnuler != null) btnAnnuler.gameObject.SetActive(false);
 
         if (_timer != null) StopCoroutine(_timer);
         _timer = StartCoroutine(TimerFermeture());

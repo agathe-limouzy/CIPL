@@ -53,6 +53,23 @@ public class Locataire : Data
         set => dateFinBailISO = value.ToString("yyyy-MM-dd");
     }
 
+    // ── Renouvellement de bail ────────────────────────────────────────────────
+    // Seuil d'alerte : 6 mois avant la fin du bail.
+    public const int SEUIL_FIN_BAIL_JOURS = 182;
+
+    /// Vrai si le bail se termine dans moins de 6 mois (ou est déjà expiré).
+    /// `jours` = nombre de jours avant la fin (négatif si le bail est expiré).
+    /// Ne se déclenche que pour un locataire nommé avec une date de fin valide,
+    /// afin de ne pas alerter sur les fiches vides (DateFinBail vaut Today par défaut).
+    public static bool RenouvellementProche(Locataire loc, out int jours)
+    {
+        jours = 0;
+        if (loc == null || string.IsNullOrEmpty(loc.Name)) return false;
+        if (!DateTime.TryParse(loc.dateFinBailISO, out var fin)) return false;
+        jours = (fin - DateTime.Today).Days;
+        return jours <= SEUIL_FIN_BAIL_JOURS;
+    }
+
     [NonSerialized]
     private DateTime _moisDeRevisionISO;
     public DateTime MoisDeRevision

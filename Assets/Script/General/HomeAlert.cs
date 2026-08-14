@@ -6,7 +6,7 @@ using UnityEngine;
 /// révisions de loyer à faire + objectifs actifs, triés par urgence.
 public class HomeAlert
 {
-    public enum Kind { RevisionRetard, RevisionProche, Objectif }
+    public enum Kind { RevisionRetard, RevisionProche, BailRenouvellement, Objectif }
 
     public Kind kind;
     public string titre;         // "Révision en retard", "Objectif obligatoire", "À faire"…
@@ -33,6 +33,30 @@ public static class HomeAlertCollector
         {
             string nomBat = bp.getName();
             if (string.IsNullOrEmpty(nomBat)) nomBat = "Bâtiment";
+
+            // ── Fin de bail / renouvellement ──────────────────────────────────
+            foreach (var loc in bp.listLocataire)
+            {
+                if (!Locataire.RenouvellementProche(loc, out int joursBail)) continue;
+
+                string nomLocBail = string.IsNullOrEmpty(loc.Name) ? "Locataire" : loc.Name;
+                bool expire = joursBail < 0;
+                alertes.Add(new HomeAlert
+                {
+                    kind = HomeAlert.Kind.BailRenouvellement,
+                    titre = expire
+                        ? "Bail expiré — à renouveler"
+                        : (joursBail <= 31
+                            ? $"Fin de bail dans {joursBail} j"
+                            : $"Fin de bail dans {Mathf.CeilToInt(joursBail / 30f)} mois"),
+                    sujet = nomLocBail,
+                    batimentNom = nomBat,
+                    priorite = expire ? 0 : 1,
+                    pastille = expire ? UITheme.Alerte : UITheme.Attention,
+                    batiment = bp,
+                    locataire = loc
+                });
+            }
 
             // ── Révisions de loyer ────────────────────────────────────────────
             foreach (var loc in bp.listLocataire)

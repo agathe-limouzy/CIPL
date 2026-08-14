@@ -96,6 +96,8 @@ public class BatimentSummaryView : MonoBehaviour
         // Loyer /an mis en avant + pilule état
         float loyerTotal = _bp.GetLoyerTotal();
         Set(txtLoyerAnnuel, loyerTotal > 0 ? $"{loyerTotal:N0} € / an" : "—");
+        if (txtLoyerAnnuel != null)
+            txtLoyerAnnuel.color = loyerTotal > 0 ? Col("#0F6E56") : Col("#5F5E5A");
         Set(txtPiluleEtat, EtatPilule(bat, out bool occupe));
         if (txtPiluleEtat != null)
         {
@@ -104,6 +106,12 @@ public class BatimentSummaryView : MonoBehaviour
             var bg = txtPiluleEtat.transform.parent.GetComponent<Image>();
             if (bg != null) bg.color = bgc;
             txtPiluleEtat.color = txc;
+            var etatIcon = txtPiluleEtat.transform.parent.Find("Icon");
+            if (etatIcon != null)
+            {
+                var ei = etatIcon.GetComponent<Image>();
+                if (ei != null) ei.color = txc;
+            }
         }
         Set(txtTitreLocataires,
             $"Locataires   <size=70%><color=#5F5E5A>{nbLots} lot{(nbLots > 1 ? "s" : "")} · {loyerTotal:N0} € / an</color></size>");
@@ -114,6 +122,8 @@ public class BatimentSummaryView : MonoBehaviour
         // Grille : investi · rendement · cadastre
         Set(txtInvesti, investTotal > 0 ? $"{investTotal:N0} €" : "—");
         Set(txtRendement, rendementNet != 0 ? $"{rendementNet:F1} %" : "—");
+        if (txtRendement != null)
+            txtRendement.color = ColSign(rendementNet);
         Set(txtCadastre, string.IsNullOrWhiteSpace(bat.cadastral) ? "—" : bat.cadastral);
         string signe = cashFlowMois >= 0 ? "+" : "";
         string couleurCF = cashFlowMois >= 0 ? "#0F6E56" : "#D85A30";
@@ -250,4 +260,8 @@ public class BatimentSummaryView : MonoBehaviour
     };
 
     private static void Set(TMP_Text t, string v) { if (t != null) t.text = v; }
+
+    private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+    // Vert si positif, terracotta si négatif, gris si nul.
+    private static Color ColSign(float v) => v > 0 ? Col("#0F6E56") : v < 0 ? Col("#D85A30") : Col("#5F5E5A");
 }

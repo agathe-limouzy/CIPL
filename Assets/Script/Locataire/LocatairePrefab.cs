@@ -27,6 +27,9 @@ public class LocatairePrefab : PrefabBatLoc
 
     [Header("Bail")]
     public BailFileUI bailFile;
+    public GameObject badgeBail;     // pastille "Renouvellement à prévoir" / "Bail expiré"
+    public TMP_Text badgeBailTxt;
+    public Image badgeBailBg;
 
     [Header("En-tête fiche")]
     public Image headerAvatarBg;
@@ -62,9 +65,35 @@ public class LocatairePrefab : PrefabBatLoc
 
     public void RefreshRevisionAlert(Locataire loc)
     {
-        bool due = LoyerSummaryUI.EstRevisionDue(loc);
+        // Le point rouge d'onglet couvre révision de loyer ET renouvellement de bail.
+        bool due = LoyerSummaryUI.EstRevisionDue(loc)
+                   || Locataire.RenouvellementProche(loc, out _);
         batimentPrefabOrigin.menulocataire.SetTabAlert(this, due);
         batimentPrefabOrigin.RefreshBatimentTabAlert();
+        RefreshBailAlert(loc);
+    }
+
+    /// Badge de la section Bail : visible quand le bail se termine dans moins de
+    /// 6 mois (ambre) ou est déjà expiré (terracotta).
+    public void RefreshBailAlert(Locataire loc)
+    {
+        if (badgeBail == null) return;
+        bool proche = Locataire.RenouvellementProche(loc, out int jours);
+        badgeBail.SetActive(proche);
+        if (!proche) return;
+
+        bool expire = jours < 0;
+        // Pastille pleine couleur + texte blanc pour bien la faire ressortir :
+        // rouge si le bail est expiré (urgent), ambre soutenu si renouvellement à prévoir.
+        Color bgc;
+        ColorUtility.TryParseHtmlString(expire ? "#A32D2D" : "#B26A0C", out bgc);
+        if (badgeBailTxt != null)
+        {
+            badgeBailTxt.text = expire ? "Bail expiré" : "Renouvellement à prévoir";
+            badgeBailTxt.color = Color.white;
+        }
+        if (badgeBailBg != null)
+            badgeBailBg.color = bgc;
     }
 
     public void OnEnable()
@@ -293,14 +322,22 @@ public class LocatairePrefab : PrefabBatLoc
     private void OnPappersClick()
     {
         var s = siret.GetValue().Trim();
-        if (s.Length < 9) return;
+        if (s.Length < 9)
+        {
+            UndoToast.Instance?.ShowInfo("Siret incomplet — 9 chiffres minimum pour ouvrir Pappers.");
+            return;
+        }
         Application.OpenURL($"https://www.pappers.fr/entreprise/{s.Substring(0, 9)}");
     }
 
     private void CreateResume()
     {
         var s = siret.GetValue().Trim();
-        if (s.Length < 9) return;
+        if (s.Length < 9)
+        {
+            UndoToast.Instance?.ShowInfo("Siret incomplet — 9 chiffres minimum pour interroger la société.");
+            return;
+        }
         papperService.FetchBySiret(s,
             data => SetPappersSection(BuildResume(data)),
             err => { SetPappersSection($"Erreur : {err}"); Debug.LogWarning($"[Annuaire] {err}"); });
