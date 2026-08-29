@@ -4,26 +4,45 @@ using UnityEngine;
 public class RentabiliteRow : MonoBehaviour
 {
     public TMP_Text txtAnnee;
-    public TMP_Text txtNet;
-    public TMP_Text txtCumulatif;
+    public TMP_Text txtRentrees;      // loyers encaissés dans l'année
+    public TMP_Text txtCoutAchat;     // dépense d'achat de l'année
+    public TMP_Text txtCoutTravaux;   // dépense de travaux de l'année
+    public TMP_Text txtCumulatif;     // bilan cumulé (rentrées − coûts) depuis le début
 
-    private static readonly Color ColorPositif = UITheme.Primaire;
-    private static readonly Color ColorNegatif = UITheme.Alerte;
-    private static readonly Color ColorSeuil = UITheme.Attention;
+    private static readonly Color Vert   = UITheme.Primaire;   // argent qui entre / positif
+    private static readonly Color Rouge  = UITheme.Alerte;     // argent qui sort / négatif
+    private static readonly Color Seuil  = UITheme.Attention;  // année où le cumulé passe positif
+    private static readonly Color Neutre = new Color(0.55f, 0.55f, 0.53f);
 
-    public void Setup(int annee, float netAnnee, float cumulatif, bool seuilAtteint)
+    public void Setup(int annee, float rentrees, float coutAchat, float coutTravaux,
+        float cumul, bool seuilAtteint)
     {
         if (txtAnnee != null) txtAnnee.text = annee.ToString();
-        if (txtNet != null) txtNet.text = Signe(netAnnee) + $"{netAnnee:N0} €";
-        if (txtCumulatif != null) txtCumulatif.text = Signe(cumulatif) + $"{cumulatif:N0} €";
 
-        Color couleur = seuilAtteint ? ColorSeuil
-            : cumulatif >= 0f ? ColorPositif
-                                    : ColorNegatif;
+        SetMontant(txtRentrees, rentrees, Vert, negatif: false);
+        SetMontant(txtCoutAchat, coutAchat, Rouge, negatif: true);
+        SetMontant(txtCoutTravaux, coutTravaux, Rouge, negatif: true);
 
-        if (txtNet != null) txtNet.color = couleur;
-        if (txtCumulatif != null) txtCumulatif.color = couleur;
+        if (txtCumulatif != null)
+        {
+            txtCumulatif.text = (cumul >= 0f ? "+" : "") + $"{cumul:N0} €";
+            txtCumulatif.color = seuilAtteint ? Seuil : (cumul >= 0f ? Vert : Rouge);
+        }
     }
 
-    private static string Signe(float v) => v >= 0 ? "+" : "";
+    // Affiche un montant ; "—" gris si nul. `negatif` = préfixe "-" (dépense).
+    private static void SetMontant(TMP_Text t, float montant, Color couleur, bool negatif)
+    {
+        if (t == null) return;
+        if (montant > 0f)
+        {
+            t.text = (negatif ? "-" : "") + $"{montant:N0} €";
+            t.color = couleur;
+        }
+        else
+        {
+            t.text = "—";
+            t.color = Neutre;
+        }
+    }
 }

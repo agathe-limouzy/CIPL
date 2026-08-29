@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
@@ -146,68 +147,126 @@ public class RentabiliteGlobaleController : MonoBehaviour
             else { txtStatus.text = "Rentabilité longue"; txtStatus.color = Col("#888780"); }
         }
 
-        // ── Tableau annuel ────────────────────────────────────────────────────
+        // ── Tableau annuel (Rentrées / Coût achat / Coût travaux / Cumulé) ────
         if (tableauContent != null && rentabiliteRowPrefab != null)
-            BuildTableauRentabilite(loans, loyerAnnuel, investTotal);
+        {
+            var locataires = bat != null ? _bp.listLocataire : new List<Locataire>();
+            var achats = bat != null ? bat.historiquesAchat : new List<AchatFinancement>();
+            var travaux = bat != null ? bat.travaux : new List<TravauxFinancement>();
+            var types = LoyerHistoryService.TypesUtilises(locataires);
+
+            // 1) Affichage immédiat : cache si dispo, sinon repli loyer courant.
+            //    Le tableau ne reste jamais vide en attendant le réseau.
+            BuildTableauRentabilite(locataires, achats, travaux,
+                LoyerHistoryService.ObsEnCache(types));
+
+            // 2) Récupère les vrais indices INSEE puis reconstruit avec.
+            if (isActiveAndEnabled)
+                StartCoroutine(BuildTableauReel(locataires, achats, travaux, types));
+        }
+    }
+
+    // Récupère les vrais indices INSEE (avec cache) puis reconstruit le tableau.
+    private IEnumerator BuildTableauReel(List<Locataire> locataires,
+        List<AchatFinancement> achats, List<TravauxFinancement> travaux,
+        IEnumerable<IndiceImmo> types)
+    {
+        Dictionary<IndiceImmo, List<(string periode, float valeur)>> obs = null;
+        yield return LoyerHistoryService.FetchIndices(types, o => obs = o);
+        if (obs != null && obs.Count > 0)
+            BuildTableauRentabilite(locataires, achats, travaux, obs);
     }
 
     // ── Tableau année par année ───────────────────────────────────────────────
 
-    private void BuildTableauRentabilite(List<LoanEntry> loans, float loyerAnnuel, float investTotal)
+    private void BuildTableauRentabilite(List<Locataire> locataires,
+        List<AchatFinancement> achats, List<TravauxFinancement> travaux,
+        Dictionary<IndiceImmo, List<(string periode, float valeur)>> obs)
     {
         foreach (Transform child in tableauContent) Destroy(child.gameObject);
 
-        if (loans.Count == 0 && investTotal <= 0f) return;
+        if (locataires == null) locataires = new List<Locataire>();
+        if (achats == null) achats = new List<AchatFinancement>();
+        if (travaux == null) travaux = new List<TravauxFinancement>();
 
-        // Date de départ = plus ancienne date de début parmi tous les prêts
-        // (ou aujourd'hui si pas de prêt)
-        DateTime dateDebut = DateTime.Today;
-        foreach (var l in loans)
-            if (l.startDate < dateDebut) dateDebut = l.startDate;
+        if (achats.Count == 0 && travaux.Count == 0 && locataires.Count == 0) return;
 
-        // Fin du dernier prêt
-        DateTime dateFin = dateDebut;
-        foreach (var l in loans)
-        {
-            DateTime loanEnd = l.startDate.AddMonths(l.dureeMois);
-            if (loanEnd > dateFin) dateFin = loanEnd;
-        }
+        // Bornes : plus ancienne dépense / premier bail (années raisonnables ≥ 1970,
+        // pour ignorer les dates saisies aberrantes), jusqu'à aujourd'hui + 5 ans.
+        int currentYear = DateTime.Today.Year;
+        int anneeMin = int.MaxValue;
+        foreach (var a in achats)       { int y = ParseDate(a.dateAchat).Year;        if (y >= 1970 && y <= currentYear + 1 && y < anneeMin) anneeMin = y; }
+        foreach (var t in travaux)      { int y = ParseDate(t.dateDebutTravaux).Year;  if (y >= 1970 && y <= currentYear + 1 && y < anneeMin) anneeMin = y; }
+        foreach (var loc in locataires) { int y = LoyerHistoryService.PremierBail(loc).Year; if (y >= 1970 && y <= currentYear + 1 && y < anneeMin) anneeMin = y; }
+        if (anneeMin == int.MaxValue) anneeMin = currentYear;
 
-        // Afficher jusqu'à la fin du dernier crédit + 5 ans, max 40 ans
-        int nbAnnees = Mathf.Min(dateFin.Year - dateDebut.Year + 6, 40);
+        // Fin de fenêtre : aujourd'hui + 5 ans, prolongée jusqu'à la fin des emprunts.
+        int anneeMax = currentYear + 5;
+        foreach (var a in achats)
+            if (a.emprunt && a.dureeMois > 0)
+                anneeMax = Math.Max(anneeMax, StartClamped(a.dateAchat, anneeMin, currentYear).Year + (a.dureeMois + 11) / 12);
+        foreach (var t in travaux)
+            if (t.emprunt && t.dureeMois > 0)
+                anneeMax = Math.Max(anneeMax, StartClamped(t.dateDebutTravaux, anneeMin, currentYear).Year + (t.dureeMois + 11) / 12);
 
-        float cumul = -investTotal;  // On part du coût total investi
-        float cumulPrev;
+        int nbAnnees = Mathf.Min(anneeMax - anneeMin + 1, 60);
 
+        float cumul = 0f;
         for (int i = 0; i < nbAnnees; i++)
         {
-            int annee = dateDebut.Year + i;
+            int annee = anneeMin + i;
 
-            // Loyer perçu cette année (proraté pour la première année)
-            float loyerAnnee;
-            if (i == 0)
-                loyerAnnee = loyerAnnuel * (float)(12 - dateDebut.Month + 1) / 12f;
-            else
-                loyerAnnee = loyerAnnuel;
+            // Rentrées = loyers réels indexés de chaque locataire (0 avant le bail).
+            float rentrees = 0f;
+            foreach (var loc in locataires)
+                rentrees += LoyerHistoryService.LoyerPourAnnee(loc, annee, obs);
 
-            // Charges crédit actives cette année
-            float chargesAnnee = 0f;
-            foreach (var loan in loans)
-            {
-                int moisActifs = MoisActifsDansAnnee(loan.startDate, loan.dureeMois, annee);
-                chargesAnnee += moisActifs * loan.mensualite;
-            }
+            // Coûts de l'année : plein tarif l'année de la dépense si comptant,
+            // sinon apport (année d'achat) + mensualités étalées sur la durée du prêt.
+            float coutAchat = 0f;
+            foreach (var a in achats)
+                coutAchat += CoutFinance(a.prixAchat + a.fraisNotaire + a.fraisAgence,
+                    StartClamped(a.dateAchat, anneeMin, currentYear),
+                    a.emprunt, a.montantEmprunte, a.tauxInteretAnnuel, a.dureeMois, annee);
 
-            float netAnnee = loyerAnnee - chargesAnnee;
-            cumulPrev = cumul;
-            cumul += netAnnee;
+            float coutTravaux = 0f;
+            foreach (var t in travaux)
+                coutTravaux += CoutFinance(t.coutTotal,
+                    StartClamped(t.dateDebutTravaux, anneeMin, currentYear),
+                    t.emprunt, t.montantEmprunte, t.tauxInteretAnnuel, t.dureeMois, annee);
 
+            float cumulPrev = cumul;
+            cumul += rentrees - coutAchat - coutTravaux;
             bool seuilAtteint = cumulPrev < 0f && cumul >= 0f;
 
             var go = Instantiate(rentabiliteRowPrefab, tableauContent);
-            var row = go.GetComponent<RentabiliteRow>();
-            row.Setup(annee, netAnnee, cumul, seuilAtteint);
+            go.GetComponent<RentabiliteRow>()
+              .Setup(annee, rentrees, coutAchat, coutTravaux, cumul, seuilAtteint);
         }
+    }
+
+    // Date de départ d'une dépense, ramenée à une année raisonnable si aberrante.
+    private static DateTime StartClamped(string dateISO, int anneeMin, int currentYear)
+    {
+        DateTime d = ParseDate(dateISO);
+        int y = Mathf.Clamp(d.Year, anneeMin, currentYear + 1);
+        return y == d.Year ? d : new DateTime(y, 1, 1);
+    }
+
+    // Coût réellement décaissé une année donnée : plein tarif l'année de la dépense
+    // si comptant ; sinon apport (année de départ) + mensualités du prêt actives cette année.
+    private static float CoutFinance(float total, DateTime start, bool emprunt,
+        float montantEmprunte, float taux, int dureeMois, int annee)
+    {
+        if (emprunt && dureeMois > 0 && montantEmprunte > 0f)
+        {
+            float apport = Mathf.Max(0f, total - montantEmprunte);
+            float mens = RentabiliteCalculator.Mensualite(montantEmprunte, taux, dureeMois);
+            float cout = start.Year == annee ? apport : 0f;
+            cout += mens * MoisActifsDansAnnee(start, dureeMois, annee);
+            return cout;
+        }
+        return start.Year == annee ? total : 0f;
     }
 
     // Nombre de mois du prêt actifs durant l'année calendaire donnée

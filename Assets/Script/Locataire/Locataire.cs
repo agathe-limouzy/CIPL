@@ -34,6 +34,17 @@ public class Locataire : Data
     public string cheminBail;   // chemin du fichier bail (PDF, scan…)
     public Periodicite periodiciteLoyer;
 
+    // ── Historique d'indexation (pour la rentabilité année par année) ──────────
+    // Date du tout premier bail, conservée à travers les renouvellements :
+    // aucun loyer n'est perçu avant cette date (local vacant).
+    public string dateDebutPremierBailISO;
+
+    // Une entrée par « référence » d'indexation. Une nouvelle référence est
+    // enregistrée quand le trimestre/indice/loyer de départ change (nouveau bail
+    // ou renouvellement). Sert à reconstituer le vrai loyer de chaque année :
+    // loyer(année) = loyerDepart × indice(année, trimestreRef) / indiceBaseValeur.
+    public List<RevisionReference> historiqueReferences = new List<RevisionReference>();
+
     // Objectifs
     public ObjectiveList objectifs = new ObjectiveList();
 
@@ -120,4 +131,29 @@ public enum RevisionMode
 {
     NouveauBail,
     BailEnCours
+}
+
+/// Une « référence » d'indexation : le loyer de base et l'indice de départ
+/// valables à partir d'une date d'effet. Reconstitue le loyer d'une année via
+/// loyer = loyerDepart × indice(année, trimestre de trimestreReference) / indiceBaseValeur.
+[Serializable]
+public class RevisionReference
+{
+    public string dateEffetISO;        // date de prise d'effet de cette référence
+    public IndiceImmo indiceType;      // ILC / IRL / ILAT
+    public string trimestreReference;  // période de l'indice de départ, ex "2020-T2"
+    public float indiceBaseValeur;     // valeur de l'indice de départ
+    public float loyerDepart;          // loyer annuel de base de cette référence
+
+    public RevisionReference() { }
+
+    public RevisionReference(string dateEffetISO, IndiceImmo indiceType,
+        string trimestreReference, float indiceBaseValeur, float loyerDepart)
+    {
+        this.dateEffetISO = dateEffetISO;
+        this.indiceType = indiceType;
+        this.trimestreReference = trimestreReference;
+        this.indiceBaseValeur = indiceBaseValeur;
+        this.loyerDepart = loyerDepart;
+    }
 }

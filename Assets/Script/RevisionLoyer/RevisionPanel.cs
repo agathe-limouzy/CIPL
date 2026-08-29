@@ -268,6 +268,11 @@ public class RevisionPanel : MonoBehaviour
         _loc.indiceImmoActuel = "—";
         AppliquerChampsCommuns();
 
+        // Historique : nouvelle référence d'indexation (prend effet au début du bail)
+        LoyerHistoryService.EnregistrerReference(_loc,
+            DateTime.TryParse(_loc.dateDebutBailISO, out var dbInit) ? dbInit : DateTime.Now,
+            (IndiceImmo)indiceDropdown.value, obsRef.periode, obsRef.valeur, loyer);
+
         txtIndiceDepart.text = _loc.indiceImmoAuDepart;
         txtIndiceActuel.text = "—";
         txtLoyerCalcule.text = $"{loyer:N2} €";
@@ -337,6 +342,11 @@ public class RevisionPanel : MonoBehaviour
         dateDeRevision.ModifyDate();
 
         AppliquerChampsCommuns(revision: true);
+
+        // Historique : n'enregistre un nouveau segment que si la référence
+        // (trimestre de départ / indice / loyer de base) a réellement changé.
+        LoyerHistoryService.EnregistrerReference(_loc, d,
+            (IndiceImmo)indiceDropdown.value, obsDepart.periode, obsDepart.valeur, loyer);
 
         txtIndiceDepart.text = _loc.indiceImmoAuDepart;
         txtIndiceActuel.text = _loc.indiceImmoActuel;
