@@ -12,6 +12,7 @@ public class LocatairePrefab : PrefabBatLoc
     public InputAndText nameOfLocataire;
     public InputAndText siret;
     public InputAndText codeComptableTxt;
+    public InputAndText emailLocataireTxt;
     public InputAndText mapController;
     public InputAndText lotBatimentTxt;
     public InputAndText tailleLotTxt;
@@ -181,6 +182,7 @@ public class LocatairePrefab : PrefabBatLoc
             // ── Chargement locataire existant ────────────────────────────────
             nameOfLocataire.ApplySave(newLocataire.Name);
             codeComptableTxt.ApplySave(newLocataire.codeCompatable);
+            emailLocataireTxt.ApplySave(newLocataire.emailLocataire);
             mapController.ApplySave(newLocataire.adresseLocataire);
             lotBatimentTxt.ApplySave(newLocataire.lotBatiment.ToString());
             tailleLotTxt.ApplySave(newLocataire.tailleLot.ToString());
@@ -237,6 +239,7 @@ public class LocatairePrefab : PrefabBatLoc
 
         locataire.Name = nameOfLocataire.GetNewSave();
         locataire.codeCompatable = codeComptableTxt.GetNewSave();
+        locataire.emailLocataire = emailLocataireTxt.GetNewSave();
         locataire.adresseLocataire = mapController.GetNewSave();
 
         SaveCorrectlyInt(ref locataire.lotBatiment, lotBatimentTxt.GetNewSave());
@@ -284,6 +287,7 @@ public class LocatairePrefab : PrefabBatLoc
     {
         nameOfLocataire.Modify();
         codeComptableTxt.Modify();
+        emailLocataireTxt.Modify();
         mapController.Modify();
         lotBatimentTxt.Modify();
         if (batimentPrefabOrigin.listLocataire.Count > 1)

@@ -459,6 +459,12 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         RefreshBatimentTabAlert();
     }
 
+    /// Ouvre la galerie photos de ce bâtiment (overlay de scène).
+    public void OpenPhotos()
+    {
+        PhotoGalleryController.Instance?.Ouvrir(this);
+    }
+
     public override void Modify()
     {
         nameOfTheBuiding.Modify();

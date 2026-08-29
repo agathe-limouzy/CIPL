@@ -41,19 +41,28 @@ public class BuildingCard : MonoBehaviour
         // des fiches ne sont pas actives).
         if (vignetteCarte != null)
         {
-            if (batiment.mapController != null
+            var coverTex = PhotoService.Charger(data.coverPhoto);
+            if (coverTex != null)
+            {
+                // Photo de couverture : format conservé, recadrée au centre (cover).
+                AppliquerCover(vignetteCarte, coverTex);
+            }
+            else if (batiment.mapController != null
                 && batiment.mapController.mapImage != null
                 && batiment.mapController.mapImage.texture != null)
             {
+                vignetteCarte.uvRect = new Rect(0, 0, 1, 1);
                 vignetteCarte.texture = batiment.mapController.mapImage.texture;
                 vignetteCarte.color = Color.white;
             }
             else
             {
+                vignetteCarte.uvRect = new Rect(0, 0, 1, 1);
                 MapThumbnailService.Charge(this, data.adressBatiment, tex =>
                 {
                     if (this != null && vignetteCarte != null)
                     {
+                        vignetteCarte.uvRect = new Rect(0, 0, 1, 1);
                         vignetteCarte.texture = tex;
                         vignetteCarte.color = Color.white;
                     }
@@ -65,6 +74,27 @@ public class BuildingCard : MonoBehaviour
         {
             btnOuvrir.onClick.RemoveAllListeners();
             btnOuvrir.onClick.AddListener(() => onClick?.Invoke(batiment));
+        }
+    }
+
+    /// Affiche une photo en « cover » : format conservé, recadrée au centre
+    /// pour remplir la zone de la vignette sans déformer.
+    private static void AppliquerCover(RawImage img, Texture tex)
+    {
+        img.texture = tex;
+        img.color = Color.white;
+        var r = img.rectTransform.rect;
+        float cardA = (r.width > 1f && r.height > 1f) ? r.width / r.height : 1.5f;
+        float imgA = tex.height > 0 ? (float)tex.width / tex.height : 1f;
+        if (imgA > cardA)
+        {
+            float w = cardA / imgA;
+            img.uvRect = new Rect((1f - w) * 0.5f, 0f, w, 1f);
+        }
+        else
+        {
+            float h = imgA / cardA;
+            img.uvRect = new Rect(0f, (1f - h) * 0.5f, 1f, h);
         }
     }
 }

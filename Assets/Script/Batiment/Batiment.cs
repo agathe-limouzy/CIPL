@@ -16,6 +16,10 @@ public class Batiment : Data
     public ParkingState parkingEtat;
     public string cadastral;            // référence cadastrale du bâtiment
 
+    // Photos du bâtiment (chemins absolus dans le dossier de sauvegarde)
+    public List<string> photos = new List<string>();
+    public string coverPhoto = "";      // photo affichée à la place de la carte GPS (vide = carte)
+
     // Travaux
     public bool travauxEnCours;
     public List<AchatFinancement> historiquesAchat = new List<AchatFinancement>();
