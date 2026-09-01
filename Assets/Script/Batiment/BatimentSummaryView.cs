@@ -186,8 +186,11 @@ public class BatimentSummaryView : MonoBehaviour
         rendementNet = investTotal > 0 ? cashFlowAnnuel / investTotal * 100f : 0f;
     }
 
-    private static string DateAcquisition(Batiment bat)
+    public static string DateAcquisition(Batiment bat)
     {
+        // Date saisie manuellement prioritaire, sinon date d'achat la plus ancienne.
+        if (DateTime.TryParse(bat.dateAcquisitionISO, out var manuelle))
+            return manuelle.ToString("dd/MM/yyyy");
         if (bat.historiquesAchat == null || bat.historiquesAchat.Count == 0) return "—";
         DateTime plusAncienne = DateTime.MaxValue;
         foreach (var a in bat.historiquesAchat)

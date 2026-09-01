@@ -11,6 +11,7 @@ public class Locataire : Data
     public string siretNumber;
     public string codeCompatable;
     public string emailLocataire;
+    public string telephoneLocataire;
     public string adresseLocataire;
     public int lotBatiment;
     public float tailleLot;

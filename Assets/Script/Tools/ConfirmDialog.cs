@@ -14,18 +14,25 @@ public class ConfirmDialog : MonoBehaviour
     public Button btnAnnuler;
 
     private Action _onConfirm;
+    private TMP_Text _confirmLabel;
+    private string _defaultConfirmLabel;
 
     private void Awake()
     {
         Instance = this;
+        _confirmLabel = btnConfirmer != null ? btnConfirmer.GetComponentInChildren<TMP_Text>(true) : null;
+        _defaultConfirmLabel = _confirmLabel != null ? _confirmLabel.text : "Confirmer";
         gameObject.SetActive(false);
     }
 
-    public void Show(string titre, string message, Action onConfirm)
+    /// `confirmLabel` : libellé du bouton de validation (par défaut « Supprimer »).
+    public void Show(string titre, string message, Action onConfirm, string confirmLabel = null)
     {
         _onConfirm = onConfirm;
         txtTitre.text = titre;
         txtMessage.text = message;
+        if (_confirmLabel != null)
+            _confirmLabel.text = string.IsNullOrEmpty(confirmLabel) ? _defaultConfirmLabel : confirmLabel;
         gameObject.SetActive(true);
         transform.SetAsLastSibling();   // au-dessus de tout
 

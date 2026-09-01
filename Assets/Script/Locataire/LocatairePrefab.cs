@@ -13,6 +13,7 @@ public class LocatairePrefab : PrefabBatLoc
     public InputAndText siret;
     public InputAndText codeComptableTxt;
     public InputAndText emailLocataireTxt;
+    public InputAndText telephoneLocataireTxt;
     public InputAndText mapController;
     public InputAndText lotBatimentTxt;
     public InputAndText tailleLotTxt;
@@ -183,6 +184,7 @@ public class LocatairePrefab : PrefabBatLoc
             nameOfLocataire.ApplySave(newLocataire.Name);
             codeComptableTxt.ApplySave(newLocataire.codeCompatable);
             emailLocataireTxt.ApplySave(newLocataire.emailLocataire);
+            telephoneLocataireTxt.ApplySave(newLocataire.telephoneLocataire);
             mapController.ApplySave(newLocataire.adresseLocataire);
             lotBatimentTxt.ApplySave(newLocataire.lotBatiment.ToString());
             tailleLotTxt.ApplySave(newLocataire.tailleLot.ToString());
@@ -240,6 +242,7 @@ public class LocatairePrefab : PrefabBatLoc
         locataire.Name = nameOfLocataire.GetNewSave();
         locataire.codeCompatable = codeComptableTxt.GetNewSave();
         locataire.emailLocataire = emailLocataireTxt.GetNewSave();
+        locataire.telephoneLocataire = telephoneLocataireTxt.GetNewSave();
         locataire.adresseLocataire = mapController.GetNewSave();
 
         SaveCorrectlyInt(ref locataire.lotBatiment, lotBatimentTxt.GetNewSave());
@@ -288,6 +291,7 @@ public class LocatairePrefab : PrefabBatLoc
         nameOfLocataire.Modify();
         codeComptableTxt.Modify();
         emailLocataireTxt.Modify();
+        telephoneLocataireTxt.Modify();
         mapController.Modify();
         lotBatimentTxt.Modify();
         if (batimentPrefabOrigin.listLocataire.Count > 1)

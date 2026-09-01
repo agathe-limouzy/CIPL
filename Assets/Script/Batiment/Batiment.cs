@@ -15,6 +15,7 @@ public class Batiment : Data
     public float tailleTerrain;
     public ParkingState parkingEtat;
     public string cadastral;            // référence cadastrale du bâtiment
+    public string dateAcquisitionISO;   // date d'acquisition saisie manuellement ("yyyy-MM-dd")
 
     // Photos du bâtiment (chemins absolus dans le dossier de sauvegarde)
     public List<string> photos = new List<string>();

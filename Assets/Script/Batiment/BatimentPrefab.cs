@@ -14,6 +14,7 @@ public class BatimentPrefab : PrefabBatLoc
     public InputAndText tailleBatimentText;
     public InputAndText tailleTerrainText;
     public InputAndText cadastralTxt;      // référence cadastrale (info générale bâtiment)
+    public DateInputController acquisitionDate;   // date d'acquisition (saisie manuelle)
 
     [Header("En-tête fiche")]
     public TMP_Text txtTitreFiche;         // titre du bandeau = nom du bâtiment
@@ -223,6 +224,23 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             summaryView.Refresh();
     }
 
+    // Charge la date d'acquisition : valeur saisie si présente, sinon date d'achat
+    // la plus ancienne (défaut pratique), sinon aujourd'hui.
+    private void LoadDateAcquisition()
+    {
+        if (acquisitionDate == null || batiment == null) return;
+        DateTime d;
+        if (!DateTime.TryParse(batiment.dateAcquisitionISO, out d))
+        {
+            DateTime m = DateTime.MaxValue;
+            if (batiment.historiquesAchat != null)
+                foreach (var a in batiment.historiquesAchat)
+                    if (DateTime.TryParse(a.dateAchat, out var da) && da < m) m = da;
+            d = m != DateTime.MaxValue ? m : DateTime.Today;
+        }
+        acquisitionDate.ApplyDate(d);
+    }
+
     // Point d'alerte de l'onglet bâtiment : révision de loyer en retard (un
     // locataire) OU objectif obligatoire non fait (bâtiment ou locataire).
     public void RefreshBatimentTabAlert()
@@ -317,6 +335,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             nameOfTheBuiding.ApplySave(batiment.Name.ToString());
             RefreshFicheHeader();
             cadastralTxt?.ApplySave(batiment.cadastral ?? "");
+            LoadDateAcquisition();
             objectivesManager.LoadObjectives(batiment.objectifs);
             save.gameObject.SetActive(false);
             modifyBatiment.gameObject.SetActive(true);
@@ -473,6 +492,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
                                          // si > 1 : reste en lecture seule (somme calculée)
         tailleTerrainText.Modify();
         cadastralTxt?.Modify();
+        acquisitionDate?.ModifyDate();
         mapController.ModifyAdress();
         ParkingDropdown.interactable = true;
         save.gameObject.SetActive(true);
@@ -511,6 +531,8 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         Debug.Log(batiment.tailleBatiment);
         batiment.adressBatiment = mapController.GetAdress();
         if (cadastralTxt != null) batiment.cadastral = cadastralTxt.GetNewSave();
+        if (acquisitionDate != null)
+            batiment.dateAcquisitionISO = acquisitionDate.saveThedate().ToString("yyyy-MM-dd");
         batiment.parkingEtat = (ParkingState)ParkingDropdown.value;
         ParkingDropdown.interactable = false;
         BatimentManager.Instance.menuManager.UpdateTabLabel(this, batiment.Name);
