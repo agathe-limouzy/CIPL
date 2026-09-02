@@ -9,11 +9,14 @@ public class HomeAlert
     public enum Kind { RevisionRetard, RevisionProche, BailRenouvellement, Objectif }
 
     public Kind kind;
-    public string titre;         // "Révision en retard", "Objectif obligatoire", "À faire"…
-    public string sujet;         // nom du locataire / texte de l'objectif
-    public string batimentNom;   // source affichée à droite
+    public string typeTodo;      // colonne « Type » : Révision de loyer / Fin de bail / Objectif obligatoire / Rappel / En cours / À faire
+    public string nomRappel;     // colonne « Rappel » : texte de l'objectif, ou détail (En retard / Dans X j / Expiré…)
+    public string nomLocataire;  // colonne « Locataire » : vide si c'est un objectif de bâtiment
+    public string nomBatiment;   // colonne « Bâtiment »
     public int priorite;         // tri : petit = plus urgent
-    public Color pastille;       // couleur du point
+    public Color pastille;       // accent saturé du liseré à gauche
+    public Color typeBg;         // fond pastel de la pastille « Type »
+    public Color typeTexte;      // couleur du texte de la pastille « Type »
 
     public BatimentPrefab batiment;
     public Locataire locataire;  // optionnel (null pour un objectif bâtiment)
@@ -21,8 +24,12 @@ public class HomeAlert
 
 public static class HomeAlertCollector
 {
-    private static readonly Color Bleu = new Color(0.216f, 0.541f, 0.867f);
-    private static readonly Color Gris = new Color(0.706f, 0.698f, 0.663f);
+    private static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+    // Pastille « Type » — paires fond pastel / texte foncé (mêmes teintes que les badges d'objectifs)
+    private static readonly Color BgRevision = Hex("#F3D8E4");   // prune/rose (section financière)
+    private static readonly Color TxRevision = Hex("#8E3B5A");
+    private static readonly Color BgBail = Hex("#DEE3EB");       // bleu ardoise (section Bail)
+    private static readonly Color TxBail = Hex("#2C3E5E");
 
     public static List<HomeAlert> Collect(IEnumerable<BatimentPrefab> batiments)
     {
@@ -44,15 +51,18 @@ public static class HomeAlertCollector
                 alertes.Add(new HomeAlert
                 {
                     kind = HomeAlert.Kind.BailRenouvellement,
-                    titre = expire
+                    typeTodo = "Fin de bail",
+                    nomRappel = expire
                         ? "Bail expiré — à renouveler"
                         : (joursBail <= 31
-                            ? $"Fin de bail dans {joursBail} j"
-                            : $"Fin de bail dans {Mathf.CeilToInt(joursBail / 30f)} mois"),
-                    sujet = nomLocBail,
-                    batimentNom = nomBat,
+                            ? $"Dans {joursBail} j"
+                            : $"Dans {Mathf.CeilToInt(joursBail / 30f)} mois"),
+                    nomLocataire = nomLocBail,
+                    nomBatiment = nomBat,
                     priorite = expire ? 0 : 1,
                     pastille = expire ? UITheme.Alerte : UITheme.Attention,
+                    typeBg = BgBail,
+                    typeTexte = TxBail,
                     batiment = bp,
                     locataire = loc
                 });
@@ -72,11 +82,14 @@ public static class HomeAlertCollector
                     alertes.Add(new HomeAlert
                     {
                         kind = HomeAlert.Kind.RevisionRetard,
-                        titre = "Révision en retard",
-                        sujet = nomLoc,
-                        batimentNom = nomBat,
+                        typeTodo = "Révision",
+                        nomRappel = "En retard",
+                        nomLocataire = nomLoc,
+                        nomBatiment = nomBat,
                         priorite = 0,
                         pastille = UITheme.Alerte,
+                        typeBg = BgRevision,
+                        typeTexte = TxRevision,
                         batiment = bp,
                         locataire = loc
                     });
@@ -84,11 +97,14 @@ public static class HomeAlertCollector
                     alertes.Add(new HomeAlert
                     {
                         kind = HomeAlert.Kind.RevisionProche,
-                        titre = $"Révision dans {jours} j",
-                        sujet = nomLoc,
-                        batimentNom = nomBat,
+                        typeTodo = "Révision",
+                        nomRappel = $"Dans {jours} j",
+                        nomLocataire = nomLoc,
+                        nomBatiment = nomBat,
                         priorite = 2,
                         pastille = UITheme.Attention,
+                        typeBg = BgRevision,
+                        typeTexte = TxRevision,
                         batiment = bp,
                         locataire = loc
                     });
@@ -98,14 +114,14 @@ public static class HomeAlertCollector
             var data = bp.getBatiment();
             if (data?.objectifs?.items != null)
                 foreach (var obj in data.objectifs.items)
-                    AjouteObjectif(alertes, obj, nomBat, bp, null);
+                    AjouteObjectif(alertes, obj, nomBat, "", bp, null);
 
             foreach (var loc in bp.listLocataire)
             {
                 if (loc.objectifs?.items == null) continue;
                 string nomLoc = string.IsNullOrEmpty(loc.Name) ? "Locataire" : loc.Name;
                 foreach (var obj in loc.objectifs.items)
-                    AjouteObjectif(alertes, obj, $"{nomBat} › {nomLoc}", bp, loc);
+                    AjouteObjectif(alertes, obj, nomBat, nomLoc, bp, loc);
             }
         }
 
@@ -114,31 +130,30 @@ public static class HomeAlertCollector
     }
 
     private static void AjouteObjectif(List<HomeAlert> alertes, Objective obj,
-        string source, BatimentPrefab bp, Locataire loc)
+        string nomBat, string nomLoc, BatimentPrefab bp, Locataire loc)
     {
         if (obj.status == Objective.ObjectiveStatus.Fait) return;
 
-        string titre; int priorite; Color pastille;
-        switch (obj.status)
+        int priorite = obj.status switch
         {
-            case Objective.ObjectiveStatus.Obligatoire:
-                titre = "Objectif obligatoire"; priorite = 1; pastille = UITheme.Alerte; break;
-            case Objective.ObjectiveStatus.Rappel:
-                titre = "Rappel"; priorite = 3; pastille = UITheme.Attention; break;
-            case Objective.ObjectiveStatus.EnCours:
-                titre = "En cours"; priorite = 4; pastille = Bleu; break;
-            default:
-                titre = "À faire"; priorite = 5; pastille = Gris; break;
-        }
+            Objective.ObjectiveStatus.Obligatoire => 1,
+            Objective.ObjectiveStatus.Rappel => 3,
+            Objective.ObjectiveStatus.EnCours => 4,
+            _ => 5
+        };
 
         alertes.Add(new HomeAlert
         {
             kind = HomeAlert.Kind.Objectif,
-            titre = titre,
-            sujet = obj.text,
-            batimentNom = source,
+            // Mêmes libellé et couleurs que les badges des listes d'améliorations
+            typeTodo = ObjectiveItem.GetStatusLabel(obj.status),
+            nomRappel = obj.text,
+            nomLocataire = nomLoc,   // vide pour un objectif de bâtiment
+            nomBatiment = nomBat,
             priorite = priorite,
-            pastille = pastille,
+            pastille = ObjectiveItem.GetStatusAccent(obj.status),
+            typeBg = ObjectiveItem.GetStatusColor(obj.status),
+            typeTexte = ObjectiveItem.GetStatusTextColor(obj.status),
             batiment = bp,
             locataire = loc
         });

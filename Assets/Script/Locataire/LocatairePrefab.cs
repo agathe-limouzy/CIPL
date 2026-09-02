@@ -91,7 +91,7 @@ public class LocatairePrefab : PrefabBatLoc
         ColorUtility.TryParseHtmlString(expire ? "#A32D2D" : "#B26A0C", out bgc);
         if (badgeBailTxt != null)
         {
-            badgeBailTxt.text = expire ? "Bail expiré" : "Renouvellement à prévoir";
+            badgeBailTxt.text = expire ? "Bail expiré" : "À renouveler";
             badgeBailTxt.color = Color.white;
         }
         if (badgeBailBg != null)

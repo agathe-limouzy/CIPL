@@ -13946,7 +13946,6 @@ GameObject:
   - component: {fileID: 5650981804281951560}
   - component: {fileID: 2431858152133144590}
   - component: {fileID: 8815818878765657913}
-  - component: {fileID: 4427388495793381633}
   - component: {fileID: 1453805264156572212}
   m_Layer: 0
   m_Name: BadgeBail
@@ -14040,20 +14039,6 @@ MonoBehaviour:
   m_ChildScaleWidth: 0
   m_ChildScaleHeight: 0
   m_ReverseArrangement: 0
---- !u!114 &4427388495793381633
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5654696070091117364}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3245ec927659c4140ac4f8d17403cc18, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  m_HorizontalFit: 2
-  m_VerticalFit: 0
 --- !u!114 &1453805264156572212
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -14067,9 +14052,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_IgnoreLayout: 0
-  m_MinWidth: 190
+  m_MinWidth: 140
   m_MinHeight: 27
-  m_PreferredWidth: 190
+  m_PreferredWidth: 140
   m_PreferredHeight: 27
   m_FlexibleWidth: 0
   m_FlexibleHeight: 0
@@ -15015,7 +15000,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Renouvellement \xE0 pr\xE9voir"
+  m_text: "\xC0 renouveler"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
