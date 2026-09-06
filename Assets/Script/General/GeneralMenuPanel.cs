@@ -70,7 +70,19 @@ public class GeneralMenuPanel : MonoBehaviour
     {
         btnPLU?.onClick.AddListener(() => PLUOverlayPanel.Instance.OpenFreeSearch());
         btnObjectifs?.onClick.AddListener(() => TogglePanel(objectifsPanel));
-        btnSauvegardes?.onClick.AddListener(() => TogglePanel(sauvegardesPanel));
+
+        // Le bouton « Sauvegardes » devient « Charger une save » : l'emplacement de
+        // sauvegarde a été déplacé dans le panneau Réglage.
+        if (btnSauvegardes != null)
+        {
+            var lblSave = btnSauvegardes.GetComponentInChildren<TMP_Text>(true);
+            if (lblSave != null) lblSave.text = "Charger une save";
+            btnSauvegardes.onClick.AddListener(() =>
+            {
+                if (SaveIO.LoadSave(out int nb))
+                    UndoToast.Instance?.ShowInfo($"Sauvegarde chargée · {nb} bâtiment(s)");
+            });
+        }
 
         btnNouveauBatiment?.onClick.AddListener(() =>
         {

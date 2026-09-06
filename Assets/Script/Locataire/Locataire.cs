@@ -35,6 +35,21 @@ public class Locataire : Data
     public string cheminBail;   // chemin du fichier bail (PDF, scan…)
     public Periodicite periodiciteLoyer;
 
+    // ── Facturation ────────────────────────────────────────────────────────────
+    // RIB du locataire (ses coordonnées bancaires — prélèvement / référence).
+    public string ribLocataireTitulaire;
+    public string ribLocataireIban;
+    public string ribLocataireBic;
+
+    // Loyer : demande / périodicité de facturation / régularisation.
+    public int jourDemandeLoyer;                    // jour du mois où le loyer est demandé (ex. 1 = le 1er)
+    public List<int> moisFacturationLoyer = new List<int>(); // mois facturés (si trimestriel/bi-annuel), 1-12
+    public string dateRegularisationChargeISO;      // date de régularisation des charges (événement annuel)
+    // provisionPourCharges (bool) + provisionPourChargeValue (float) existent déjà plus haut.
+
+    // Dépôt de garantie : date de révision (le montant = depotDeGarantie ci-dessus).
+    public string dateRevisionDepotISO;
+
     // ── Historique d'indexation (pour la rentabilité année par année) ──────────
     // Date du tout premier bail, conservée à travers les renouvellements :
     // aucun loyer n'est perçu avant cette date (local vacant).

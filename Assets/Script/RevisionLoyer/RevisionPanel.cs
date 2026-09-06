@@ -50,6 +50,16 @@ public class RevisionPanel : MonoBehaviour
     private Locataire _loc;
     private Action _onSaved;
 
+    // ── Champs facturation ajoutés par code (jour de demande, mois, régularisation) ──
+    TMP_InputField _jourDemande;
+    DateInputController _dateRegulCtrl;
+    GameObject _moisLabelGO, _moisWrapGO, _regulBlockGO;
+    readonly Button[] _moisChips = new Button[12];
+    readonly bool[] _moisState = new bool[12];
+    bool _extraBuilt;
+    static readonly string[] MoisCourts =
+        { "Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc" };
+
     private void Awake()
     {
         Instance = this;
@@ -74,6 +84,23 @@ public class RevisionPanel : MonoBehaviour
         periodiciteDropdown.ClearOptions();
         periodiciteDropdown.AddOptions(new List<string>(Enum.GetNames(typeof(Periodicite))));
         periodiciteDropdown.value = (int)loc.periodiciteLoyer;
+
+        // Champs facturation (jour de demande, mois facturés, date de régularisation)
+        EnsureExtraBuilt();
+        _jourDemande.text = loc.jourDemandeLoyer > 0 ? loc.jourDemandeLoyer.ToString() : "";
+        if (System.DateTime.TryParse(loc.dateRegularisationChargeISO, out var drDate))
+            _dateRegulCtrl.ApplyDate(drDate);
+        else { _dateRegulCtrl.dayInput.text = ""; _dateRegulCtrl.monthInput.text = ""; _dateRegulCtrl.yearInput.text = ""; }
+        _dateRegulCtrl.ModifyDate();
+        for (int i = 0; i < 12; i++) _moisState[i] = false;
+        if (loc.moisFacturationLoyer != null)
+            foreach (int m in loc.moisFacturationLoyer)
+                if (m >= 1 && m <= 12) _moisState[m - 1] = true;
+        for (int i = 0; i < 12; i++) RefreshChip(i);
+
+        periodiciteDropdown.onValueChanged.RemoveAllListeners();
+        periodiciteDropdown.onValueChanged.AddListener(_ => OnPeriodiciteChanged());
+        RefreshMoisVisibility();
 
         // Champs bail
         loyerDepart.text=(loc.loyerDepart.ToString());
@@ -112,6 +139,8 @@ public class RevisionPanel : MonoBehaviour
         toggleProvisions.onValueChanged.AddListener(on => provContainer.SetActive(on));
         provContainer.SetActive(loc.provisionPourCharges);
         provisionValue.text=(loc.provisionPourChargeValue.ToString());
+        toggleProvisions.onValueChanged.AddListener(_ => RefreshRegulVisibility());
+        RefreshRegulVisibility();
 
         // Infos
         txtIndiceDepart.text = string.IsNullOrEmpty(loc.indiceImmoAuDepart) ? "—" : loc.indiceImmoAuDepart;
@@ -379,6 +408,141 @@ public class RevisionPanel : MonoBehaviour
         float.TryParse(provisionValue.text?.Replace(',', '.'),
             NumberStyles.Float, CultureInfo.InvariantCulture, out float prov);
         _loc.provisionPourChargeValue = toggleProvisions.isOn ? prov : 0f;
+
+        // Facturation
+        if (_jourDemande != null)
+        {
+            int.TryParse(_jourDemande.text, out int jd);
+            _loc.jourDemandeLoyer = Mathf.Clamp(jd, 0, 31);
+        }
+        if (_dateRegulCtrl != null)
+        {
+            if (int.TryParse(_dateRegulCtrl.dayInput.text, out int rdd)
+                && int.TryParse(_dateRegulCtrl.monthInput.text, out int rmm)
+                && int.TryParse(_dateRegulCtrl.yearInput.text, out int ryy))
+            {
+                try { _loc.dateRegularisationChargeISO = new DateTime(ryy, rmm, rdd).ToString("yyyy-MM-dd"); }
+                catch { _loc.dateRegularisationChargeISO = ""; }
+            }
+            else _loc.dateRegularisationChargeISO = "";
+        }
+        _loc.moisFacturationLoyer = new List<int>();
+        for (int i = 0; i < 12; i++) if (_moisState[i]) _loc.moisFacturationLoyer.Add(i + 1);
+    }
+
+    // ── Facturation : champs injectés (jour, mois, régularisation) ────────────
+
+    void EnsureExtraBuilt()
+    {
+        if (_extraBuilt) return;
+        _extraBuilt = true;
+
+        var periodBlock = periodiciteDropdown.transform.parent;
+        var content = periodBlock.parent;
+        int idx = periodBlock.GetSiblingIndex() + 1;
+
+        var l1 = UIFactory.Text(content, "Loyer demandé le … (jour du mois)", 15, UITheme.TexteSecondaire);
+        l1.transform.SetSiblingIndex(idx++);
+        _jourDemande = UIFactory.Input(content, "1");
+        _jourDemande.contentType = TMP_InputField.ContentType.IntegerNumber;
+        _jourDemande.transform.SetSiblingIndex(idx++);
+
+        var l2 = UIFactory.Text(content, "Mois facturés (si trimestriel / bi-annuel)", 15, UITheme.TexteSecondaire);
+        l2.transform.SetSiblingIndex(idx++);
+        _moisLabelGO = l2.gameObject;
+        var wrap = BuildMoisChips(content);
+        wrap.transform.SetSiblingIndex(idx++);
+        _moisWrapGO = wrap;
+
+        // Date de régularisation : APRÈS le bloc Provisions
+        Transform provBlock = toggleProvisions.transform;
+        while (provBlock != null && provBlock.parent != content) provBlock = provBlock.parent;
+        int ridx = (provBlock != null ? provBlock.GetSiblingIndex() : content.childCount - 1) + 1;
+
+        // Clone du bloc « Date de révision » → même visuel (cellules JJ/MM/AAAA).
+        var regulGO = Instantiate(dateDeRevision.gameObject, content);
+        regulGO.name = "DateRegularisation";
+        regulGO.transform.SetSiblingIndex(ridx++);
+        _regulBlockGO = regulGO;
+        _dateRegulCtrl = regulGO.GetComponent<DateInputController>();
+        var titre = regulGO.transform.Find("Titre")?.GetComponent<TMP_Text>();
+        if (titre != null) titre.text = "Date de régularisation de charge";
+    }
+
+    // Mois visibles seulement hors mensuel ; régularisation visible seulement en provision.
+    void RefreshMoisVisibility()
+    {
+        bool show = periodiciteDropdown.value != (int)Periodicite.mensuel;
+        if (_moisLabelGO != null) _moisLabelGO.SetActive(show);
+        if (_moisWrapGO != null) _moisWrapGO.SetActive(show);
+    }
+
+    void RefreshRegulVisibility()
+    {
+        bool show = toggleProvisions.isOn;
+        if (_regulBlockGO != null) _regulBlockGO.SetActive(show);
+    }
+
+    // Nombre max de mois sélectionnables selon la périodicité.
+    int MaxMois()
+    {
+        switch (periodiciteDropdown.value)
+        {
+            case 1: return 4;   // trimestriel (une échéance par trimestre)
+            case 2: return 2;   // bi-annuel
+            case 3: return 1;   // annuel
+            default: return 12; // mensuel
+        }
+    }
+
+    // Au changement de périodicité : rogne la sélection au max + maj visibilité.
+    void OnPeriodiciteChanged()
+    {
+        int max = MaxMois(), c = 0;
+        for (int i = 0; i < 12; i++)
+            if (_moisState[i]) { c++; if (c > max) _moisState[i] = false; }
+        for (int i = 0; i < 12; i++) RefreshChip(i);
+        RefreshMoisVisibility();
+    }
+
+    GameObject BuildMoisChips(Transform parent)
+    {
+        var wrapGO = UIFactory.Rect("MoisWrap", parent);
+        var grid = wrapGO.gameObject.AddComponent<GridLayoutGroup>();
+        grid.cellSize = new Vector2(66, 28);
+        grid.spacing = new Vector2(5, 5);
+        grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+        grid.constraintCount = 6;
+        var csf = wrapGO.gameObject.AddComponent<ContentSizeFitter>();
+        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        UIFactory.LE(wrapGO.gameObject, minH: 60);
+
+        for (int i = 0; i < 12; i++)
+        {
+            int idx = i;
+            var b = UIFactory.Button(wrapGO, MoisCourts[i], UITheme.Carte, UITheme.TextePrincipal, 28, 15, false);
+            UIFactory.Border(b.gameObject);
+            b.onClick.AddListener(() =>
+            {
+                if (!_moisState[idx])
+                {
+                    int c = 0; for (int k = 0; k < 12; k++) if (_moisState[k]) c++;
+                    if (c >= MaxMois()) return;   // limite atteinte pour cette périodicité
+                }
+                _moisState[idx] = !_moisState[idx]; RefreshChip(idx);
+            });
+            _moisChips[idx] = b;
+        }
+        return wrapGO.gameObject;
+    }
+
+    void RefreshChip(int i)
+    {
+        if (_moisChips[i] == null) return;
+        var img = _moisChips[i].GetComponent<Image>();
+        var txt = _moisChips[i].GetComponentInChildren<TMP_Text>();
+        if (img != null) img.color = _moisState[i] ? UITheme.Primaire : UITheme.Carte;
+        if (txt != null) txt.color = _moisState[i] ? Color.white : UITheme.TextePrincipal;
     }
 
     private bool TryParseLoyer(out float loyer)

@@ -48,6 +48,7 @@ public class LocatairePrefab : PrefabBatLoc
     public Button resumeSocieteBtn;
     public PapperService papperService;
     public InputAndText Commentaire;
+    private LocataireFacturationFields facturationFields;
 
     [Header("Sections repliables")]
     public CollapsibleSection[] sections;
@@ -161,6 +162,9 @@ public class LocatairePrefab : PrefabBatLoc
         bailFile?.Init(this);
         RefreshHeader(newLocataire);
 
+        if (facturationFields == null) facturationFields = gameObject.AddComponent<LocataireFacturationFields>();
+        facturationFields.EnsureBuilt(this);
+
 
 
 
@@ -200,6 +204,7 @@ public class LocatairePrefab : PrefabBatLoc
             tauxDeRentabilité.ApplySave(newLocataire.tauxDeRentabilité.ToString());
             siret.ApplySave(newLocataire.siretNumber);
             Commentaire.ApplySave(newLocataire.commentaire);
+            facturationFields.Load(newLocataire);
 
      
             save.gameObject.SetActive(false);
@@ -265,6 +270,7 @@ public class LocatairePrefab : PrefabBatLoc
         SaveCorrectlyFloat(ref locataire.tauxDeRentabilité, tauxDeRentabilité.GetNewSave());
         locataire.siretNumber = siret.GetNewSave();
         locataire.commentaire = Commentaire.GetNewSave();
+        facturationFields?.Save(locataire);
 
         batimentPrefabOrigin.menulocataire.UpdateTabLabel(this, locataire.Name);
         batimentPrefabOrigin.listLocataire[index] = locataire;
@@ -306,6 +312,7 @@ public class LocatairePrefab : PrefabBatLoc
         Delete.gameObject.SetActive(true);
         siret.Modify();
         Commentaire.Modify();
+        facturationFields?.Modify();
 
         _sectionStateSnapshot = new bool[sections.Length];
         for (int i = 0; i < sections.Length; i++)

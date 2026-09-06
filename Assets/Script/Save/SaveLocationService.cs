@@ -43,6 +43,13 @@ public static class SaveLocationService
         return root;
     }
 
+    /// Revient à l'emplacement par défaut (persistentDataPath).
+    public static void ResetToDefault()
+    {
+        PlayerPrefs.DeleteKey(PREF_KEY);
+        PlayerPrefs.Save();
+    }
+
     /// Déplace les JSON existants vers le nouvel emplacement
     public static void MigrateData(string oldRoot, string newRoot)
     {
