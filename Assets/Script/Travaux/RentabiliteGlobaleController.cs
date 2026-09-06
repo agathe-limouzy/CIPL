@@ -36,6 +36,7 @@ public class RentabiliteGlobaleController : MonoBehaviour
     // ── Interne ───────────────────────────────────────────────────────────────
 
     private BatimentPrefab _bp;
+    private Button _btnCharges;   // bouton « Charges » cloné à côté de Travaux
 
     private struct LoanEntry
     {
@@ -57,6 +58,22 @@ public class RentabiliteGlobaleController : MonoBehaviour
         btnOuvrirTravaux.onClick.RemoveAllListeners();
         btnOuvrirTravaux.onClick.AddListener(() =>
             listPanel.Open(_bp, TypeInvestissement.Travaux, Refresh));
+
+        // Bouton « Charges » : cloné à côté de « Travaux » (une seule fois),
+        // ouvre l'écran Charges du bâtiment (code-first, module facturation).
+        if (_btnCharges == null && btnOuvrirTravaux != null)
+        {
+            _btnCharges = Instantiate(btnOuvrirTravaux, btnOuvrirTravaux.transform.parent);
+            _btnCharges.name = "btnOuvrirCharges";
+            var lbl = _btnCharges.GetComponentInChildren<TMP_Text>(true);
+            if (lbl != null) lbl.text = "Charges";
+            _btnCharges.transform.SetSiblingIndex(btnOuvrirTravaux.transform.GetSiblingIndex() + 1);
+        }
+        if (_btnCharges != null)
+        {
+            _btnCharges.onClick.RemoveAllListeners();
+            _btnCharges.onClick.AddListener(() => ChargePanel.OpenList(_bp));
+        }
 
         Refresh();
     }

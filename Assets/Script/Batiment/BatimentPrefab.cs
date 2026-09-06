@@ -325,6 +325,8 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
                 batiment.historiquesAchat = new List<AchatFinancement>();
             if (batiment.travaux == null)
                 batiment.travaux = new List<TravauxFinancement>();
+            if (batiment.charges == null)
+                batiment.charges = new List<ChargeBatiment>();
             rentabiliteGlobale?.Init(this);
             mapController.SetAdress(batiment.adressBatiment);
             tailleBatimentText.ApplySave ( batiment.tailleBatiment.ToString());
@@ -369,6 +371,8 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
                 batiment.historiquesAchat = new List<AchatFinancement>();
             if (batiment.travaux == null)
                 batiment.travaux = new List<TravauxFinancement>();
+            if (batiment.charges == null)
+                batiment.charges = new List<ChargeBatiment>();
             rentabiliteGlobale?.Init(this);
 
             // Nouveau bâtiment → direct sur la fiche en mode édition

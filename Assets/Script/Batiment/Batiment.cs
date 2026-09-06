@@ -25,6 +25,10 @@ public class Batiment : Data
     public bool travauxEnCours;
     public List<AchatFinancement> historiquesAchat = new List<AchatFinancement>();
     public List<TravauxFinancement> travaux = new List<TravauxFinancement>();
+
+    // Charges (refacturation / régularisation)
+    public List<ChargeBatiment> charges = new List<ChargeBatiment>();
+
     // Objectifs
     public ObjectiveList objectifs = new ObjectiveList();
 

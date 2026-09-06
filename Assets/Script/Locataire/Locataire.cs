@@ -49,6 +49,8 @@ public class Locataire : Data
 
     // Dépôt de garantie : date de révision (le montant = depotDeGarantie ci-dessus).
     public string dateRevisionDepotISO;
+    // Base du calcul du dépôt : loyer TTC (locataire soumis à TVA) ou HT (sinon).
+    public bool depotSurTTC = true;
 
     // ── Historique d'indexation (pour la rentabilité année par année) ──────────
     // Date du tout premier bail, conservée à travers les renouvellements :

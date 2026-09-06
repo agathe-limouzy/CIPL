@@ -1,22 +1,40 @@
 using System;
+using System.Globalization;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-/// Ajoute (au runtime) des champs de facturation à la fiche locataire, en clonant
-/// des champs InputAndText existants (rendu natif). Piloté par LocatairePrefab.
+/// Ajoute (au runtime) des champs de facturation à la fiche locataire.
 ///
-/// General : RIB du locataire (Titulaire / IBAN / BIC).
-/// Autre   : Date de révision du dépôt + bouton « Révision dépôt de garantie » (pop-up).
+/// General : RIB du locataire (Titulaire / IBAN / BIC), clonés depuis un champ
+///           InputAndText existant (rendu natif).
+/// Dépôt de garantie : carte dédiée dans la Colone 2 (entre « Loyer » et « Autre »)
+///           avec un récap lecture seule (montant · équivalent en mois de loyer ·
+///           date de révision) et le bouton « Révision dépôt de garantie » (pop-up).
+///           La colonne « Depot de garantie » d'origine (carte « Autre ») est masquée.
 /// (Les paramètres LOYER — jour de demande, mois facturés, régularisation — sont
 ///  dans le pop-up « Révision du loyer » : voir RevisionPanel.)
 public class LocataireFacturationFields : MonoBehaviour
 {
     InputAndText ribTitulaire, ribIban, ribBic;
-    InputAndText dateRevisionDepot;
+
+    // Récap dépôt de garantie (lecture seule)
+    TMP_Text _valMontant, _valMoisEquiv, _valDateRev;
 
     LocatairePrefab _fiche;
     bool _built;
+
+    // Accent de la carte « Dépôt de garantie » (bleu-canard, distinct des autres sections).
+    static readonly Color DepotAccent = HexC("#2A6F82");
+    static readonly Color DepotAccentClair = HexC("#E2EFF2");
+    static Color HexC(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+
+    // Parse une date au format français JJ/MM/AAAA (évite l'ambiguïté mois/jour
+    // de DateTime.TryParse qui interprète parfois en mois-d'abord façon US).
+    static bool TryParseFr(string s, out DateTime d) =>
+        DateTime.TryParseExact((s ?? "").Trim(),
+            new[] { "dd/MM/yyyy", "d/M/yyyy", "dd/MM/yy", "d/M/yy" },
+            CultureInfo.InvariantCulture, DateTimeStyles.None, out d);
 
     public void EnsureBuilt(LocatairePrefab fiche)
     {
@@ -33,17 +51,80 @@ public class LocataireFacturationFields : MonoBehaviour
         ribIban      = Clone(src, generalContent, "IBAN locataire", "FR76 …", "");
         ribBic       = Clone(src, generalContent, "BIC locataire", "BNPAFRPP", "");
 
-        // ── Dépôt : dans la carte « Autre » ─────────────────────────────────
-        Transform autreContent = fiche.depotDeGarantieTxt != null
-            ? fiche.depotDeGarantieTxt.transform.parent.parent
-            : null;
-        if (autreContent != null)
-        {
-            dateRevisionDepot = Clone(src, autreContent, "Date de révision du dépôt", "JJ / MM / AAAA", "");
-            var btn = UIFactory.Button(autreContent, "Révision dépôt de garantie", UITheme.Primaire, Color.white, 40, 16);
-            btn.onClick.AddListener(OpenRevisionPopup);
-        }
+        // ── Dépôt de garantie : carte dédiée ────────────────────────────────
+        BuildDepotCard();
     }
+
+    // ── Carte dédiée « Dépôt de garantie » ──────────────────────────────────
+
+    void BuildDepotCard()
+    {
+        if (_fiche.depotDeGarantieTxt == null) return;
+
+        var depotField   = _fiche.depotDeGarantieTxt.transform;  // « Depot de garantie »
+        var autreContent = depotField.parent.parent;            // « Autre » / Content
+        var autreSection = autreContent.parent;                 // section « Autre »
+        var colone2      = autreSection.parent;                 // « Colone 2 »
+
+        // Carte titrée, insérée juste avant « Autre » (donc après « Loyer »).
+        var body = UIFactory.Section(colone2, "Dépôt de garantie", DepotAccent, DepotAccentClair);
+        // Marge droite renforcée : la colonne de droite déborde ~14px hors de la
+        // vue de jeu ; sans ça les valeurs (alignées à droite) touchent le bord.
+        body.padding = new RectOffset(body.padding.left, 30, body.padding.top, body.padding.bottom);
+        var sectionRoot = body.transform.parent;
+        UIFactory.LE(sectionRoot.gameObject, flexW: 1);
+        sectionRoot.SetSiblingIndex(autreSection.GetSiblingIndex());
+
+        _valMontant   = DepotRow(body.transform, "Montant du dépôt");
+        _valMoisEquiv = DepotRow(body.transform, "Équivalent");
+        _valDateRev   = DepotRow(body.transform, "Date de révision");
+
+        var btn = UIFactory.Button(body.transform, "Révision dépôt de garantie",
+            UITheme.Primaire, Color.white, 44, 16);
+        btn.onClick.AddListener(OpenRevisionPopup);
+
+        // « Autre » ne contenait plus que « Taux de rentabilité » → on le déplace
+        // dans « General » (juste avant le bloc RIB) et on retire la carte « Autre ».
+        if (_fiche.tauxDeRentabilité != null && _fiche.emailLocataireTxt != null)
+        {
+            var generalContent = _fiche.emailLocataireTxt.transform.parent;
+            var taux = _fiche.tauxDeRentabilité.transform;
+            taux.SetParent(generalContent, false);
+            if (ribTitulaire != null)
+                taux.SetSiblingIndex(ribTitulaire.transform.GetSiblingIndex());
+        }
+        autreSection.gameObject.SetActive(false);
+    }
+
+    // Ligne « label ………… valeur » (valeur à droite, en gras).
+    TMP_Text DepotRow(Transform parent, string label)
+    {
+        var h = UIFactory.HBox(parent, 8, false, "Row");
+        UIFactory.LE(h.gameObject, minH: 22);
+        var l = UIFactory.Text(h.transform, label, 15, UITheme.TexteSecondaire);
+        UIFactory.LE(l.gameObject, flexW: 1);
+        return UIFactory.Text(h.transform, "—", 15, UITheme.TextePrincipal, true,
+            TextAlignmentOptions.Right);
+    }
+
+    void RefreshDepotRecap(Locataire loc)
+    {
+        if (_valMontant == null || loc == null) return;
+        _valMontant.text = $"{loc.depotDeGarantie:N2} €";
+
+        // Équivalent en périodes de loyer (hors charges), sur la même base que le
+        // calcul : TTC si le locataire est soumis à TVA, HT sinon. La période suit
+        // la périodicité du bail (mensuel / trimestriel / bi-annuel / annuel).
+        float perPeriode = loc.loyerAnnuel / LoyerSummaryUI.NbPeriodes(loc.periodiciteLoyer);
+        float baseVal = loc.depotSurTTC ? perPeriode * 1.2f : perPeriode;
+        _valMoisEquiv.text = baseVal > 0f
+            ? $"≈ {loc.depotDeGarantie / baseVal:0.#} périodes de loyer {(loc.depotSurTTC ? "TTC" : "HT")}" : "—";
+
+        _valDateRev.text = DateTime.TryParse(loc.dateRevisionDepotISO, out var dr)
+            ? dr.ToString("dd/MM/yyyy") : "—";
+    }
+
+    // ── Clone d'un champ InputAndText (rendu natif) ─────────────────────────
 
     InputAndText Clone(InputAndText src, Transform parent, string label, string placeholder, string unit)
     {
@@ -73,7 +154,8 @@ public class LocataireFacturationFields : MonoBehaviour
         if (_fiche == null) return;
         var loc = _fiche.GetLocataire();
         if (loc == null) return;
-        float monthlyHT = loc.loyerAnnuel / 12f;
+        // Loyer par période (selon la périodicité du bail), hors charges, HT.
+        float periodeHT = loc.loyerAnnuel / LoyerSummaryUI.NbPeriodes(loc.periodiciteLoyer);
 
         var canvas = _fiche.GetComponentInParent<Canvas>();
         if (canvas == null) return;
@@ -99,29 +181,30 @@ public class LocataireFacturationFields : MonoBehaviour
 
         UIFactory.Text(v.transform, "Date de révision", 15, UITheme.TexteSecondaire);
         var dateInput = UIFactory.Input(v.transform, "JJ / MM / AAAA");
-        dateInput.text = DateTime.Today.ToString("dd/MM/yyyy");
+        dateInput.text = DateTime.TryParse(loc.dateRevisionDepotISO, out var drx)
+            ? drx.ToString("dd/MM/yyyy") : DateTime.Today.ToString("dd/MM/yyyy");
 
-        var ttcToggle = UIFactory.Toggle(v.transform, "Sur le loyer TTC (sinon HT)", false);
+        // Soumis à TVA → loyer TTC ; sinon → loyer HT (mémorisé sur le locataire).
+        var ttcToggle = UIFactory.Toggle(v.transform, "Locataire soumis à la TVA (loyer TTC)", loc.depotSurTTC);
 
-        UIFactory.Text(v.transform, "Loyer mensuel (modifiable)", 15, UITheme.TexteSecondaire);
-        var loyerInput = UIFactory.Input(v.transform, "0");
-        loyerInput.contentType = TMP_InputField.ContentType.DecimalNumber;
-
-        UIFactory.Text(v.transform, "Nombre de mois de loyer", 15, UITheme.TexteSecondaire);
-        var moisInput = UIFactory.Input(v.transform, "ex. 3");
-        moisInput.contentType = TMP_InputField.ContentType.IntegerNumber;
-
-        var resultLine = UIFactory.Text(v.transform, "", 18, UITheme.Primaire, true);
-
+        UIFactory.Text(v.transform, "Loyer par période hors charges (prérempli)", 15, UITheme.TexteSecondaire);
+        var loyerLine = UIFactory.Text(v.transform, "", 20, UITheme.TextePrincipal, true);
+        Func<float> currentPeriode = () => ttcToggle.isOn ? periodeHT * 1.2f : periodeHT;
         Action refreshLoyer = () =>
-        {
-            float m = ttcToggle.isOn ? monthlyHT * 1.2f : monthlyHT;
-            loyerInput.text = m.ToString("0.00");
-        };
+            loyerLine.text = $"{currentPeriode():0.00} € / période {(ttcToggle.isOn ? "TTC" : "HT")}";
         ttcToggle.onValueChanged.AddListener(_ => refreshLoyer());
         refreshLoyer();
 
-        float nouveau = 0f; bool hasComputed = false;
+        UIFactory.Text(v.transform, "Nombre de périodes", 15, UITheme.TexteSecondaire);
+        var moisInput = UIFactory.Input(v.transform, "ex. 3");
+        moisInput.contentType = TMP_InputField.ContentType.IntegerNumber;
+        if (currentPeriode() > 0f && loc.depotDeGarantie > 0f)
+            moisInput.text = Mathf.RoundToInt(loc.depotDeGarantie / currentPeriode()).ToString();
+
+        // Ancien dépôt (fixe) + nouveau dépôt possible (recalculé en direct).
+        UIFactory.Text(v.transform, $"Ancien dépôt : {loc.depotDeGarantie:0.00} €", 16, UITheme.TexteSecondaire);
+        var nouveauLine = UIFactory.Text(v.transform, "", 20, UITheme.Primaire, true);
+        var hintLine = UIFactory.Text(v.transform, "", 14, UITheme.Alerte);
 
         var actions = UIFactory.HBox(v.transform, 10);
         UIFactory.LE(actions.gameObject, minH: 46);
@@ -130,30 +213,45 @@ public class LocataireFacturationFields : MonoBehaviour
         UIFactory.Border(cancel.gameObject); UIFactory.LE(cancel.gameObject, flexW: 1);
         cancel.onClick.AddListener(() => Destroy(scrim.gameObject));
 
-        var reviser = UIFactory.Button(actions.transform, "Réviser", UITheme.Carte, UITheme.Primaire, 44, 18);
-        UIFactory.Border(reviser.gameObject); UIFactory.LE(reviser.gameObject, flexW: 1);
+        var reviser = UIFactory.Button(actions.transform, "Réviser", UITheme.Primaire, Color.white, 44, 18);
+        UIFactory.LE(reviser.gameObject, flexW: 1);
+
+        // Recalcul auto du nouveau dépôt + état du bouton : la révision n'est
+        // possible qu'à partir de la date de révision (à/après ce jour).
+        Action recompute = () =>
+        {
+            refreshLoyer();
+            int.TryParse(moisInput.text, out int nb);
+            float nouveau = currentPeriode() * Mathf.Max(0, nb);
+            nouveauLine.text = $"Nouveau dépôt : {nouveau:0.00} €";
+
+            bool dateOk = TryParseFr(dateInput.text, out var dr);
+            bool due = dateOk && DateTime.Today.Date >= dr.Date;
+            reviser.interactable = due && nb > 0;
+            hintLine.text = !dateOk ? "Date de révision invalide."
+                : !due ? $"Révisable à partir du {dr:dd/MM/yyyy}."
+                : "";
+        };
+        moisInput.onValueChanged.AddListener(_ => recompute());
+        ttcToggle.onValueChanged.AddListener(_ => recompute());
+        dateInput.onValueChanged.AddListener(_ => recompute());
+        recompute();
+
         reviser.onClick.AddListener(() =>
         {
             int.TryParse(moisInput.text, out int nb);
-            if (nb <= 0) { resultLine.text = "Indique un nombre de mois valide."; hasComputed = false; return; }
-            float.TryParse(loyerInput.text, out float m);
-            nouveau = m * nb;
-            hasComputed = true;
-            resultLine.text = $"Ancien : {loc.depotDeGarantie:0.00} €   ⇄   Nouveau : {nouveau:0.00} €";
-        });
+            if (nb <= 0) return;
+            if (!TryParseFr(dateInput.text, out var dr) || DateTime.Today.Date < dr.Date) return;
 
-        var apply = UIFactory.Button(actions.transform, "Appliquer", UITheme.Primaire, Color.white, 44, 18);
-        UIFactory.LE(apply.gameObject, flexW: 1);
-        apply.onClick.AddListener(() =>
-        {
-            if (!hasComputed) { resultLine.text = "Clique d'abord sur « Réviser »."; return; }
-            loc.depotDeGarantie = nouveau;
-            loc.dateRevisionDepotISO = DateTime.TryParse(dateInput.text, out var dt)
-                ? dt.ToString("yyyy-MM-dd") : dateInput.text;
-            _fiche.depotDeGarantieTxt.ApplyValue(nouveau.ToString("0.00"));
-            dateRevisionDepot?.ApplySave(loc.dateRevisionDepotISO);
+            loc.depotDeGarantie = currentPeriode() * nb;
+            loc.depotSurTTC = ttcToggle.isOn;
+            // La prochaine révision est repoussée d'un an.
+            var next = dr.AddYears(1);
+            loc.dateRevisionDepotISO = next.ToString("yyyy-MM-dd");
+            RefreshDepotRecap(loc);
             _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
-            UndoToast.Instance?.ShowInfo($"Dépôt révisé : {nouveau:0.00} €");
+            UndoToast.Instance?.ShowInfo(
+                $"Dépôt révisé : {loc.depotDeGarantie:0.00} € — prochaine révision {next:dd/MM/yyyy}");
             Destroy(scrim.gameObject);
         });
     }
@@ -165,13 +263,13 @@ public class LocataireFacturationFields : MonoBehaviour
         ribTitulaire?.ApplySave(loc.ribLocataireTitulaire ?? "");
         ribIban?.ApplySave(loc.ribLocataireIban ?? "");
         ribBic?.ApplySave(loc.ribLocataireBic ?? "");
-        dateRevisionDepot?.ApplySave(loc.dateRevisionDepotISO ?? "");
+        RefreshDepotRecap(loc);
     }
 
     public void Modify()
     {
         ribTitulaire?.Modify(); ribIban?.Modify(); ribBic?.Modify();
-        dateRevisionDepot?.Modify();
+        // Dépôt de garantie : lecture seule (édité via le pop-up de révision).
     }
 
     public void Save(Locataire loc)
@@ -179,6 +277,5 @@ public class LocataireFacturationFields : MonoBehaviour
         if (ribTitulaire != null) loc.ribLocataireTitulaire = ribTitulaire.GetNewSave();
         if (ribIban != null) loc.ribLocataireIban = ribIban.GetNewSave();
         if (ribBic != null) loc.ribLocataireBic = ribBic.GetNewSave();
-        if (dateRevisionDepot != null) loc.dateRevisionDepotISO = dateRevisionDepot.GetNewSave();
     }
 }

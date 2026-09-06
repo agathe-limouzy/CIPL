@@ -42,7 +42,8 @@ public class LoyerSummaryUI : MonoBehaviour
         float provision = loc.provisionPourCharges ? loc.provisionPourChargeValue : 0f;
 
         int n = NbPeriodes(loc.periodiciteLoyer);
-        float periodeHT = annuel / n + provision;
+        float perHT = annuel / n;                  // loyer par période, hors charges
+        float perHTCharge = perHT + provision;     // charges comprises
         string labelP = LabelPeriode(loc.periodiciteLoyer);
 
         Set(txtLoyerAnnuelHT, $"{annuel:N2} €");
@@ -53,8 +54,16 @@ public class LoyerSummaryUI : MonoBehaviour
             : "—");   // nul tant qu'aucune révision n'a eu lieu
         Set(txtProvisions, loc.provisionPourCharges
             ? $"{provision:N2} € / {labelP}" : "Aucune");
-        Set(txtLoyerPeriodeHT, $"{periodeHT:N2} € / {labelP}");
-        Set(txtLoyerPeriodeTTC, $"{periodeHT * TVA:N2} € / {labelP}");
+
+        // 4 lignes de loyer par période : HT/TTC hors charges (toujours) +
+        // HT/TTC charges comprises (masquées s'il n'y a pas de provision).
+        EnsureLoyerLinesBuilt();
+        bool aCharges = loc.provisionPourCharges && provision > 0f;
+        Set(_htHors, $"{perHT:N2} € / {labelP}");
+        Set(_ttcHors, $"{perHT * TVA:N2} € / {labelP}");
+        Set(txtLoyerPeriodeHT, $"{perHTCharge:N2} € / {labelP}");
+        Set(txtLoyerPeriodeTTC, $"{perHTCharge * TVA:N2} € / {labelP}");
+        if (_rowAvecCharge != null) _rowAvecCharge.SetActive(aCharges);
 
         // Récap lecture seule (demande / mois facturés / révision / régularisation)
         EnsureRecapBuilt();
@@ -71,6 +80,56 @@ public class LoyerSummaryUI : MonoBehaviour
             var lbl = btnOuvrirRevision.GetComponentInChildren<TMP_Text>(true);
             if (lbl != null) lbl.color = due ? Color.white : Col("#F6E5EB");
         }
+    }
+
+    // ── Lignes de loyer HT/TTC hors et avec charges ───────────────────────────
+    // Les deux cartes-valeurs « Loyer Actuel HT/TTC » du prefab deviennent
+    // « charges comprises » ; on clone leur Row pour créer « hors charges »
+    // au-dessus. La Row « charges comprises » est masquée sans provision.
+
+    private GameObject _rowAvecCharge;
+    private TMP_Text _htHors, _ttcHors;
+    private bool _loyerLinesBuilt;
+
+    private void EnsureLoyerLinesBuilt()
+    {
+        if (_loyerLinesBuilt) return;
+        if (txtLoyerPeriodeHT == null) return;
+        _loyerLinesBuilt = true;
+
+        var htField = txtLoyerPeriodeHT.transform.parent.parent;   // « Loyer Actuel HT »
+        var row = htField.parent;                                  // Row [HT | TTC]
+        _rowAvecCharge = row.gameObject;
+
+        SetTitle(htField, "Loyer HT (charges comprises) :");
+        if (row.childCount > 1) SetTitle(row.GetChild(1), "Loyer TTC (charges comprises) :");
+
+        // Clone de la Row → version « hors charges », insérée juste au-dessus.
+        var clone = Instantiate(row.gameObject, row.parent);
+        clone.name = "RowLoyerHorsCharge";
+        clone.transform.SetSiblingIndex(row.GetSiblingIndex());
+
+        var cHT = clone.transform.GetChild(0);
+        SetTitle(cHT, "Loyer HT (hors charges) :");
+        _htHors = ValueText(cHT);
+        if (clone.transform.childCount > 1)
+        {
+            var cTTC = clone.transform.GetChild(1);
+            SetTitle(cTTC, "Loyer TTC (hors charges) :");
+            _ttcHors = ValueText(cTTC);
+        }
+    }
+
+    private static void SetTitle(Transform field, string txt)
+    {
+        var t = field.Find("title")?.GetComponent<TMP_Text>();
+        if (t != null) t.text = txt;
+    }
+
+    private static TMP_Text ValueText(Transform field)
+    {
+        var vl = field.Find("ValueLine");
+        return vl != null && vl.childCount > 0 ? vl.GetChild(0).GetComponent<TMP_Text>() : null;
     }
 
     // ── Récap facturation (lecture seule, construit par code) ─────────────────
