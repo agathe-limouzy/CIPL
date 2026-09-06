@@ -7,10 +7,11 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-/// Écran « Charges » d'un bâtiment (à côté d'Achat / Travaux), construit 100 % par
-/// code. Historique des charges + ajout/modif/suppr. Chaque charge : nom, coût,
-/// date, locataire(s) concerné(s) (Tous ou sélection + répartition par ratio),
-/// PDF de la facture (copié dans le dossier de sauvegarde), statut impayé/payé.
+/// Formulaire d'ajout / modification d'une charge de bâtiment (modale, construite
+/// par code). La LISTE (historique) est rendue par InvestissementListPanel, au même
+/// visuel qu'Achat / Travaux ; ce composant ne fournit que le formulaire.
+/// Champs : nom, coût, date, locataire(s) concerné(s) (Tous ou sélection +
+/// répartition par ratio), PDF de la facture, statut payé/impayé.
 public class ChargePanel : MonoBehaviour
 {
     public static ChargePanel Instance { get; private set; }
@@ -19,8 +20,7 @@ public class ChargePanel : MonoBehaviour
     static readonly Color AccentClair = Hex("#ECE4F5");
 
     BatimentPrefab _bp;
-    Transform _listContent;
-    TMP_Text _titre;
+    Action _onSaved;
 
     // ── État du formulaire en cours ────────────────────────────────────────────
     ChargeBatiment _edit;
@@ -28,187 +28,41 @@ public class ChargePanel : MonoBehaviour
     Toggle _fTous;
     readonly Dictionary<string, Toggle> _fLoc = new Dictionary<string, Toggle>();
     readonly Dictionary<string, TMP_InputField> _fRatio = new Dictionary<string, TMP_InputField>();
+    readonly List<TMP_InputField> _manualEditable = new List<TMP_InputField>();
+    TMP_InputField _manualLast;      // dernier locataire (Manuel) = 1 − somme des autres
     Transform _locBox, _ratioBox;
     string _fType = "Surface";
     string _fPdf;
     TMP_Text _fPdfLabel;
     Button _chipSurface, _chipEgal, _chipManuel;
 
+    Batiment Bat => _bp != null ? _bp.getBatiment() : null;
+
     void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
-        var rt = GetComponent<RectTransform>() ?? gameObject.AddComponent<RectTransform>();
-        UIFactory.Stretch(rt);
-        Build();
         gameObject.SetActive(false);
     }
 
     // ── Entrée publique ────────────────────────────────────────────────────────
 
-    public static void OpenList(BatimentPrefab bp)
+    /// Ouvre le formulaire (ajout si existing == null). `onSaved` est invoqué après
+    /// écriture de la charge dans le bâtiment (le caller persiste + rafraîchit).
+    public static void OpenForm(BatimentPrefab bp, ChargeBatiment existing, Action onSaved)
     {
         if (bp == null) return;
         if (Instance == null)
         {
             var canvas = FindObjectOfType<Canvas>();
             if (canvas == null) return;
-            var go = new GameObject("ChargePanel", typeof(RectTransform));
+            var go = new GameObject("ChargeFormHost", typeof(RectTransform));
             go.transform.SetParent(canvas.rootCanvas.transform, false);
             go.AddComponent<ChargePanel>();
         }
         Instance._bp = bp;
-        Instance.gameObject.SetActive(true);
-        Instance.transform.SetAsLastSibling();
-        Instance.RefreshTitre();
-        Instance.RebuildList();
-    }
-
-    public void Close() => gameObject.SetActive(false);
-
-    Batiment Bat => _bp != null ? _bp.getBatiment() : null;
-
-    void RefreshTitre()
-    {
-        if (_titre == null) return;
-        string nom = _bp != null ? _bp.getName() : "";
-        _titre.text = string.IsNullOrEmpty(nom) ? "Charges" : $"Charges — {nom}";
-    }
-
-    // ── Construction de l'écran ────────────────────────────────────────────────
-
-    void Build()
-    {
-        var bg = gameObject.AddComponent<Image>();
-        bg.color = UITheme.Fond;
-
-        var col = UIFactory.VBox(transform, 12, 24, 24, 14, 16, "Col");
-        UIFactory.Stretch((RectTransform)col.transform);
-        col.childForceExpandHeight = false;
-
-        // Header
-        var header = UIFactory.HBox(col.transform, 12, false, "Header");
-        UIFactory.LE(header.gameObject, minH: 52);
-        var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, 18);
-        UIFactory.Border(back.gameObject);
-        UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
-        back.onClick.AddListener(Close);
-        _titre = UIFactory.Text(header.transform, "Charges", 26, UITheme.TextePrincipal, true);
-        UIFactory.LE(_titre.gameObject, flexW: 1);
-
-        var add = UIFactory.Button(header.transform, "+  Ajouter une charge", Accent, Color.white, 42, 17);
-        UIFactory.LE(add.gameObject, prefW: 240, flexW: 0);
-        add.onClick.AddListener(() => OpenChargeForm(null));
-
-        // Scroll liste
-        _listContent = MakeScroll(col.transform);
-    }
-
-    Transform MakeScroll(Transform parent)
-    {
-        var srGO = UIFactory.Rect("Scroll", parent);
-        var sr = srGO.gameObject.AddComponent<ScrollRect>();
-        sr.horizontal = false; sr.vertical = true; sr.scrollSensitivity = 32;
-        sr.movementType = ScrollRect.MovementType.Clamped;
-        UIFactory.LE(srGO.gameObject, flexH: 1);
-
-        var viewport = UIFactory.Rect("Viewport", srGO);
-        UIFactory.Stretch(viewport);
-        viewport.gameObject.AddComponent<RectMask2D>();
-
-        var content = UIFactory.VBox(viewport, 10, 2, 8, 2, 12, "Content");
-        var crt = (RectTransform)content.transform;
-        crt.anchorMin = new Vector2(0, 1); crt.anchorMax = new Vector2(1, 1); crt.pivot = new Vector2(.5f, 1);
-        crt.offsetMin = Vector2.zero; crt.offsetMax = Vector2.zero;
-        var csf = content.gameObject.AddComponent<ContentSizeFitter>();
-        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
-
-        sr.viewport = viewport; sr.content = crt;
-        return content.transform;
-    }
-
-    // ── Liste des charges ──────────────────────────────────────────────────────
-
-    void RebuildList()
-    {
-        if (_listContent == null || Bat == null) return;
-        foreach (Transform c in _listContent) Destroy(c.gameObject);
-
-        var charges = Bat.charges ?? new List<ChargeBatiment>();
-        if (charges.Count == 0)
-        {
-            UIFactory.Text(_listContent, "Aucune charge. Cliquez sur « Ajouter une charge ».",
-                17, UITheme.TexteSecondaire);
-            return;
-        }
-
-        foreach (var ch in charges.OrderByDescending(c => c.dateISO ?? ""))
-        {
-            var ch2 = ch;
-            var rowBg = UIFactory.Panel("ChargeRow", _listContent, UITheme.Carte);
-            UIFactory.Border(rowBg.gameObject);
-            var row = rowBg.gameObject.AddComponent<HorizontalLayoutGroup>();
-            row.spacing = 10; row.padding = new RectOffset(14, 14, 10, 10);
-            row.childControlWidth = true; row.childControlHeight = true;
-            row.childForceExpandWidth = false; row.childForceExpandHeight = false;
-            row.childAlignment = TextAnchor.MiddleLeft;
-
-            // Bloc infos
-            var info = UIFactory.VBox(rowBg.transform, 2, 0, 0, 0, 0, "info");
-            UIFactory.LE(info.gameObject, flexW: 1);
-            string nom = string.IsNullOrWhiteSpace(ch.nom) ? "(charge sans nom)" : ch.nom;
-            UIFactory.Text(info.transform, nom, 18, UITheme.TextePrincipal, true);
-            string date = string.IsNullOrEmpty(ch.dateISO) ? "—"
-                : (DateTime.TryParse(ch.dateISO, out var d) ? d.ToString("dd/MM/yyyy") : ch.dateISO);
-            UIFactory.Text(info.transform, $"{date}  ·  {QuiConcerne(ch)}", 15, UITheme.TexteSecondaire);
-
-            // Coût
-            var cout = UIFactory.Text(rowBg.transform, $"{ch.cout:N2} €", 18, UITheme.TextePrincipal, true,
-                TextAlignmentOptions.Right);
-            UIFactory.LE(cout.gameObject, prefW: 130, flexW: 0);
-
-            // Badge statut
-            var badge = UIFactory.Panel("Badge", rowBg.transform, ch.paye ? UITheme.PrimaireClair : UITheme.AlerteClair);
-            UIFactory.LE(badge.gameObject, prefW: 90, minH: 30, flexW: 0);
-            var bTxt = UIFactory.Text(badge.transform, ch.paye ? "Payé" : "Impayé", 14,
-                ch.paye ? UITheme.Primaire : UITheme.AlerteTexte, true, TextAlignmentOptions.Center);
-            UIFactory.Stretch((RectTransform)bTxt.transform, 8, 0, 8, 0);
-
-            // PDF (si présent)
-            if (!string.IsNullOrEmpty(ch.pdfPath))
-            {
-                var pdf = UIFactory.Button(rowBg.transform, "PDF", UITheme.Carte, UITheme.TextePrincipal, 32, 14);
-                UIFactory.Border(pdf.gameObject); UIFactory.LE(pdf.gameObject, prefW: 64, flexW: 0);
-                pdf.interactable = File.Exists(ch.pdfPath);
-                pdf.onClick.AddListener(() => { if (File.Exists(ch2.pdfPath)) Application.OpenURL("file:///" + ch2.pdfPath.Replace('\\', '/')); });
-            }
-
-            var edit = UIFactory.Button(rowBg.transform, "Modifier", UITheme.Carte, UITheme.TextePrincipal, 32, 14);
-            UIFactory.Border(edit.gameObject); UIFactory.LE(edit.gameObject, prefW: 90, flexW: 0);
-            edit.onClick.AddListener(() => OpenChargeForm(ch2));
-
-            var del = UIFactory.Button(rowBg.transform, "Supprimer", UITheme.AlerteClair, UITheme.AlerteTexte, 32, 14);
-            UIFactory.LE(del.gameObject, prefW: 100, flexW: 0);
-            del.onClick.AddListener(() => ConfirmDialog.Instance?.Show(
-                "Supprimer la charge", $"Supprimer « {nom} » ?",
-                () =>
-                {
-                    Bat.charges.RemoveAll(x => x.id == ch2.id);
-                    Persist();
-                    UndoToast.Instance?.Show("Charge supprimée", () => { Bat.charges.Add(ch2); Persist(); });
-                }, "Supprimer"));
-        }
-    }
-
-    string QuiConcerne(ChargeBatiment ch)
-    {
-        if (ch.tousLocataires) return "Tous les locataires";
-        var noms = (ch.locatairesConcernes ?? new List<string>())
-            .Select(id => _bp.listLocataire.FirstOrDefault(l => l.id == id))
-            .Where(l => l != null).Select(l => string.IsNullOrEmpty(l.Name) ? "?" : l.Name).ToList();
-        if (noms.Count == 0) return "Aucun locataire";
-        return string.Join(" · ", noms);
+        Instance._onSaved = onSaved;
+        Instance.OpenChargeForm(existing);
     }
 
     // ── Formulaire d'ajout / modification (modale) ─────────────────────────────
@@ -221,7 +75,8 @@ public class ChargePanel : MonoBehaviour
         _fPdf = _edit.pdfPath;
         _fLoc.Clear(); _fRatio.Clear();
 
-        var scrim = UIFactory.Rect("ChargeScrim", transform);
+        var root = (FindObjectOfType<Canvas>()?.rootCanvas.transform) ?? transform;
+        var scrim = UIFactory.Rect("ChargeScrim", root);
         UIFactory.Stretch(scrim);
         scrim.gameObject.AddComponent<Image>().color = new Color(0, 0, 0, 0.45f);
         scrim.SetAsLastSibling();
@@ -231,7 +86,7 @@ public class ChargePanel : MonoBehaviour
         UIFactory.Border(cardImg.gameObject);
         var card = (RectTransform)cardImg.transform;
         card.anchorMin = card.anchorMax = card.pivot = new Vector2(.5f, .5f);
-        card.sizeDelta = new Vector2(620, 640);
+        card.sizeDelta = new Vector2(660, 860);
         var cv = cardImg.gameObject.AddComponent<VerticalLayoutGroup>();
         cv.spacing = 10; cv.padding = new RectOffset(18, 18, 16, 16);
         cv.childControlWidth = true; cv.childControlHeight = true;
@@ -312,7 +167,6 @@ public class ChargePanel : MonoBehaviour
         }
     }
 
-    // Locataires réellement concernés selon l'état courant du formulaire.
     List<Locataire> Concerned()
     {
         if (_fTous.isOn) return _bp.listLocataire.ToList();
@@ -320,10 +174,13 @@ public class ChargePanel : MonoBehaviour
     }
 
     // Section « répartition » : visible seulement si > 1 locataire concerné.
+    // Surface  → surface de chaque lot (lecture seule).
+    // Égalité  → 1/N (lecture seule).
+    // Manuel   → fractions modifiables ; le dernier locataire = 1 − somme des autres.
     void RebuildRatio()
     {
         foreach (Transform c in _ratioBox) Destroy(c.gameObject);
-        _fRatio.Clear();
+        _fRatio.Clear(); _manualEditable.Clear(); _manualLast = null;
         var concerned = Concerned();
         bool show = concerned.Count > 1;
         _ratioBox.gameObject.SetActive(show);
@@ -331,34 +188,83 @@ public class ChargePanel : MonoBehaviour
 
         UIFactory.Text(_ratioBox, "Répartition entre locataires", 17, UITheme.TexteSecondaire);
 
-        // Choix du type de ratio (3 chips)
         var chips = UIFactory.HBox(_ratioBox, 6, false, "TypeChips");
         _chipSurface = TypeChip(chips.transform, "Surface");
         _chipEgal = TypeChip(chips.transform, "Égalité");
         _chipManuel = TypeChip(chips.transform, "Manuel");
         StyleChips();
 
-        // Une ligne par locataire concerné : nom + poids (part)
-        foreach (var l in concerned)
+        int n = concerned.Count;
+        var manualInit = InitialManual(concerned);
+
+        for (int i = 0; i < n; i++)
         {
+            var l = concerned[i];
             var row = UIFactory.HBox(_ratioBox, 8, false, "RatioRow");
             UIFactory.LE(row.gameObject, minH: 40);
-            var nom = UIFactory.Text(row.transform, string.IsNullOrEmpty(l.Name) ? $"Lot {l.lotBatiment}" : l.Name,
-                16, UITheme.TextePrincipal);
+            var nom = UIFactory.Text(row.transform,
+                string.IsNullOrEmpty(l.Name) ? $"Lot {l.lotBatiment}" : l.Name, 16, UITheme.TextePrincipal);
             UIFactory.LE(nom.gameObject, flexW: 1);
-            var inp = UIFactory.Input(row.transform, "0", 38);
-            inp.contentType = TMP_InputField.ContentType.DecimalNumber;
-            UIFactory.LE(inp.gameObject, prefW: 120, flexW: 0);
-            inp.text = DefaultPart(l).ToString("0.##", CultureInfo.InvariantCulture);
-            _fRatio[l.id] = inp;
+
+            if (_fType == "Manuel")
+            {
+                bool isLast = i == n - 1;
+                var inp = UIFactory.Input(row.transform, "0", 38);
+                inp.contentType = TMP_InputField.ContentType.DecimalNumber;
+                UIFactory.LE(inp.gameObject, prefW: 120, flexW: 0);
+                inp.text = manualInit[i].ToString("0.###", CultureInfo.InvariantCulture);
+                inp.interactable = !isLast;         // dernier = reste (auto)
+                _fRatio[l.id] = inp;
+                if (isLast) _manualLast = inp;
+                else { _manualEditable.Add(inp); inp.onValueChanged.AddListener(_ => RecomputeManualLast()); }
+            }
+            else
+            {
+                string txt = _fType == "Surface"
+                    ? $"{(l.tailleLot > 0f ? l.tailleLot : 0f):0.##} m²"
+                    : $"1/{n}";
+                var val = UIFactory.Text(row.transform, txt, 16, UITheme.TextePrincipal, true,
+                    TextAlignmentOptions.Right);
+                UIFactory.LE(val.gameObject, prefW: 120, flexW: 0);
+            }
         }
+        if (_fType == "Manuel") RecomputeManualLast();
+    }
+
+    // Le dernier champ (Manuel) absorbe le reste pour que le total fasse 1.
+    void RecomputeManualLast()
+    {
+        if (_manualLast == null) return;
+        float sum = 0f;
+        foreach (var inp in _manualEditable) sum += ParseFloat(inp.text);
+        float rest = Mathf.Clamp(1f - sum, 0f, 1f);
+        _manualLast.SetTextWithoutNotify(rest.ToString("0.###", CultureInfo.InvariantCulture));
+    }
+
+    // Valeurs initiales Manuel (fractions sommant à 1) : reprend les ratios existants
+    // normalisés, sinon répartit à parts égales.
+    List<float> InitialManual(List<Locataire> concerned)
+    {
+        int n = concerned.Count;
+        var res = new List<float>();
+        float total = 0f;
+        var existing = new List<float>();
+        foreach (var l in concerned)
+        {
+            var r = _edit.ratios?.FirstOrDefault(x => x.locataireId == l.id);
+            float v = r != null ? r.part : 0f;
+            existing.Add(v); total += v;
+        }
+        if (total > 0f) for (int i = 0; i < n; i++) res.Add(existing[i] / total);
+        else for (int i = 0; i < n; i++) res.Add(1f / n);
+        return res;
     }
 
     Button TypeChip(Transform parent, string type)
     {
         var b = UIFactory.Button(parent, type, UITheme.Carte, UITheme.TextePrincipal, 34, 15, false);
         UIFactory.Border(b.gameObject); UIFactory.LE(b.gameObject, prefW: 120, flexW: 0);
-        b.onClick.AddListener(() => { _fType = type; StyleChips(); RefillRatios(); });
+        b.onClick.AddListener(() => { _fType = type; RebuildRatio(); });
         return b;
     }
 
@@ -374,27 +280,6 @@ public class ChargePanel : MonoBehaviour
         if (b == null) return;
         var img = b.GetComponent<Image>(); if (img != null) img.color = active ? Accent : UITheme.Carte;
         var t = b.GetComponentInChildren<TMP_Text>(true); if (t != null) t.color = active ? Color.white : UITheme.TextePrincipal;
-    }
-
-    // Recalcule les poids affichés selon le type choisi (sauf « Manuel » : on garde).
-    void RefillRatios()
-    {
-        if (_fType == "Manuel") return;
-        foreach (var l in Concerned())
-            if (_fRatio.TryGetValue(l.id, out var inp))
-                inp.text = DefaultPart(l).ToString("0.##", CultureInfo.InvariantCulture);
-    }
-
-    float DefaultPart(Locataire l)
-    {
-        switch (_fType)
-        {
-            case "Surface": return l.tailleLot > 0f ? l.tailleLot : 1f;
-            case "Égalité": return 1f;
-            default: // Manuel : reprend la valeur existante si dispo, sinon 1
-                var r = _edit.ratios?.FirstOrDefault(x => x.locataireId == l.id);
-                return r != null && r.part > 0f ? r.part : 1f;
-        }
     }
 
     // ── PDF ────────────────────────────────────────────────────────────────────
@@ -421,7 +306,7 @@ public class ChargePanel : MonoBehaviour
     {
         _edit.nom = nom?.Trim();
         _edit.cout = ParseFloat(coutTxt);
-        _edit.dateISO = DateTime.TryParse(dateTxt, out var dt) ? dt.ToString("yyyy-MM-dd") : _edit.dateISO;
+        _edit.dateISO = TryParseFr(dateTxt, out var dt) ? dt.ToString("yyyy-MM-dd") : _edit.dateISO;
         _edit.paye = paye;
 
         _edit.tousLocataires = _fTous.isOn;
@@ -431,8 +316,13 @@ public class ChargePanel : MonoBehaviour
         _edit.ratios = new List<ChargeRatio>();
         if (concerned.Count > 1)
             foreach (var l in concerned)
-                _edit.ratios.Add(new ChargeRatio(l.id,
-                    _fRatio.TryGetValue(l.id, out var inp) ? ParseFloat(inp.text) : 0f));
+            {
+                float part;
+                if (_fType == "Surface") part = l.tailleLot > 0f ? l.tailleLot : 1f;
+                else if (_fType == "Égalité") part = 1f;
+                else part = _fRatio.TryGetValue(l.id, out var inp) ? ParseFloat(inp.text) : 0f; // Manuel (dernier = reste déjà calculé)
+                _edit.ratios.Add(new ChargeRatio(l.id, part));
+            }
 
         // Copie du PDF dans le dossier de sauvegarde (comme le bail / les photos).
         if (!string.IsNullOrEmpty(_fPdf) && _fPdf != _edit.pdfPath && File.Exists(_fPdf))
@@ -440,11 +330,11 @@ public class ChargePanel : MonoBehaviour
         else if (string.IsNullOrEmpty(_fPdf))
             _edit.pdfPath = "";
 
-        var list = Bat.charges;
-        int idx = list.FindIndex(c => c.id == _edit.id);
-        if (idx >= 0) list[idx] = _edit; else list.Add(_edit);
+        if (Bat.charges == null) Bat.charges = new List<ChargeBatiment>();
+        int idx = Bat.charges.FindIndex(c => c.id == _edit.id);
+        if (idx >= 0) Bat.charges[idx] = _edit; else Bat.charges.Add(_edit);
 
-        Persist();
+        _onSaved?.Invoke();
     }
 
     string CopyPdf(string src)
@@ -459,14 +349,31 @@ public class ChargePanel : MonoBehaviour
         return dest;
     }
 
-    void Persist()
-    {
-        if (BatimentManager.Instance != null && Bat != null)
-            BatimentManager.Instance.SaveBatiment(Bat);
-        RebuildList();
-    }
-
     // ── Helpers ────────────────────────────────────────────────────────────────
+
+    Transform MakeScroll(Transform parent)
+    {
+        var srGO = UIFactory.Rect("Scroll", parent);
+        var sr = srGO.gameObject.AddComponent<ScrollRect>();
+        sr.horizontal = false; sr.vertical = true; sr.scrollSensitivity = 32;
+        sr.movementType = ScrollRect.MovementType.Clamped;
+        UIFactory.LE(srGO.gameObject, flexH: 1);
+
+        var viewport = UIFactory.Rect("Viewport", srGO);
+        UIFactory.Stretch(viewport);
+        viewport.gameObject.AddComponent<RectMask2D>();
+
+        var content = UIFactory.VBox(viewport, 10, 2, 8, 2, 12, "Content");
+        var crt = (RectTransform)content.transform;
+        crt.anchorMin = new Vector2(0, 1); crt.anchorMax = new Vector2(1, 1); crt.pivot = new Vector2(.5f, 1);
+        crt.offsetMin = Vector2.zero; crt.offsetMax = Vector2.zero;
+        var csf = content.gameObject.AddComponent<ContentSizeFitter>();
+        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+
+        sr.viewport = viewport; sr.content = crt;
+        return content.transform;
+    }
 
     TMP_InputField LabeledInput(Transform parent, string label, string placeholder, string value)
     {
@@ -484,4 +391,10 @@ public class ChargePanel : MonoBehaviour
 
     static ChargeBatiment Clone(ChargeBatiment c) => JsonUtility.FromJson<ChargeBatiment>(JsonUtility.ToJson(c));
     static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+
+    // Parse une date saisie au format français JJ/MM/AAAA (sans ambiguïté mois/jour).
+    static bool TryParseFr(string s, out DateTime d) =>
+        DateTime.TryParseExact((s ?? "").Trim(),
+            new[] { "dd/MM/yyyy", "d/M/yyyy", "dd/MM/yy", "d/M/yy" },
+            CultureInfo.InvariantCulture, DateTimeStyles.None, out d);
 }

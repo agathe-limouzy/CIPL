@@ -66,13 +66,15 @@ public class RentabiliteGlobaleController : MonoBehaviour
             _btnCharges = Instantiate(btnOuvrirTravaux, btnOuvrirTravaux.transform.parent);
             _btnCharges.name = "btnOuvrirCharges";
             var lbl = _btnCharges.GetComponentInChildren<TMP_Text>(true);
-            if (lbl != null) lbl.text = "Charges";
+            if (lbl != null) { lbl.text = "+ Charges"; lbl.color = Col("#7A5AA6"); }
+            var img = _btnCharges.GetComponent<Image>();
+            if (img != null) img.color = Col("#ECE4F5");
             _btnCharges.transform.SetSiblingIndex(btnOuvrirTravaux.transform.GetSiblingIndex() + 1);
         }
         if (_btnCharges != null)
         {
             _btnCharges.onClick.RemoveAllListeners();
-            _btnCharges.onClick.AddListener(() => ChargePanel.OpenList(_bp));
+            _btnCharges.onClick.AddListener(() => listPanel.OpenCharges(_bp, Refresh));
         }
 
         Refresh();
