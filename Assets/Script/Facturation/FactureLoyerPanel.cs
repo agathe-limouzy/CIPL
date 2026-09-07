@@ -32,8 +32,9 @@ public class FactureLoyerPanel : MonoBehaviour
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
 
     TMP_Text _titre, _entetePreview, _modeInfo, _mTotalHT, _mTVA, _mTTC, _numeroPrefixe;
-    TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _annee, _refInterne, _loyer, _provision, _emailEnvoi;
+    TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _annee, _refInterne, _sommePhrase, _loyer, _provision, _emailEnvoi;
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _periodeDD;
+    string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     Toggle _tvaDebit, _retard, _envoiEmail;
 
     // Aperçu de la facture rendue (image à droite du formulaire).
@@ -75,7 +76,17 @@ public class FactureLoyerPanel : MonoBehaviour
         _bat = fiche.batimentPrefabOrigin != null ? fiche.batimentPrefabOrigin.getBatiment() : null;
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
+        ResetPreview();   // pas d'aperçu du locataire précédent
         LoadIntoUI();
+    }
+
+    // Remet l'aperçu à zéro (évite d'afficher la facture d'un autre locataire).
+    void ResetPreview()
+    {
+        if (_previewImg != null) { _previewImg.texture = null; _previewImg.color = new Color(1, 1, 1, 0); }
+        if (_previewTex != null) { Destroy(_previewTex); _previewTex = null; }
+        if (_previewHint != null) _previewHint.gameObject.SetActive(true);
+        if (_viewer != null) _viewer.Fit();
     }
 
     public void Close() => gameObject.SetActive(false);
@@ -124,7 +135,9 @@ public class FactureLoyerPanel : MonoBehaviour
         _ribDD = BuildRibDropdown(f.transform);
         _date = Labeled(f, "Date");
         _date.onValueChanged.AddListener(_ => RefreshNumero());
-        _echeance = Labeled(f, "Date d'échéance (« SOMME À NOUS RÉGLER LE »)");
+        _echeance = Labeled(f, "Date d'échéance (défaut de la phrase de règlement)");
+        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
+        _sommePhrase = Labeled(f, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
         UIFactory.Text(f.transform, "Format du n° de facture", 16, UITheme.TexteSecondaire);
         _numeroFormatDD = UIDropdown.Create(f.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
         BuildNumeroRow(f);
@@ -243,9 +256,6 @@ public class FactureLoyerPanel : MonoBehaviour
         string entResolved = ent != null ? FactureVarResolver.Resolve(ent.texte, _loc, _bat, ctx) : "";
         var foot = (R.basDePage ?? "").Replace("\r", "").Split('\n');
         string dateStr = ctx.date.ToString("d MMMM yyyy", FacturePdfService.FrCulture);
-        // Échéance (« SOMME À NOUS RÉGLER LE ») : saisie, sinon date de facture par défaut.
-        DateTime ech = TryDate(_echeance.text, out var ed) ? ed : ctx.date;
-        string echeanceStr = ech.ToString("d MMMM yyyy", FacturePdfService.FrCulture);
 
         return new FacturePdfService.Data
         {
@@ -259,7 +269,7 @@ public class FactureLoyerPanel : MonoBehaviour
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             totalPeriode = loyer, provision = prov, totalHT = totalHT, tva = tva, ttc = ttc,
             tvaDebit = _tvaDebit.isOn, retard = _retard.isOn,
-            sommeDate = echeanceStr,
+            sommePhrase = _sommePhrase.text,
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
             legal = R.phraseRetard,
@@ -434,6 +444,9 @@ public class FactureLoyerPanel : MonoBehaviour
         _echeance.text = f != null && DateTime.TryParse(f.dateEcheanceISO, out var de)
             ? de.ToString("dd/MM/yyyy")
             : (TryDate(_date.text, out var dbase) ? dbase.AddDays(30) : now.AddDays(30)).ToString("dd/MM/yyyy");
+        // Phrase de règlement : mémorisée si personnalisée, sinon défaut basé sur l'échéance.
+        _autoSomme = DefaultSomme();
+        _sommePhrase.text = !string.IsNullOrEmpty(f?.sommePhrase) ? f.sommePhrase : _autoSomme;
 
         // Format du n° de facture (dropdown) : mémorisé, défaut AMN (Année/Mois-Numéro).
         string fmt = f != null && !string.IsNullOrEmpty(f.numeroFormat) ? f.numeroFormat : "AMN";
@@ -548,6 +561,21 @@ public class FactureLoyerPanel : MonoBehaviour
     }
 
     static string Ord(int n) => n == 1 ? "1er" : $"{n}e";
+
+    // Phrase de règlement par défaut, dérivée de l'échéance.
+    string DefaultSomme()
+    {
+        DateTime ech = TryDate(_echeance.text, out var ed) ? ed : DateTime.Today;
+        return "SOMME À NOUS RÉGLER LE " + ech.ToString("d MMMM yyyy", FacturePdfService.FrCulture);
+    }
+
+    // La phrase suit l'échéance tant qu'elle n'a pas été personnalisée.
+    void RefreshSommeDefault()
+    {
+        string def = DefaultSomme();
+        if (_sommePhrase != null && _sommePhrase.text == _autoSomme) _sommePhrase.text = def;
+        _autoSomme = def;
+    }
 
     // Rafraîchit le préfixe (format + date) et pré-remplit l'ID avec la séquence
     // du locataire tant que l'utilisatrice n'a rien saisi.
@@ -664,6 +692,7 @@ public class FactureLoyerPanel : MonoBehaviour
         f.enteteId = _enteteDD?.SelectedId;
         f.dateISO = TryDate(_date.text, out var d) ? d.ToString("yyyy-MM-dd") : "";
         f.dateEcheanceISO = TryDate(_echeance.text, out var de) ? de.ToString("yyyy-MM-dd") : "";
+        f.sommePhrase = _sommePhrase.text;
         f.numeroFormat = _numeroFormatDD?.SelectedId ?? "AMN";
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();

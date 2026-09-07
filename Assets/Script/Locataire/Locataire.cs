@@ -54,7 +54,9 @@ public class Locataire : Data
 
     // Facturation : état mémorisé du menu « Information Facture » par type.
     public FactureInfo factureLoyer;
-    // Séquence de numérotation des factures (unique par locataire).
+    public FactureInfo factureRegul;   // régularisation des charges
+    public FactureInfo factureRefac;   // refacturation d'une charge
+    // Séquence de numérotation des factures (unique par locataire, tous types).
     public int factureSeq = 1;
 
     // ── Historique d'indexation (pour la rentabilité année par année) ──────────

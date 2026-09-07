@@ -14,7 +14,8 @@ public class FactureInfo
     public string ribId;            // RIB CIPL choisi (référence Réglage)
     public string enteteId;         // modèle d'entête / paragraphe (référence Réglage)
     public string dateISO;          // date de la facture ("yyyy-MM-dd")
-    public string dateEcheanceISO;  // date d'échéance ("SOMME À NOUS RÉGLER LE …")
+    public string dateEcheanceISO;  // date d'échéance (défaut de la phrase de règlement)
+    public string sommePhrase;      // phrase de bas de facture, éditable (ex. « Valeur en votre aimable règlement »)
     public string numeroFormat = "AMN"; // AN=Année/Numéro · AMN=Année/MoisNuméro · AJMN=Année/JourMoisNuméro
     public string numeroId;         // partie « ID locataire » saisie (le préfixe format est recalculé)
     public string numero;           // n° complet = préfixe format + numeroId (mémorisé pour référence)
@@ -24,6 +25,8 @@ public class FactureInfo
     public string emailDest;        // adresse d'envoi (pré-remplie depuis le locataire)
     public string objet;            // objet/titre (ex « Loyer avril 2026 »), éditable
     public string refInterne;       // texte libre affiché avec le n° (ex « N° Interne Magasin 001048 »)
+    public string chargeId;         // refacturation : id de la charge refacturée
+    public bool joindrePj;          // refacturation : joindre le justificatif de la charge
 
     // Montants (pré-remplis depuis le locataire, éditables et mémorisés).
     public float loyerMontant;      // loyer HT de la période

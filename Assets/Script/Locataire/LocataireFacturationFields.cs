@@ -79,8 +79,12 @@ public class LocataireFacturationFields : MonoBehaviour
         var loyer = UIFactory.Button(body.transform, "Facturer le loyer", UITheme.Primaire, Color.white, 42, 16);
         loyer.onClick.AddListener(() => FactureLoyerPanel.OpenLoyer(_fiche));
 
-        AddSoon(body.transform, "Refacturation");
-        AddSoon(body.transform, "Régularisation des charges");
+        var regul = UIFactory.Button(body.transform, "Régularisation des charges", FactAccent, Color.white, 42, 16);
+        regul.onClick.AddListener(() => FactureRegulPanel.OpenRegul(_fiche));
+
+        var refac = UIFactory.Button(body.transform, "Refacturation d'une charge", HexC("#7A5AA6"), Color.white, 42, 16);
+        refac.onClick.AddListener(() => FactureRefacPanel.OpenRefac(_fiche));
+
         AddSoon(body.transform, "Révision du dépôt (facture)");
     }
 

@@ -19,13 +19,17 @@ body{font-family:Calibri,"Segoe UI",Candara,"Trebuchet MS",Arial,sans-serif;colo
 .body p{margin:0;}
 .subtitle{margin-top:18px;font-weight:bold;font-size:14.5px;}
 u{text-underline-offset:2px;}
-table.amounts{width:72%;margin:14px 0 0 8%;border-collapse:collapse;}
-table.amounts td{border:1px solid #2b2b2b;padding:3px 9px;height:23px;line-height:1.2;}
-table.amounts td.r{text-align:right;}
-table.amounts .euros{text-align:center;font-weight:bold;}
-table.amounts tr.ttc td{font-weight:bold;border:1.6px solid #000;}
+table.recap{width:92%;margin:12px 0 0 4%;border-collapse:collapse;font-size:12.5px;}
+table.recap th,table.recap td{border:1px solid #2b2b2b;padding:3px 8px;line-height:1.2;}
+table.recap th{background:#D9D9D9;font-weight:bold;text-align:left;}
+table.recap td.r,table.recap th.r{text-align:right;}
+table.totaux{width:72%;margin:12px 0 0 8%;border-collapse:collapse;}
+table.totaux td{border:1px solid #2b2b2b;padding:3px 9px;height:23px;line-height:1.2;}
+table.totaux td.r{text-align:right;}
+table.totaux tr.solde td{font-weight:bold;}
+table.totaux tr.ttc td{font-weight:bold;border:1.6px solid #000;}
 .tva{margin:2px 0 0 8%;font-size:12.5px;}
-.somme{margin:6px 0 0 8%;font-weight:bold;font-size:14px;}
+.somme{margin:8px 0 0 8%;font-weight:bold;font-size:14px;}
 table.rib{width:80%;margin:16px auto 0;border-collapse:collapse;}
 table.rib td{border:1px solid #000;padding:3px 12px;font-size:13.5px;}
 table.rib .hdr{text-align:center;font-weight:bold;font-size:15px;background:#D9D9D9;}
@@ -33,6 +37,14 @@ table.rib .lbl{font-weight:bold;width:34%;background:#D9D9D9;}
 table.rib .val{text-align:center;}
 .legal{margin-top:26px;font-size:11px;line-height:1.3;}
 .foot{position:absolute;left:15mm;right:15mm;bottom:9mm;text-align:center;font-size:10.5px;line-height:1.5;}
+.page.detail{page-break-before:always;}
+.detail-title{text-align:center;font-weight:bold;font-size:15px;background:#D9D9D9;border:1px solid #2b2b2b;padding:7px 8px;}
+table.detail{width:100%;border-collapse:collapse;font-size:13px;}
+table.detail th,table.detail td{border:1px solid #2b2b2b;padding:4px 9px;height:22px;}
+table.detail th{background:#D9D9D9;font-weight:bold;text-align:left;}
+table.detail th.r,table.detail td.r{text-align:right;}
+table.detail td.name{font-weight:bold;}
+table.detail tr.tot td{font-weight:bold;}
 </style></head>
 <body>
 <div class="page">
@@ -56,18 +68,8 @@ table.rib .val{text-align:center;}
 
   <div class="subtitle"><u>{{SUBTITLE}}</u></div>
 
-  <table class="amounts">
-    <colgroup><col style="width:62%"><col style="width:38%"></colgroup>
-    <tr><td></td><td class="euros">Euros</td></tr>
-    <tr><td>{{LIGNE_LABEL}}</td><td class="r">{{TOTAL_PERIODE}}</td></tr>
-    {{PROVISION_ROW}}
-    <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
-    <tr><td>Total H.T.</td><td class="r">{{TOTAL_HT}}</td></tr>
-    <tr><td>TVA 20%</td><td class="r">{{TVA}}</td></tr>
-    <tr class="ttc"><td>Total T.T.C.</td><td class="r">{{TTC}}</td></tr>
-  </table>
+  {{TOTAUX_BLOCK}}
 
-  {{TVA_DEBIT}}
   <div class="somme"><u>{{SOMME_PHRASE}}</u></div>
 
   <table class="rib">
@@ -86,4 +88,6 @@ table.rib .val{text-align:center;}
     <div>{{FOOT2}}</div>
   </div>
 </div>
+
+{{DETAIL_PAGE}}
 </body></html>
