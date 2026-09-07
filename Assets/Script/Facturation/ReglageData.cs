@@ -60,6 +60,10 @@ public class ReglageData
     public List<RibData> ribs = new List<RibData>();
     public List<EnteteData> entetes = new List<EnteteData>();
 
+    // Logo affiché sur les factures (chemin d'image copiée dans le dossier de
+    // sauvegarde). Vide = logo CIPL par défaut (StreamingAssets/logo_cipl.png).
+    public string logoPath;
+
     public string phraseRetard =
         "En cas de retard de paiement, des pénalités de retard, à un taux d'intérêt égal à trois fois " +
         "le taux d'intérêt légal seront appliquées + une indemnité forfaitaire de 40 € pour frais de " +

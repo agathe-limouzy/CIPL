@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.IO;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -25,6 +26,9 @@ public class ReglagePanel : MonoBehaviour
     GameObject _smtpCard;
     Transform _ribList, _enteteList;
     TMP_Text _savePath;
+    RawImage _logoPreview;
+    AspectRatioFitter _logoAspect;
+    TMP_Text _logoInfo;
 
     ReglageData R => ReglageService.Current;
 
@@ -89,6 +93,7 @@ public class ReglagePanel : MonoBehaviour
         var content = MakeScroll(col.transform);
 
         BuildConnexion(content);
+        BuildLogo(content);
         BuildRibs(content);
         BuildEntetes(content);
         BuildTextes(content);
@@ -164,6 +169,81 @@ public class ReglagePanel : MonoBehaviour
     {
         UIFactory.Text(parent, label, 17, UITheme.TexteSecondaire);
         return UIFactory.Input(parent, placeholder);
+    }
+
+    // ── Section Logo de la facture ─────────────────────────────────────────────
+
+    void BuildLogo(Transform parent)
+    {
+        var body = UIFactory.Section(parent, "Logo de la facture", CoPetrole, CoPetroleL);
+        UIFactory.Text(body.transform,
+            "Le logo apparaît en haut de la facture (remplace le logo CIPL par défaut).",
+            15, UITheme.TexteSecondaire);
+
+        var previewBg = UIFactory.Panel("LogoPreview", body.transform, Color.white);
+        UIFactory.Border(previewBg.gameObject);
+        UIFactory.LE(previewBg.gameObject, minH: 130, prefH: 130);
+        var imgGO = new GameObject("Img", typeof(RectTransform));
+        imgGO.transform.SetParent(previewBg.transform, false);
+        _logoPreview = imgGO.AddComponent<RawImage>();
+        _logoPreview.raycastTarget = false;
+        var irt = (RectTransform)imgGO.transform;
+        irt.anchorMin = irt.anchorMax = irt.pivot = new Vector2(.5f, .5f);
+        _logoAspect = imgGO.AddComponent<AspectRatioFitter>();
+        _logoAspect.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+
+        _logoInfo = UIFactory.Text(body.transform, "", 14, UITheme.TexteSecondaire);
+
+        var row = UIFactory.HBox(body.transform, 8, false, "LogoBtns");
+        var pick = UIFactory.Button(row.transform, "Choisir un logo…", CoPetroleL, CoPetrole, 40, 16);
+        UIFactory.LE(pick.gameObject, flexW: 1);
+        pick.onClick.AddListener(ChoisirLogo);
+        var reset = UIFactory.Button(row.transform, "Logo CIPL par défaut", UITheme.Carte, UITheme.TexteSecondaire, 40, 15);
+        UIFactory.Border(reset.gameObject); UIFactory.LE(reset.gameObject, prefW: 240, flexW: 0);
+        reset.onClick.AddListener(() => { R.logoPath = ""; ReglageService.Save(); RefreshLogo(); });
+
+        RefreshLogo();
+    }
+
+    void ChoisirLogo()
+    {
+#if UNITY_STANDALONE || UNITY_EDITOR
+        var paths = SFB.StandaloneFileBrowser.OpenFilePanel(
+            "Choisir un logo", "",
+            new[] { new SFB.ExtensionFilter("Images", "png", "jpg", "jpeg") }, false);
+        if (paths != null && paths.Length > 0 && !string.IsNullOrEmpty(paths[0]))
+        {
+            try
+            {
+                string dossier = Path.Combine(SaveLocationService.GetSaveRoot(), "Logo");
+                Directory.CreateDirectory(dossier);
+                string dest = Path.Combine(dossier, "logo" + Path.GetExtension(paths[0]));
+                File.Copy(paths[0], dest, true);
+                R.logoPath = dest;
+                ReglageService.Save();
+                RefreshLogo();
+            }
+            catch (Exception e) { UndoToast.Instance?.ShowInfo("Logo : " + e.Message); }
+        }
+#endif
+    }
+
+    void RefreshLogo()
+    {
+        string path = !string.IsNullOrEmpty(R.logoPath) && File.Exists(R.logoPath)
+            ? R.logoPath : Path.Combine(Application.streamingAssetsPath, "logo_cipl.png");
+        var tex = PhotoService.Charger(path);
+        if (_logoPreview != null)
+        {
+            _logoPreview.texture = tex;
+            _logoPreview.color = tex != null ? Color.white : new Color(1, 1, 1, 0);
+        }
+        if (_logoAspect != null && tex != null && tex.height > 0)
+            _logoAspect.aspectRatio = (float)tex.width / tex.height;
+        if (_logoInfo != null)
+            _logoInfo.text = !string.IsNullOrEmpty(R.logoPath)
+                ? "Logo personnalisé : " + Path.GetFileName(R.logoPath)
+                : "Logo CIPL par défaut.";
     }
 
     // ── Section RIB ────────────────────────────────────────────────────────────
@@ -334,6 +414,7 @@ public class ReglagePanel : MonoBehaviour
         _smtpPwd.text = ReglageService.GetSmtpPassword();
         _phraseRetard.text = R.phraseRetard;
         _basDePage.text = R.basDePage;
+        if (_logoPreview != null) RefreshLogo();
         RebuildRibList();
         RebuildEnteteList();
         if (_savePath != null)

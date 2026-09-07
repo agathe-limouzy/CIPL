@@ -52,6 +52,11 @@ public class Locataire : Data
     // Base du calcul du dépôt : loyer TTC (locataire soumis à TVA) ou HT (sinon).
     public bool depotSurTTC = true;
 
+    // Facturation : état mémorisé du menu « Information Facture » par type.
+    public FactureInfo factureLoyer;
+    // Séquence de numérotation des factures (unique par locataire).
+    public int factureSeq = 1;
+
     // ── Historique d'indexation (pour la rentabilité année par année) ──────────
     // Date du tout premier bail, conservée à travers les renouvellements :
     // aucun loyer n'est perçu avant cette date (local vacant).

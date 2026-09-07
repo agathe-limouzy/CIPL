@@ -27,6 +27,9 @@ public class LocataireFacturationFields : MonoBehaviour
     // Accent de la carte « Dépôt de garantie » (bleu-canard, distinct des autres sections).
     static readonly Color DepotAccent = HexC("#2A6F82");
     static readonly Color DepotAccentClair = HexC("#E2EFF2");
+    // Accent de la carte « Facturation ».
+    static readonly Color FactAccent = HexC("#9A5B2E");
+    static readonly Color FactAccentClair = HexC("#F3E7D9");
     static Color HexC(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
     // Parse une date au format français JJ/MM/AAAA (évite l'ambiguïté mois/jour
@@ -53,6 +56,39 @@ public class LocataireFacturationFields : MonoBehaviour
 
         // ── Dépôt de garantie : carte dédiée ────────────────────────────────
         BuildDepotCard();
+
+        // ── Facturation : boutons (bas de la colonne gauche) ────────────────
+        BuildFacturationButtons();
+    }
+
+    // Carte « Facturation » en bas de la colonne gauche : un bouton par type.
+    // Loyer actif ; les autres à venir.
+    void BuildFacturationButtons()
+    {
+        if (_fiche.emailLocataireTxt == null) return;
+        var generalContent = _fiche.emailLocataireTxt.transform.parent;   // General/Content
+        var generalSection = generalContent.parent;                       // section General
+        var colone1 = generalSection != null ? generalSection.parent : null;
+        if (colone1 == null) return;
+
+        var body = UIFactory.Section(colone1, "Facturation", FactAccent, FactAccentClair);
+        var sectionRoot = body.transform.parent;
+        UIFactory.LE(sectionRoot.gameObject, flexW: 1);
+        sectionRoot.SetAsLastSibling();
+
+        var loyer = UIFactory.Button(body.transform, "Facturer le loyer", UITheme.Primaire, Color.white, 42, 16);
+        loyer.onClick.AddListener(() => FactureLoyerPanel.OpenLoyer(_fiche));
+
+        AddSoon(body.transform, "Refacturation");
+        AddSoon(body.transform, "Régularisation des charges");
+        AddSoon(body.transform, "Révision du dépôt (facture)");
+    }
+
+    void AddSoon(Transform parent, string label)
+    {
+        var b = UIFactory.Button(parent, label + "  ·  à venir", UITheme.Carte, UITheme.TexteSecondaire, 40, 15);
+        UIFactory.Border(b.gameObject);
+        b.interactable = false;
     }
 
     // ── Carte dédiée « Dépôt de garantie » ──────────────────────────────────

@@ -101,6 +101,10 @@ public class LocatairePrefab : PrefabBatLoc
 
     public void OnEnable()
     {
+        // (Re)configure le défilement quand la fiche devient visible : au premier
+        // affichage le layout n'est pas encore stabilisé, la plage scrollable
+        // n'était donc pas recalculée (il fallait Modifier+Save pour un re-init).
+        EnsureScrollable();
         locataireScrollContent?.SetDirty();
     }
 
@@ -236,7 +240,68 @@ public class LocatairePrefab : PrefabBatLoc
                         () => bp.RestoreLocataire(backup));
                 });
         });
+        EnsureScrollable();
         locataireScrollContent?.SetDirty();
+    }
+
+    // Rend la fiche défilable verticalement : son contenu dépasse la fenêtre depuis
+    // l'ajout des champs RIB / facturation. Idempotent (appelé à chaque ouverture).
+    private void EnsureScrollable()
+    {
+        if (locataireScrollContent == null) return;
+        var content = locataireScrollContent.GetComponent<RectTransform>();
+        var scr = locataireScrollContent.GetComponentInParent<ScrollRect>();
+        var vlg = content.GetComponent<VerticalLayoutGroup>();
+        if (vlg != null) vlg.childForceExpandHeight = false;
+        var csf = content.GetComponent<ContentSizeFitter>() ?? content.gameObject.AddComponent<ContentSizeFitter>();
+        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        content.anchorMin = new Vector2(0, 1);
+        content.anchorMax = new Vector2(1, 1);
+        content.pivot = new Vector2(0.5f, 1);
+
+        if (scr != null)
+        {
+            scr.vertical = true;
+            scr.movementType = ScrollRect.MovementType.Clamped;
+            scr.scrollSensitivity = 40f;
+            // Barre de défilement toujours visible et ramenée dans la zone à l'écran
+            // (la fiche déborde légèrement à droite → la barre tomberait hors écran).
+            var vbar = scr.verticalScrollbar;
+            if (vbar != null)
+            {
+                scr.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
+                vbar.gameObject.SetActive(true);
+                var vrt = (RectTransform)vbar.transform;
+                vrt.anchorMin = new Vector2(1, 0);
+                vrt.anchorMax = new Vector2(1, 1);
+                vrt.pivot = new Vector2(1, 1);
+                vrt.sizeDelta = new Vector2(16, 0);
+                vrt.anchoredPosition = new Vector2(-26, 0);
+                var barImg = vbar.GetComponent<Image>();
+                if (barImg != null) barImg.color = new Color(0f, 0f, 0f, 0.08f);
+                if (vbar.handleRect != null)
+                {
+                    var hImg = vbar.handleRect.GetComponent<Image>();
+                    if (hImg != null) hImg.color = new Color(0.30f, 0.30f, 0.30f, 0.9f);
+                }
+            }
+        }
+
+        // Le layout (CSF/TMP) n'est pas stabilisé sur la même frame : on force un
+        // recalcul sur les 2 frames suivantes pour que la plage scrollable soit
+        // correcte dès le premier affichage.
+        if (isActiveAndEnabled) StartCoroutine(RecomputeScrollNextFrames());
+    }
+
+    private System.Collections.IEnumerator RecomputeScrollNextFrames()
+    {
+        yield return null;
+        yield return new WaitForEndOfFrame();
+        if (locataireScrollContent == null) yield break;
+        var content = locataireScrollContent.GetComponent<RectTransform>();
+        Canvas.ForceUpdateCanvases();
+        LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+        Canvas.ForceUpdateCanvases();
     }
 
     public void SaveLocataire()
