@@ -263,7 +263,7 @@ public class BatimentSummaryView : MonoBehaviour
         transform.Find("BandeFinanciere")?.gameObject.SetActive(false);
     }
 
-    TMP_Text KpiTile(Transform parent, string label)
+    public static TMP_Text KpiTile(Transform parent, string label)
     {
         // Fond clair net (crème blanche) + cadre ambre franc → la tuile se détache
         // du beige de la page (avant : crème #FBF5E8 quasi invisible sur le fond).
@@ -557,37 +557,50 @@ public class BatimentSummaryView : MonoBehaviour
     private static void CalculFinances(Batiment bat, float loyerAnnuel,
         out float cashFlowMois, out float rendementNet, out bool aDesCredits, out float investTotal)
     {
-        investTotal = 0f;
-        float mensualites = 0f;
-        aDesCredits = false;
+        ComposantesFinancieres(bat, out _, out float mensAn, out float chargesAn, out investTotal, out _);
+        aDesCredits = mensAn > 0f;
+        cashFlowMois = (loyerAnnuel - mensAn) / 12f;                         // financement
+        rendementNet = investTotal > 0 ? (loyerAnnuel - chargesAn) / investTotal * 100f : 0f;   // net de charges
+    }
 
+    // Composantes financières brutes d'un bâtiment (mutualisées entre la fiche et le
+    // menu global) : loyers annuels, service de la dette annuel (mensualités×12),
+    // charges d'exploitation de l'année en cours, coût de revient, cash-flow cumulé.
+    public static void ComposantesFinancieres(Batiment bat, out float loyers,
+        out float mensualitesAn, out float chargesAn, out float investi, out float gagne)
+    {
+        loyers = 0f;
+        if (bat.locataireDuBatiment != null)
+            foreach (var l in bat.locataireDuBatiment)
+                if (l != null) loyers += l.loyerAnnuel;
+
+        investi = 0f; float mens = 0f;
         if (bat.historiquesAchat != null)
             foreach (var a in bat.historiquesAchat)
             {
-                investTotal += a.prixAchat + a.fraisNotaire + a.fraisAgence;
+                investi += a.prixAchat + a.fraisNotaire + a.fraisAgence;
                 if (a.emprunt && a.dureeMois > 0)
-                {
-                    mensualites += RentabiliteCalculator.Mensualite(
-                        a.montantEmprunte, a.tauxInteretAnnuel, a.dureeMois);
-                    aDesCredits = true;
-                }
+                    mens += RentabiliteCalculator.Mensualite(a.montantEmprunte, a.tauxInteretAnnuel, a.dureeMois);
             }
-
         if (bat.travaux != null)
             foreach (var t in bat.travaux)
             {
-                investTotal += t.coutTotal;
+                investi += t.coutTotal;
                 if (t.emprunt && t.dureeMois > 0)
-                {
-                    mensualites += RentabiliteCalculator.Mensualite(
-                        t.montantEmprunte, t.tauxInteretAnnuel, t.dureeMois);
-                    aDesCredits = true;
-                }
+                    mens += RentabiliteCalculator.Mensualite(t.montantEmprunte, t.tauxInteretAnnuel, t.dureeMois);
             }
+        mensualitesAn = mens * 12f;
 
-        float cashFlowAnnuel = loyerAnnuel - mensualites * 12f;
-        cashFlowMois = cashFlowAnnuel / 12f;
-        rendementNet = investTotal > 0 ? cashFlowAnnuel / investTotal * 100f : 0f;
+        chargesAn = 0f;
+        if (bat.charges != null)
+        {
+            int an = DateTime.Today.Year;
+            foreach (var c in bat.charges)
+                if (DateTime.TryParse(c.dateISO, out var d) && d.Year == an)
+                    chargesAn += c.cout;
+        }
+
+        gagne = (loyers - mensualitesAn) * AnneesDepuisAcquisition(bat);
     }
 
     // Années (fractionnaires) écoulées depuis l'acquisition (date manuelle, sinon

@@ -61,6 +61,10 @@ public class GeneralMenuPanel : MonoBehaviour
     private string _recherche = "";
     private int _tri = 0;
 
+    // Rangée de tuiles KPI GLOBALES (agrégées sur tous les bâtiments), en haut du menu.
+    private Transform _kpiGlobaux;
+    private TMP_Text _gLoyer, _gDepense, _gInvesti, _gGagne, _gRend, _gCash;
+
     private void Awake()
     {
         if (Instance != null) { Destroy(gameObject); return; }
@@ -93,14 +97,18 @@ public class GeneralMenuPanel : MonoBehaviour
             triDropdown.onValueChanged.AddListener(t => { _tri = t; RebuildBuildings(); });
             // Le contrôle « Tri » et sa liste déroulante passaient DERRIÈRE le Scroll
             // View des bâtiments (dessiné après). Un Canvas trié les remonte au-dessus.
-            var cv = triDropdown.GetComponent<Canvas>() ?? triDropdown.gameObject.AddComponent<Canvas>();
+            // NB : pas de « ?? » ici — GetComponent d'un composant Unity absent renvoie
+            // un faux-null qui n'active pas le fallback ; on teste avec == null (surcharge Unity).
+            var cv = triDropdown.GetComponent<Canvas>();
+            if (cv == null) cv = triDropdown.gameObject.AddComponent<Canvas>();
             cv.overrideSorting = true; cv.sortingOrder = 100;
             if (triDropdown.GetComponent<GraphicRaycaster>() == null)
                 triDropdown.gameObject.AddComponent<GraphicRaycaster>();
             // La liste instanciée (clone du Template) reçoit un Canvas encore au-dessus.
             if (triDropdown.template != null)
             {
-                var tcv = triDropdown.template.GetComponent<Canvas>() ?? triDropdown.template.gameObject.AddComponent<Canvas>();
+                var tcv = triDropdown.template.GetComponent<Canvas>();
+                if (tcv == null) tcv = triDropdown.template.gameObject.AddComponent<Canvas>();
                 tcv.overrideSorting = true; tcv.sortingOrder = 200;
                 if (triDropdown.template.GetComponent<GraphicRaycaster>() == null)
                     triDropdown.template.gameObject.AddComponent<GraphicRaycaster>();
@@ -314,6 +322,9 @@ public class GeneralMenuPanel : MonoBehaviour
     public void Refresh()
     {
         UpdateStats();
+        AjusteOutilsDansHeader();
+        EnsureKpiGlobaux();
+        RefreshKpiGlobaux();
         BuildAlertes();
         RebuildBuildings();
         EnsureHomeReorg();
@@ -324,6 +335,90 @@ public class GeneralMenuPanel : MonoBehaviour
         // vivent dans « À traiter ») — on ne la rafraîchit que si visible.
         if (objectivesSection != null && objectivesSection.gameObject.activeInHierarchy)
             objectivesSection.Refresh();
+    }
+
+    // ── Barre d'outils déplacée dans le header ─────────────────────────────────
+
+    // Déplace « RowOutils » (Consulter le PLU / Entreprises / Réglage / Calcul rapide…)
+    // depuis le bas du menu vers la barre de titre (à droite), boutons compacts.
+    private void AjusteOutilsDansHeader()
+    {
+        var panel = transform.Find("Panel");
+        if (panel == null) return;
+        var header = panel.Find("MenuHeader");
+        var ro = panel.Find("RowOutils");
+        if (header == null || ro == null) return;
+
+        if (ro.parent != header)
+        {
+            ro.SetParent(header, false);
+            ro.SetAsLastSibling();                                   // à droite du header
+            var rohlg = ro.GetComponent<UnityEngine.UI.HorizontalLayoutGroup>();
+            if (rohlg != null) { rohlg.childForceExpandWidth = false; rohlg.childControlWidth = true; rohlg.spacing = 6; rohlg.childAlignment = TextAnchor.MiddleRight; }
+            var role = ro.GetComponent<LayoutElement>() ?? ro.gameObject.AddComponent<LayoutElement>();
+            role.flexibleWidth = 0; role.minWidth = 0;
+            // Le bloc titre prend l'espace restant → pousse la barre d'outils à droite.
+            var title = header.Find("TitleBlock");
+            if (title != null) { var tle = title.GetComponent<LayoutElement>() ?? title.gameObject.AddComponent<LayoutElement>(); tle.flexibleWidth = 1; }
+        }
+
+        // Boutons compacts (chaque Refresh, pour rattraper ceux ajoutés au runtime).
+        foreach (Transform b in ro)
+        {
+            if (!b.gameObject.activeSelf || b.GetComponent<UnityEngine.UI.Button>() == null) continue;
+            var le = b.GetComponent<LayoutElement>() ?? b.gameObject.AddComponent<LayoutElement>();
+            le.minWidth = 170; le.preferredWidth = 170; le.flexibleWidth = 0;
+            le.minHeight = 36; le.preferredHeight = 36; le.flexibleHeight = 0;
+        }
+    }
+
+    // ── Tuiles KPI globales (patrimoine) ───────────────────────────────────────
+
+    private void EnsureKpiGlobaux()
+    {
+        if (_kpiGlobaux != null) return;
+        var panel = transform.Find("Panel");
+        if (panel == null) return;
+        var row = UIFactory.HBox(panel, 10, false, "KpiGlobaux");
+        row.childControlWidth = true; row.childForceExpandWidth = true;
+        row.childControlHeight = true; row.childForceExpandHeight = true;
+        row.childAlignment = TextAnchor.MiddleLeft;
+        UIFactory.LE(row.gameObject, minH: 82, prefH: 82, flexH: 0);
+        _gLoyer   = BatimentSummaryView.KpiTile(row.transform, "Loyers / an");
+        _gDepense = BatimentSummaryView.KpiTile(row.transform, "Dépensé / an");
+        _gInvesti = BatimentSummaryView.KpiTile(row.transform, "Investi");
+        _gGagne   = BatimentSummaryView.KpiTile(row.transform, "Total gagné");
+        _gRend    = BatimentSummaryView.KpiTile(row.transform, "Rendement net");
+        _gCash    = BatimentSummaryView.KpiTile(row.transform, "Cash flow / mois");
+        row.transform.SetSiblingIndex(1);   // juste après le header du menu
+        _kpiGlobaux = row.transform;
+    }
+
+    private void RefreshKpiGlobaux()
+    {
+        if (_gLoyer == null || batimentManager == null) return;
+        float loyers = 0f, mensAn = 0f, chargesAn = 0f, investi = 0f, gagne = 0f;
+        foreach (var bp in batimentManager.BatimentPrefab)
+        {
+            if (bp == null) continue;
+            BatimentSummaryView.ComposantesFinancieres(bp.getBatiment(),
+                out float lo, out float me, out float ch, out float inv, out float ga);
+            loyers += lo; mensAn += me; chargesAn += ch; investi += inv; gagne += ga;
+        }
+        float cashMois = (loyers - mensAn) / 12f;
+        float rend = investi > 0 ? (loyers - chargesAn) / investi * 100f : 0f;
+
+        _gLoyer.text = loyers > 0 ? $"{loyers:N0} €" : "—";
+        _gLoyer.color = loyers > 0 ? HexC("#0F6E56") : HexC("#5F5E5A");
+        _gDepense.text = mensAn > 0.5f ? $"{mensAn:N0} €" : "0 €";
+        _gDepense.color = HexC("#D85A30");
+        _gInvesti.text = investi > 0 ? $"{investi:N0} €" : "—";
+        _gGagne.text = $"{(gagne >= 0 ? "+" : "")}{gagne:N0} €";
+        _gGagne.color = gagne >= 0 ? HexC("#0F6E56") : HexC("#D85A30");
+        _gRend.text = rend != 0 ? $"{rend:F1} %" : "—";
+        _gRend.color = rend > 0 ? HexC("#0F6E56") : rend < 0 ? HexC("#D85A30") : HexC("#5F5E5A");
+        _gCash.text = $"{(cashMois >= 0 ? "+" : "")}{cashMois:N0} €";
+        _gCash.color = cashMois >= 0 ? HexC("#0F6E56") : HexC("#D85A30");
     }
 
     // ── Stats globales ────────────────────────────────────────────────────────
