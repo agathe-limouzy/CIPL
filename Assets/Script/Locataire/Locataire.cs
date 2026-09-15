@@ -47,6 +47,11 @@ public class Locataire : Data
     public string dateRegularisationChargeISO;      // date de régularisation des charges (événement annuel)
     // provisionPourCharges (bool) + provisionPourChargeValue (float) existent déjà plus haut.
 
+    // Reprise de facturation (bail repris / passif) : échéance de la DERNIÈRE période
+    // déjà facturée hors app. Toute période d'échéance ≤ cette date = « Clôturé »
+    // (non suivie, pas d'alerte). Vide = nouveau bail (tout est suivi).
+    public string repriseFacturationISO;
+
     // Dépôt de garantie : date de révision (le montant = depotDeGarantie ci-dessus).
     public string dateRevisionDepotISO;
     // Base du calcul du dépôt : loyer TTC (locataire soumis à TVA) ou HT (sinon).
@@ -56,8 +61,11 @@ public class Locataire : Data
     public FactureInfo factureLoyer;
     public FactureInfo factureRegul;   // régularisation des charges
     public FactureInfo factureRefac;   // refacturation d'une charge
+    public FactureInfo factureDepot;   // révision du dépôt de garantie (facture du complément)
     // Séquence de numérotation des factures (unique par locataire, tous types).
     public int factureSeq = 1;
+    // Suivi des états de facturation (lignes générées / envoyées / payées / forcées).
+    public System.Collections.Generic.List<FactureEtat> facturesEtat = new System.Collections.Generic.List<FactureEtat>();
 
     // ── Historique d'indexation (pour la rentabilité année par année) ──────────
     // Date du tout premier bail, conservée à travers les renouvellements :
@@ -107,6 +115,23 @@ public class Locataire : Data
         return jours <= SEUIL_FIN_BAIL_JOURS;
     }
 
+    // Bail commercial (facture avec TVA) vs non commercial (loyer civil / professionnel /
+    // autre → quittance de loyer possible quand le loyer est payé). Cf. diagramme facturation.
+    public static bool EstBailCommercial(BailType t)
+    {
+        switch (t)
+        {
+            case BailType.Bail9ans:
+            case BailType.Bail10ans:
+            case BailType.BailCommercial369:
+            case BailType.BailCommercial9Ferme:
+            case BailType.BailDerogatoire:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     [NonSerialized]
     private DateTime _moisDeRevisionISO;
     public DateTime MoisDeRevision
@@ -132,9 +157,18 @@ public class Locataire : Data
 
 public enum BailType
 {
+    // Ordre figé : la valeur = l'index stocké. Ajouter les nouveaux À LA SUITE.
     BailAContruction,
     Bail9ans,
-    Bail10ans
+    Bail10ans,
+    BailCommercial369,
+    BailCommercial9Ferme,
+    BailDerogatoire,
+    BailProfessionnel,
+    BailEmphyteotique,
+    BailRehabilitation,
+    ConventionOccupationPrecaire,
+    BailCivil
 }
 
 public enum IndiceImmo

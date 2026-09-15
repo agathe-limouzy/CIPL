@@ -21,7 +21,7 @@ public class ReglagePanel : MonoBehaviour
 
     // Références UI
     TMP_InputField _apiKey, _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd;
-    TMP_InputField _phraseRetard, _basDePage;
+    TMP_InputField _phraseRetard, _basDePage, _entrepriseNom;
     Toggle _modePennylane;
     GameObject _smtpCard;
     Transform _ribList, _enteteList;
@@ -136,6 +136,9 @@ public class ReglagePanel : MonoBehaviour
     void BuildConnexion(Transform parent)
     {
         var body = UIFactory.Section(parent, "Connexion & envoi", CoVert, CoVertL);
+
+        UIFactory.Text(body.transform, "Nom de l'entreprise", 17, UITheme.TexteSecondaire);
+        _entrepriseNom = UIFactory.Input(body.transform, "GROUPE CIPL");
 
         UIFactory.Text(body.transform, "Clé API Pennylane", 17, UITheme.TexteSecondaire);
         _apiKey = UIFactory.Input(body.transform, "Collez votre clé API…");
@@ -404,6 +407,7 @@ public class ReglagePanel : MonoBehaviour
 
     void LoadIntoUI()
     {
+        _entrepriseNom.text = R.entrepriseNom ?? "";
         _apiKey.text = ReglageService.GetApiKey();
         _modePennylane.isOn = R.modeEnvoi == ModeEnvoi.Pennylane;
         if (_smtpCard != null) _smtpCard.SetActive(R.modeEnvoi == ModeEnvoi.Email);
@@ -427,6 +431,8 @@ public class ReglagePanel : MonoBehaviour
 
     void SaveFromUI()
     {
+        R.entrepriseNom = _entrepriseNom.text.Trim();
+        EntrepriseService.Register(R.entrepriseNom, SaveLocationService.GetSaveRoot());
         ReglageService.SetApiKey(_apiKey.text.Trim());
         R.modeEnvoi = _modePennylane.isOn ? ModeEnvoi.Pennylane : ModeEnvoi.Email;
         R.smtp.host = _smtpHost.text.Trim();

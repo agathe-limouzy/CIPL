@@ -32,6 +32,7 @@ public class UIDropdown : MonoBehaviour
         var row = UIFactory.HBox(img.transform, 8, false, "Row");
         UIFactory.Stretch((RectTransform)row.transform, 12, 4, 12, 4);
         dd._label = UIFactory.Text(row.transform, "", 18, UITheme.TextePrincipal);
+        dd._label.enableWordWrapping = false; dd._label.overflowMode = TMPro.TextOverflowModes.Ellipsis;
         UIFactory.LE(dd._label.gameObject, flexW: 1);
         UIFactory.Text(row.transform, "v", 16, UITheme.TexteSecondaire);   // indicateur (police-sûr)
 

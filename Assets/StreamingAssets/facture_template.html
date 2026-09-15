@@ -25,6 +25,8 @@ table.amounts td.r{text-align:right;}
 table.amounts .euros{text-align:center;font-weight:bold;}
 table.amounts tr.ttc td{font-weight:bold;border:1.6px solid #000;}
 .tva{margin:2px 0 0 8%;font-size:12.5px;}
+.mensuel{margin:8px 0 0 8%;font-size:14px;}
+.mensuel b{margin-left:10px;}
 .somme{margin:6px 0 0 8%;font-weight:bold;font-size:14px;}
 table.rib{width:80%;margin:16px auto 0;border-collapse:collapse;}
 table.rib td{border:1px solid #000;padding:3px 12px;font-size:13.5px;}
@@ -68,6 +70,7 @@ table.rib .val{text-align:center;}
   </table>
 
   {{TVA_DEBIT}}
+  {{MENSUEL_ROW}}
   <div class="somme"><u>{{SOMME_PHRASE}}</u></div>
 
   <table class="rib">

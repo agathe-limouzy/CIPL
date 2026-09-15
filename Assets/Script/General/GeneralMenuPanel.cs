@@ -30,6 +30,7 @@ public class GeneralMenuPanel : MonoBehaviour
 
     [Header("Calcul rapide")]
     public QuickCalcInline quickCalc;
+    public Sprite creanceIcon;           // icône de la bande « Créances » (sec_coins)
 
     [Header("Bâtiments — adaptatif")]
     public int seuilListe = 10;                 // ≤ seuil → cartes ; > seuil → liste
@@ -71,18 +72,12 @@ public class GeneralMenuPanel : MonoBehaviour
         btnPLU?.onClick.AddListener(() => PLUOverlayPanel.Instance.OpenFreeSearch());
         btnObjectifs?.onClick.AddListener(() => TogglePanel(objectifsPanel));
 
-        // Le bouton « Sauvegardes » devient « Charger une save » : l'emplacement de
-        // sauvegarde a été déplacé dans le panneau Réglage.
+        // Le bouton « Sauvegardes » / « Charger une save » est masqué : le multi-
+        // entreprise (bouton « Entreprises » → « Ouvrir un dossier existant ») le
+        // remplace. On le désactive APRÈS les bootstraps (AfterSceneLoad) qui le
+        // clonent pour créer « Réglage » et « Entreprises » — donc sans les casser.
         if (btnSauvegardes != null)
-        {
-            var lblSave = btnSauvegardes.GetComponentInChildren<TMP_Text>(true);
-            if (lblSave != null) lblSave.text = "Charger une save";
-            btnSauvegardes.onClick.AddListener(() =>
-            {
-                if (SaveIO.LoadSave(out int nb))
-                    UndoToast.Instance?.ShowInfo($"Sauvegarde chargée · {nb} bâtiment(s)");
-            });
-        }
+            btnSauvegardes.gameObject.SetActive(false);
 
         btnNouveauBatiment?.onClick.AddListener(() =>
         {
@@ -94,7 +89,216 @@ public class GeneralMenuPanel : MonoBehaviour
         if (rechercheInput != null)
             rechercheInput.onValueChanged.AddListener(r => { _recherche = r; RebuildBuildings(); });
         if (triDropdown != null)
+        {
             triDropdown.onValueChanged.AddListener(t => { _tri = t; RebuildBuildings(); });
+            // Le contrôle « Tri » et sa liste déroulante passaient DERRIÈRE le Scroll
+            // View des bâtiments (dessiné après). Un Canvas trié les remonte au-dessus.
+            var cv = triDropdown.GetComponent<Canvas>() ?? triDropdown.gameObject.AddComponent<Canvas>();
+            cv.overrideSorting = true; cv.sortingOrder = 100;
+            if (triDropdown.GetComponent<GraphicRaycaster>() == null)
+                triDropdown.gameObject.AddComponent<GraphicRaycaster>();
+            // La liste instanciée (clone du Template) reçoit un Canvas encore au-dessus.
+            if (triDropdown.template != null)
+            {
+                var tcv = triDropdown.template.GetComponent<Canvas>() ?? triDropdown.template.gameObject.AddComponent<Canvas>();
+                tcv.overrideSorting = true; tcv.sortingOrder = 200;
+                if (triDropdown.template.GetComponent<GraphicRaycaster>() == null)
+                    triDropdown.template.gameObject.AddComponent<GraphicRaycaster>();
+            }
+        }
+
+        EnsureHomeReorg();
+    }
+
+    // ── Réaménagement du menu (À traiter | Créances en colonnes, calcul rapide en bouton) ──
+
+    private FacturationHomeSection _creancesSection;
+    private Transform _calculRapide, _calcHome;
+    private GameObject _calcScrim;
+    private bool _reorgDone;
+
+    private void EnsureHomeReorg()
+    {
+        if (_reorgDone) return;
+        var panel = (RectTransform)transform.Find("Panel");
+        if (panel == null) return;
+        _reorgDone = true;
+
+        // 1) Masquer le bandeau KPI du haut (Loyers perçus / Investi).
+        foreach (Transform c in panel)
+            if (c.name.StartsWith("Section Resum")) { c.gameObject.SetActive(false); break; }
+
+        // 2) Ligne « À traiter / Calcul rapide » → deux colonnes « À traiter | Créances ».
+        var row = (RectTransform)panel.Find("RowTraiterCalcul");
+        if (row != null)
+        {
+            _calculRapide = row.Find("Calcul Rapide");
+            if (_calculRapide != null) _calculRapide.gameObject.SetActive(false);
+
+            var go = new GameObject("Section Creances", typeof(RectTransform));
+            go.transform.SetParent(row, false);
+            _creancesSection = go.AddComponent<FacturationHomeSection>();
+            _creancesSection.Icon = creanceIcon;
+            var cle = go.GetComponent<LayoutElement>() ?? go.AddComponent<LayoutElement>();
+            cle.flexibleWidth = 1; cle.minWidth = 300;
+        }
+
+        // 3) Répartition de la hauteur (le Panel a un ContentSizeFitter : il ne s'étire
+        //    pas, on calcule donc nous-mêmes pour combler la place disponible).
+        LayoutHeights();
+
+        // 4) Bouton « Calcul rapide » dans la barre d'outils du bas.
+        var ro = panel.Find("RowOutils");
+        if (ro != null && btnPLU != null)
+        {
+            var b = Instantiate(btnPLU, ro);
+            b.name = "BtnCalculRapide";
+            var lbl = b.GetComponentInChildren<TMP_Text>(true);
+            if (lbl != null) { lbl.text = "Calcul rapide"; lbl.color = IdentityAccent; }
+            // Teinte verte claire (comme les autres boutons du bas), texte vert foncé.
+            var img = b.GetComponent<Image>();
+            if (img != null) img.color = IdentityClair;
+            b.onClick.RemoveAllListeners();
+            b.onClick.AddListener(ToggleCalculRapide);
+        }
+
+        // 5) Uniformise les en-têtes de section (bande colorée + titre ~22, couleur d'accent).
+        NormalizeHeaders();
+    }
+
+    // Colorimétrie « groupée par fonction » (menu principal, choix utilisatrice) :
+    // Bâtiments → vert (identité), Créances → ambre (argent), À traiter → gris-bleu (notes).
+    static readonly Color IdentityAccent = HexC("#0F6E56");
+    static readonly Color IdentityClair  = HexC("#D6ECE3");
+    static readonly Color NotesAccent    = HexC("#5C6E85");
+    static readonly Color NotesClair     = HexC("#E7ECF2");
+    static Color HexC(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+
+    // Harmonise « À traiter » et « Bâtiments » (objets de scène) avec « Créances » :
+    // même bande colorée + même taille de titre, couleurs par famille de fonction.
+    private void NormalizeHeaders()
+    {
+        var panel = transform.Find("Panel") as RectTransform;
+        if (panel == null) return;
+        Sprite rounded = null;
+
+        // À traiter → gris-bleu (notes).
+        var atHeader = panel.Find("RowTraiterCalcul/A Traiter/Header");
+        if (atHeader != null)
+        {
+            var img = atHeader.GetComponent<Image>(); if (img != null) rounded = img.sprite;
+            var le = atHeader.GetComponent<LayoutElement>() ?? atHeader.gameObject.AddComponent<LayoutElement>();
+            le.minHeight = 58; le.preferredHeight = 58;
+            StyleHeader(atHeader, NotesClair, NotesAccent);
+            // Liseré (Image racine de la carte) = accent gris-bleu (il restait en ambre).
+            var atCard = atHeader.parent != null ? atHeader.parent.GetComponent<Image>() : null;
+            if (atCard != null) atCard.color = NotesAccent;
+        }
+
+        // Bâtiments → vert (identité).
+        var bTitle = panel.Find("Section Batiment/TitleRow");
+        if (bTitle != null)
+        {
+            var img = bTitle.GetComponent<Image>() ?? bTitle.gameObject.AddComponent<Image>();
+            if (rounded != null) { img.sprite = rounded; img.type = Image.Type.Sliced; }
+            var le = bTitle.GetComponent<LayoutElement>() ?? bTitle.gameObject.AddComponent<LayoutElement>();
+            le.minHeight = 58; le.preferredHeight = 58;
+            var hlg = bTitle.GetComponent<HorizontalLayoutGroup>();
+            if (hlg != null && hlg.padding.left < 10) hlg.padding = new RectOffset(12, 12, 4, 4);
+            StyleHeader(bTitle, IdentityClair, IdentityAccent);
+        }
+    }
+
+    // Applique à un bandeau d'en-tête : fond = teinte claire, icône + titre = accent,
+    // hauteur 58 + titre 22 (uniforme avec la fiche locataire).
+    private static void StyleHeader(Transform header, Color band, Color accent)
+    {
+        var img = header.GetComponent<Image>();
+        if (img != null) img.color = band;
+        foreach (Transform ch in header)
+        {
+            var ii = ch.GetComponent<Image>();
+            if (ii != null) { ii.color = accent; break; }   // icône (1er enfant Image)
+        }
+        var t = header.GetComponentInChildren<TMP_Text>(true);
+        if (t != null) { t.enableAutoSizing = false; t.fontSize = 22; t.color = accent; }
+    }
+
+    // Mise en page statique (pas de mesure du parent : elle oscillait car le parent est
+    // lui-même dimensionné au contenu, ce qui créait une boucle de rétroaction).
+    private const float BatimentH = 380f;        // en-tête + barre + cartes (agrandi ×2)
+    private const float ScrollBatimentH = 300f;  // zone des cartes de bâtiment
+    private const float RowTraiterH = 455f;      // hauteur des deux colonnes = leur contenu (11 alertes)
+
+    private void LayoutHeights()
+    {
+        var panel = transform.Find("Panel") as RectTransform;
+        if (panel == null) return;
+
+        // Le bandeau KPI est ré-activé par UpdateStats() : on le remasque à chaque passage.
+        foreach (Transform c in panel)
+            if (c.name.StartsWith("Section Resum") && c.gameObject.activeSelf) c.gameObject.SetActive(false);
+
+        void Set(Transform t, float hh)
+        {
+            if (t == null) return;
+            var le = t.GetComponent<LayoutElement>() ?? t.gameObject.AddComponent<LayoutElement>();
+            le.minHeight = hh; le.preferredHeight = hh; le.flexibleHeight = 0;
+        }
+
+        // Bâtiments : réduit son Scroll View à une rangée (il faisait 300 = 2 rangées).
+        var sb = panel.Find("Section Batiment");
+        if (sb != null)
+        {
+            var sv = sb.Find("Scroll View");
+            if (sv != null) Set(sv, ScrollBatimentH);
+        }
+
+        // « À traiter » : sa liste d'alertes remplit la colonne (texte jusqu'en bas).
+        var scrollAlertes = panel.Find("RowTraiterCalcul/A Traiter/ScrollAlertes");
+        if (scrollAlertes != null)
+        {
+            var le = scrollAlertes.GetComponent<LayoutElement>() ?? scrollAlertes.gameObject.AddComponent<LayoutElement>();
+            le.minHeight = 150f; le.preferredHeight = 150f; le.flexibleHeight = 1f;
+        }
+
+        Set(panel.Find("RowTraiterCalcul"), RowTraiterH);
+        Set(sb, BatimentH);
+    }
+
+    // Affiche / masque le « Calcul rapide » en superposition centrée.
+    private void ToggleCalculRapide()
+    {
+        if (_calculRapide == null) return;
+        if (_calcScrim != null) { CloseCalculRapide(); return; }
+
+        var root = transform.root;
+        var scrim = new GameObject("CalcScrim", typeof(RectTransform), typeof(Image), typeof(Button));
+        var srt = (RectTransform)scrim.transform;
+        srt.SetParent(root, false);
+        srt.anchorMin = Vector2.zero; srt.anchorMax = Vector2.one; srt.offsetMin = Vector2.zero; srt.offsetMax = Vector2.zero;
+        scrim.GetComponent<Image>().color = new Color(0, 0, 0, 0.5f);
+        scrim.GetComponent<Button>().onClick.AddListener(CloseCalculRapide);
+        srt.SetAsLastSibling();
+        _calcScrim = scrim;
+
+        _calcHome = _calculRapide.parent;
+        _calculRapide.SetParent(srt, false);
+        var crt = (RectTransform)_calculRapide;
+        crt.anchorMin = crt.anchorMax = crt.pivot = new Vector2(.5f, .5f);
+        crt.anchoredPosition = Vector2.zero;
+        _calculRapide.gameObject.SetActive(true);
+    }
+
+    private void CloseCalculRapide()
+    {
+        if (_calculRapide != null && _calcHome != null)
+        {
+            _calculRapide.SetParent(_calcHome, false);
+            _calculRapide.gameObject.SetActive(false);
+        }
+        if (_calcScrim != null) Destroy(_calcScrim);
+        _calcScrim = null;
     }
 
     // ── API publique ──────────────────────────────────────────────────────────
@@ -112,6 +316,10 @@ public class GeneralMenuPanel : MonoBehaviour
         UpdateStats();
         BuildAlertes();
         RebuildBuildings();
+        EnsureHomeReorg();
+        LayoutHeights();
+        NormalizeHeaders();
+        _creancesSection?.Setup(batimentManager.BatimentPrefab);
         // Section objectifs détaillée : masquée par défaut (les objectifs
         // vivent dans « À traiter ») — on ne la rafraîchit que si visible.
         if (objectivesSection != null && objectivesSection.gameObject.activeInHierarchy)
@@ -297,9 +505,11 @@ public class GeneralMenuPanel : MonoBehaviour
             case 2: // nom A→Z
                 liste = liste.OrderBy(bp => bp.getName());
                 break;
-            default: // alertes (plus urgent en premier), puis nom
+            default: // alertes : le plus d'alertes d'abord (toutes : révision, dépôt,
+                     // régul, fin de bail, objectifs, facturation…), puis sévérité, puis nom.
                 liste = liste
-                    .OrderBy(bp => BatimentEtatHelper.Priorite(BatimentEtatHelper.GetEtat(bp)))
+                    .OrderByDescending(bp => HomeAlertCollector.Collect(new[] { bp }).Count)
+                    .ThenBy(bp => BatimentEtatHelper.Priorite(BatimentEtatHelper.GetEtat(bp)))
                     .ThenBy(bp => bp.getName());
                 break;
         }

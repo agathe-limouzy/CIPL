@@ -65,6 +65,34 @@ public static class InseeIndiceService
         return observations.Find(o => Normalize(o.periode) == Normalize(periode));
     }
 
+    /// Observation la plus récente réellement publiée (tri année puis trimestre).
+    /// Sert à suggérer un trimestre valide quand le trimestre voulu n'est pas publié.
+    public static (string periode, float valeur) DernierPublie(
+        List<(string periode, float valeur)> observations)
+    {
+        (string periode, float valeur) best = ("", 0f);
+        int bestRang = int.MinValue;
+        if (observations == null) return best;
+        foreach (var o in observations)
+        {
+            if (!TryRang(o.periode, out int rang)) continue;
+            if (rang > bestRang) { bestRang = rang; best = o; }
+        }
+        return best;
+    }
+
+    /// "YYYY-TQ" → rang comparable (année*4 + trimestre). false si illisible.
+    private static bool TryRang(string periode, out int rang)
+    {
+        rang = 0;
+        string n = Normalize(periode);                       // "2026-T4"
+        if (n.Length < 7 || n[5] != 'T') return false;
+        if (!int.TryParse(n.Substring(0, 4), out int annee)) return false;
+        if (!int.TryParse(n.Substring(6, 1), out int trim)) return false;
+        rang = annee * 4 + trim;
+        return true;
+    }
+
     public static string Normalize(string input)
     {
         if (string.IsNullOrEmpty(input)) return "";

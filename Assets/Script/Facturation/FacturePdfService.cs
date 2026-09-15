@@ -27,6 +27,8 @@ public static class FacturePdfService
         public string dateStr, numero, subtitle, bodyHtml, sommePhrase;
         public float totalPeriode, provision, totalHT, tva, ttc;
         public bool tvaDebit, retard;
+        public bool afficherMensuel;   // ligne « montant mensuel à régler »
+        public float montantMensuel;   // TTC de la période ÷ nombre de mois de la période
         public string ribTitulaire, ribDomiciliation, ribNum, ribIban, ribBic;
         public string legal, foot1, foot2;
     }
@@ -54,6 +56,9 @@ public static class FacturePdfService
             .Replace("{{TTC}}", Euro(d.ttc))
             .Replace("{{TVA_DEBIT}}", d.tvaDebit
                 ? "<div class=\"tva\">&nbsp;la TVA est pay&eacute;e sur les d&eacute;bits</div>" : "")
+            .Replace("{{MENSUEL_ROW}}", d.afficherMensuel && d.montantMensuel > 0f
+                ? $"<div class=\"mensuel\">Suite &agrave; votre demande, le montant mensuel &agrave; r&eacute;gler est de:<b>{Euro(d.montantMensuel)}</b></div>"
+                : "")
             .Replace("{{SOMME_PHRASE}}", H(d.sommePhrase))
             .Replace("{{RIB_TITULAIRE}}", H(d.ribTitulaire))
             .Replace("{{RIB_DOMICILIATION}}", H(d.ribDomiciliation))
@@ -70,6 +75,39 @@ public static class FacturePdfService
     {
         if (!File.Exists(TemplatePath)) { error = "Template introuvable : " + TemplatePath; return false; }
         return RunEdge(BuildHtml(d), $"--print-to-pdf=\"{pdfPath}\"", pdfPath, out error);
+    }
+
+    // ── Quittance de loyer (bail non commercial, loyer payé) ────────────────────
+
+    public static string QuittanceTemplatePath =>
+        Path.Combine(Application.streamingAssetsPath, "quittance_template.html");
+
+    public class QuittanceData
+    {
+        public string clientNom, clientAdresseHtml, dateStr, periode, designation, montantStr, foot1, foot2;
+    }
+
+    public static string BuildQuittanceHtml(QuittanceData d)
+    {
+        string t = File.ReadAllText(QuittanceTemplatePath);
+        return t
+            .Replace("{{LOGO_SRC}}", LogoDataUri())
+            .Replace("{{CLIENT_NOM}}", H(d.clientNom))
+            .Replace("{{CLIENT_ADRESSE}}", d.clientAdresseHtml ?? "")
+            .Replace("{{DATE}}", H(d.dateStr))
+            .Replace("{{PERIODE}}", H(d.periode))
+            .Replace("{{DESIGNATION}}", string.IsNullOrWhiteSpace(d.designation)
+                ? "" : $"<div class=\"desig\">Bien lou&eacute; : {H(d.designation)}</div>")
+            .Replace("{{MONTANT}}", H(d.montantStr))
+            .Replace("{{FOOT1}}", H(d.foot1))
+            .Replace("{{FOOT2}}", H(d.foot2));
+    }
+
+    public static bool GenerateQuittancePdf(QuittanceData d, string pdfPath, out string error)
+    {
+        if (!File.Exists(QuittanceTemplatePath))
+        { error = "Template quittance introuvable : " + QuittanceTemplatePath; return false; }
+        return RunEdge(BuildQuittanceHtml(d), $"--print-to-pdf=\"{pdfPath}\"", pdfPath, out error);
     }
 
     // Arguments Edge pour une capture d'écran (aperçu image).
@@ -145,6 +183,9 @@ public static class FacturePdfService
         public string dateStr, numero, subtitle, bodyHtml, sommePhrase;
         public System.Collections.Generic.List<RegulLigne> charges = new System.Collections.Generic.List<RegulLigne>();
         public float totalCharges, provisions, soldeHT, tva, ttc;
+        // Libellés des 3 lignes de totaux (défauts = régularisation ; réutilisé pour le dépôt).
+        public string labelTotal, labelProvisions, labelSolde;
+        public bool masquerTva;   // true = pas de ligne TVA/TTC (ex. révision du dépôt de garantie)
         // Page 2 (détail) : titre = adresse du bâtiment, colonne quote-part = nom locataire.
         public string detailTitre, locataireNom;
         public float surfaceImmeuble, totalARepartir;
@@ -183,15 +224,26 @@ public static class FacturePdfService
     // Page 1 : uniquement les totaux (le détail des charges part en page 2).
     static string TotauxBlock(RegulData d)
     {
+        string lt = string.IsNullOrEmpty(d.labelTotal) ? "Total des charges (quote-part)" : d.labelTotal;
+        string lp = string.IsNullOrEmpty(d.labelProvisions) ? "Provisions déjà versées" : d.labelProvisions;
+        string ls = string.IsNullOrEmpty(d.labelSolde) ? "Solde H.T." : d.labelSolde;
+
         var sb = new System.Text.StringBuilder();
         sb.Append("<table class=\"totaux\">")
-          .Append("<tr><td>Total des charges (quote-part)</td><td class=\"r\">").Append(Euro(d.totalCharges)).Append("</td></tr>")
-          .Append("<tr><td>Provisions d&eacute;j&agrave; vers&eacute;es</td><td class=\"r\">").Append(Euro(d.provisions)).Append("</td></tr>")
-          .Append("<tr class=\"solde\"><td>Solde H.T.</td><td class=\"r\">").Append(Euro(d.soldeHT)).Append("</td></tr>")
-          .Append("<tr><td>TVA 20%</td><td class=\"r\">").Append(Euro(d.tva)).Append("</td></tr>")
-          .Append("<tr class=\"ttc\"><td>Total T.T.C.</td><td class=\"r\">").Append(Euro(d.ttc)).Append("</td></tr>")
-          .Append("</table>");
-        if (d.tvaDebit)
+          .Append("<tr><td>").Append(H(lt)).Append("</td><td class=\"r\">").Append(Euro(d.totalCharges)).Append("</td></tr>")
+          .Append("<tr><td>").Append(H(lp)).Append("</td><td class=\"r\">").Append(Euro(d.provisions)).Append("</td></tr>");
+        if (d.masquerTva)
+        {
+            sb.Append("<tr class=\"ttc\"><td>").Append(H(ls)).Append("</td><td class=\"r\">").Append(Euro(d.soldeHT)).Append("</td></tr>");
+        }
+        else
+        {
+            sb.Append("<tr class=\"solde\"><td>").Append(H(ls)).Append("</td><td class=\"r\">").Append(Euro(d.soldeHT)).Append("</td></tr>")
+              .Append("<tr><td>TVA 20%</td><td class=\"r\">").Append(Euro(d.tva)).Append("</td></tr>")
+              .Append("<tr class=\"ttc\"><td>Total T.T.C.</td><td class=\"r\">").Append(Euro(d.ttc)).Append("</td></tr>");
+        }
+        sb.Append("</table>");
+        if (d.tvaDebit && !d.masquerTva)
             sb.Append("<div class=\"tva\">&nbsp;la TVA est pay&eacute;e sur les d&eacute;bits</div>");
         return sb.ToString();
     }

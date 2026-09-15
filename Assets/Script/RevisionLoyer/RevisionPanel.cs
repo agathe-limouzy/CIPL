@@ -50,13 +50,31 @@ public class RevisionPanel : MonoBehaviour
     private Locataire _loc;
     private Action _onSaved;
 
+    // ── Découpage en deux volets (deux « menus » ouverts par deux boutons) ──────
+    //  • Revision  : indice, loyer de départ, trimestres, dates, calcul + résultat.
+    //  • Modalites : gestion du loyer / facturation — périodicité, jour de demande,
+    //                mois facturés, provisions, date de régularisation.
+    public enum Volet { Revision, Modalites }
+    Volet _volet = Volet.Revision;
+
     // ── Champs facturation ajoutés par code (jour de demande, mois, régularisation) ──
     TMP_InputField _jourDemande;
     DateInputController _dateRegulCtrl;
-    GameObject _moisLabelGO, _moisWrapGO, _regulBlockGO;
+    GameObject _jourLabelGO, _moisLabelGO, _moisWrapGO, _regulBlockGO, _repriseBlockGO;
+    UIDropdown _repriseDD;                      // reprise : dernière période déjà facturée
+    Button _btnEnregistrer;                    // volet Modalités (clone de Réviser)
     readonly Button[] _moisChips = new Button[12];
     readonly bool[] _moisState = new bool[12];
     bool _extraBuilt;
+
+    // Avertissement inline placé SOUS le « Trimestre de révision » (au lieu du bas
+    // de la modale) + désactivation du bouton « Réviser » quand le trimestre est mauvais.
+    TMP_Text _trimWarn;
+
+    // Blocs de la scène résolus une fois (pour l'affichage par volet).
+    Transform _body;
+    GameObject _periodiciteGO, _chipsIndiceGO, _loyerDepartGO, _trimRefGO,
+               _dateRevGO, _modeToggleGO, _provBlockGO, _informationGO;
     static readonly string[] MoisCourts =
         { "Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc" };
 
@@ -68,10 +86,13 @@ public class RevisionPanel : MonoBehaviour
 
     // ── Ouverture ─────────────────────────────────────────────────────────────
 
-    public void Open(Locataire loc, Action onSaved)
+    public void Open(Locataire loc, Action onSaved) => Open(loc, onSaved, Volet.Revision);
+
+    public void Open(Locataire loc, Action onSaved, Volet volet)
     {
         _loc = loc;
         _onSaved = onSaved;
+        _volet = volet;
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
         ApplyTheme(LoyerSummaryUI.EstRevisionDue(loc));
@@ -97,6 +118,7 @@ public class RevisionPanel : MonoBehaviour
             foreach (int m in loc.moisFacturationLoyer)
                 if (m >= 1 && m <= 12) _moisState[m - 1] = true;
         for (int i = 0; i < 12; i++) RefreshChip(i);
+        RefreshRepriseOptions();
 
         periodiciteDropdown.onValueChanged.RemoveAllListeners();
         periodiciteDropdown.onValueChanged.AddListener(_ => OnPeriodiciteChanged());
@@ -127,6 +149,11 @@ public class RevisionPanel : MonoBehaviour
             // n'est en général pas encore publié par l'INSEE (recherche exacte).
             trimestreVoulu.SetTrimestre($"{DateTime.Now.Year - 1}-{t}");
         }
+        // Avertissement inline + verrouillage du bouton si le trimestre est mauvais.
+        EnsureTrimWarn();
+        trimestreVoulu.OnTrimestreChanged -= OnTrimVouluChanged;
+        trimestreVoulu.OnTrimestreChanged += OnTrimVouluChanged;
+        ValiderTrimestreVoulu();
 
         // Provisions
         toggleProvisions.isOn = loc.provisionPourCharges;
@@ -147,6 +174,10 @@ public class RevisionPanel : MonoBehaviour
         txtIndiceActuel.text = string.IsNullOrEmpty(loc.indiceImmoActuel) ? "—" : loc.indiceImmoActuel;
         txtLoyerCalcule.text = $"{loc.loyerAnnuel:N2} €";
         statusText.text = "";
+        // Le statut peut être long (« … loyer révisé : X € (prochaine révision …) ») :
+        // sans retour à la ligne il débordait du cadre → on force le wrap.
+        statusText.enableWordWrapping = true;
+        statusText.overflowMode = TextOverflowModes.Overflow;
 
         // Type d'indice — chips
         WireChips();
@@ -169,6 +200,9 @@ public class RevisionPanel : MonoBehaviour
         if (btnModeReviser != null) { btnModeReviser.onClick.RemoveAllListeners(); btnModeReviser.onClick.AddListener(() => SetMode(false)); }
         bool initialise = !string.IsNullOrEmpty(loc.indiceImmoAuDepart) && loc.indiceImmoAuDepart != "—";
         SetMode(!initialise);
+
+        // Applique le volet demandé (Révision par défaut / Modalités facturation).
+        ApplyVolet(volet);
     }
 
     // ── Thème dynamique : couleur de la modale = état de la révision ──────────
@@ -349,10 +383,22 @@ public class RevisionPanel : MonoBehaviour
         var obsActuel = InseeIndiceService.TrouveExact(observations, periodeVoulue);
         if (string.IsNullOrEmpty(obsActuel.periode))
         {
-            statusText.text = $"L'indice {periodeVoulue} n'est pas encore publié — " +
-                              "choisissez un autre trimestre";
+            // Le trimestre voulu n'est pas publié → on EFFACE le résultat précédent
+            // pour ne pas laisser un ancien « nouvel indice » trompeur à l'écran,
+            // on affiche l'avertissement SOUS le champ trimestre (pas en bas) et on
+            // VERROUILLE le bouton « Réviser ».
+            if (txtIndiceActuel != null) txtIndiceActuel.text = "—";
+            if (txtLoyerCalcule != null) txtLoyerCalcule.text = "—";
+            if (txtVariation != null) txtVariation.text = "—";
+            statusText.text = "";
+            var dernier = InseeIndiceService.DernierPublie(observations);
+            AfficheTrimWarn(string.IsNullOrEmpty(dernier.periode)
+                ? $"L'indice {periodeVoulue} n'est pas encore publié — choisissez un autre trimestre."
+                : $"L'indice {periodeVoulue} n'est pas encore publié — dernier disponible : {dernier.periode}. Choisissez un trimestre publié.");
+            if (btnReviser != null) btnReviser.interactable = false;
             yield break;
         }
+        MasqueTrimWarn();
 
         // Calcul
         float loyerRevise = loyer * (obsActuel.valeur / obsDepart.valeur);
@@ -393,6 +439,76 @@ public class RevisionPanel : MonoBehaviour
 
         _onSaved?.Invoke();
     }
+
+    // ── Validation du trimestre de révision ───────────────────────────────────
+
+    // Construit une fois le label d'avertissement SOUS le « Trimestre de révision ».
+    private void EnsureTrimWarn()
+    {
+        if (_trimWarn != null || trimestreVoulu == null) return;
+        var parent = trimestreVoulu.transform.parent;   // SectionRevision (VLG vertical)
+        if (parent == null) return;
+        var go = new GameObject("TrimWarning", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var t = go.AddComponent<TMPro.TextMeshProUGUI>();
+        var refT = trimestreVoulu.GetComponentInChildren<TMP_Text>(true);
+        if (refT != null) t.font = refT.font;
+        t.fontSize = 13;
+        t.color = Hex("#A32D2D");                        // rouge lisible sur fond clair
+        t.enableWordWrapping = true;
+        t.raycastTarget = false;
+        t.alignment = TextAlignmentOptions.TopLeft;
+        go.AddComponent<LayoutElement>().minHeight = 0;
+        go.transform.SetAsLastSibling();
+        go.SetActive(false);
+        _trimWarn = t;
+    }
+
+    private void AfficheTrimWarn(string msg)
+    {
+        EnsureTrimWarn();
+        if (_trimWarn == null) return;
+        _trimWarn.text = msg;
+        _trimWarn.gameObject.SetActive(true);
+    }
+
+    private void MasqueTrimWarn()
+    {
+        if (_trimWarn != null) _trimWarn.gameObject.SetActive(false);
+    }
+
+    // Un trimestre pas encore COMMENCÉ (futur) ne peut jamais être publié → on
+    // bloque immédiatement, sans même appeler l'INSEE.
+    private static bool TrimestreDejaCommence(string periode)
+    {
+        string n = InseeIndiceService.Normalize(periode);   // "2026-T4"
+        if (n.Length < 7 || n[5] != 'T') return true;        // illisible → ne bloque pas
+        if (!int.TryParse(n.Substring(0, 4), out int y)) return true;
+        if (!int.TryParse(n.Substring(6, 1), out int q)) return true;
+        var debut = new DateTime(y, (q - 1) * 3 + 1, 1);
+        return debut <= DateTime.Now;
+    }
+
+    // Réévalue à chaque changement : bouton « Réviser » verrouillé + avertissement
+    // inline si le trimestre voulu est dans le futur.
+    private void ValiderTrimestreVoulu()
+    {
+        EnsureTrimWarn();
+        string p = trimestreVoulu != null ? trimestreVoulu.TrimestreValue : "";
+        if (!TrimestreDejaCommence(p))
+        {
+            AfficheTrimWarn($"Le trimestre {InseeIndiceService.Normalize(p)} n'a pas encore commencé — "
+                            + "choisissez un trimestre déjà publié.");
+            if (btnReviser != null) btnReviser.interactable = false;
+        }
+        else
+        {
+            MasqueTrimWarn();
+            if (btnReviser != null) btnReviser.interactable = true;
+        }
+    }
+
+    private void OnTrimVouluChanged(string _) => ValiderTrimestreVoulu();
 
     // ── Communs ───────────────────────────────────────────────────────────────
 
@@ -443,6 +559,7 @@ public class RevisionPanel : MonoBehaviour
 
         var l1 = UIFactory.Text(content, "Loyer demandé le … (jour du mois)", 15, UITheme.TexteSecondaire);
         l1.transform.SetSiblingIndex(idx++);
+        _jourLabelGO = l1.gameObject;
         _jourDemande = UIFactory.Input(content, "1");
         _jourDemande.contentType = TMP_InputField.ContentType.IntegerNumber;
         _jourDemande.transform.SetSiblingIndex(idx++);
@@ -467,20 +584,203 @@ public class RevisionPanel : MonoBehaviour
         _dateRegulCtrl = regulGO.GetComponent<DateInputController>();
         var titre = regulGO.transform.Find("Titre")?.GetComponent<TMP_Text>();
         if (titre != null) titre.text = "Date de régularisation de charge";
+
+        // Reprise de facturation (bail repris) : sélecteur « dernière période facturée ».
+        var rv = UIFactory.VBox(content, 4, 0, 0, 0, 0, "RepriseBlock");
+        _repriseBlockGO = rv.gameObject;
+        UIFactory.Text(rv.transform,
+            "Bail repris — dernière période déjà facturée (laisser « Aucune » si nouveau bail)",
+            15, UITheme.TexteSecondaire);
+        _repriseDD = UIDropdown.Create(rv.transform,
+            new List<string> { "Aucune (nouveau bail)" }, new List<string> { "" }, 0, _ => { });
+        rv.transform.SetSiblingIndex(regulGO.transform.GetSiblingIndex() + 1);
+
+        // Bouton « Enregistrer » (volet Modalités) — clone du bouton Réviser, même
+        // visuel, glissé dans la rangée de boutons juste après lui.
+        if (btnReviser != null)
+        {
+            var eg = Instantiate(btnReviser.gameObject, btnReviser.transform.parent);
+            eg.name = "Enregistrer";
+            eg.transform.SetSiblingIndex(btnReviser.transform.GetSiblingIndex() + 1);
+            _btnEnregistrer = eg.GetComponent<Button>();
+            var t = _btnEnregistrer.GetComponentInChildren<TMP_Text>(true);
+            if (t != null) t.text = "Enregistrer";
+            _btnEnregistrer.onClick.RemoveAllListeners();
+            _btnEnregistrer.onClick.AddListener(SaveModalites);
+            _btnEnregistrer.gameObject.SetActive(false);
+        }
     }
 
-    // Mois visibles seulement hors mensuel ; régularisation visible seulement en provision.
+    // Mois visibles seulement dans le volet Modalités, hors mensuel ;
+    // régularisation visible seulement dans Modalités et en cas de provision.
     void RefreshMoisVisibility()
     {
-        bool show = periodiciteDropdown.value != (int)Periodicite.mensuel;
+        bool show = _volet == Volet.Modalites && periodiciteDropdown.value != (int)Periodicite.mensuel;
         if (_moisLabelGO != null) _moisLabelGO.SetActive(show);
         if (_moisWrapGO != null) _moisWrapGO.SetActive(show);
     }
 
     void RefreshRegulVisibility()
     {
-        bool show = toggleProvisions.isOn;
+        bool show = _volet == Volet.Modalites && toggleProvisions.isOn;
         if (_regulBlockGO != null) _regulBlockGO.SetActive(show);
+    }
+
+    // Options du sélecteur de reprise : « Aucune » + périodes récentes (4 ans),
+    // les plus récentes en tête, selon la périodicité du loyer.
+    void RefreshRepriseOptions()
+    {
+        if (_repriseDD == null || _loc == null) return;
+        var labels = new List<string> { "Aucune (nouveau bail)" };
+        var ids = new List<string> { "" };
+        var p = _loc.periodiciteLoyer;
+        int n = LoyerSummaryUI.NbPeriodes(p);
+        int cur = DateTime.Now.Year;
+        for (int y = cur; y >= cur - 3; y--)
+            for (int per = n; per >= 1; per--)
+            {
+                labels.Add(FacturationSuivi.LibellePeriode(p, per, y));
+                ids.Add($"{y}-P{per}");
+            }
+        string sel = "";
+        if (DateTime.TryParse(_loc.repriseFacturationISO, out var rd))
+            sel = $"{rd.Year}-P{FacturationSuivi.PeriodeIndex(p, rd.Month)}";
+        _repriseDD.SetOptions(labels, ids, sel);
+    }
+
+    // ── Affichage par volet (Révision / Modalités facturation) ────────────────
+
+    // Résout une fois les blocs de la scène à montrer/masquer selon le volet.
+    void ResolveBlocks()
+    {
+        if (_body != null) return;
+        _body = periodiciteDropdown.transform.parent.parent;
+        _periodiciteGO = periodiciteDropdown.transform.parent.gameObject;
+        _chipsIndiceGO = chipILC != null ? DirectChild(chipILC.transform) : null;
+        _loyerDepartGO = DirectChild(loyerDepart.transform);
+        _trimRefGO     = DirectChild(trimestreDepart.transform);
+        _dateRevGO     = DirectChild(dateDeRevision.transform);
+        _modeToggleGO  = btnModeInit != null ? DirectChild(btnModeInit.transform) : null;
+        _provBlockGO   = DirectChild(toggleProvisions.transform);
+        _informationGO = statusText != null ? DirectChild(statusText.transform) : null;
+    }
+
+    // Remonte jusqu'à l'enfant direct de _body qui contient `t`.
+    GameObject DirectChild(Transform t)
+    {
+        var x = t;
+        while (x != null && x.parent != _body) x = x.parent;
+        return x != null ? x.gameObject : null;
+    }
+
+    static void SetGO(GameObject g, bool on) { if (g != null) g.SetActive(on); }
+
+    void ApplyVolet(Volet volet)
+    {
+        _volet = volet;
+        ResolveBlocks();
+        bool mod = volet == Volet.Modalites;
+
+        // Titre de la modale
+        var titleT = transform.Find("Content/titre/Revision")?.GetComponent<TMP_Text>();
+        if (titleT != null) titleT.text = mod ? "Gestion du loyer" : "Révision du loyer";
+
+        // Blocs « Révision » (masqués en Modalités)
+        SetGO(_chipsIndiceGO, !mod);
+        SetGO(_loyerDepartGO, !mod);
+        SetGO(_trimRefGO, !mod);
+        SetGO(_dateRevGO, !mod);
+        SetGO(_modeToggleGO, !mod);
+        SetGO(_informationGO, !mod);
+
+        // Blocs « Modalités / facturation » (masqués en Révision)
+        SetGO(_periodiciteGO, mod);
+        SetGO(_jourLabelGO, mod);
+        if (_jourDemande != null) SetGO(_jourDemande.gameObject, mod);
+        SetGO(_provBlockGO, mod);
+        SetGO(_repriseBlockGO, mod);
+        RefreshMoisVisibility();     // mois : Modalités + hors mensuel
+        RefreshRegulVisibility();    // régularisation : Modalités + provision
+
+        // Boutons de la rangée basse
+        if (mod)
+        {
+            if (btnInitialiser != null) btnInitialiser.gameObject.SetActive(false);
+            if (btnReviser != null) btnReviser.gameObject.SetActive(false);
+            if (sectionRevision != null) sectionRevision.SetActive(false);
+            if (_btnEnregistrer != null) _btnEnregistrer.gameObject.SetActive(true);
+        }
+        else if (_btnEnregistrer != null)
+        {
+            // Init / Réviser / sectionRevision sont pilotés par SetMode (appelé avant).
+            _btnEnregistrer.gameObject.SetActive(false);
+        }
+
+        ApplyThemeVolet(mod);
+    }
+
+    // Habillage : Révision garde le thème (dû → terracotta / sinon prune) ;
+    // Modalités passe en ambre (famille « argent » du loyer).
+    void ApplyThemeVolet(bool mod)
+    {
+        if (!mod) { ApplyTheme(LoyerSummaryUI.EstRevisionDue(_loc)); return; }
+        var header = transform.Find("Content/titre")?.GetComponent<Image>();
+        if (header != null) header.color = Hex("#A9741C");
+        ColorButton(_btnEnregistrer, Hex("#A9741C"));
+    }
+
+    // ── Enregistrement du volet Modalités (pas de calcul, juste la sauvegarde) ──
+    void SaveModalites()
+    {
+        if (_loc == null) return;
+
+        _loc.periodiciteLoyer = (Periodicite)periodiciteDropdown.value;
+
+        _loc.provisionPourCharges = toggleProvisions.isOn;
+        float.TryParse(provisionValue.text?.Replace(',', '.'),
+            NumberStyles.Float, CultureInfo.InvariantCulture, out float prov);
+        _loc.provisionPourChargeValue = toggleProvisions.isOn ? prov : 0f;
+
+        if (_jourDemande != null)
+        {
+            int.TryParse(_jourDemande.text, out int jd);
+            _loc.jourDemandeLoyer = Mathf.Clamp(jd, 0, 31);
+        }
+
+        if (_dateRegulCtrl != null)
+        {
+            if (int.TryParse(_dateRegulCtrl.dayInput.text, out int rdd)
+                && int.TryParse(_dateRegulCtrl.monthInput.text, out int rmm)
+                && int.TryParse(_dateRegulCtrl.yearInput.text, out int ryy))
+            {
+                try { _loc.dateRegularisationChargeISO = new DateTime(ryy, rmm, rdd).ToString("yyyy-MM-dd"); }
+                catch { _loc.dateRegularisationChargeISO = ""; }
+            }
+            else _loc.dateRegularisationChargeISO = "";
+        }
+
+        _loc.moisFacturationLoyer = new List<int>();
+        for (int i = 0; i < 12; i++) if (_moisState[i]) _loc.moisFacturationLoyer.Add(i + 1);
+
+        // Reprise de facturation (dernière période déjà facturée → échéance).
+        if (_repriseDD != null)
+        {
+            string id = _repriseDD.SelectedId;
+            if (string.IsNullOrEmpty(id)) _loc.repriseFacturationISO = "";
+            else
+            {
+                var parts = id.Split('-');   // « 2026-P2 »
+                if (parts.Length == 2 && int.TryParse(parts[0], out int y)
+                    && int.TryParse(parts[1].TrimStart('P', 'p'), out int per))
+                    _loc.repriseFacturationISO = FacturationSuivi
+                        .EcheancePeriode(_loc.periodiciteLoyer, per, y, _loc.jourDemandeLoyer)
+                        .ToString("yyyy-MM-dd");
+            }
+        }
+
+        _onSaved?.Invoke();
+        UndoToast.Instance?.ShowInfo("Modalités du loyer enregistrées");
+        gameObject.SetActive(false);
     }
 
     // Nombre max de mois sélectionnables selon la périodicité.
@@ -503,6 +803,7 @@ public class RevisionPanel : MonoBehaviour
             if (_moisState[i]) { c++; if (c > max) _moisState[i] = false; }
         for (int i = 0; i < 12; i++) RefreshChip(i);
         RefreshMoisVisibility();
+        RefreshRepriseOptions();
     }
 
     GameObject BuildMoisChips(Transform parent)

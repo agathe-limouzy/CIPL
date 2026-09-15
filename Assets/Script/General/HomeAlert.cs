@@ -6,7 +6,7 @@ using UnityEngine;
 /// révisions de loyer à faire + objectifs actifs, triés par urgence.
 public class HomeAlert
 {
-    public enum Kind { RevisionRetard, RevisionProche, BailRenouvellement, Objectif }
+    public enum Kind { RevisionRetard, RevisionProche, BailRenouvellement, Objectif, Facturation }
 
     public Kind kind;
     public string typeTodo;      // colonne « Type » : Révision de loyer / Fin de bail / Objectif obligatoire / Rappel / En cours / À faire
@@ -30,6 +30,8 @@ public static class HomeAlertCollector
     private static readonly Color TxRevision = Hex("#8E3B5A");
     private static readonly Color BgBail = Hex("#DEE3EB");       // bleu ardoise (section Bail)
     private static readonly Color TxBail = Hex("#2C3E5E");
+    private static readonly Color BgMoney = Hex("#F4E7CD");      // ambre (facturation = argent)
+    private static readonly Color TxMoney = Hex("#8A5A0C");
 
     public static List<HomeAlert> Collect(IEnumerable<BatimentPrefab> batiments)
     {
@@ -108,6 +110,37 @@ public static class HomeAlertCollector
                         batiment = bp,
                         locataire = loc
                     });
+            }
+
+            // ── Facturation : envoi loyer / régul charges / révision dépôt ────
+            foreach (var loc in bp.listLocataire)
+            {
+                string nomLocF = string.IsNullOrEmpty(loc.Name) ? "Locataire" : loc.Name;
+                foreach (var fa in FacturationAlertes.Pour(loc))
+                {
+                    bool urgent = fa.niveau == FacturationAlertes.Niveau.Urgent;
+                    string typeF = fa.type switch
+                    {
+                        FacturationAlertes.AlerteType.Loyer => "Facturer",
+                        FacturationAlertes.AlerteType.Regul => "Régul.",
+                        FacturationAlertes.AlerteType.Depot => "Rév. dépôt",
+                        _ => "Facturation"
+                    };
+                    alertes.Add(new HomeAlert
+                    {
+                        kind = HomeAlert.Kind.Facturation,
+                        typeTodo = typeF,
+                        nomRappel = urgent ? "À faire" : "À préparer",
+                        nomLocataire = nomLocF,
+                        nomBatiment = nomBat,
+                        priorite = urgent ? 0 : 2,
+                        pastille = urgent ? UITheme.Alerte : UITheme.Attention,
+                        typeBg = BgMoney,
+                        typeTexte = TxMoney,
+                        batiment = bp,
+                        locataire = loc
+                    });
+                }
             }
 
             // ── Objectifs (bâtiment + locataires) ─────────────────────────────

@@ -54,6 +54,7 @@ public class SmtpConfig
 [Serializable]
 public class ReglageData
 {
+    public string entrepriseNom = "";   // nom de l'entreprise (multi-entreprise / sélecteur)
     public ModeEnvoi modeEnvoi = ModeEnvoi.Pennylane;
     public SmtpConfig smtp = new SmtpConfig();
 

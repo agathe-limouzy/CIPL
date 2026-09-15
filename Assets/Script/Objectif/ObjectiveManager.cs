@@ -56,6 +56,8 @@ public class ObjectivesManager : MonoBehaviour
         filterObligatoireButton.onClick.AddListener(() => SetFilter(Objective.ObjectiveStatus.Obligatoire));
         filterRappelButton.onClick.AddListener(() => SetFilter(Objective.ObjectiveStatus.Rappel));
 
+        PlaceAddButtonInFilterRow();
+
         inputRow.SetActive(false);
       
        // LoadObjectives();
@@ -67,6 +69,66 @@ public class ObjectivesManager : MonoBehaviour
         inputRow.SetActive(!inputRow.activeSelf);
         if (inputRow.activeSelf)
             newObjectiveInput.ActivateInputField();
+    }
+
+    // Place le bouton « + Ajouter » sur la même ligne que les filtres (poussé à droite).
+    private bool _addPlaced;
+    private void PlaceAddButtonInFilterRow()
+    {
+        if (_addPlaced || filterAllButton == null || addButton == null) return;
+        _addPlaced = true;
+
+        // Corrige la faute de frappe du libellé « Rapel » → « Rappel ».
+        if (filterRappelButton != null)
+        {
+            var lbl = filterRappelButton.GetComponentInChildren<TMP_Text>(true);
+            if (lbl != null) lbl.text = "Rappel";
+        }
+
+        var row = filterAllButton.transform.parent;
+
+        // « Header » interne vide (le vrai titre est dans la bande de la section) → on le
+        // masque, sinon il laisse un vide de ~34px entre le titre et les filtres.
+        var innerHeader = row.parent.Find("Header ") ?? row.parent.Find("Header");
+        if (innerHeader != null) innerHeader.gameObject.SetActive(false);
+
+        var hlg = row.GetComponent<UnityEngine.UI.HorizontalLayoutGroup>();
+        if (hlg != null)
+        {
+            hlg.childForceExpandWidth = false; hlg.childControlWidth = true;
+            hlg.childForceExpandHeight = false; hlg.childControlHeight = true;
+            hlg.childAlignment = TextAnchor.MiddleLeft;
+        }
+        // Borne la hauteur de la ligne (le bouton réparenté arrivait avec une grande
+        // hauteur → la ligne gonflait à 100px et laissait un vide au-dessus des chips).
+        var rle = row.GetComponent<UnityEngine.UI.LayoutElement>() ?? row.gameObject.AddComponent<UnityEngine.UI.LayoutElement>();
+        rle.minHeight = 38; rle.preferredHeight = 38; rle.flexibleHeight = 0;
+
+        var spacer = new GameObject("AddSpacer", typeof(RectTransform));
+        spacer.transform.SetParent(row, false);
+        spacer.AddComponent<UnityEngine.UI.LayoutElement>().flexibleWidth = 1;
+
+        addButton.transform.SetParent(row, false);
+        addButton.transform.SetAsLastSibling();
+        var ale = addButton.GetComponent<UnityEngine.UI.LayoutElement>()
+                  ?? addButton.gameObject.AddComponent<UnityEngine.UI.LayoutElement>();
+        ale.preferredWidth = 110; ale.minWidth = 110; ale.flexibleWidth = 0;
+        ale.preferredHeight = 34; ale.minHeight = 34;
+
+        // Couleur du bouton « + Ajouter » : famille « notes » (gris-bleu), texte blanc.
+        var addImg = addButton.GetComponent<UnityEngine.UI.Image>();
+        if (addImg != null) addImg.color = new Color32(0x5C, 0x6E, 0x85, 0xFF);
+        var addLbl = addButton.GetComponentInChildren<TMP_Text>(true);
+        if (addLbl != null) addLbl.color = Color.white;
+
+        // La liste (ScrollRect) réservait 90px même vide → section trop haute vs les autres.
+        // On la compacte (les objectifs défilent dedans, donc pas de coupure).
+        var list = row.parent.Find("ObjectifList");
+        if (list != null)
+        {
+            var lle = list.GetComponent<UnityEngine.UI.LayoutElement>() ?? list.gameObject.AddComponent<UnityEngine.UI.LayoutElement>();
+            lle.minHeight = 180; lle.preferredHeight = 180; lle.flexibleHeight = 0;
+        }
     }
 
     private void AddObjective()
@@ -107,7 +169,7 @@ public class ObjectivesManager : MonoBehaviour
 
     public void RefreshList()
     {
-        Debug.Log(_objectives.items.Count);
+        if (_objectives == null) _objectives = new ObjectiveList();   // pas encore chargé
         // ✅ Désactive tous les items du pool
         foreach (var item in _pool)
             item.gameObject.SetActive(false);

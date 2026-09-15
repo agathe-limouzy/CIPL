@@ -7,30 +7,29 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-/// Écran « Information Facture — Refacturation d'une charge ».
-/// Refacture UNE charge impayée du bâtiment au locataire (sa quote-part), avec le
-/// nom de la charge dans le tableau, TVA 20 %, et le justificatif en PJ si coché.
-/// « Sauvegarder et envoyer » produit le PDF, passe la charge en « payé » et avance
-/// le numéro. AUCUN envoi réel (Pennylane/email) ici.
-public class FactureRefacPanel : MonoBehaviour
+/// Écran « Information Facture — Révision du dépôt de garantie ».
+/// Facture le COMPLÉMENT de dépôt (nouveau dépôt − dépôt déjà versé) quand le loyer
+/// a été indexé. Sans TVA. « Sauvegarder et envoyer » produit le PDF et avance le
+/// numéro — il NE modifie PAS le montant du dépôt ni la date de révision (ça reste
+/// au bouton « Révision dépôt de garantie » de la fiche). Aucun envoi réel ici.
+public class FactureDepotPanel : MonoBehaviour
 {
-    public static FactureRefacPanel Instance { get; private set; }
+    public static FactureDepotPanel Instance { get; private set; }
 
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
     static readonly Color CoBleu = Hex("#2C3E5E"), CoBleuL = Hex("#DEE3EB");
-    static readonly Color CoAmbre = Hex("#7A5AA6"), CoAmbreL = Hex("#ECE4F5");   // violet — charges
-    static readonly Color CoTaupe = Hex("#5F5E5A"), CoTaupeL = Hex("#E9E6DE");
+    static readonly Color CoDepot = Hex("#2A6F82"), CoDepotL = Hex("#E2EFF2");
 
     static readonly List<string> NumFmtLabels = new List<string> { "Année / Numéro", "Année / Mois-Numéro", "Année / JourMois-Numéro" };
     static readonly List<string> NumFmtIds = new List<string> { "AN", "AMN", "AJMN" };
 
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
 
-    TMP_Text _titre, _entetePreview, _modeInfo, _previewHint, _tHT, _tTVA, _tTTC;
-    TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _montant, _emailEnvoi;
+    TMP_Text _titre, _entetePreview, _modeInfo, _previewHint, _tNouveau, _tAncien, _tComplement, _perLine;
+    TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _nbPeriodes, _ancien, _emailEnvoi;
     TMP_Text _numeroPrefixe;
-    UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _chargeDD;
-    Toggle _tvaDebit, _retard, _envoiEmail, _pj;
+    UIDropdown _ribDD, _enteteDD, _numeroFormatDD;
+    Toggle _ttcToggle, _retard, _envoiEmail;
     string _autoSomme;
 
     RawImage _previewImg;
@@ -49,16 +48,16 @@ public class FactureRefacPanel : MonoBehaviour
         gameObject.SetActive(false);
     }
 
-    public static void OpenRefac(LocatairePrefab fiche)
+    public static void OpenDepot(LocatairePrefab fiche)
     {
         if (fiche == null) return;
         if (Instance == null)
         {
             var canvas = FindObjectOfType<Canvas>();
             if (canvas == null) return;
-            var go = new GameObject("FactureRefacPanel", typeof(RectTransform));
+            var go = new GameObject("FactureDepotPanel", typeof(RectTransform));
             go.transform.SetParent(canvas.rootCanvas.transform, false);
-            go.AddComponent<FactureRefacPanel>();
+            go.AddComponent<FactureDepotPanel>();
         }
         Instance.OpenFor(fiche);
     }
@@ -100,7 +99,7 @@ public class FactureRefacPanel : MonoBehaviour
         var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, 18);
         UIFactory.Border(back.gameObject); UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
         back.onClick.AddListener(Close);
-        _titre = UIFactory.Text(header.transform, "Information Facture — Refacturation", 26, UITheme.TextePrincipal, true);
+        _titre = UIFactory.Text(header.transform, "Information Facture — Révision du dépôt", 26, UITheme.TextePrincipal, true);
         UIFactory.LE(_titre.gameObject, flexW: 1);
 
         var main = UIFactory.HBox(col.transform, 16, false, "Main");
@@ -142,26 +141,28 @@ public class FactureRefacPanel : MonoBehaviour
         pv.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         _entetePreview = UIFactory.Text(pvv.transform, "—", 15, UITheme.TextePrincipal);
 
-        // ── Charge à refacturer ──
-        var g = UIFactory.Section(content, "Charge à refacturer", CoAmbre, CoAmbreL);
-        UIFactory.Text(g.transform, "Charge (impayée) concernée", 16, UITheme.TexteSecondaire);
-        _chargeDD = UIDropdown.Create(g.transform, new List<string> { "—" }, new List<string> { (string)null }, 0, _ => OnChargeSelected());
-        _montant = Labeled(g, "Montant HT (quote-part du locataire)");
-        _montant.contentType = TMP_InputField.ContentType.DecimalNumber;
-        _montant.onValueChanged.AddListener(_ => { RefreshTotaux(); RefreshEntetePreview(); });
-        _tHT  = MontRow(g, "Total HT");
-        _tTVA = MontRow(g, "TVA 20 %");
-        _tTTC = MontRow(g, "Total TTC");
-        _pj = UIFactory.Toggle(g.transform, "Joindre le justificatif de la charge (PJ)", true);
+        // ── Dépôt de garantie ──
+        var g = UIFactory.Section(content, "Dépôt de garantie", CoDepot, CoDepotL);
+        _ttcToggle = UIFactory.Toggle(g.transform, "Locataire soumis à la TVA (loyer TTC)", true);
+        _ttcToggle.onValueChanged.AddListener(_ => RefreshTotaux());
+        _perLine = UIFactory.Text(g.transform, "—", 15, UITheme.TexteSecondaire);
+        _nbPeriodes = Labeled(g, "Nombre de périodes de loyer");
+        _nbPeriodes.contentType = TMP_InputField.ContentType.IntegerNumber;
+        _nbPeriodes.onValueChanged.AddListener(_ => RefreshTotaux());
+        _ancien = Labeled(g, "Dépôt de garantie déjà versé (€)");
+        _ancien.contentType = TMP_InputField.ContentType.DecimalNumber;
+        _ancien.onValueChanged.AddListener(_ => RefreshTotaux());
+        _tNouveau    = MontRow(g, "Nouveau dépôt de garantie");
+        _tAncien     = MontRow(g, "Dépôt déjà versé");
+        _tComplement = MontRow(g, "Complément à régler");
 
         var o = UIFactory.Section(content, "Options & envoi", CoVert, CoVertL);
-        _tvaDebit = UIFactory.Toggle(o.transform, "Ajouter la mention « TVA payée sur les débits »", true);
         _retard = UIFactory.Toggle(o.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
         _modeInfo = UIFactory.Text(o.transform, "", 15, UITheme.TexteSecondaire);
         _envoiEmail = UIFactory.Toggle(o.transform, "Envoyer par email (au lieu de Pennylane)", false);
         _emailEnvoi = Labeled(o, "Email d'envoi");
         UIFactory.Text(o.transform,
-            "Note : l'envoi réel (Pennylane / email) sera activé après validation — rien n'est émis pour l'instant.",
+            "Note : cette facture ne modifie pas le montant du dépôt (voir le bouton « Révision dépôt de garantie »). Rien n'est émis pour l'instant.",
             14, UITheme.Alerte);
 
         var gen = UIFactory.Button(left.transform, "Générer facture", UITheme.Primaire, Color.white, 46, 20);
@@ -214,9 +215,9 @@ public class FactureRefacPanel : MonoBehaviour
     void LoadIntoUI()
     {
         if (_loc == null) return;
-        var f = _loc.factureRefac;
+        var f = _loc.factureDepot;
 
-        _titre.text = $"Refacturation · {(_loc.Name ?? "")}";
+        _titre.text = $"Révision du dépôt · {(_loc.Name ?? "")}";
 
         _nom.text     = !string.IsNullOrEmpty(f?.destNom)     ? f.destNom     : (_loc.Name ?? "");
         _adresse.text = !string.IsNullOrEmpty(f?.destAdresse) ? f.destAdresse : (_loc.adresseLocataire ?? "");
@@ -227,7 +228,7 @@ public class FactureRefacPanel : MonoBehaviour
             R.ribs.Select(r => r.id).ToList(), f?.ribId);
         _enteteDD.SetOptions(
             R.entetes.Select(e => string.IsNullOrWhiteSpace(e.nom) ? "(entête)" : e.nom).ToList(),
-            R.entetes.Select(e => e.id).ToList(), ReglageService.EnteteChoisi(f?.enteteId, "Refac"));
+            R.entetes.Select(e => e.id).ToList(), ReglageService.EnteteChoisi(f?.enteteId, "Depot"));
 
         DateTime now = DateTime.Today;
         _date.text = f != null && DateTime.TryParse(f.dateISO, out var dd)
@@ -242,23 +243,17 @@ public class FactureRefacPanel : MonoBehaviour
         _numeroFormatDD.SetOptions(NumFmtLabels, NumFmtIds, fmt);
         _refInterne.text = f?.refInterne ?? "";
 
-        // Charges impayées concernant le locataire.
-        var charges = ImpayeesCharges();
-        var labels = charges.Select(ChargeLabel).ToList();
-        var ids = charges.Select(c => c.id).ToList();
-        if (labels.Count == 0) { labels.Add("Aucune charge impayée"); ids.Add(null); }
-        string selId = f != null && !string.IsNullOrEmpty(f.chargeId) && ids.Contains(f.chargeId) ? f.chargeId : ids[0];
-        _chargeDD.SetOptions(labels, ids, selId);
-
-        var sc = SelectedCharge();
-        _montant.text = (f != null && f.saved && f.loyerMontant > 0 ? f.loyerMontant
-                         : (sc != null ? QuotePart(sc) : 0f)).ToString("0.00", CultureInfo.InvariantCulture);
-        _pj.isOn = f?.joindrePj ?? true;
+        // Dépôt : base TTC/HT, ancien montant, nb de périodes (dérivé du dépôt actuel).
+        _ttcToggle.isOn = _loc.depotSurTTC;
+        _ancien.text = _loc.depotDeGarantie.ToString("0.00", CultureInfo.InvariantCulture);
+        float per = CurrentPeriode();
+        int nb = per > 0f ? Mathf.Max(1, Mathf.RoundToInt(_loc.depotDeGarantie / per)) : 1;
+        if (f != null && f.moisPeriode > 0) nb = f.moisPeriode;
+        _nbPeriodes.text = nb.ToString();
 
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
         RefreshNumero();
 
-        _tvaDebit.isOn = f?.tvaDebit ?? true;
         _retard.isOn = f?.ajouterRetard ?? true;
         _envoiEmail.isOn = f?.envoiEmail ?? false;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
@@ -270,57 +265,29 @@ public class FactureRefacPanel : MonoBehaviour
         RefreshEntetePreview();
     }
 
-    // ── Charges / calculs ──────────────────────────────────────────────────────
+    // ── Calculs dépôt ──────────────────────────────────────────────────────────
 
-    string ChargeLabel(ChargeBatiment c)
+    float CurrentPeriode()
     {
-        string dstr = DateTime.TryParse(c.dateISO, out var cd) ? cd.ToString("dd/MM/yyyy") : "";
-        return string.IsNullOrEmpty(dstr) ? c.nom : $"{c.nom}  ·  {dstr}";
+        float ht = _loc.loyerAnnuel / Mathf.Max(1, LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer));
+        return (_ttcToggle != null && _ttcToggle.isOn) ? ht * 1.2f : ht;
     }
 
-    List<ChargeBatiment> ImpayeesCharges()
+    float Nouveau()
     {
-        var res = new List<ChargeBatiment>();
-        if (_bat?.charges == null) return res;
-        foreach (var c in _bat.charges)
-        {
-            if (c.paye) continue;
-            bool concerne = c.tousLocataires || (c.locatairesConcernes != null && c.locatairesConcernes.Contains(_loc.id));
-            if (concerne) res.Add(c);
-        }
-        return res;
-    }
-
-    ChargeBatiment SelectedCharge()
-    {
-        string id = _chargeDD?.SelectedId;
-        if (string.IsNullOrEmpty(id) || _bat?.charges == null) return null;
-        return _bat.charges.FirstOrDefault(c => c.id == id);
-    }
-
-    float QuotePart(ChargeBatiment c)
-    {
-        if (c.ratios == null || c.ratios.Count == 0) return c.cout;
-        float sum = 0f; foreach (var r in c.ratios) sum += r.part;
-        var mine = c.ratios.FirstOrDefault(r => r.locataireId == _loc.id);
-        if (mine == null || sum <= 0f) return 0f;
-        return c.cout * mine.part / sum;
-    }
-
-    void OnChargeSelected()
-    {
-        var c = SelectedCharge();
-        _montant.text = (c != null ? QuotePart(c) : 0f).ToString("0.00", CultureInfo.InvariantCulture);
-        RefreshTotaux();
-        RefreshEntetePreview();
+        int nb = 0; int.TryParse((_nbPeriodes.text ?? "").Trim(), out nb);
+        return CurrentPeriode() * Mathf.Max(0, nb);
     }
 
     void RefreshTotaux()
     {
-        float ht = ParseF(_montant.text);
-        _tHT.text  = $"{ht:N2} €";
-        _tTVA.text = $"{ht * .2f:N2} €";
-        _tTTC.text = $"{ht * 1.2f:N2} €";
+        float per = CurrentPeriode();
+        _perLine.text = $"Loyer : {per:0.00} € / période {(_ttcToggle != null && _ttcToggle.isOn ? "TTC" : "HT")}";
+        float nouveau = Nouveau(), ancien = ParseF(_ancien.text), complement = nouveau - ancien;
+        _tNouveau.text    = $"{nouveau:N2} €";
+        _tAncien.text     = $"{ancien:N2} €";
+        _tComplement.text = $"{complement:N2} €";
+        RefreshEntetePreview();
     }
 
     // ── Numéro / phrase / aperçu entête ────────────────────────────────────────
@@ -368,6 +335,7 @@ public class FactureRefacPanel : MonoBehaviour
 
     void RefreshEntetePreview()
     {
+        if (_entetePreview == null) return;
         var ent = ReglageService.GetEntete(_enteteDD?.SelectedId);
         _entetePreview.text = ent == null || string.IsNullOrEmpty(ent.texte)
             ? "—" : FactureVarResolver.Resolve(ent.texte, _loc, _bat, BuildContext());
@@ -375,49 +343,46 @@ public class FactureRefacPanel : MonoBehaviour
 
     FactureContext BuildContext()
     {
-        float ht = ParseF(_montant.text);
+        float c = Nouveau() - ParseF(_ancien.text);
         DateTime d = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
-        var c = SelectedCharge();
         return new FactureContext
         {
             date = d,
-            periode = c != null ? c.nom : "refacturation",
+            periode = "dépôt de garantie",
             numero = ComposedNumero(),
-            loyerHT = ht,
-            tva = ht * .2f,
-            ttc = ht * 1.2f,
+            loyerHT = c, tva = 0f, ttc = c,
         };
     }
 
-    // ── Données PDF ────────────────────────────────────────────────────────────
+    // ── Données PDF (réutilise le rendu régularisation, sans page 2 ni TVA) ─────
 
-    FacturePdfService.Data BuildData()
+    FacturePdfService.RegulData BuildData()
     {
         var ctx = BuildContext();
         var rib = ReglageService.GetRib(_ribDD?.SelectedId);
         var ent = ReglageService.GetEntete(_enteteDD?.SelectedId);
-        var charge = SelectedCharge();
-        string chargeName = charge != null ? charge.nom : "Charge";
-        float ht = ParseF(_montant.text);
         string entResolved = ent != null ? FactureVarResolver.Resolve(ent.texte, _loc, _bat, ctx) : "";
-        string body = FacturePdfService.BodyHtml(entResolved);
-        if (_pj.isOn && charge != null && !string.IsNullOrEmpty(charge.pdfPath))
-            body += $"<p>Justificatif joint : {Path.GetFileName(charge.pdfPath)}</p>";
         var foot = (R.basDePage ?? "").Replace("\r", "").Split('\n');
+        float nouveau = Nouveau(), ancien = ParseF(_ancien.text), complement = nouveau - ancien;
 
-        return new FacturePdfService.Data
+        return new FacturePdfService.RegulData
         {
             clientNom = _nom.text,
             clientAdresseHtml = FacturePdfService.AdresseHtml(_adresse.text),
             clientSiret = _siret.text,
             refInterne = _refInterne.text,
-            ligneLabel = chargeName,
             dateStr = ctx.date.ToString("d MMMM yyyy", FacturePdfService.FrCulture),
             numero = ComposedNumero(),
-            subtitle = $"Refacturation : {chargeName}",
-            bodyHtml = body,
-            totalPeriode = ht, provision = 0f, totalHT = ht, tva = ht * .2f, ttc = ht * 1.2f,
-            tvaDebit = _tvaDebit.isOn, retard = _retard.isOn,
+            subtitle = "Révision du dépôt de garantie",
+            bodyHtml = FacturePdfService.BodyHtml(entResolved),
+            charges = new List<FacturePdfService.RegulLigne>(),   // pas de page 2
+            totalCharges = nouveau, provisions = ancien, soldeHT = complement,
+            tva = 0f, ttc = complement,
+            labelTotal = "Nouveau dépôt de garantie",
+            labelProvisions = "Dépôt de garantie déjà versé",
+            labelSolde = "Complément à régler",
+            masquerTva = true,
+            tvaDebit = false, retard = _retard.isOn,
             sommePhrase = _sommePhrase.text,
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
@@ -434,49 +399,46 @@ public class FactureRefacPanel : MonoBehaviour
     {
         SaveFromUI();
         var d = BuildData();
-        string png = Path.Combine(FactureDir(), "apercu_refac.png");
-        if (FacturePdfService.GeneratePreviewPng(d, png, out string err)) ShowPreview(png);
+        string png = Path.Combine(FactureDir(), "apercu_depot.png");
+        if (FacturePdfService.GenerateRegulPreviewPng(d, png, out string err)) ShowPreview(png);
         else UndoToast.Instance?.ShowInfo("Échec de l'aperçu : " + err);
     }
 
     void SauvegarderEtEnvoyer()
     {
         SaveFromUI();
-        var charge = SelectedCharge();
-        if (charge == null) { UndoToast.Instance?.ShowInfo("Sélectionne une charge à refacturer."); return; }
         var d = BuildData();
         string dir = FactureDir();
-        DateTime dt = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
-        string fname = Sanitize($"Refacturation-{charge.nom}-{_nom.text}-{dt:MM-yyyy}") + ".pdf";
+        int year = (TryDate(_date.text, out var dt) ? dt : DateTime.Today).Year;
+        string fname = Sanitize($"RevisionDepot-{_nom.text}-{year}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
-        if (!FacturePdfService.GeneratePdf(d, pdf, out string err))
+        if (!FacturePdfService.GenerateRegulPdf(d, pdf, out string err))
         {
             UndoToast.Instance?.ShowInfo("Échec génération PDF : " + err);
             return;
         }
 
-        string png = Path.Combine(dir, "apercu_refac.png");
-        if (FacturePdfService.GeneratePreviewPng(d, png, out _)) ShowPreview(png);
+        string png = Path.Combine(dir, "apercu_depot.png");
+        if (FacturePdfService.GenerateRegulPreviewPng(d, png, out _)) ShowPreview(png);
 
-        // La charge refacturée passe en « payé ».
-        charge.paye = true;
-
-        // Suivi : ligne de refacturation « Envoyé » (datée à l'échéance de la facture).
+        // Suivi : ligne de révision du dépôt « Envoyé » (rattachée à l'année de la date limite).
+        int revYear = DateTime.TryParse(_loc.dateRevisionDepotISO, out var rv) ? rv.Year
+            : (TryDate(_date.text, out var dtr) ? dtr.Year : DateTime.Today.Year);
         var ribS = ReglageService.GetRib(_ribDD?.SelectedId);
         string ribNom = ribS != null ? (!string.IsNullOrWhiteSpace(ribS.name) ? ribS.name : ribS.titulaire) : "";
-        FacturationSuivi.MarquerEnvoye(_loc, $"refac-{charge.id}", "Refac",
-            d.subtitle, _loc.factureRefac?.dateEcheanceISO, d.numero, pdf, d.ttc, _ribDD?.SelectedId, ribNom);
+        FacturationSuivi.MarquerEnvoye(_loc, $"depot-{revYear}", "Depot",
+            d.subtitle, _loc.factureDepot?.dateEcheanceISO, d.numero, pdf, d.soldeHT, _ribDD?.SelectedId, ribNom);
 
+        // Numéro consommé (le dépôt de la fiche n'est PAS modifié ici).
         _loc.factureSeq = Mathf.Max(1, _loc.factureSeq) + 1;
-        if (_loc.factureRefac != null) _loc.factureRefac.numeroId = "";
+        if (_loc.factureDepot != null) _loc.factureDepot.numeroId = "";
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
         if (_numeroId != null) _numeroId.text = "";
         RefreshNumero();
-        LoadIntoUI();   // recharge la liste (la charge payée disparaît)
 
-        UndoToast.Instance?.ShowInfo("Refacturation enregistrée (PDF) · charge passée en payé. Envoi réel non activé.");
+        UndoToast.Instance?.ShowInfo("Facture de révision du dépôt enregistrée. Le montant du dépôt n'a pas été modifié.");
     }
 
     void ShowPreview(string pngPath)
@@ -502,7 +464,7 @@ public class FactureRefacPanel : MonoBehaviour
     void SaveFromUI()
     {
         if (_loc == null) return;
-        var f = _loc.factureRefac ?? new FactureInfo();
+        var f = _loc.factureDepot ?? new FactureInfo();
         f.destNom = _nom.text;
         f.destAdresse = _adresse.text;
         f.destSiret = _siret.text;
@@ -514,18 +476,17 @@ public class FactureRefacPanel : MonoBehaviour
         f.numeroFormat = _numeroFormatDD?.SelectedId ?? "AMN";
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();
-        f.tvaDebit = _tvaDebit.isOn;
         f.ajouterRetard = _retard.isOn;
         f.envoiEmail = _envoiEmail.isOn;
         f.emailDest = _emailEnvoi.text;
         f.refInterne = _refInterne.text;
-        f.chargeId = _chargeDD?.SelectedId;
-        f.joindrePj = _pj.isOn;
-        f.loyerMontant = ParseF(_montant.text);
-        var c = SelectedCharge();
-        f.objet = $"Refacturation {(c != null ? c.nom : "")}";
+        int.TryParse((_nbPeriodes.text ?? "").Trim(), out int nb);
+        f.moisPeriode = Mathf.Max(0, nb);
+        f.loyerMontant = Nouveau();
+        f.provisionMontant = ParseF(_ancien.text);
+        f.objet = "Révision du dépôt de garantie";
         f.saved = true;
-        _loc.factureRefac = f;
+        _loc.factureDepot = f;
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
     }

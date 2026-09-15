@@ -45,6 +45,29 @@ public static class UIFactory
         rt.offsetMin = new Vector2(l, b); rt.offsetMax = new Vector2(-r, -t);
     }
 
+    /// Place un menu déroulant SOUS l'ancre, ou AU-DESSUS s'il manque de place en bas
+    /// (ex. dernière ligne d'un tableau). `popup` doit être enfant d'un scrim plein
+    /// écran (canvas overlay), ancré en bas-gauche (0,0) ; on gère son pivot et sa
+    /// position. Le popup est reconstruit pour mesurer sa hauteur réelle.
+    public static void PlacePopup(RectTransform popup, RectTransform anchor, float margin = 6f)
+    {
+        if (popup == null || anchor == null) return;
+        LayoutRebuilder.ForceRebuildLayoutImmediate(popup);
+        float h = popup.rect.height;
+        var c = new Vector3[4]; anchor.GetWorldCorners(c);   // 0=bas-gauche · 1=haut-gauche
+        bool enBas = (c[0].y - h) >= margin;                 // assez de place sous l'ancre ?
+        if (enBas)
+        {
+            popup.pivot = new Vector2(0f, 1f);               // haut-gauche du menu…
+            popup.anchoredPosition = new Vector2(c[0].x, c[0].y);   // …au bas-gauche de l'ancre
+        }
+        else
+        {
+            popup.pivot = new Vector2(0f, 0f);               // bas-gauche du menu…
+            popup.anchoredPosition = new Vector2(c[1].x, c[1].y);   // …au haut-gauche de l'ancre
+        }
+    }
+
     public static Image Panel(string name, Transform parent, Color color, bool rounded = true)
     {
         var rt = Rect(name, parent);

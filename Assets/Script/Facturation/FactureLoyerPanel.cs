@@ -30,12 +30,13 @@ public class FactureLoyerPanel : MonoBehaviour
     static readonly List<string> NumFmtIds = new List<string> { "AN", "AMN", "AJMN" };
 
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
+    FactureEtat _correctionTarget;   // ligne du suivi à corriger (ouverture via « Corriger »)
 
     TMP_Text _titre, _entetePreview, _modeInfo, _mTotalHT, _mTVA, _mTTC, _numeroPrefixe;
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _annee, _refInterne, _sommePhrase, _loyer, _provision, _emailEnvoi;
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _periodeDD;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
-    Toggle _tvaDebit, _retard, _envoiEmail;
+    Toggle _tvaDebit, _retard, _envoiEmail, _mensuel;
 
     // Aperçu de la facture rendue (image à droite du formulaire).
     RawImage _previewImg;
@@ -55,7 +56,12 @@ public class FactureLoyerPanel : MonoBehaviour
         gameObject.SetActive(false);
     }
 
-    public static void OpenLoyer(LocatairePrefab fiche)
+    public static void OpenLoyer(LocatairePrefab fiche) => OpenLoyer(fiche, null);
+
+    // `correctionTarget` != null : ouverture via « Corriger » sur une facture déjà
+    // émise → on force la période sur la ligne visée et la sauvegarde crée une
+    // version « corrigée(X) » (même numéro).
+    public static void OpenLoyer(LocatairePrefab fiche, FactureEtat correctionTarget)
     {
         if (fiche == null) return;
         if (Instance == null)
@@ -66,18 +72,39 @@ public class FactureLoyerPanel : MonoBehaviour
             go.transform.SetParent(canvas.rootCanvas.transform, false);
             go.AddComponent<FactureLoyerPanel>();
         }
-        Instance.OpenFor(fiche);
+        Instance.OpenFor(fiche, correctionTarget);
     }
 
-    void OpenFor(LocatairePrefab fiche)
+    void OpenFor(LocatairePrefab fiche, FactureEtat correctionTarget = null)
     {
         _fiche = fiche;
         _loc = fiche.GetLocataire();
         _bat = fiche.batimentPrefabOrigin != null ? fiche.batimentPrefabOrigin.getBatiment() : null;
+        _correctionTarget = correctionTarget;
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
         ResetPreview();   // pas d'aperçu du locataire précédent
         LoadIntoUI();
+        ApplyCorrectionTarget();
+    }
+
+    // Force la période/année du formulaire sur la ligne à corriger (clé « loyer-{Y}-P{P} »).
+    void ApplyCorrectionTarget()
+    {
+        _titre.text = _correctionTarget != null
+            ? "Information Facture — Loyer (correction)"
+            : "Information Facture — Loyer";
+        if (_correctionTarget == null || string.IsNullOrEmpty(_correctionTarget.key)) return;
+
+        var parts = _correctionTarget.key.Split('-');   // ["loyer","2026","P3"]
+        if (parts.Length >= 3 && int.TryParse(parts[1], out int y))
+        {
+            _annee.text = y.ToString();
+            string p = parts[2].TrimStart('P', 'p');
+            var (plabels, pids) = PeriodeOptions(_loc.periodiciteLoyer);
+            _periodeDD.SetOptions(plabels, pids, p);
+            RefreshNumero(); RefreshMontants(); RefreshEntetePreview();
+        }
     }
 
     // Remet l'aperçu à zéro (évite d'afficher la facture d'un autre locataire).
@@ -184,6 +211,9 @@ public class FactureLoyerPanel : MonoBehaviour
         var o = UIFactory.Section(content, "Options & envoi", CoVert, CoVertL);
         _tvaDebit = UIFactory.Toggle(o.transform, "Ajouter la mention « TVA payée sur les débits »", true);
         _retard = UIFactory.Toggle(o.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
+        // Option (hors mensuel) : ligne « montant mensuel à régler » = loyer de la période ÷ nb de mois.
+        _mensuel = UIFactory.Toggle(o.transform, "Ajouter « le montant mensuel à régler » (loyer de la période ÷ nb de mois)", true);
+        _mensuel.onValueChanged.AddListener(_ => RefreshMontants());
         _modeInfo = UIFactory.Text(o.transform, "", 15, UITheme.TexteSecondaire);
         _envoiEmail = UIFactory.Toggle(o.transform, "Envoyer par email (au lieu de Pennylane)", false);
         _emailEnvoi = Labeled(o, "Email d'envoi");
@@ -253,6 +283,9 @@ public class FactureLoyerPanel : MonoBehaviour
         var ent = ReglageService.GetEntete(_enteteDD?.SelectedId);
         float loyer = ParseF(_loyer.text), prov = ParseF(_provision.text);
         float totalHT = loyer + prov, tva = totalHT * .2f, ttc = totalHT * 1.2f;
+        // Montant mensuel = TTC de la période ÷ nombre de mois de la période (hors mensuel).
+        int moisParPeriode = Mathf.Max(1, 12 / LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer));
+        bool afficheMensuel = _mensuel != null && _mensuel.isOn && _loc.periodiciteLoyer != Periodicite.mensuel;
         string entResolved = ent != null ? FactureVarResolver.Resolve(ent.texte, _loc, _bat, ctx) : "";
         var foot = (R.basDePage ?? "").Replace("\r", "").Split('\n');
         string dateStr = ctx.date.ToString("d MMMM yyyy", FacturePdfService.FrCulture);
@@ -269,6 +302,7 @@ public class FactureLoyerPanel : MonoBehaviour
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             totalPeriode = loyer, provision = prov, totalHT = totalHT, tva = tva, ttc = ttc,
             tvaDebit = _tvaDebit.isOn, retard = _retard.isOn,
+            afficherMensuel = afficheMensuel, montantMensuel = afficheMensuel ? ttc / moisParPeriode : 0f,
             sommePhrase = _sommePhrase.text,
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
@@ -298,9 +332,20 @@ public class FactureLoyerPanel : MonoBehaviour
     void SauvegarderEtEnvoyer()
     {
         SaveFromUI();
+        var fl = _loc.factureLoyer;
+        string key = $"loyer-{fl.anneePeriode}-P{fl.moisPeriode}";
+
+        // Facture déjà émise pour cette période → on refait une version « corrigée(X) »
+        // (même numéro, sans consommer de nouvelle séquence).
+        bool correction = FacturationSuivi.EstDejaEmise(_loc, key, out var recExist);
+        int x = correction ? recExist.corrections + 1 : 0;
+
         var d = BuildData();
+        if (correction && !string.IsNullOrEmpty(recExist.numero))
+            d.numero = recExist.numero + $" corrigée({x})";
+
         string dir = FactureDir();
-        string fname = Sanitize($"Loyer-{_nom.text}-{d.subtitle}") + ".pdf";
+        string fname = Sanitize($"Loyer-{_nom.text}-{d.subtitle}{(correction ? $"-corrigee{x}" : "")}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
         if (!FacturePdfService.GeneratePdf(d, pdf, out string err))
@@ -313,11 +358,32 @@ public class FactureLoyerPanel : MonoBehaviour
         string png = Path.Combine(dir, "apercu.png");
         if (FacturePdfService.GeneratePreviewPng(d, png, out _)) ShowPreview(png);
 
+        if (correction)
+        {
+            // Met à jour la ligne existante (lien PDF + libellé « corrigée(X) »),
+            // conserve le numéro et le statut. Pas de nouvelle séquence consommée.
+            FacturationSuivi.MarquerCorrige(_loc, key, d.subtitle, pdf, d.ttc);
+            _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+            LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
+            _correctionTarget = null;
+            _titre.text = "Information Facture — Loyer";
+            UndoToast.Instance?.ShowInfo($"Facture corrigée ({x}) enregistrée (PDF). Envoi réel non activé.");
+            return;
+        }
+
+        // Suivi : la ligne du loyer de cette période passe « Envoyé » (ou « En attente
+        // d'envoi » si préparée plus de 15 j avant l'échéance — décidé dans MarquerEnvoye).
+        var ribS = ReglageService.GetRib(_ribDD?.SelectedId);
+        string ribNom = ribS != null ? (!string.IsNullOrWhiteSpace(ribS.name) ? ribS.name : ribS.titulaire) : "";
+        FacturationSuivi.MarquerEnvoye(_loc, key, "Loyer",
+            d.subtitle, fl.dateEcheanceISO, d.numero, pdf, d.ttc, _ribDD?.SelectedId, ribNom);
+
         // N° consommé → on avance la séquence (unique par locataire) et on oublie
         // l'ID mémorisé pour reproposer la nouvelle séquence à la prochaine ouverture.
         _loc.factureSeq = Mathf.Max(1, _loc.factureSeq) + 1;
         if (_loc.factureLoyer != null) _loc.factureLoyer.numeroId = "";
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+        LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
         if (_numeroId != null) _numeroId.text = "";
         RefreshNumero();
 
@@ -435,7 +501,7 @@ public class FactureLoyerPanel : MonoBehaviour
             R.ribs.Select(r => r.id).ToList(), f?.ribId);
         _enteteDD.SetOptions(
             R.entetes.Select(e => string.IsNullOrWhiteSpace(e.nom) ? "(entête)" : e.nom).ToList(),
-            R.entetes.Select(e => e.id).ToList(), f?.enteteId);
+            R.entetes.Select(e => e.id).ToList(), ReglageService.EnteteChoisi(f?.enteteId, "Loyer"));
 
         DateTime now = DateTime.Today;
         _date.text = f != null && DateTime.TryParse(f.dateISO, out var dd)
@@ -475,6 +541,9 @@ public class FactureLoyerPanel : MonoBehaviour
 
         _tvaDebit.isOn = f?.tvaDebit ?? true;
         _retard.isOn = f?.ajouterRetard ?? true;
+        // Ligne « montant mensuel » : seulement pour un loyer non mensuel (trim / semestre / an).
+        _mensuel.isOn = f?.ajouterMensuel ?? true;
+        _mensuel.gameObject.SetActive(_loc.periodiciteLoyer != Periodicite.mensuel);
         _envoiEmail.isOn = f?.envoiEmail ?? false;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
         _modeInfo.text = R.modeEnvoi == ModeEnvoi.Pennylane
@@ -536,8 +605,19 @@ public class FactureLoyerPanel : MonoBehaviour
         }
     }
 
+    // Période proposée par défaut = la période EN COURS (d'après la date du jour),
+    // pas systématiquement la 1re. Évite de facturer le « 1er trimestre » par erreur.
     static int DefaultPeriodeIndex(Periodicite p)
-        => p == Periodicite.mensuel ? DateTime.Today.Month : 1;
+    {
+        int m = DateTime.Today.Month;
+        switch (p)
+        {
+            case Periodicite.mensuel:     return m;                 // mois courant
+            case Periodicite.trimestriel: return (m - 1) / 3 + 1;   // trimestre courant (sept → 3)
+            case Periodicite.BiAnnuel:    return m <= 6 ? 1 : 2;    // semestre courant
+            default:                      return 1;                 // annuel
+        }
+    }
 
     int PeriodeAnnee()
     {
@@ -698,6 +778,7 @@ public class FactureLoyerPanel : MonoBehaviour
         f.numero = ComposedNumero();
         f.tvaDebit = _tvaDebit.isOn;
         f.ajouterRetard = _retard.isOn;
+        f.ajouterMensuel = _mensuel.isOn;
         f.envoiEmail = _envoiEmail.isOn;
         f.emailDest = _emailEnvoi.text;
         f.loyerMontant = ParseF(_loyer.text);

@@ -21,6 +21,7 @@ public class FactureInfo
     public string numero;           // n° complet = préfixe format + numeroId (mémorisé pour référence)
     public bool tvaDebit = true;    // mention « TVA payée sur les débits »
     public bool ajouterRetard = true; // ajoute la phrase de retard/pénalités
+    public bool ajouterMensuel = true; // ligne « montant mensuel à régler » (loyer période ÷ nb mois ; hors mensuel)
     public bool envoiEmail;         // true = email direct ; false = Pennylane (selon réglage global)
     public string emailDest;        // adresse d'envoi (pré-remplie depuis le locataire)
     public string objet;            // objet/titre (ex « Loyer avril 2026 »), éditable

@@ -23,8 +23,31 @@ public class LocataireRowUI : MonoBehaviour
     {
         string nom = string.IsNullOrEmpty(loc.Name) ? "Sans nom" : loc.Name;
 
-        if (txtNom != null) txtNom.text = nom;
-        if (txtInitiales != null) txtInitiales.text = Initiales(nom);
+        if (txtNom != null)
+        {
+            txtNom.text = nom;
+            // Nom mis en avant (l'utilisatrice : « les noms des locataires en plus gros »).
+            txtNom.enableAutoSizing = false; txtNom.fontSize = 23;
+        }
+        // Section locataires agrandie : sous-titre + loyer + avatar + hauteur de ligne.
+        if (txtSousTitre != null) { txtSousTitre.enableAutoSizing = false; txtSousTitre.fontSize = 13; }
+        if (txtLoyer != null)
+        {
+            // Assez large pour « 180 000 €/an » à fs 16 (avant : tronqué en « …/... »).
+            txtLoyer.enableAutoSizing = false; txtLoyer.fontSize = 16;
+            txtLoyer.enableWordWrapping = false; txtLoyer.overflowMode = TMPro.TextOverflowModes.Overflow;
+            var lle = txtLoyer.GetComponent<LayoutElement>() ?? txtLoyer.gameObject.AddComponent<LayoutElement>();
+            lle.minWidth = 128; lle.preferredWidth = 128;
+        }
+        if (avatarBg != null)
+        {
+            var ale = avatarBg.GetComponent<LayoutElement>();
+            if (ale != null) { ale.minWidth = 46; ale.preferredWidth = 46; ale.minHeight = 46; ale.preferredHeight = 46; }
+        }
+        // Lignes plus hautes pour laisser respirer le nom agrandi.
+        var le = GetComponent<LayoutElement>() ?? gameObject.AddComponent<LayoutElement>();
+        le.minHeight = 64; le.preferredHeight = 64;
+        if (txtInitiales != null) { txtInitiales.enableAutoSizing = false; txtInitiales.fontSize = 16; txtInitiales.text = Initiales(nom); }
         if (txtSousTitre != null)
             txtSousTitre.text = $"Lot {loc.lotBatiment} · {loc.tailleLot:F0} m²";
         if (txtLoyer != null)

@@ -28,6 +28,10 @@ public static class SaveIO
         string nouveau = SaveLocationService.SetSaveRoot(dir);
         SaveLocationService.MigrateData(ancien, nouveau);
         Reload();
+        // La sauvegarde a été DÉPLACÉE : l'entrée de l'ancienne racine devient obsolète,
+        // on la remplace par la nouvelle dans la liste des entreprises.
+        EntrepriseService.Oublier(ancien);
+        EntrepriseService.EnsureActiveRegistered();
         return true;
     }
 
@@ -39,6 +43,9 @@ public static class SaveIO
         if (!PickFolder("Charger une sauvegarde — choisir le dossier", out var dir)) return false;
         SaveLocationService.SetSaveRoot(dir);   // pointe sur <dir>/CIPL_Saves
         Reload();
+        // Inscrit la sauvegarde chargée dans la liste des entreprises (sinon elle
+        // n'apparaîtrait pas dans le sélecteur « Entreprises »).
+        EntrepriseService.EnsureActiveRegistered();
         nbBatiments = CountBatiments();
         return true;
     }

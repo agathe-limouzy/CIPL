@@ -43,6 +43,16 @@ public static class SaveLocationService
         return root;
     }
 
+    /// Active directement une racine FINALE connue (déjà « …/CIPL_Saves »), sans
+    /// ré-ajouter le sous-dossier. Utilisé pour basculer entre entreprises.
+    public static void UseRoot(string finalRoot)
+    {
+        if (string.IsNullOrEmpty(finalRoot)) return;
+        Directory.CreateDirectory(finalRoot);
+        PlayerPrefs.SetString(PREF_KEY, finalRoot);
+        PlayerPrefs.Save();
+    }
+
     /// Revient à l'emplacement par défaut (persistentDataPath).
     public static void ResetToDefault()
     {

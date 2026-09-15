@@ -70,7 +70,8 @@ public class LocatairePrefab : PrefabBatLoc
     {
         // Le point rouge d'onglet couvre révision de loyer ET renouvellement de bail.
         bool due = LoyerSummaryUI.EstRevisionDue(loc)
-                   || Locataire.RenouvellementProche(loc, out _);
+                   || Locataire.RenouvellementProche(loc, out _)
+                   || FacturationAlertes.AUrgent(loc);
         batimentPrefabOrigin.menulocataire.SetTabAlert(this, due);
         batimentPrefabOrigin.RefreshBatimentTabAlert();
         RefreshBailAlert(loc);
@@ -154,11 +155,11 @@ public class LocatairePrefab : PrefabBatLoc
 
     public override void InitializeLocataire(Locataire newLocataire, bool NeedToModify)
     {
-        // Dropdowns
+        // Dropdowns — libellés lisibles (l'ordre suit l'enum : l'index reste valide).
         typedeBailDropDown.ClearOptions();
         typedeBailDropDown.AddOptions(
-            Enum.GetNames(typeof(BailType))
-                .Select(n => new TMP_Dropdown.OptionData(n)).ToList());
+            Enum.GetValues(typeof(BailType)).Cast<BailType>()
+                .Select(t => new TMP_Dropdown.OptionData(BailLabel(t))).ToList());
 
 
         id = newLocataire.id;
@@ -168,6 +169,7 @@ public class LocatairePrefab : PrefabBatLoc
 
         if (facturationFields == null) facturationFields = gameObject.AddComponent<LocataireFacturationFields>();
         facturationFields.EnsureBuilt(this);
+        BuildSiretRow();
 
 
 
@@ -396,6 +398,42 @@ public class LocatairePrefab : PrefabBatLoc
     }
 
 
+
+    // Libellé lisible d'un type de bail (le dropdown garde l'ordre de l'enum).
+    private static string BailLabel(BailType t)
+    {
+        switch (t)
+        {
+            case BailType.BailAContruction:             return "Bail à construction";
+            case BailType.Bail9ans:                     return "Bail commercial (9 ans)";
+            case BailType.Bail10ans:                    return "Bail commercial (10 ans)";
+            case BailType.BailCommercial369:            return "Bail commercial (3/6/9)";
+            case BailType.BailCommercial9Ferme:         return "Bail commercial (9 ans ferme)";
+            case BailType.BailDerogatoire:              return "Bail dérogatoire (précaire)";
+            case BailType.BailProfessionnel:            return "Bail professionnel (6 ans)";
+            case BailType.BailEmphyteotique:            return "Bail emphytéotique";
+            case BailType.BailRehabilitation:           return "Bail à réhabilitation";
+            case BailType.ConventionOccupationPrecaire: return "Convention d'occupation précaire";
+            case BailType.BailCivil:                    return "Bail civil (droit commun)";
+            default:                                    return t.ToString();
+        }
+    }
+
+    // Place le bouton Pappers en overlay à droite, DANS la boîte du champ Siret (une fois).
+    private bool _siretRowBuilt;
+    private void BuildSiretRow()
+    {
+        if (_siretRowBuilt || siret == null || pappersBtn == null) return;
+        _siretRowBuilt = true;
+
+        pappersBtn.transform.SetParent(siret.transform, false);
+        var le = pappersBtn.GetComponent<LayoutElement>() ?? pappersBtn.gameObject.AddComponent<LayoutElement>();
+        le.ignoreLayout = true;   // hors flux : positionné manuellement dans la boîte
+        var prt = (RectTransform)pappersBtn.transform;
+        prt.anchorMin = new Vector2(1, 0); prt.anchorMax = new Vector2(1, 0); prt.pivot = new Vector2(1, 0);
+        prt.sizeDelta = new Vector2(92, 26);
+        prt.anchoredPosition = new Vector2(-8, 9);
+    }
 
     // ── Pappers ───────────────────────────────────────────────────────────────
 

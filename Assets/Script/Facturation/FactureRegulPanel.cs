@@ -239,7 +239,7 @@ public class FactureRegulPanel : MonoBehaviour
             R.ribs.Select(r => r.id).ToList(), f?.ribId);
         _enteteDD.SetOptions(
             R.entetes.Select(e => string.IsNullOrWhiteSpace(e.nom) ? "(entête)" : e.nom).ToList(),
-            R.entetes.Select(e => e.id).ToList(), f?.enteteId);
+            R.entetes.Select(e => e.id).ToList(), ReglageService.EnteteChoisi(f?.enteteId, "Regul"));
 
         DateTime now = DateTime.Today;
         _date.text = f != null && DateTime.TryParse(f.dateISO, out var dd)
@@ -531,10 +531,17 @@ public class FactureRegulPanel : MonoBehaviour
         // Les charges régularisées passent en « payé ».
         foreach (var c in ChargesFor(year)) c.paye = true;
 
+        // Suivi : la ligne de régularisation de l'année passe « Envoyé ».
+        var ribS = ReglageService.GetRib(_ribDD?.SelectedId);
+        string ribNom = ribS != null ? (!string.IsNullOrWhiteSpace(ribS.name) ? ribS.name : ribS.titulaire) : "";
+        FacturationSuivi.MarquerEnvoye(_loc, $"regul-{year}", "Regul",
+            d.subtitle, _loc.factureRegul?.dateEcheanceISO, d.numero, pdf, d.ttc, _ribDD?.SelectedId, ribNom);
+
         // N° consommé → séquence +1 ; on oublie l'ID mémorisé.
         _loc.factureSeq = Mathf.Max(1, _loc.factureSeq) + 1;
         if (_loc.factureRegul != null) _loc.factureRegul.numeroId = "";
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();   // persiste locataire + charges
+        LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
         if (_numeroId != null) _numeroId.text = "";
         RefreshNumero();
         RefreshCharges();   // les charges régularisées disparaissent (désormais payées)

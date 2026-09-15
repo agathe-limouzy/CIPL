@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<style>
+@page{size:A4;margin:0;}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{font-family:Calibri,"Segoe UI",Candara,"Trebuchet MS",Arial,sans-serif;color:#000;font-size:13.5px;}
+.page{width:210mm;min-height:297mm;padding:11mm 15mm 10mm;position:relative;}
+.head{display:flex;align-items:flex-start;}
+.lcol{flex:0 0 43%;}
+.logo{width:196px;height:auto;display:block;margin-left:-9mm;margin-top:2px;}
+.rcol{flex:1;padding-top:150px;}
+.client{font-weight:bold;font-size:14.5px;line-height:1.55;}
+.date{margin-top:26px;font-size:14px;}
+.title{margin-top:34px;text-align:center;font-weight:bold;font-size:20px;letter-spacing:.5px;}
+.periode{margin-top:6px;text-align:center;font-size:14.5px;}
+.desig{margin-top:20px;font-size:14px;}
+.body{margin-top:22px;line-height:1.5;font-size:14px;}
+.body p{margin:0 0 12px;}
+table.amounts{width:70%;margin:18px 0 0 8%;border-collapse:collapse;}
+table.amounts td{border:1px solid #2b2b2b;padding:4px 10px;height:24px;}
+table.amounts td.r{text-align:right;}
+table.amounts tr.tot td{font-weight:bold;border:1.6px solid #000;}
+.mention{margin-top:16px;font-size:12px;line-height:1.4;color:#333;}
+.sign{margin-top:40px;text-align:right;font-size:14px;line-height:1.7;}
+.sign .role{font-weight:bold;}
+.foot{position:absolute;left:15mm;right:15mm;bottom:9mm;text-align:center;font-size:10.5px;line-height:1.5;}
+u{text-underline-offset:2px;}
+</style></head>
+<body>
+<div class="page">
+  <div class="head">
+    <div class="lcol"><img class="logo" src="{{LOGO_SRC}}" alt="GROUPE CIPL"></div>
+    <div class="rcol">
+      <div class="client">
+        {{CLIENT_NOM}}<br>
+        {{CLIENT_ADRESSE}}
+      </div>
+      <div class="date">St Marcel Paulel, le&nbsp;&nbsp;&nbsp;&nbsp;{{DATE}}</div>
+    </div>
+  </div>
+
+  <div class="title"><u>QUITTANCE DE LOYER</u></div>
+  <div class="periode">P&eacute;riode : {{PERIODE}}</div>
+
+  {{DESIGNATION}}
+
+  <div class="body">
+    <p>Je soussign&eacute;, GROUPE CIPL, bailleur, d&eacute;clare avoir re&ccedil;u de
+    {{CLIENT_NOM}}, locataire, la somme de <b>{{MONTANT}}</b> au titre du loyer et des
+    charges de la p&eacute;riode susmentionn&eacute;e, et lui en donne quittance,
+    sous r&eacute;serve de tous mes droits.</p>
+  </div>
+
+  <table class="amounts">
+    <colgroup><col style="width:64%"><col style="width:36%"></colgroup>
+    <tr><td>Loyer et charges</td><td class="r">{{MONTANT}}</td></tr>
+    <tr class="tot"><td>Total pay&eacute;</td><td class="r">{{MONTANT}}</td></tr>
+  </table>
+
+  <div class="mention">Cette quittance annule tous les re&ccedil;us qui auraient pu &ecirc;tre
+  &eacute;tablis ant&eacute;rieurement en cas de paiement partiel dudit terme. Elle est
+  &agrave; conserver pendant toute la dur&eacute;e de la location.</div>
+
+  <div class="sign">
+    <div class="role">Le bailleur,</div>
+    <div>GROUPE CIPL</div>
+  </div>
+
+  <div class="foot">
+    <div>{{FOOT1}}</div>
+    <div>{{FOOT2}}</div>
+  </div>
+</div>
+</body></html>
