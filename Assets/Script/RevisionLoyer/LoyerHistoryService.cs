@@ -24,8 +24,19 @@ public static class LoyerHistoryService
             if (_cache.TryGetValue(t, out var cached)) { result[t] = cached; continue; }
 
             List<(string, float)> obs = null;
-            yield return InseeIndiceService.FetchObservations(t, o => obs = o, _ => { });
+            string erreurReseau = null;
+            yield return InseeIndiceService.FetchObservations(t, o => obs = o, e => erreurReseau = e);
+
             if (obs != null && obs.Count > 0) { _cache[t] = obs; result[t] = obs; }
+            else
+            {
+                // Sans indices, le tableau de rentabilité se reconstruit avec le loyer
+                // courant à plat : VISUELLEMENT IDENTIQUE à un vrai calcul indexé, mais
+                // faux. L'erreur était avalée (`_ => { }`) — on la journalise au moins.
+                Debug.LogWarning($"[LoyerHistoryService] Indices {t} indisponibles" +
+                                 (string.IsNullOrEmpty(erreurReseau) ? "" : $" ({erreurReseau})") +
+                                 " — le tableau de rentabilité utilisera le loyer courant à plat, non indexé.");
+            }
         }
         onDone?.Invoke(result);
     }

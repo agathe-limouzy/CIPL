@@ -121,7 +121,9 @@ public class EntreprisePanel : MonoBehaviour
             {
                 var open = UIFactory.Button(row.transform, "Ouvrir", Vert, Color.white, 36, 16);
                 UIFactory.LE(open.gameObject, prefW: 110, flexW: 0);
-                open.onClick.AddListener(() => { EntrepriseService.Activer(e2.racine); Close(); });
+                // Bascule d'entreprise : ReloadFromDisk détruit les fiches ouvertes.
+                open.onClick.AddListener(() => FermetureGuard.ConfirmerPerteSaisies(
+                    "Changer d'entreprise", () => { EntrepriseService.Activer(e2.racine); Close(); }));
             }
             var oub = UIFactory.Button(row.transform, "Retirer", UITheme.Carte, UITheme.TexteSecondaire, 36, 15);
             UIFactory.Border(oub.gameObject); UIFactory.LE(oub.gameObject, prefW: 100, flexW: 0);
@@ -140,7 +142,10 @@ public class EntreprisePanel : MonoBehaviour
         ouvrir.onClick.AddListener(() =>
         {
             if (SaveIO.PickFolder("Ouvrir une entreprise — choisir le dossier", out var dir))
-            { EntrepriseService.Ouvrir(dir); Close(); }
+            {
+                FermetureGuard.ConfirmerPerteSaisies(
+                    "Ouvrir une entreprise", () => { EntrepriseService.Ouvrir(dir); Close(); });
+            }
         });
     }
 
@@ -155,7 +160,12 @@ public class EntreprisePanel : MonoBehaviour
             {
                 string nom = f.text;
                 if (SaveIO.PickFolder("Emplacement de la nouvelle entreprise — choisir le dossier", out var dir))
-                { EntrepriseService.Creer(nom, dir); Close(); }
+                {
+                    // Création refusée (dossier déjà occupé) → on garde le panneau
+                    // ouvert pour que l'utilisatrice choisisse un autre dossier.
+                    FermetureGuard.ConfirmerPerteSaisies("Créer une entreprise",
+                        () => { if (EntrepriseService.Creer(nom, dir)) Close(); });
+                }
             };
         });
     }

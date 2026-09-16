@@ -755,8 +755,13 @@ public class LocataireFacturationFields : MonoBehaviour
 
             loc.depotDeGarantie = currentPeriode() * nb;
             loc.depotSurTTC = ttcToggle.isOn;
-            // La prochaine révision est repoussée d'un an.
+            // La prochaine révision garde l'ANNIVERSAIRE de l'échéance (et non la date
+            // du jour, sinon l'anniversaire dériverait un peu plus à chaque révision
+            // faite en retard). Sur un dépôt très en retard, un simple AddYears(1)
+            // retombait dans le passé et l'échéance redevenait aussitôt dépassée :
+            // on avance donc d'autant d'années qu'il faut pour repasser dans le futur.
             var next = dr.AddYears(1);
+            while (next.Date <= DateTime.Today.Date) next = next.AddYears(1);
             loc.dateRevisionDepotISO = next.ToString("yyyy-MM-dd");
             RefreshDepotRecap(loc);
             _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();

@@ -11,6 +11,13 @@ public class PrefabBatLoc : MonoBehaviour
     public Button modifyBatiment;
     public Button Delete;
 
+    /// Vrai si la fiche est en cours de modification, c'est-à-dire si elle porte des
+    /// saisies non encore reversées dans les données.
+    /// L'information n'est pas dupliquée dans un booléen (qui se désynchroniserait tôt
+    /// ou tard) : elle est lue là où elle vit déjà — Modify() affiche le bouton
+    /// Enregistrer, SaveBatiment() le masque.
+    public bool EnEdition => save != null && save.gameObject.activeSelf;
+
     public  virtual void InitializeBatiment(Batiment newBatiment, bool NeedToModify)
     {
 
@@ -30,10 +37,7 @@ public class PrefabBatLoc : MonoBehaviour
     {
         if (!string.IsNullOrEmpty(origin))
         {
-            if (float.TryParse(origin,
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture,
-                out float result))
+            if (SaisieNumerique.TryParse(origin, out float result))
             {
                 target = result;
             }

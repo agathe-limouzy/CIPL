@@ -153,10 +153,7 @@ public class CalculPrixRentabilite : MonoBehaviour
         string text = origin.text;
         if (!string.IsNullOrEmpty(text))
         {
-            if (float.TryParse(text,
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture,
-                out float result))
+            if (SaisieNumerique.TryParse(text, out float result))
             {
                  return result;
             }

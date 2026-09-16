@@ -21,6 +21,7 @@ public class ReglagePanel : MonoBehaviour
 
     // Références UI
     TMP_InputField _apiKey, _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd;
+    TMP_InputField _mapboxToken;
     TMP_InputField _phraseRetard, _basDePage, _entrepriseNom;
     Toggle _modePennylane;
     GameObject _smtpCard;
@@ -143,6 +144,12 @@ public class ReglagePanel : MonoBehaviour
         UIFactory.Text(body.transform, "Clé API Pennylane", 17, UITheme.TexteSecondaire);
         _apiKey = UIFactory.Input(body.transform, "Collez votre clé API…");
         _apiKey.contentType = TMP_InputField.ContentType.Password;
+
+        // Token Mapbox : saisi ici plutôt que dans le champ public de TileLoader, qui
+        // était sérialisé en clair dans Maps.prefab et donc commité dans le dépôt.
+        UIFactory.Text(body.transform, "Token Mapbox (cartes)", 17, UITheme.TexteSecondaire);
+        _mapboxToken = UIFactory.Input(body.transform, "Collez votre token Mapbox…");
+        _mapboxToken.contentType = TMP_InputField.ContentType.Password;
 
         _modePennylane = UIFactory.Toggle(body.transform, "Envoyer via Pennylane (e-facture Factur-X)", true);
         _modePennylane.onValueChanged.AddListener(on =>
@@ -392,7 +399,8 @@ public class ReglagePanel : MonoBehaviour
         var row = UIFactory.HBox(body.transform, 8, false, "SaveBtns");
         var change = UIFactory.Button(row.transform, "Changer l'emplacement", CoPetroleL, CoPetrole, 40, 16);
         UIFactory.LE(change.gameObject, flexW: 1);
-        change.onClick.AddListener(() => { if (SaveIO.ChangeLocation()) LoadIntoUI(); });
+        change.onClick.AddListener(() => FermetureGuard.ConfirmerPerteSaisies(
+            "Changer d'emplacement", () => { if (SaveIO.ChangeLocation()) LoadIntoUI(); }));
 
         var open = UIFactory.Button(row.transform, "Ouvrir le dossier", UITheme.Carte, UITheme.TextePrincipal, 40, 16);
         UIFactory.Border(open.gameObject); UIFactory.LE(open.gameObject, prefW: 160, flexW: 0);
@@ -400,7 +408,8 @@ public class ReglagePanel : MonoBehaviour
 
         var reset = UIFactory.Button(body.transform, "Réinitialiser (emplacement par défaut)", UITheme.Carte, UITheme.TexteSecondaire, 36, 15);
         UIFactory.Border(reset.gameObject);
-        reset.onClick.AddListener(() => { SaveIO.ResetToDefault(); LoadIntoUI(); });
+        reset.onClick.AddListener(() => FermetureGuard.ConfirmerPerteSaisies(
+            "Revenir à l'emplacement par défaut", () => { SaveIO.ResetToDefault(); LoadIntoUI(); }));
     }
 
     // ── Chargement / sauvegarde des valeurs ────────────────────────────────────
@@ -409,6 +418,7 @@ public class ReglagePanel : MonoBehaviour
     {
         _entrepriseNom.text = R.entrepriseNom ?? "";
         _apiKey.text = ReglageService.GetApiKey();
+        if (_mapboxToken != null) _mapboxToken.text = ReglageService.GetMapboxToken();
         _modePennylane.isOn = R.modeEnvoi == ModeEnvoi.Pennylane;
         if (_smtpCard != null) _smtpCard.SetActive(R.modeEnvoi == ModeEnvoi.Email);
         _smtpHost.text = R.smtp.host;
@@ -434,6 +444,7 @@ public class ReglagePanel : MonoBehaviour
         R.entrepriseNom = _entrepriseNom.text.Trim();
         EntrepriseService.Register(R.entrepriseNom, SaveLocationService.GetSaveRoot());
         ReglageService.SetApiKey(_apiKey.text.Trim());
+        if (_mapboxToken != null) ReglageService.SetMapboxToken(_mapboxToken.text.Trim());
         R.modeEnvoi = _modePennylane.isOn ? ModeEnvoi.Pennylane : ModeEnvoi.Email;
         R.smtp.host = _smtpHost.text.Trim();
         int.TryParse(_smtpPort.text.Trim(), out int port); R.smtp.port = port == 0 ? 587 : port;

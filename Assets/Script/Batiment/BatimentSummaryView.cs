@@ -137,7 +137,7 @@ public class BatimentSummaryView : MonoBehaviour
             $"Locataires   <size=70%><color=#5F5E5A>{nbLots} lot{(nbLots > 1 ? "s" : "")} · {loyerTotal:N0} € / an</color></size>");
 
         // Bande financière : loyers · cash flow · rendement
-        CalculFinances(bat, loyerTotal, out float cashFlowMois, out float rendementNet, out bool aDesCredits, out float investTotal);
+        CalculFinances(bat, loyerTotal, out double cashFlowMois, out double rendementNet, out bool aDesCredits, out double investTotal);
 
         // Tuiles KPI (crème ambré, gros chiffres) + ligne d'infos secondaires.
         if (_tLoyer != null)
@@ -148,10 +148,10 @@ public class BatimentSummaryView : MonoBehaviour
 
             // Dépensé/an = service de la dette annuel (loyers − cash-flow annuel).
             // Total gagné = cash-flow net cumulé depuis l'acquisition.
-            float cashFlowAn = cashFlowMois * 12f;
-            float depenseAn = loyerTotal - cashFlowAn;
+            double cashFlowAn = cashFlowMois * 12d;
+            double depenseAn = loyerTotal - cashFlowAn;
             float annees = AnneesDepuisAcquisition(bat);
-            float gagneTotal = cashFlowAn * annees;
+            double gagneTotal = cashFlowAn * annees;
             if (_tDepense != null)
             {
                 _tDepense.text = depenseAn > 0.5f ? $"{depenseAn:N0} €" : (loyerTotal > 0 ? "0 €" : "—");
@@ -555,26 +555,28 @@ public class BatimentSummaryView : MonoBehaviour
     // ── Calculs ───────────────────────────────────────────────────────────────
 
     private static void CalculFinances(Batiment bat, float loyerAnnuel,
-        out float cashFlowMois, out float rendementNet, out bool aDesCredits, out float investTotal)
+        out double cashFlowMois, out double rendementNet, out bool aDesCredits, out double investTotal)
     {
-        ComposantesFinancieres(bat, out _, out float mensAn, out float chargesAn, out investTotal, out _);
-        aDesCredits = mensAn > 0f;
-        cashFlowMois = (loyerAnnuel - mensAn) / 12f;                         // financement
-        rendementNet = investTotal > 0 ? (loyerAnnuel - chargesAn) / investTotal * 100f : 0f;   // net de charges
+        ComposantesFinancieres(bat, out _, out double mensAn, out double chargesAn, out investTotal, out _);
+        aDesCredits = mensAn > 0d;
+        cashFlowMois = (loyerAnnuel - mensAn) / 12d;                         // financement
+        rendementNet = investTotal > 0 ? (loyerAnnuel - chargesAn) / investTotal * 100d : 0d;   // net de charges
     }
 
     // Composantes financières brutes d'un bâtiment (mutualisées entre la fiche et le
     // menu global) : loyers annuels, service de la dette annuel (mensualités×12),
     // charges d'exploitation de l'année en cours, coût de revient, cash-flow cumulé.
-    public static void ComposantesFinancieres(Batiment bat, out float loyers,
-        out float mensualitesAn, out float chargesAn, out float investi, out float gagne)
+    // Tout en `double` : les montants d'acquisition et d'emprunt dépassent couramment
+    // le million, où un `float` ne représente plus le centime.
+    public static void ComposantesFinancieres(Batiment bat, out double loyers,
+        out double mensualitesAn, out double chargesAn, out double investi, out double gagne)
     {
-        loyers = 0f;
+        loyers = 0d;
         if (bat.locataireDuBatiment != null)
             foreach (var l in bat.locataireDuBatiment)
                 if (l != null) loyers += l.loyerAnnuel;
 
-        investi = 0f; float mens = 0f;
+        investi = 0d; double mens = 0d;
         if (bat.historiquesAchat != null)
             foreach (var a in bat.historiquesAchat)
             {
@@ -589,9 +591,9 @@ public class BatimentSummaryView : MonoBehaviour
                 if (t.emprunt && t.dureeMois > 0)
                     mens += RentabiliteCalculator.Mensualite(t.montantEmprunte, t.tauxInteretAnnuel, t.dureeMois);
             }
-        mensualitesAn = mens * 12f;
+        mensualitesAn = mens * 12d;
 
-        chargesAn = 0f;
+        chargesAn = 0d;
         if (bat.charges != null)
         {
             int an = DateTime.Today.Year;
@@ -698,5 +700,5 @@ public class BatimentSummaryView : MonoBehaviour
 
     private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
     // Vert si positif, terracotta si négatif, gris si nul.
-    private static Color ColSign(float v) => v > 0 ? Col("#0F6E56") : v < 0 ? Col("#D85A30") : Col("#5F5E5A");
+    private static Color ColSign(double v) => v > 0 ? Col("#0F6E56") : v < 0 ? Col("#D85A30") : Col("#5F5E5A");
 }

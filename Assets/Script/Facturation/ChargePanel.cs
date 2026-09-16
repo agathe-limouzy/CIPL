@@ -72,7 +72,7 @@ public class ChargePanel : MonoBehaviour
         _isNew = existing == null;
         _edit = existing != null ? Clone(existing) : new ChargeBatiment { dateISO = DateTime.Today.ToString("yyyy-MM-dd") };
         _fType = string.IsNullOrEmpty(_edit.typeRatio) ? "Surface" : _edit.typeRatio;
-        _fPdf = _edit.pdfPath;
+        _fPdf = DossiersDonnees.VersAbsolu(_edit.pdfPath);
         _fLoc.Clear(); _fRatio.Clear();
 
         var root = (FindObjectOfType<Canvas>()?.rootCanvas.transform) ?? transform;
@@ -325,8 +325,11 @@ public class ChargePanel : MonoBehaviour
             }
 
         // Copie du PDF dans le dossier de sauvegarde (comme le bail / les photos).
-        if (!string.IsNullOrEmpty(_fPdf) && _fPdf != _edit.pdfPath && File.Exists(_fPdf))
-            _edit.pdfPath = CopyPdf(_fPdf);
+        // Comparaison entre chemins ABSOLUS : _edit.pdfPath est desormais relatif,
+        // le comparer tel quel aurait recopie le PDF a chaque enregistrement.
+        if (!string.IsNullOrEmpty(_fPdf) && _fPdf != DossiersDonnees.VersAbsolu(_edit.pdfPath)
+            && File.Exists(_fPdf))
+            _edit.pdfPath = DossiersDonnees.VersRelatif(CopyPdf(_fPdf));
         else if (string.IsNullOrEmpty(_fPdf))
             _edit.pdfPath = "";
 
@@ -339,7 +342,10 @@ public class ChargePanel : MonoBehaviour
 
     string CopyPdf(string src)
     {
-        string dossier = Path.Combine(SaveLocationService.GetSaveRoot(), "Batiment", _bp.getID(), "Charge");
+        // Dossier du batiment par son NOM (via DossiersDonnees), comme les factures
+        // et les photos : les justificatifs atterrissaient dans un dossier nomme par
+        // GUID, invisible pour qui ouvre le dossier lisible du batiment.
+        string dossier = DossiersDonnees.DossierCharges(_bp.getName());
         Directory.CreateDirectory(dossier);
         string bn = Path.GetFileNameWithoutExtension(src), ext = Path.GetExtension(src);
         string dest = Path.Combine(dossier, bn + ext);
@@ -383,11 +389,9 @@ public class ChargePanel : MonoBehaviour
         return f;
     }
 
-    static float ParseFloat(string s)
-    {
-        float.TryParse((s ?? "").Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out float v);
-        return v;
-    }
+    // Passe par SaisieNumerique : « . » et « , » y sont interchangeables et les
+    // espaces de milliers acceptes (cette copie locale ne gerait que la virgule).
+    static float ParseFloat(string s) => SaisieNumerique.Parse(s);
 
     static ChargeBatiment Clone(ChargeBatiment c) => JsonUtility.FromJson<ChargeBatiment>(JsonUtility.ToJson(c));
     static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }

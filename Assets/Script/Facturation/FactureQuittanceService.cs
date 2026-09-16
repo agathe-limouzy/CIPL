@@ -32,8 +32,10 @@ public static class FactureQuittanceService
             foot2 = foot.Length > 1 ? foot[1] : "",
         };
 
-        string dir = Path.Combine(SaveLocationService.GetSaveRoot(), "Batiment",
-            fiche.batimentPrefabOrigin.getID(), loc.id, "Facture");
+        // Meme dossier que les factures du locataire. La quittance partait dans
+        // Batiment/<GUID>/<GUID>/Facture : introuvable a cote des factures.
+        string dir = DossiersDonnees.DossierFactures(
+            fiche.batimentPrefabOrigin.getName(), loc.Name);
         string pdf = Path.Combine(dir, Sanitize($"Quittance-{loc.Name}-{periode}") + ".pdf");
 
         if (!FacturePdfService.GenerateQuittancePdf(d, pdf, out string err))

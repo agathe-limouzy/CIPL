@@ -74,7 +74,7 @@ public static class FacturePdfService
     public static bool GeneratePdf(Data d, string pdfPath, out string error)
     {
         if (!File.Exists(TemplatePath)) { error = "Template introuvable : " + TemplatePath; return false; }
-        return RunEdge(BuildHtml(d), $"--print-to-pdf=\"{pdfPath}\"", pdfPath, out error);
+        return RunEdge(BuildHtml(d), new[] { "--print-to-pdf=" + pdfPath }, pdfPath, out error);
     }
 
     // ── Quittance de loyer (bail non commercial, loyer payé) ────────────────────
@@ -107,16 +107,22 @@ public static class FacturePdfService
     {
         if (!File.Exists(QuittanceTemplatePath))
         { error = "Template quittance introuvable : " + QuittanceTemplatePath; return false; }
-        return RunEdge(BuildQuittanceHtml(d), $"--print-to-pdf=\"{pdfPath}\"", pdfPath, out error);
+        return RunEdge(BuildQuittanceHtml(d), new[] { "--print-to-pdf=" + pdfPath }, pdfPath, out error);
     }
 
-    // Arguments Edge pour une capture d'écran (aperçu image).
-    static string ScreenshotArgs(string pngPath, int width, int height, int scale) =>
-        $"--hide-scrollbars --force-device-scale-factor={scale} --window-size={width},{height} --screenshot=\"{pngPath}\"";
+    // Arguments Edge pour une capture d'écran (aperçu image). Un argument par entrée :
+    // c'est .NET qui assemble et cite la ligne de commande (voir RunEdge).
+    static string[] ScreenshotArgs(string pngPath, int width, int height, int scale) => new[]
+    {
+        "--hide-scrollbars",
+        $"--force-device-scale-factor={scale}",
+        $"--window-size={width},{height}",
+        "--screenshot=" + pngPath
+    };
 
     // Lance Edge headless sur `html` avec `outputArgs` (print-to-pdf ou screenshot) et
     // vérifie que `outPath` a bien été produit. Factorisé pour loyer ET régularisation.
-    static bool RunEdge(string html, string outputArgs, string outPath, out string error)
+    static bool RunEdge(string html, string[] outputArgs, string outPath, out string error)
     {
         error = null;
         string htmlPath = null, udd = null;
@@ -129,19 +135,34 @@ public static class FacturePdfService
             File.WriteAllText(htmlPath, html, new System.Text.UTF8Encoding(false));
 
             Directory.CreateDirectory(Path.GetDirectoryName(outPath));
-            try { if (File.Exists(outPath)) File.Delete(outPath); } catch { }   // pas d'ancien fichier affiché
+            // Purge de l'ancien PDF avant régénération. Un échec silencieux laissait
+            // le fichier PÉRIMÉ en place, présenté ensuite comme la nouvelle facture.
+            try { if (File.Exists(outPath)) File.Delete(outPath); }
+            catch (System.Exception e)
+            {
+                UnityEngine.Debug.LogError($"[FacturePdfService] Ancien PDF non supprimé ({outPath}) : {e.Message} — " +
+                                           "le fichier affiché risque d'être périmé.");
+            }
             // user-data-dir neuf : évite le cache de rendu d'Edge d'un appel à l'autre.
             udd = Path.Combine(Path.GetTempPath(), "cipl_edge_" + Guid.NewGuid().ToString("N"));
 
+            // Arguments passés UN PAR UN plutôt qu'en une ligne de commande assemblée à
+            // la main : c'est .NET qui se charge de la citation. Poser les guillemets
+            // soi-même autour de chemins venant de noms de bâtiment, de locataire et du
+            // dossier de sauvegarde choisi par l'utilisatrice, c'est se reposer sur le
+            // fait que Windows interdit le guillemet dans un chemin — vrai sur NTFS,
+            // faux ailleurs, et de toute façon pas une garantie à faire porter au nommage.
             var psi = new ProcessStartInfo
             {
                 FileName = edge,
-                Arguments =
-                    $"--headless=new --disable-gpu --user-data-dir=\"{udd}\" {outputArgs} " +
-                    $"\"file:///{htmlPath.Replace("\\", "/")}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
+            psi.ArgumentList.Add("--headless=new");
+            psi.ArgumentList.Add("--disable-gpu");
+            psi.ArgumentList.Add("--user-data-dir=" + udd);
+            foreach (string a in outputArgs) psi.ArgumentList.Add(a);
+            psi.ArgumentList.Add("file:///" + htmlPath.Replace("\\", "/"));
             using (var proc = Process.Start(psi))
             {
                 if (!proc.WaitForExit(30000)) { try { proc.Kill(); } catch { } error = "Edge : délai dépassé."; return false; }
@@ -280,7 +301,7 @@ public static class FacturePdfService
     public static bool GenerateRegulPdf(RegulData d, string pdfPath, out string error)
     {
         if (!File.Exists(RegulTemplatePath)) { error = "Template régul. introuvable : " + RegulTemplatePath; return false; }
-        return RunEdge(BuildRegulHtml(d), $"--print-to-pdf=\"{pdfPath}\"", pdfPath, out error);
+        return RunEdge(BuildRegulHtml(d), new[] { "--print-to-pdf=" + pdfPath }, pdfPath, out error);
     }
 
     public static bool GenerateRegulPreviewPng(RegulData d, string pngPath, out string error,

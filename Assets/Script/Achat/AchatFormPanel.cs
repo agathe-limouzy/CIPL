@@ -146,13 +146,13 @@ public class AchatFormPanel : MonoBehaviour
         if (toggleFraisAuto != null && toggleFraisAuto.isOn)
             txtFraisNotaire.ApplyValue($"{fraisNot:F0}");
 
-        float invest = prix + fraisNot + fraisAg;
-        float apport = invest - montant;
-        float mens = DropdownComptant.value == 1
-            ? RentabiliteCalculator.Mensualite(montant, taux, duree) : 0f;
-        float coutCreditTotal = mens * duree;
+        double invest = prix + fraisNot + fraisAg;
+        double apport = invest - montant;
+        double mens = DropdownComptant.value == 1
+            ? RentabiliteCalculator.Mensualite(montant, taux, duree) : 0d;
+        double coutCreditTotal = mens * duree;
 
-        if (txtApport != null) txtApport.text = $"{Mathf.Max(0f, apport):N0} €";
+        if (txtApport != null) txtApport.text = $"{System.Math.Max(0d, apport):N0} €";
         if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? $"{mens:N0} € / mois" : "Comptant";
         if (txtCoutTotal != null) txtCoutTotal.text = DropdownComptant.value == 1
             ? $"{coutCreditTotal:N0} €" : "—";
@@ -191,13 +191,9 @@ public class AchatFormPanel : MonoBehaviour
             ? prix * TAUX_FRAIS_AUTO
             : Parse(txtFraisNotaire.GetValue());
 
-    private float Parse(string s)
-    {
-        float.TryParse(s?.Replace(',', '.'),
-            System.Globalization.NumberStyles.Float,
-            System.Globalization.CultureInfo.InvariantCulture, out float v);
-        return v;
-    }
+    // Voir SaisieNumerique : tolère la saisie française et signale une valeur
+    // non numérique au lieu de la convertir silencieusement en 0.
+    private float Parse(string s) => SaisieNumerique.ParseOuAvertir(s, "AchatFormPanel");
 
     private int GetDuree() => dropdownDuree.value < Durees.Length ? Durees[dropdownDuree.value] : 120;
     private void SetDuree(int m) { for (int i = 0; i < Durees.Length; i++) if (Durees[i] == m) { dropdownDuree.value = i; return; } }

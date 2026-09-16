@@ -346,8 +346,13 @@ public class GeneralMenuPanel : MonoBehaviour
         var panel = transform.Find("Panel");
         if (panel == null) return;
         var header = panel.Find("MenuHeader");
+        if (header == null) return;
+        // Après le 1er passage, RowOutils a été reparentée SOUS le header : il faut la
+        // chercher aux deux endroits, sinon Find échoue et la mise en forme des boutons
+        // (boucle ci-dessous) ne tourne plus aux Refresh suivants.
         var ro = panel.Find("RowOutils");
-        if (header == null || ro == null) return;
+        if (ro == null) ro = header.Find("RowOutils");
+        if (ro == null) return;
 
         if (ro.parent != header)
         {
@@ -355,18 +360,26 @@ public class GeneralMenuPanel : MonoBehaviour
             ro.SetAsLastSibling();                                   // à droite du header
             var rohlg = ro.GetComponent<UnityEngine.UI.HorizontalLayoutGroup>();
             if (rohlg != null) { rohlg.childForceExpandWidth = false; rohlg.childControlWidth = true; rohlg.spacing = 6; rohlg.childAlignment = TextAnchor.MiddleRight; }
-            var role = ro.GetComponent<LayoutElement>() ?? ro.gameObject.AddComponent<LayoutElement>();
+            // Pas de « ?? » sur un composant Unity (faux-null qui court-circuite le fallback).
+            var role = ro.GetComponent<LayoutElement>();
+            if (role == null) role = ro.gameObject.AddComponent<LayoutElement>();
             role.flexibleWidth = 0; role.minWidth = 0;
             // Le bloc titre prend l'espace restant → pousse la barre d'outils à droite.
             var title = header.Find("TitleBlock");
-            if (title != null) { var tle = title.GetComponent<LayoutElement>() ?? title.gameObject.AddComponent<LayoutElement>(); tle.flexibleWidth = 1; }
+            if (title != null)
+            {
+                var tle = title.GetComponent<LayoutElement>();
+                if (tle == null) tle = title.gameObject.AddComponent<LayoutElement>();
+                tle.flexibleWidth = 1;
+            }
         }
 
         // Boutons compacts (chaque Refresh, pour rattraper ceux ajoutés au runtime).
         foreach (Transform b in ro)
         {
             if (!b.gameObject.activeSelf || b.GetComponent<UnityEngine.UI.Button>() == null) continue;
-            var le = b.GetComponent<LayoutElement>() ?? b.gameObject.AddComponent<LayoutElement>();
+            var le = b.GetComponent<LayoutElement>();
+            if (le == null) le = b.gameObject.AddComponent<LayoutElement>();
             le.minWidth = 170; le.preferredWidth = 170; le.flexibleWidth = 0;
             le.minHeight = 36; le.preferredHeight = 36; le.flexibleHeight = 0;
         }
@@ -397,16 +410,16 @@ public class GeneralMenuPanel : MonoBehaviour
     private void RefreshKpiGlobaux()
     {
         if (_gLoyer == null || batimentManager == null) return;
-        float loyers = 0f, mensAn = 0f, chargesAn = 0f, investi = 0f, gagne = 0f;
+        double loyers = 0d, mensAn = 0d, chargesAn = 0d, investi = 0d, gagne = 0d;
         foreach (var bp in batimentManager.BatimentPrefab)
         {
             if (bp == null) continue;
             BatimentSummaryView.ComposantesFinancieres(bp.getBatiment(),
-                out float lo, out float me, out float ch, out float inv, out float ga);
+                out double lo, out double me, out double ch, out double inv, out double ga);
             loyers += lo; mensAn += me; chargesAn += ch; investi += inv; gagne += ga;
         }
-        float cashMois = (loyers - mensAn) / 12f;
-        float rend = investi > 0 ? (loyers - chargesAn) / investi * 100f : 0f;
+        double cashMois = (loyers - mensAn) / 12d;
+        double rend = investi > 0 ? (loyers - chargesAn) / investi * 100d : 0d;
 
         _gLoyer.text = loyers > 0 ? $"{loyers:N0} €" : "—";
         _gLoyer.color = loyers > 0 ? HexC("#0F6E56") : HexC("#5F5E5A");
@@ -427,7 +440,10 @@ public class GeneralMenuPanel : MonoBehaviour
     {
         int nbBat = batimentManager.Batiments.Count;
         int nbLoc = 0;
-        float loyerTotal = 0f, investi = 0f;
+        // `investi` cumule des prix d'acquisition : en `double`, le centime survit
+        // au-delà du million (un `float` ne le représente plus).
+        float loyerTotal = 0f;
+        double investi = 0d;
 
         foreach (var prefab in batimentManager.BatimentPrefab)
         {
@@ -449,8 +465,8 @@ public class GeneralMenuPanel : MonoBehaviour
         if (txtInvesti != null) txtInvesti.text = FormatInvesti(investi);
     }
 
-    private static string FormatInvesti(float v)
-        => v >= 1_000_000f ? $"{v / 1_000_000f:0.0#} M€" : $"{v:N0} €";
+    private static string FormatInvesti(double v)
+        => v >= 1_000_000d ? $"{v / 1_000_000d:0.0#} M€" : $"{v:N0} €";
 
     // ── Zone « À traiter » ────────────────────────────────────────────────────
 

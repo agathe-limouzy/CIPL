@@ -27,6 +27,13 @@ public static class BackupService
                 string backupDest = Path.Combine(backupRoot, $"batiments_{stamp}");
 
                 CopyDirectory(dataFolder, backupDest);
+
+                // reglage.json n'est PAS dans batiments/ : sans cette copie, les RIB,
+                // les entêtes et le nom d'entreprise n'avaient aucune sauvegarde et
+                // étaient perdus définitivement si le fichier devenait illisible.
+                // (pennylane_secrets.dat reste volontairement exclu des backups.)
+                CopierFichierRacine(saveRoot, backupDest, "reglage.json");
+
                 Debug.Log($"[Backup] Sauvegarde créée : {backupDest}");
             }
 
@@ -36,6 +43,22 @@ public static class BackupService
         catch (Exception e)
         {
             Debug.LogError($"[Backup] Erreur : {e.Message}");
+        }
+    }
+
+    /// Copie un fichier situé à la racine de la sauvegarde dans le dossier de backup.
+    /// Un échec ici ne doit pas faire tomber le backup des bâtiments, déjà réalisé.
+    private static void CopierFichierRacine(string saveRoot, string backupDest, string nomFichier)
+    {
+        try
+        {
+            string src = Path.Combine(saveRoot, nomFichier);
+            if (File.Exists(src))
+                File.Copy(src, Path.Combine(backupDest, nomFichier), overwrite: true);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[Backup] {nomFichier} non sauvegardé : {e.Message}");
         }
     }
 

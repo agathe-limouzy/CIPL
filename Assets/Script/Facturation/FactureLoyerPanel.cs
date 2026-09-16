@@ -312,8 +312,8 @@ public class FactureLoyerPanel : MonoBehaviour
         };
     }
 
-    string FactureDir() => Path.Combine(SaveLocationService.GetSaveRoot(), "Batiment",
-        _fiche.batimentPrefabOrigin.getID(), _loc.id, "Facture");
+    string FactureDir() => DossiersDonnees.DossierFactures(
+        _fiche.batimentPrefabOrigin.getName(), _loc.Name);
 
     // « Générer facture » : mémorise les champs et rend l'aperçu (image) à droite.
     // Ne consomme PAS de numéro, n'émet rien — juste la visualisation, ré-cliquable.
@@ -820,11 +820,9 @@ public class FactureLoyerPanel : MonoBehaviour
         return UIFactory.Text(h.transform, "—", 16, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
     }
 
-    static float ParseF(string s)
-    {
-        float.TryParse((s ?? "").Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out float v);
-        return v;
-    }
+    // Passe par SaisieNumerique : « . » et « , » y sont interchangeables et les
+    // espaces de milliers acceptes (cette copie locale ne gerait que la virgule).
+    static float ParseF(string s) => SaisieNumerique.Parse(s);
 
     static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 

@@ -390,10 +390,25 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
                     // Clone AVANT suppression pour pouvoir restaurer
                     string backup = JsonUtility.ToJson(batiment);
                     string nom = batiment.Name;
+                    // Racine au moment de la suppression. SaveFolder est recalculé à
+                    // l'écriture : si l'utilisatrice change d'entreprise avant de cliquer
+                    // « Annuler », la restauration écrirait le bâtiment de l'entreprise A
+                    // dans le dossier de l'entreprise B.
+                    string racineOrigine = SaveLocationService.GetSaveRoot();
                     BatimentManager.Instance.DeleteBatiment(batiment.id);
 
                     UndoToast.Instance.Show($"« {nom} » supprimé",
-                        () => BatimentManager.Instance.RestoreBatiment(backup));
+                        () =>
+                        {
+                            if (!string.Equals(SaveLocationService.GetSaveRoot(), racineOrigine,
+                                               System.StringComparison.OrdinalIgnoreCase))
+                            {
+                                UndoToast.Instance?.ShowInfo(
+                                    "Restauration impossible : l'entreprise active a changé depuis la suppression.");
+                                return;
+                            }
+                            BatimentManager.Instance.RestoreBatiment(backup);
+                        });
                 }));
     }
 
@@ -512,7 +527,44 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     public override void SaveBatiment()
     {
     
-        batiment.Name = nameOfTheBuiding.GetNewSave();
+        // ── Nom : unicité imposée + dossier déplacé si le nom change ──────────────
+        // Les dossiers sont nommés par le NOM : deux homonymes partageraient factures
+        // et photos, et un renommage sans déplacement laisserait tout orphelin sous
+        // l'ancien nom. Les deux cas sont donc bloqués AVANT d'écrire quoi que ce soit.
+        string ancienNom = batiment.Name;
+        string nouveauNom = nameOfTheBuiding.GetNewSave();
+
+        if (!DossiersDonnees.MemeDossier(ancienNom, nouveauNom))
+        {
+            var mgr = BatimentManager.Instance;
+            if (mgr != null)
+                foreach (var autre in mgr.Batiments)
+                {
+                    if (autre == null || autre.id == batiment.id) continue;
+                    if (!DossiersDonnees.MemeDossier(autre.Name, nouveauNom)) continue;
+
+                    UndoToast.Instance?.ShowInfo(
+                        $"Un bâtiment nommé « {autre.Name} » existe déjà. Choisissez un autre nom : " +
+                        "les dossiers de factures et de photos portent le nom du bâtiment.");
+                    nameOfTheBuiding.ApplySave(ancienNom);
+                    return;
+                }
+
+            if (!DossiersDonnees.RenommerBatiment(ancienNom, nouveauNom, out string errRenom))
+            {
+                UndoToast.Instance?.ShowInfo(
+                    $"Renommage impossible ({errRenom}). Fermez les fichiers ouverts de ce bâtiment et réessayez.");
+                nameOfTheBuiding.ApplySave(ancienNom);
+                return;
+            }
+
+            // Le dossier a bougé : les chemins de photos doivent suivre.
+            string cover = batiment.coverPhoto;
+            DossiersDonnees.ReporterPhotos(batiment.photos, ref cover, nouveauNom);
+            batiment.coverPhoto = cover;
+        }
+
+        batiment.Name = nouveauNom;
         if (listLocataire.Count > 1)
         {
             // Calculé automatiquement, déjà mis à jour par RefreshTailleBatiment

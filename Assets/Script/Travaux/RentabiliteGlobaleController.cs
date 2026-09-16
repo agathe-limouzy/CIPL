@@ -41,7 +41,7 @@ public class RentabiliteGlobaleController : MonoBehaviour
     private struct LoanEntry
     {
         public DateTime startDate;
-        public float mensualite;
+        public double mensualite;
         public int dureeMois;
     }
 
@@ -99,7 +99,9 @@ public class RentabiliteGlobaleController : MonoBehaviour
         var loans = new List<LoanEntry>();
 
         // ── Achats ────────────────────────────────────────────────────────────
-        float investAchat = 0f;
+        // Chaîne de calcul en `double` : les prix d'acquisition dépassent couramment
+        // le million, où un `float` ne représente plus le centime.
+        double investAchat = 0d;
         foreach (var a in bat.historiquesAchat)
         {
             investAchat += a.prixAchat + a.fraisNotaire + a.fraisAgence;
@@ -116,7 +118,7 @@ public class RentabiliteGlobaleController : MonoBehaviour
         }
 
         // ── Travaux ───────────────────────────────────────────────────────────
-        float investTravaux = 0f;
+        double investTravaux = 0d;
         foreach (var t in bat.travaux)
         {
             investTravaux += t.coutTotal;
@@ -133,16 +135,16 @@ public class RentabiliteGlobaleController : MonoBehaviour
         }
 
         // ── Totaux ────────────────────────────────────────────────────────────
-        float investTotal = investAchat + investTravaux;
-        float mensTotales = 0f;
+        double investTotal = investAchat + investTravaux;
+        double mensTotales = 0d;
         foreach (var l in loans) mensTotales += l.mensualite;
 
-        float chargesAnnuel = mensTotales * 12f;
-        float cashFlowAnnuel = loyerAnnuel - chargesAnnuel;
-        float cashFlowMois = cashFlowAnnuel / 12f;
-        float rendBrut = investTotal > 0 ? loyerAnnuel / investTotal * 100f : 0f;
-        float rendNet = investTotal > 0 ? cashFlowAnnuel / investTotal * 100f : 0f;
-        float breakEven = RentabiliteCalculator.BreakEvenAns(investTotal, cashFlowAnnuel);
+        double chargesAnnuel = mensTotales * 12d;
+        double cashFlowAnnuel = loyerAnnuel - chargesAnnuel;
+        double cashFlowMois = cashFlowAnnuel / 12d;
+        double rendBrut = investTotal > 0 ? loyerAnnuel / investTotal * 100d : 0d;
+        double rendNet = investTotal > 0 ? cashFlowAnnuel / investTotal * 100d : 0d;
+        double breakEven = RentabiliteCalculator.BreakEvenAns(investTotal, cashFlowAnnuel);
 
         // ── Affichage résumé ──────────────────────────────────────────────────
         Set(txtInvestissementAchat, $"{investAchat:N0} €  ({bat.historiquesAchat.Count})");
@@ -230,7 +232,7 @@ public class RentabiliteGlobaleController : MonoBehaviour
 
         int nbAnnees = Mathf.Min(anneeMax - anneeMin + 1, 60);
 
-        float cumul = 0f;
+        double cumul = 0d;
         for (int i = 0; i < nbAnnees; i++)
         {
             int annee = anneeMin + i;
@@ -242,21 +244,21 @@ public class RentabiliteGlobaleController : MonoBehaviour
 
             // Coûts de l'année : plein tarif l'année de la dépense si comptant,
             // sinon apport (année d'achat) + mensualités étalées sur la durée du prêt.
-            float coutAchat = 0f;
+            double coutAchat = 0d;
             foreach (var a in achats)
                 coutAchat += CoutFinance(a.prixAchat + a.fraisNotaire + a.fraisAgence,
                     StartClamped(a.dateAchat, anneeMin, currentYear),
                     a.emprunt, a.montantEmprunte, a.tauxInteretAnnuel, a.dureeMois, annee);
 
-            float coutTravaux = 0f;
+            double coutTravaux = 0d;
             foreach (var t in travaux)
                 coutTravaux += CoutFinance(t.coutTotal,
                     StartClamped(t.dateDebutTravaux, anneeMin, currentYear),
                     t.emprunt, t.montantEmprunte, t.tauxInteretAnnuel, t.dureeMois, annee);
 
-            float cumulPrev = cumul;
+            double cumulPrev = cumul;
             cumul += rentrees - coutAchat - coutTravaux;
-            bool seuilAtteint = cumulPrev < 0f && cumul >= 0f;
+            bool seuilAtteint = cumulPrev < 0d && cumul >= 0d;
 
             var go = Instantiate(rentabiliteRowPrefab, tableauContent);
             go.GetComponent<RentabiliteRow>()
@@ -274,18 +276,18 @@ public class RentabiliteGlobaleController : MonoBehaviour
 
     // Coût réellement décaissé une année donnée : plein tarif l'année de la dépense
     // si comptant ; sinon apport (année de départ) + mensualités du prêt actives cette année.
-    private static float CoutFinance(float total, DateTime start, bool emprunt,
-        float montantEmprunte, float taux, int dureeMois, int annee)
+    private static double CoutFinance(double total, DateTime start, bool emprunt,
+        double montantEmprunte, double taux, int dureeMois, int annee)
     {
-        if (emprunt && dureeMois > 0 && montantEmprunte > 0f)
+        if (emprunt && dureeMois > 0 && montantEmprunte > 0d)
         {
-            float apport = Mathf.Max(0f, total - montantEmprunte);
-            float mens = RentabiliteCalculator.Mensualite(montantEmprunte, taux, dureeMois);
-            float cout = start.Year == annee ? apport : 0f;
+            double apport = System.Math.Max(0d, total - montantEmprunte);
+            double mens = RentabiliteCalculator.Mensualite(montantEmprunte, taux, dureeMois);
+            double cout = start.Year == annee ? apport : 0d;
             cout += mens * MoisActifsDansAnnee(start, dureeMois, annee);
             return cout;
         }
-        return start.Year == annee ? total : 0f;
+        return start.Year == annee ? total : 0d;
     }
 
     // Nombre de mois du prêt actifs durant l'année calendaire donnée
@@ -304,11 +306,21 @@ public class RentabiliteGlobaleController : MonoBehaviour
 
     private static DateTime ParseDate(string s)
     {
-        if (DateTime.TryParse(s, out DateTime d)) return d;
+        // Dates stockées en ISO → parse en culture INVARIANTE, pas en culture courante.
+        if (DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+                              System.Globalization.DateTimeStyles.None, out DateTime d))
+            return d;
+
+        // Le repli sur aujourd'hui déplace le point de départ d'un emprunt et étale
+        // l'amortissement sur les mauvaises années. Il reste nécessaire pour ne pas
+        // planter, mais il ne doit plus être silencieux.
+        if (!string.IsNullOrWhiteSpace(s))
+            Debug.LogWarning($"[Rentabilité] Date illisible « {s} » — repli sur aujourd'hui ; " +
+                             "l'amortissement affiché peut être décalé.");
         return DateTime.Today;
     }
 
     private static void Set(TMP_Text t, string v) { if (t != null) t.text = v; }
-    private static string Signe(float v) => v >= 0 ? "+" : "";
+    private static string Signe(double v) => v >= 0 ? "+" : "";
     private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }

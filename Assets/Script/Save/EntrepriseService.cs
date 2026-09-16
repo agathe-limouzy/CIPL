@@ -79,14 +79,34 @@ public static class EntrepriseService
     }
 
     /// Crée une entreprise : dossier parent choisi → « …/CIPL_Saves », nom mémorisé.
-    public static void Creer(string nom, string dossierParent)
+    /// Renvoie false si le dossier abrite déjà une entreprise (rien n'est modifié).
+    public static bool Creer(string nom, string dossierParent)
     {
+        // Un CIPL_Saves déjà peuplé à cet endroit signifie qu'une entreprise y vit.
+        // Sans ce contrôle, Load() chargeait SES réglages, le nom était écrasé par le
+        // nouveau, et la « nouvelle » entreprise adoptait les bâtiments et les RIB de
+        // l'ancienne — les deux entrées pointant alors sur les mêmes données.
+        string cible = Path.Combine(dossierParent, "CIPL_Saves");
+        string batimentsCible = Path.Combine(cible, "batiments");
+        bool dejaOccupe = File.Exists(Path.Combine(cible, "reglage.json"))
+                          || (Directory.Exists(batimentsCible)
+                              && Directory.GetFiles(batimentsCible, "*.json").Length > 0);
+        if (dejaOccupe)
+        {
+            Debug.LogError($"[EntrepriseService] {cible} contient déjà une entreprise — création annulée.");
+            UndoToast.Instance?.ShowInfo(
+                "Ce dossier contient déjà une entreprise. Utilisez « Ouvrir » pour la charger, " +
+                "ou choisissez un dossier vide pour en créer une nouvelle.");
+            return false;
+        }
+
         string racine = SaveLocationService.SetSaveRoot(dossierParent);   // parent/CIPL_Saves + active
         ReglageService.Load();
         ReglageService.Current.entrepriseNom = string.IsNullOrWhiteSpace(nom) ? "Entreprise" : nom;
         ReglageService.Save();
         Register(ReglageService.Current.entrepriseNom, racine);
         RechargerEtRetourHome();
+        return true;
     }
 
     /// Ouvre un dossier existant comme entreprise (reprend son nom si présent).

@@ -87,7 +87,13 @@ public class SaveLocationMenu : MonoBehaviour
 #endif
     }
 
+    // Le changement d'emplacement DÉPLACE les fichiers puis reconstruit toutes les
+    // fiches : une saisie en cours serait détruite. On demande AVANT la migration —
+    // au moment du rechargement, les fichiers sont déjà déplacés.
     private void Appliquer(string chemin)
+        => FermetureGuard.ConfirmerPerteSaisies("Changer d'emplacement", () => AppliquerConfirme(chemin));
+
+    private void AppliquerConfirme(string chemin)
     {
         if (string.IsNullOrEmpty(chemin) || !Directory.Exists(chemin))
         {
@@ -102,8 +108,16 @@ public class SaveLocationMenu : MonoBehaviour
         string ancienRoot = SaveLocationService.GetSaveRoot();
         string nouveauRoot = SaveLocationService.SetSaveRoot(chemin);
 
-        if (toggleMigrerDonnees != null && toggleMigrerDonnees.isOn)
-            SaveLocationService.MigrateData(ancienRoot, nouveauRoot);
+        if (toggleMigrerDonnees != null && toggleMigrerDonnees.isOn
+            && !SaveLocationService.MigrateData(ancienRoot, nouveauRoot, out string erreurMigration))
+        {
+            // Destination non vide (ou erreur d'E/S) : on reste sur l'ancien
+            // emplacement plutôt que de pointer vers un dossier à moitié rempli.
+            SaveLocationService.UseRoot(ancienRoot);
+            if (txtStatus != null) txtStatus.text = "Déplacement annulé : " + erreurMigration;
+            UndoToast.Instance?.ShowInfo("Déplacement annulé : " + erreurMigration);
+            return;
+        }
 
         // Recharger les données depuis le nouvel emplacement
         BatimentManager.Instance.ReloadFromDisk();
@@ -117,6 +131,9 @@ public class SaveLocationMenu : MonoBehaviour
     }
 
     private void RemettreDefaut()
+        => FermetureGuard.ConfirmerPerteSaisies("Revenir à l'emplacement par défaut", RemettreDefautConfirme);
+
+    private void RemettreDefautConfirme()
     {
         PlayerPrefs.DeleteKey("save_root_path");
         PlayerPrefs.Save();

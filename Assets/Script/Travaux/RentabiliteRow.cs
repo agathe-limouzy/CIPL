@@ -14,8 +14,10 @@ public class RentabiliteRow : MonoBehaviour
     private static readonly Color Seuil  = UITheme.Attention;  // année où le cumulé passe positif
     private static readonly Color Neutre = new Color(0.55f, 0.55f, 0.53f);
 
-    public void Setup(int annee, float rentrees, float coutAchat, float coutTravaux,
-        float cumul, bool seuilAtteint)
+    // Montants en `double` : le tableau cumule des prix d'acquisition, qui dépassent
+    // couramment le million — au-delà, un `float` ne représente plus le centime.
+    public void Setup(int annee, double rentrees, double coutAchat, double coutTravaux,
+        double cumul, bool seuilAtteint)
     {
         if (txtAnnee != null) txtAnnee.text = annee.ToString();
 
@@ -31,7 +33,7 @@ public class RentabiliteRow : MonoBehaviour
     }
 
     // Affiche un montant ; "—" gris si nul. `negatif` = préfixe "-" (dépense).
-    private static void SetMontant(TMP_Text t, float montant, Color couleur, bool negatif)
+    private static void SetMontant(TMP_Text t, double montant, Color couleur, bool negatif)
     {
         if (t == null) return;
         if (montant > 0f)

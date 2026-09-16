@@ -226,10 +226,11 @@ public class FacturationSuiviPanel : MonoBehaviour
         UIFactory.LE(act.gameObject, prefW: w, minW: w, flexW: 0);
         act.childAlignment = TextAnchor.MiddleLeft; act.childForceExpandWidth = false;
         if (etat == FacturationSuivi.Etat.Cloture) return;   // période reprise : aucune action
-        bool genere = !string.IsNullOrEmpty(l.pdfPath) && File.Exists(l.pdfPath);
+        string pdfAbs = FacturationSuivi.CheminPdf(l);
+        bool genere = !string.IsNullOrEmpty(pdfAbs) && File.Exists(pdfAbs);
         if (genere)
         {
-            MiniBtn(act.transform, "PDF", () => Application.OpenURL("file:///" + l.pdfPath.Replace("\\", "/")));
+            MiniBtn(act.transform, "PDF", () => Application.OpenURL("file:///" + pdfAbs.Replace("\\", "/")));
             bool corrigeable = l.type == "Loyer"
                 && (etat == FacturationSuivi.Etat.Envoye || etat == FacturationSuivi.Etat.Impaye);
             MiniBtn(act.transform, corrigeable ? "Corriger" : "Refaire",

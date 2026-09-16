@@ -47,8 +47,10 @@ public static class InseeIndiceService
         var obs = observations.Find(o => Normalize(o.periode) == Normalize(periodeDepart));
         if (!string.IsNullOrEmpty(obs.periode)) return obs;
 
-        string trimestre = Normalize(periodeDepart).Split('-')[1];
-        int annee = int.Parse(Normalize(periodeDepart).Substring(0, 4));
+        // Décomposition sûre : une période illisible (ancien format « T1 », « 20261 »)
+        // faisait lever IndexOutOfRange / FormatException au lieu de renvoyer « rien ».
+        if (!TryDecompose(periodeDepart, out int annee, out int trim)) return ("", 0f);
+        string trimestre = $"T{trim}";
 
         for (int recul = 1; recul <= 5; recul++)
         {
@@ -81,14 +83,25 @@ public static class InseeIndiceService
         return best;
     }
 
+    /// "YYYY-TQ" → (année, trimestre). false si la chaîne est illisible.
+    /// À utiliser PARTOUT plutôt que `Normalize(x).Split('-')[1]` : Normalize n'insère
+    /// le tiret que sur une chaîne de 6 caractères, donc une valeur ancienne comme
+    /// "T1" ou "20261" faisait lever IndexOutOfRange.
+    public static bool TryDecompose(string periode, out int annee, out int trim)
+    {
+        annee = 0; trim = 0;
+        string n = Normalize(periode);                       // "2026-T4"
+        if (n.Length < 7 || n[5] != 'T') return false;
+        if (!int.TryParse(n.Substring(0, 4), out annee)) return false;
+        if (!int.TryParse(n.Substring(6, 1), out trim)) return false;
+        return trim >= 1 && trim <= 4;
+    }
+
     /// "YYYY-TQ" → rang comparable (année*4 + trimestre). false si illisible.
     private static bool TryRang(string periode, out int rang)
     {
         rang = 0;
-        string n = Normalize(periode);                       // "2026-T4"
-        if (n.Length < 7 || n[5] != 'T') return false;
-        if (!int.TryParse(n.Substring(0, 4), out int annee)) return false;
-        if (!int.TryParse(n.Substring(6, 1), out int trim)) return false;
+        if (!TryDecompose(periode, out int annee, out int trim)) return false;
         rang = annee * 4 + trim;
         return true;
     }

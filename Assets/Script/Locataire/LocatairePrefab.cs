@@ -311,7 +311,38 @@ public class LocatairePrefab : PrefabBatLoc
         var locataire = batimentPrefabOrigin.listLocataire.Find(b => b.id == id);
         var index = batimentPrefabOrigin.listLocataire.IndexOf(locataire);
 
-        locataire.Name = nameOfLocataire.GetNewSave();
+        // ── Nom : unicité DANS CE BÂTIMENT + dossier déplacé si le nom change ─────
+        // Le dossier du locataire vit à l'intérieur de celui de son bâtiment : deux
+        // locataires homonymes dans DEUX bâtiments différents ne se gênent donc pas et
+        // restent autorisés. Seul un doublon au sein du même bâtiment est refusé.
+        string ancienNomLoc = locataire.Name;
+        string nouveauNomLoc = nameOfLocataire.GetNewSave();
+        string nomBat = batimentPrefabOrigin.getName();
+
+        if (!DossiersDonnees.MemeDossier(ancienNomLoc, nouveauNomLoc))
+        {
+            foreach (var autre in batimentPrefabOrigin.listLocataire)
+            {
+                if (autre == null || autre.id == locataire.id) continue;
+                if (!DossiersDonnees.MemeDossier(autre.Name, nouveauNomLoc)) continue;
+
+                UndoToast.Instance?.ShowInfo(
+                    $"Un locataire nommé « {autre.Name} » existe déjà dans ce bâtiment. " +
+                    "Choisissez un autre nom : le dossier de factures porte le nom du locataire.");
+                nameOfLocataire.ApplySave(ancienNomLoc);
+                return;
+            }
+
+            if (!DossiersDonnees.RenommerLocataire(nomBat, ancienNomLoc, nouveauNomLoc, out string errLoc))
+            {
+                UndoToast.Instance?.ShowInfo(
+                    $"Renommage impossible ({errLoc}). Fermez les fichiers ouverts de ce locataire et réessayez.");
+                nameOfLocataire.ApplySave(ancienNomLoc);
+                return;
+            }
+        }
+
+        locataire.Name = nouveauNomLoc;
         locataire.codeCompatable = codeComptableTxt.GetNewSave();
         locataire.emailLocataire = emailLocataireTxt.GetNewSave();
         locataire.telephoneLocataire = telephoneLocataireTxt.GetNewSave();

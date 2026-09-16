@@ -1,4 +1,7 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 
 public static class SaveLocationService
@@ -7,12 +10,28 @@ public static class SaveLocationService
     private const string FOLDER_NAME = "CIPL_Saves";
 
     /// Racine choisie par l'utilisateur (ou persistentDataPath par défaut)
+    // Évite de répéter l'alerte à chaque appel (GetSaveRoot est très sollicité).
+    private static string _racineManquanteSignalee;
+
     public static string GetSaveRoot()
     {
         string custom = PlayerPrefs.GetString(PREF_KEY, "");
 
         if (!string.IsNullOrEmpty(custom) && Directory.Exists(custom))
             return custom;
+
+        // Une racine enregistrée mais INTROUVABLE (disque externe débranché, dossier
+        // renommé ou déplacé) faisait retomber l'app sur l'emplacement par défaut sans
+        // rien dire : elle démarrait « vide » et les sauvegardes suivantes partaient
+        // ailleurs que les données réelles.
+        if (!string.IsNullOrEmpty(custom) && custom != _racineManquanteSignalee)
+        {
+            _racineManquanteSignalee = custom;
+            Debug.LogError($"[SaveLocationService] Emplacement de sauvegarde introuvable : {custom}. " +
+                           "Repli sur l'emplacement par défaut — vos données ne sont PAS perdues, " +
+                           "mais rebranchez le disque ou rouvrez l'entreprise avant de saisir quoi que ce soit.");
+            UndoToast.Instance?.ShowInfo("Emplacement de sauvegarde introuvable — repli sur le dossier par défaut.");
+        }
 
         // Fallback : emplacement par défaut Unity
         return GetDefaultRoot();
@@ -60,22 +79,69 @@ public static class SaveLocationService
         PlayerPrefs.Save();
     }
 
-    /// Déplace les JSON existants vers le nouvel emplacement
-    public static void MigrateData(string oldRoot, string newRoot)
+    /// Copie les données de `oldRoot` vers `newRoot`.
+    /// Renvoie false (et renseigne `erreur`) sans rien copier si la destination
+    /// contient déjà des données : l'appelant NE DOIT PAS considérer le déplacement
+    /// comme fait dans ce cas.
+    public static bool MigrateData(string oldRoot, string newRoot, out string erreur)
     {
-        if (oldRoot == newRoot || !Directory.Exists(oldRoot)) return;
+        erreur = null;
+        if (string.IsNullOrEmpty(oldRoot) || string.IsNullOrEmpty(newRoot)) return true;
+        if (string.Equals(oldRoot, newRoot, StringComparison.OrdinalIgnoreCase)) return true;
+        if (!Directory.Exists(oldRoot)) return true;
 
-        foreach (string dir in Directory.GetDirectories(oldRoot, "*", SearchOption.AllDirectories))
+        try
         {
-            string dest = dir.Replace(oldRoot, newRoot);
-            Directory.CreateDirectory(dest);
-        }
+            // TOUS les fichiers, pas seulement les *.json : le fichier de secrets
+            // (clé API Pennylane) et les photos restaient sinon dans l'ancien dossier,
+            // alors que celui-ci est ensuite retiré de la liste des entreprises.
+            string[] fichiers = Directory.GetFiles(oldRoot, "*", SearchOption.AllDirectories);
 
-        foreach (string file in Directory.GetFiles(oldRoot, "*.json", SearchOption.AllDirectories))
-        {
-            string dest = file.Replace(oldRoot, newRoot);
-            Directory.CreateDirectory(Path.GetDirectoryName(dest));
-            File.Copy(file, dest, overwrite: true);
+            // Pré-analyse : refuser d'écraser des données déjà présentes. Migrer vers
+            // un dossier contenant déjà une entreprise écrasait son reglage.json
+            // (nom fixe → collision garantie) sans le moindre avertissement.
+            var conflits = fichiers
+                .Select(f => CheminRelatif(oldRoot, f))
+                .Where(rel => File.Exists(Path.Combine(newRoot, rel)))
+                .ToList();
+
+            if (conflits.Count > 0)
+            {
+                erreur = $"La destination contient déjà {conflits.Count} fichier(s) de sauvegarde " +
+                         $"({string.Join(", ", conflits.Take(3))}{(conflits.Count > 3 ? "…" : "")}). " +
+                         "Migration annulée pour ne pas écraser une autre entreprise — choisissez un dossier vide.";
+                Debug.LogError("[SaveLocationService] " + erreur);
+                return false;
+            }
+
+            foreach (string f in fichiers)
+            {
+                string dest = Path.Combine(newRoot, CheminRelatif(oldRoot, f));
+                Directory.CreateDirectory(Path.GetDirectoryName(dest));
+                File.Copy(f, dest);
+            }
+            return true;
         }
+        catch (Exception e)
+        {
+            erreur = e.Message;
+            Debug.LogError($"[SaveLocationService] Migration interrompue : {e.Message}");
+            return false;
+        }
+    }
+
+    /// Chemin d'un fichier relativement à une racine.
+    /// `string.Replace` était sensible à la casse alors que les chemins Windows ne le
+    /// sont pas : une simple différence de casse laissait le chemin inchangé, et on
+    /// copiait le fichier sur lui-même.
+    private static string CheminRelatif(string racine, string chemin)
+    {
+        string r = Path.GetFullPath(racine)
+                       .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string c = Path.GetFullPath(chemin);
+
+        return c.StartsWith(r, StringComparison.OrdinalIgnoreCase)
+            ? c.Substring(r.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            : Path.GetFileName(chemin);
     }
 }

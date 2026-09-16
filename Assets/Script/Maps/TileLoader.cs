@@ -6,7 +6,27 @@ using System.Collections;
 public class TileLoader : MonoBehaviour
 {
     [Header("Mapbox")]
+    // ⚠ Ce champ est sérialisé dans le prefab, donc COMMITÉ dans le dépôt : n'y mettez
+    // jamais un vrai token. Le token réel se saisit dans Réglages et vit dans
+    // <SaveRoot>/pennylane_secrets.dat, hors repo et hors backup.
     public string mapboxAccessToken = "VOTRE-TOKEN-MAPBOX-ICI";
+
+    public const string TOKEN_PLACEHOLDER = "VOTRE-TOKEN-MAPBOX-ICI";
+
+    /// Token à utiliser : celui des Réglages (hors repo) en priorité, sinon le champ
+    /// de l'inspecteur — conservé uniquement comme dépannage local.
+    public string TokenEffectif
+    {
+        get
+        {
+            string secret = ReglageService.GetMapboxToken();
+            if (!string.IsNullOrWhiteSpace(secret)) return secret;
+            return mapboxAccessToken == TOKEN_PLACEHOLDER ? "" : mapboxAccessToken;
+        }
+    }
+
+    /// Vrai si un token exploitable est disponible.
+    public bool ATokenValide => !string.IsNullOrWhiteSpace(TokenEffectif);
 
     [Header("Style")]
     public MapboxStyle mapStyle = MapboxStyle.satellite_streets_v12;
@@ -44,6 +64,17 @@ public class TileLoader : MonoBehaviour
             pinLon, pinLat
         );
 
+        // Sans token, la requête partirait avec « access_token= » vide et Mapbox
+        // répondrait un 401 « Not Authorized » incompréhensible. On sort avant, avec
+        // un message qui dit quoi faire.
+        if (!ATokenValide)
+        {
+            Debug.LogError("[Mapbox] Aucun token configuré — carte non chargée. " +
+                           "Saisissez-le dans Réglages → « Token Mapbox (cartes) ».");
+            UndoToast.Instance?.ShowInfo("Carte indisponible : renseignez le token Mapbox dans Réglages.");
+            yield break;
+        }
+
         string url = string.Format(
             System.Globalization.CultureInfo.InvariantCulture,
             "https://api.mapbox.com/styles/v1/mapbox/{0}/static/{1}/{2},{3},{4}/{5}x{6}?access_token={7}",
@@ -52,10 +83,11 @@ public class TileLoader : MonoBehaviour
             centerLon, centerLat,  // ← Mapbox : lon avant lat
             zoomLevel,
             imageWidth, imageHeight,
-            mapboxAccessToken
+            TokenEffectif
         );
 
-        Debug.Log($"[Mapbox] URL → {url}");
+        // On ne journalise JAMAIS l'URL complète : elle contient le token d'accès.
+        Debug.Log($"[Mapbox] Requête style={styleName} zoom={zoomLevel} {imageWidth}x{imageHeight}");
 
         using (UnityWebRequest req = UnityWebRequestTexture.GetTexture(url))
         {

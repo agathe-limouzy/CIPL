@@ -42,14 +42,18 @@ public static class MapThumbnailService
                 _ => { });
             if (!ok) yield break;
 
-            // 2 — Token + style depuis n'importe quel TileLoader du projet
-            string token = null;
+            // 2 — Token + style. Le token vient des Réglages (hors repo) ; le champ
+            //     sérialisé de TileLoader n'est plus qu'un repli de dépannage local.
+            string token = ReglageService.GetMapboxToken();
             var style = TileLoader.MapboxStyle.satellite_streets_v12;
             foreach (var tl in Resources.FindObjectsOfTypeAll<TileLoader>())
-                if (!string.IsNullOrEmpty(tl.mapboxAccessToken)
-                    && tl.mapboxAccessToken != "VOTRE-TOKEN-MAPBOX-ICI")
-                { token = tl.mapboxAccessToken; style = tl.mapStyle; break; }
-            if (token == null) yield break;
+                if (tl.ATokenValide)
+                {
+                    if (string.IsNullOrWhiteSpace(token)) token = tl.TokenEffectif;
+                    style = tl.mapStyle;
+                    break;
+                }
+            if (string.IsNullOrWhiteSpace(token)) yield break;
 
             // 3 — Image statique Mapbox (petite : vignette)
             string styleName = style.ToString().Replace('_', '-');

@@ -155,9 +155,7 @@ public class QuickCalcInline : MonoBehaviour
     private static float Parse(TMP_InputField field)
     {
         if (field == null) return 0f;
-        float.TryParse(field.text?.Replace(',', '.'),
-            NumberStyles.Float, CultureInfo.InvariantCulture, out float v);
-        return v;
+        return SaisieNumerique.Parse(field.text);
     }
 
     private static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }

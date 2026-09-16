@@ -89,10 +89,26 @@ public class PhotoGalleryController : MonoBehaviour
         int n = Photos.Count;
         if (n == 0) return;
         string courant = Photos[Mathf.Clamp(_index, 0, n - 1)];
-        PhotoService.Supprimer(_batiment, courant);
+        var suppr = PhotoService.Supprimer(_batiment, courant);
         if (_index >= Photos.Count) _index = Mathf.Max(0, Photos.Count - 1);
         Sauver();
         Refresh();
+
+        // Le fichier part en corbeille, pas à la poubelle : on propose l'annulation,
+        // comme pour les achats, travaux, charges et fiches. C'était la seule
+        // suppression de l'app qui était définitive dès le premier clic.
+        if (suppr == null || UndoToast.Instance == null) return;
+        UndoToast.Instance.Show("Photo supprimée", () =>
+        {
+            if (!PhotoService.Restaurer(_batiment, suppr))
+            {
+                UndoToast.Instance.ShowInfo("Photo introuvable : restauration impossible.");
+                return;
+            }
+            _index = Mathf.Clamp(suppr.index, 0, Mathf.Max(0, Photos.Count - 1));
+            Sauver();
+            Refresh();
+        });
     }
 
     private void OnCouverture()

@@ -427,8 +427,8 @@ public class FactureRefacPanel : MonoBehaviour
         };
     }
 
-    string FactureDir() => Path.Combine(SaveLocationService.GetSaveRoot(), "Batiment",
-        _fiche.batimentPrefabOrigin.getID(), _loc.id, "Facture");
+    string FactureDir() => DossiersDonnees.DossierFactures(
+        _fiche.batimentPrefabOrigin.getName(), _loc.Name);
 
     void GenererApercu()
     {
@@ -447,7 +447,16 @@ public class FactureRefacPanel : MonoBehaviour
         var d = BuildData();
         string dir = FactureDir();
         DateTime dt = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
-        string fname = Sanitize($"Refacturation-{charge.nom}-{_nom.text}-{dt:MM-yyyy}") + ".pdf";
+        string key = $"refac-{charge.id}";
+
+        // Déjà refacturée → version « corrigée(X) » : même numéro, aucune nouvelle
+        // séquence consommée, PDF d'origine conservé.
+        bool correction = FacturationSuivi.EstDejaEmise(_loc, key, out var recExist);
+        int x = correction ? recExist.corrections + 1 : 0;
+        if (correction && !string.IsNullOrEmpty(recExist.numero))
+            d.numero = recExist.numero + $" corrigée({x})";
+
+        string fname = Sanitize($"Refacturation-{charge.nom}-{_nom.text}-{dt:MM-yyyy}{(correction ? $"-corrigee{x}" : "")}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
         if (!FacturePdfService.GeneratePdf(d, pdf, out string err))
@@ -462,10 +471,19 @@ public class FactureRefacPanel : MonoBehaviour
         // La charge refacturée passe en « payé ».
         charge.paye = true;
 
+        if (correction)
+        {
+            FacturationSuivi.MarquerCorrige(_loc, key, d.subtitle, pdf, d.ttc);
+            _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+            LocataireSuiviInline.RefreshFor(_fiche);
+            UndoToast.Instance?.ShowInfo($"Refacturation corrigée ({x}) enregistrée.");
+            return;
+        }
+
         // Suivi : ligne de refacturation « Envoyé » (datée à l'échéance de la facture).
         var ribS = ReglageService.GetRib(_ribDD?.SelectedId);
         string ribNom = ribS != null ? (!string.IsNullOrWhiteSpace(ribS.name) ? ribS.name : ribS.titulaire) : "";
-        FacturationSuivi.MarquerEnvoye(_loc, $"refac-{charge.id}", "Refac",
+        FacturationSuivi.MarquerEnvoye(_loc, key, "Refac",
             d.subtitle, _loc.factureRefac?.dateEcheanceISO, d.numero, pdf, d.ttc, _ribDD?.SelectedId, ribNom);
 
         _loc.factureSeq = Mathf.Max(1, _loc.factureSeq) + 1;
@@ -619,11 +637,9 @@ public class FactureRefacPanel : MonoBehaviour
         return s;
     }
 
-    static float ParseF(string s)
-    {
-        float.TryParse((s ?? "").Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out float v);
-        return v;
-    }
+    // Passe par SaisieNumerique : « . » et « , » y sont interchangeables et les
+    // espaces de milliers acceptes (cette copie locale ne gerait que la virgule).
+    static float ParseF(string s) => SaisieNumerique.Parse(s);
 
     static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 

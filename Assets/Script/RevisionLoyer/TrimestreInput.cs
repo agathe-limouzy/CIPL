@@ -51,6 +51,12 @@ public class TrimestreInput : MonoBehaviour
             annees.Add(y.ToString());
         anneeDropdown.AddOptions(annees);
 
+        // Init() est rappelée par SetTrimestre : sans ce nettoyage, chaque ouverture
+        // de la modale empilait une paire de listeners de plus et OnTrimestreChanged
+        // se déclenchait autant de fois qu'il y avait eu d'appels.
+        trimestreDropdown.onValueChanged.RemoveAllListeners();
+        anneeDropdown.onValueChanged.RemoveAllListeners();
+
         trimestreDropdown.onValueChanged.AddListener(_ => OnChanged());
         anneeDropdown.onValueChanged.AddListener(_ => OnChanged());
         OnChanged();

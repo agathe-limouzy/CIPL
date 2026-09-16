@@ -357,14 +357,30 @@ public class FactureRegulPanel : MonoBehaviour
     {
         float totalCharges = ChargesFor(SelectedYear()).Sum(QuotePart);
         float provisions = ParseF(_provisions.text);
-        float solde = totalCharges - provisions;
-        float tva = solde * .2f, ttc = solde * 1.2f;
+
+        // TVA et TTC dérivés du HT DÉJÀ ARRONDI, et TTC = HT + TVA.
+        // Avant, `tva = solde*.2f` et `ttc = solde*1.2f` étaient calculés
+        // indépendamment : après arrondi à l'affichage, HT + TVA pouvait ne pas
+        // redonner le TTC imprimé (écart d'un centime sur la facture).
+        float solde = Cents(totalCharges - provisions);
+        float tva = Cents(solde * .2f);
+        float ttc = solde + tva;
+
         _tCharges.text    = $"{totalCharges:N2} €";
         _tProvisions.text = $"{provisions:N2} €";
         _tSolde.text      = $"{solde:N2} €";
         _tTVA.text        = $"{tva:N2} €";
         _tTTC.text        = $"{ttc:N2} €";
+
+        // Provisions supérieures aux charges : il s'agit d'un trop-perçu, donc
+        // d'un AVOIR — pas d'une facture. On le signale au lieu de laisser passer
+        // une facture à montant négatif.
+        if (solde < 0f)
+            _tSolde.text = $"{solde:N2} €  ⚠ trop-perçu (avoir)";
     }
+
+    /// Arrondi au centime — évite les dérives de `float` sur les montants.
+    static float Cents(float v) => Mathf.Round(v * 100f) / 100f;
 
     float ProvisionsAuto()
         => (_loc.provisionPourCharges ? _loc.provisionPourChargeValue : 0f)
@@ -497,8 +513,8 @@ public class FactureRegulPanel : MonoBehaviour
         };
     }
 
-    string FactureDir() => Path.Combine(SaveLocationService.GetSaveRoot(), "Batiment",
-        _fiche.batimentPrefabOrigin.getID(), _loc.id, "Facture");
+    string FactureDir() => DossiersDonnees.DossierFactures(
+        _fiche.batimentPrefabOrigin.getName(), _loc.Name);
 
     void GenererApercu()
     {
@@ -514,9 +530,30 @@ public class FactureRegulPanel : MonoBehaviour
     {
         SaveFromUI(markPaid: false);
         var d = BuildData();
+
+        // Un solde négatif (provisions > charges) est un AVOIR, pas une facture :
+        // l'émettre produirait une facture à HT/TVA/TTC négatifs, non conforme.
+        if (d.ttc < 0f)
+        {
+            UndoToast.Instance?.ShowInfo(
+                "Solde négatif : les provisions dépassent les charges. Il s'agit d'un avoir " +
+                "à établir hors facturation, pas d'une facture. Émission annulée.");
+            return;
+        }
+
         int year = SelectedYear();
         string dir = FactureDir();
-        string fname = Sanitize($"RegularisationdeCharge-{_nom.text}-{year}") + ".pdf";
+        string key = $"regul-{year}";
+
+        // Déjà émise pour cette année → version « corrigée(X) » : même numéro, aucune
+        // nouvelle séquence consommée, PDF d'origine conservé. Sans cette garde, un
+        // second clic consommait un numéro et écrasait la facture précédente.
+        bool correction = FacturationSuivi.EstDejaEmise(_loc, key, out var recExist);
+        int x = correction ? recExist.corrections + 1 : 0;
+        if (correction && !string.IsNullOrEmpty(recExist.numero))
+            d.numero = recExist.numero + $" corrigée({x})";
+
+        string fname = Sanitize($"RegularisationdeCharge-{_nom.text}-{year}{(correction ? $"-corrigee{x}" : "")}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
         if (!FacturePdfService.GenerateRegulPdf(d, pdf, out string err))
@@ -531,10 +568,19 @@ public class FactureRegulPanel : MonoBehaviour
         // Les charges régularisées passent en « payé ».
         foreach (var c in ChargesFor(year)) c.paye = true;
 
+        if (correction)
+        {
+            FacturationSuivi.MarquerCorrige(_loc, key, d.subtitle, pdf, d.ttc);
+            _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+            LocataireSuiviInline.RefreshFor(_fiche);
+            UndoToast.Instance?.ShowInfo($"Régularisation corrigée ({x}) enregistrée.");
+            return;
+        }
+
         // Suivi : la ligne de régularisation de l'année passe « Envoyé ».
         var ribS = ReglageService.GetRib(_ribDD?.SelectedId);
         string ribNom = ribS != null ? (!string.IsNullOrWhiteSpace(ribS.name) ? ribS.name : ribS.titulaire) : "";
-        FacturationSuivi.MarquerEnvoye(_loc, $"regul-{year}", "Regul",
+        FacturationSuivi.MarquerEnvoye(_loc, key, "Regul",
             d.subtitle, _loc.factureRegul?.dateEcheanceISO, d.numero, pdf, d.ttc, _ribDD?.SelectedId, ribNom);
 
         // N° consommé → séquence +1 ; on oublie l'ID mémorisé.
@@ -687,11 +733,9 @@ public class FactureRegulPanel : MonoBehaviour
         return s;
     }
 
-    static float ParseF(string s)
-    {
-        float.TryParse((s ?? "").Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out float v);
-        return v;
-    }
+    // Passe par SaisieNumerique : « . » et « , » y sont interchangeables et les
+    // espaces de milliers acceptes (cette copie locale ne gerait que la virgule).
+    static float ParseF(string s) => SaisieNumerique.Parse(s);
 
     static int TryYear(string iso) => DateTime.TryParse(iso, out var d) ? d.Year : 0;
 

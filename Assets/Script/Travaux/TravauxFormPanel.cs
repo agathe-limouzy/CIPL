@@ -127,12 +127,12 @@ public class TravauxFormPanel : MonoBehaviour
         float taux = Parse(txtTaux.GetValue());
         int duree = GetDuree();
 
-        float apport = cout - montant;
-        float mens = DropdownComptant.value == 1
-            ? RentabiliteCalculator.Mensualite(montant, taux, duree) : 0f;
-        float coutCreditTotal = mens * duree;
+        double apport = cout - montant;
+        double mens = DropdownComptant.value == 1
+            ? RentabiliteCalculator.Mensualite(montant, taux, duree) : 0d;
+        double coutCreditTotal = mens * duree;
 
-        if (txtApport != null) txtApport.text = $"{Mathf.Max(0f, apport):N0} €";
+        if (txtApport != null) txtApport.text = $"{System.Math.Max(0d, apport):N0} €";
         if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? $"{mens:N0} € / mois" : "Comptant";
         if (txtCoutTotalCredit != null) txtCoutTotalCredit.text = DropdownComptant.value == 1
             ? $"{coutCreditTotal:N0} €" : "—";
@@ -156,13 +156,9 @@ public class TravauxFormPanel : MonoBehaviour
         _onClose?.Invoke();
     }
 
-    private float Parse(string s)
-    {
-        float.TryParse(s?.Replace(',', '.'),
-            System.Globalization.NumberStyles.Float,
-            System.Globalization.CultureInfo.InvariantCulture, out float v);
-        return v;
-    }
+    // Voir SaisieNumerique : tolère la saisie française et signale une valeur
+    // non numérique au lieu de la convertir silencieusement en 0.
+    private float Parse(string s) => SaisieNumerique.ParseOuAvertir(s, "TravauxFormPanel");
 
     private int GetDuree() => dropdownDuree.value < Durees.Length ? Durees[dropdownDuree.value] : 120;
     private void SetDuree(int m) { for (int i = 0; i < Durees.Length; i++) if (Durees[i] == m) { dropdownDuree.value = i; return; } }

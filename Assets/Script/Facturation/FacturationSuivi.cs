@@ -11,6 +11,27 @@ public static class FacturationSuivi
 {
     public enum Etat { AVenir, AFaire, AttenteEnvoi, Envoye, Impaye, Paye, Cloture }
 
+    // Formats d'échéance réellement écrits par l'app (ISO). On parse en culture
+    // INVARIANTE : `DateTime.TryParse` en culture courante pouvait échouer selon la
+    // machine, et un échec faisait silencieusement retomber EtatDe sur « Envoyé »,
+    // si bien qu'une facture ne passait JAMAIS Impayé.
+    static readonly string[] FormatsEcheance =
+        { "yyyy-MM-dd", "yyyy/MM/dd", "yyyy-MM-ddTHH:mm:ss" };
+
+    /// Parse une échéance ISO sans dépendre de la culture courante.
+    public static bool TryEcheance(string iso, out DateTime d)
+    {
+        d = default;
+        if (string.IsNullOrWhiteSpace(iso)) return false;
+        iso = iso.Trim();
+        return DateTime.TryParseExact(iso, FormatsEcheance,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   System.Globalization.DateTimeStyles.None, out d)
+            || DateTime.TryParse(iso,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   System.Globalization.DateTimeStyles.None, out d);
+    }
+
     public const int ImpayeApresEcheanceJours = 15; // Impayé auto 15 j après l'échéance si non réglé
     public const int EnvoiAvantJours          = 15; // loyer préparé tôt → envoyé auto 15 j avant l'échéance
 
@@ -53,7 +74,7 @@ public static class FacturationSuivi
         // Régularisation des charges de l'année (si provision) — faite en janvier N+1.
         if (loc.provisionPourCharges)
         {
-            DateTime ech = DateTime.TryParse(loc.dateRegularisationChargeISO, out var dr)
+            DateTime ech = TryEcheance(loc.dateRegularisationChargeISO, out var dr)
                 ? new DateTime(year + 1, dr.Month, Mathf.Min(dr.Day, DateTime.DaysInMonth(year + 1, dr.Month)))
                 : new DateTime(year + 1, 1, 31);
             res.Add(Fusion(stored, $"regul-{year}", "Regul",
@@ -61,7 +82,7 @@ public static class FacturationSuivi
         }
 
         // Révision du dépôt de garantie (si la date limite tombe cette année).
-        if (loc.depotDeGarantie > 0f && DateTime.TryParse(loc.dateRevisionDepotISO, out var dd) && dd.Year == year)
+        if (loc.depotDeGarantie > 0f && TryEcheance(loc.dateRevisionDepotISO, out var dd) && dd.Year == year)
             res.Add(Fusion(stored, $"depot-{year}", "Depot",
                 "Révision du dépôt de garantie", dd, 0f));
 
@@ -69,19 +90,19 @@ public static class FacturationSuivi
         foreach (var r in stored)
         {
             if (r.type != "Refac") continue;
-            int ry = DateTime.TryParse(r.echeanceISO, out var re) ? re.Year : year;
+            int ry = TryEcheance(r.echeanceISO, out var re) ? re.Year : year;
             if (ry == year && !res.Any(x => x.key == r.key)) res.Add(CopieDe(r));
         }
 
         // Reprise de passif : toute période d'échéance ≤ date de reprise et sans
         // statut actif stocké est « Clôturée » (historique, non suivie).
-        if (DateTime.TryParse(loc.repriseFacturationISO, out var reprise))
+        if (TryEcheance(loc.repriseFacturationISO, out var reprise))
             foreach (var l in res)
                 if (string.IsNullOrEmpty(l.statut)
-                    && DateTime.TryParse(l.echeanceISO, out var e) && e.Date <= reprise.Date)
+                    && TryEcheance(l.echeanceISO, out var e) && e.Date <= reprise.Date)
                     l.statut = "Cloture";
 
-        return res.OrderBy(x => DateTime.TryParse(x.echeanceISO, out var e) ? e : DateTime.MaxValue).ToList();
+        return res.OrderBy(x => TryEcheance(x.echeanceISO, out var e) ? e : DateTime.MaxValue).ToList();
     }
 
     // Ligne planifiée : reprend l'enregistrement s'il existe, sinon une ligne « vierge ».
@@ -122,7 +143,15 @@ public static class FacturationSuivi
     {
         string s = f.statut ?? "";
         DateTime today = DateTime.Today;
-        bool hasEch = DateTime.TryParse(f.echeanceISO, out var ech);
+        bool hasEch = TryEcheance(f.echeanceISO, out var ech);
+
+        // Une facture ÉMISE sans échéance exploitable ne peut pas être évaluée :
+        // elle resterait « Envoyé » indéfiniment et sortirait des créances. On le
+        // signale au lieu de le taire (l'écriture garantit désormais une échéance,
+        // ce cas ne concerne donc que d'anciens enregistrements).
+        if (!hasEch && (s == "Envoye" || s == "AttenteEnvoi"))
+            Debug.LogWarning($"[FacturationSuivi] Ligne émise sans échéance exploitable (key='{f.key}', " +
+                             $"echeanceISO='{f.echeanceISO}') : passage en Impayé impossible.");
 
         if (s == "Paye") return Etat.Paye;
         if (s == "Impaye") return Etat.Impaye;
@@ -172,30 +201,63 @@ public static class FacturationSuivi
         if (loc.facturesEtat == null) loc.facturesEtat = new List<FactureEtat>();
         var rec = loc.facturesEtat.FirstOrDefault(x => x.key == key);
         if (rec == null) { rec = new FactureEtat { key = key }; loc.facturesEtat.Add(rec); }
+        // Une ligne émise DOIT porter une échéance exploitable : sans elle, elle ne
+        // pourrait jamais passer Impayé et disparaîtrait des créances.
+        if (!TryEcheance(echeanceISO, out _))
+        {
+            Debug.LogWarning($"[FacturationSuivi] Échéance absente ou illisible pour '{key}' " +
+                             $"('{echeanceISO}') — repli sur la date du jour pour garder la ligne suivie.");
+            echeanceISO = DateTime.Today.ToString("yyyy-MM-dd");
+        }
+
         rec.type = type; rec.libelle = libelle; rec.echeanceISO = echeanceISO;
-        rec.numero = numero; rec.pdfPath = pdfPath; rec.montant = montant;
+        rec.numero = numero; rec.montant = montant;
+        // Chemin RELATIF a la racine : un chemin absolu cassait des que la
+        // sauvegarde changeait de dossier, de disque ou de machine (les PDF
+        // suivaient le deplacement, pas les chemins memorises).
+        rec.pdfPath = DossiersDonnees.VersRelatif(pdfPath);
         rec.ribId = ribId; rec.ribNom = ribNom;
         rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
 
         // Diagramme : un loyer préparé plus de 15 j avant l'échéance passe « En
         // attente d'envoi » (envoyé auto — état seulement — à J-15) ; sinon « Envoyé ».
-        bool loyerTot = type == "Loyer" && DateTime.TryParse(echeanceISO, out var ech)
+        bool loyerTot = type == "Loyer" && TryEcheance(echeanceISO, out var ech)
                         && DateTime.Today < ech.AddDays(-EnvoiAvantJours);
         rec.statut = loyerTot ? "AttenteEnvoi" : "Envoye";
     }
 
-    // Vrai si la ligne `key` correspond à une facture DÉJÀ ÉMISE (Envoyé/Impayé) avec
-    // un PDF → une nouvelle génération sera traitée comme une correction (diagramme).
+    // Vrai si la ligne `key` correspond à une facture DÉJÀ ÉMISE (PDF généré, numéro
+    // consommé) → une nouvelle génération sera traitée comme une correction (diagramme).
+    //
+    // Les quatre états « émise » sont les mêmes que dans `DejaTraite`. Ne tester que
+    // Envoyé/Impayé laissait passer deux cas vérifiés en exécution :
+    //   · un loyer préparé plus de 15 j avant l'échéance est « En attente d'envoi » —
+    //     c'est le cas NORMAL du panneau Loyer — et un second clic consommait alors une
+    //     nouvelle séquence tout en écrasant le PDF déjà généré ;
+    //   · une facture marquée « Payé » puis re-générée repartait sur un numéro neuf,
+    //     donc deux numéros pour une seule période.
+    // Le paiement ne « dé-émet » pas une facture : un numéro consommé le reste.
     public static bool EstDejaEmise(Locataire loc, string key, out FactureEtat rec)
     {
         rec = loc?.facturesEtat?.FirstOrDefault(x => x.key == key);
         if (rec == null) return false;
         var e = EtatDe(rec);
-        return (e == Etat.Envoye || e == Etat.Impaye) && !string.IsNullOrEmpty(rec.pdfPath);
+        bool emise = e == Etat.AttenteEnvoi || e == Etat.Envoye
+                  || e == Etat.Impaye || e == Etat.Paye;
+        return emise && !string.IsNullOrEmpty(rec.pdfPath);
     }
 
+    /// Chemin exploitable du PDF d'une ligne : résout le chemin stocké, relatif
+    /// aujourd'hui, absolu pour les enregistrements antérieurs. À utiliser PARTOUT
+    /// plutôt que `f.pdfPath` brut — celui-ci n'est plus ouvrable tel quel.
+    public static string CheminPdf(FactureEtat f)
+        => f == null ? null : DossiersDonnees.VersAbsolu(f.pdfPath);
+
     // Correction d'une facture déjà émise : incrémente le compteur, suffixe le libellé
-    // « corrigée(X) », met à jour le PDF/montant. Conserve numéro + statut Envoyé.
+    // « corrigée(X) », met à jour le PDF/montant. Conserve le numéro ET le statut : un
+    // loyer corrigé avant sa date d'envoi reste « En attente d'envoi » (le passer à
+    // « Envoyé » afficherait un envoi qui n'a pas eu lieu), et une facture payée reste
+    // payée. Seule une ligne sans statut devient « Envoyé ».
     // Renvoie X (le nouveau nombre de corrections).
     public static int MarquerCorrige(Locataire loc, string key, string libelleBase, string pdfPath, float montant)
     {
@@ -211,10 +273,10 @@ public static class FacturationSuivi
             if (i >= 0) bas = bas.Substring(0, i);
         }
         rec.libelle = bas + $" — corrigée({rec.corrections})";
-        rec.pdfPath = pdfPath;
+        rec.pdfPath = DossiersDonnees.VersRelatif(pdfPath);
         if (montant > 0f) rec.montant = montant;
         rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
-        if (rec.statut == "AttenteEnvoi" || string.IsNullOrEmpty(rec.statut)) rec.statut = "Envoye";
+        if (string.IsNullOrEmpty(rec.statut)) rec.statut = "Envoye";
         return rec.corrections;
     }
 

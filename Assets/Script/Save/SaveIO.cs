@@ -26,7 +26,17 @@ public static class SaveIO
         if (!PickFolder("Choisir l'emplacement de sauvegarde", out var dir)) return false;
         string ancien = SaveLocationService.GetSaveRoot();
         string nouveau = SaveLocationService.SetSaveRoot(dir);
-        SaveLocationService.MigrateData(ancien, nouveau);
+
+        if (!SaveLocationService.MigrateData(ancien, nouveau, out string erreur))
+        {
+            // Migration refusée (destination non vide) ou interrompue : on revient à
+            // l'ancienne racine. Surtout, on NE retire PAS l'ancienne entreprise de la
+            // liste — elle détient encore les données, les photos et la clé API.
+            SaveLocationService.UseRoot(ancien);
+            UndoToast.Instance?.ShowInfo("Déplacement annulé : " + erreur);
+            return false;
+        }
+
         Reload();
         // La sauvegarde a été DÉPLACÉE : l'entrée de l'ancienne racine devient obsolète,
         // on la remplace par la nouvelle dans la liste des entreprises.

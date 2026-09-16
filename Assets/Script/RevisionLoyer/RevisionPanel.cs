@@ -142,12 +142,14 @@ public class RevisionPanel : MonoBehaviour
         trimestreVoulu.Init();
         trimestreVoulu.CanModify();
         trimestreVoulu.gameObject.SetActive(true);
-        if (!string.IsNullOrEmpty(loc.trimestreDeRevision))
+        // Décomposition sûre : `Normalize(...).Split('-')[1]` levait IndexOutOfRange
+        // sur un trimestre au format ancien (« T1 », « 20261 »), ce qui empêchait
+        // purement et simplement l'ouverture de la modale de révision.
+        if (InseeIndiceService.TryDecompose(loc.trimestreDeRevision, out _, out int tRev))
         {
-            string t = InseeIndiceService.Normalize(loc.trimestreDeRevision).Split('-')[1];
             // Année précédente par défaut : le trimestre de l'année en cours
             // n'est en général pas encore publié par l'INSEE (recherche exacte).
-            trimestreVoulu.SetTrimestre($"{DateTime.Now.Year - 1}-{t}");
+            trimestreVoulu.SetTrimestre($"{DateTime.Now.Year - 1}-T{tRev}");
         }
         // Avertissement inline + verrouillage du bouton si le trimestre est mauvais.
         EnsureTrimWarn();
@@ -327,7 +329,7 @@ public class RevisionPanel : MonoBehaviour
         _loc.loyerDepart = loyer;
         _loc.loyerAnnuel = loyer;
         _loc.loyerAnnuelPrecedent = 0f;   // nul à l'initialisation, aucune révision encore
-        _loc.indiceImmoAuDepart = $"{obsRef.valeur:F2}  ({obsRef.periode})";
+        _loc.indiceImmoAuDepart = FormatIndice(obsRef.valeur, obsRef.periode);
         _loc.indiceImmoActuel = "—";
         AppliquerChampsCommuns();
 
@@ -378,6 +380,21 @@ public class RevisionPanel : MonoBehaviour
         if (string.IsNullOrEmpty(obsDepart.periode))
         { statusText.text = $"Indice de départ introuvable pour {periodeDepart}"; yield break; }
 
+        // Le fallback peut reculer de plusieurs années sans rien dire : une base plus
+        // ancienne que demandée gonfle le ratio et donc le loyer révisé, sur un écran
+        // parfaitement normal. On le signale explicitement.
+        if (!string.Equals(obsDepart.periode, periodeDepart, StringComparison.OrdinalIgnoreCase))
+            AfficheTrimWarn($"Indice de départ {periodeDepart} non publié — calcul basé sur {obsDepart.periode}.");
+
+        // Un indice de départ nul rendrait la division infinie : le loyer révisé
+        // deviendrait Infinity/NaN et serait enregistré tel quel sur le locataire.
+        if (obsDepart.valeur <= 0f)
+        {
+            statusText.text = $"Indice de départ invalide ({obsDepart.periode} = {obsDepart.valeur}) — révision impossible.";
+            if (btnReviser != null) btnReviser.interactable = false;
+            yield break;
+        }
+
         // Indice de révision — choix manuel, correspondance EXACTE, pas de fallback
         string periodeVoulue = InseeIndiceService.Normalize(trimestreVoulu.TrimestreValue);
         var obsActuel = InseeIndiceService.TrouveExact(observations, periodeVoulue);
@@ -403,16 +420,22 @@ public class RevisionPanel : MonoBehaviour
         // Calcul
         float loyerRevise = loyer * (obsActuel.valeur / obsDepart.valeur);
 
+        // Prochaine révision = date saisie + 1 an. Calculée AVANT toute écriture :
+        // `new DateTime(d.Year + 1, d.Month, d.Day)` levait sur un 29 février (l'année
+        // suivante n'est pas bissextile) APRÈS que loyerAnnuel ait été écrit, laissant
+        // le locataire avec le nouveau loyer mais sans date ni historique à jour.
+        var d = dateDeRevision.SelectedDate;
+        int jourClamp = Math.Min(d.Day, DateTime.DaysInMonth(d.Year + 1, d.Month));
+        var prochaineRevision = new DateTime(d.Year + 1, d.Month, jourClamp);
+
         _loc.loyerDepart = loyer;
         _loc.loyerAnnuelPrecedent = _loc.loyerAnnuel;   // loyer AVANT révision
         _loc.loyerAnnuel = loyerRevise;
-        _loc.indiceImmoAuDepart = $"{obsDepart.valeur:F2}  ({obsDepart.periode})";
-        _loc.indiceImmoActuel = $"{obsActuel.valeur:F2}  ({obsActuel.periode})";
+        _loc.indiceImmoAuDepart = FormatIndice(obsDepart.valeur, obsDepart.periode);
+        _loc.indiceImmoActuel = FormatIndice(obsActuel.valeur, obsActuel.periode);
         _loc.dernierRevision = DateTime.Now.ToString("yyyy-MM-dd");
 
-        // Prochaine révision = date saisie + 1 an — champ toujours éditable après
-        var d = dateDeRevision.SelectedDate;
-        _loc.MoisDeRevision = new DateTime(d.Year + 1, d.Month, d.Day);
+        _loc.MoisDeRevision = prochaineRevision;
         dateDeRevision.ApplyDate(_loc.MoisDeRevision);
         dateDeRevision.ModifyDate();
 
@@ -479,6 +502,16 @@ public class RevisionPanel : MonoBehaviour
 
     // Un trimestre pas encore COMMENCÉ (futur) ne peut jamais être publié → on
     // bloque immédiatement, sans même appeler l'INSEE.
+    /// Sérialise un indice INSEE au format `"125.50  (2025-T1)"`.
+    /// Le séparateur décimal est forcé en culture INVARIANTE (point) : c'est ce que
+    /// `LoyerHistoryService.ParseIndiceValeur` relit. Avec l'interpolation `$"{v:F2}"`
+    /// (culture courante), une machine en `fr-FR` aurait écrit `"125,50"`, que la
+    /// relecture invariante rejette → indice à 0 → tableau de rentabilité indexée
+    /// silencieusement rabattu sur un loyer plat.
+    private static string FormatIndice(float valeur, string periode)
+        => valeur.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+           + $"  ({periode})";
+
     private static bool TrimestreDejaCommence(string periode)
     {
         string n = InseeIndiceService.Normalize(periode);   // "2026-T4"
@@ -521,8 +554,7 @@ public class RevisionPanel : MonoBehaviour
             _loc.MoisDeRevision = dateDeRevision.SelectedDate;
 
         _loc.provisionPourCharges = toggleProvisions.isOn;
-        float.TryParse(provisionValue.text?.Replace(',', '.'),
-            NumberStyles.Float, CultureInfo.InvariantCulture, out float prov);
+        float prov = SaisieNumerique.Parse(provisionValue.text);
         _loc.provisionPourChargeValue = toggleProvisions.isOn ? prov : 0f;
 
         // Facturation
@@ -737,8 +769,7 @@ public class RevisionPanel : MonoBehaviour
         _loc.periodiciteLoyer = (Periodicite)periodiciteDropdown.value;
 
         _loc.provisionPourCharges = toggleProvisions.isOn;
-        float.TryParse(provisionValue.text?.Replace(',', '.'),
-            NumberStyles.Float, CultureInfo.InvariantCulture, out float prov);
+        float prov = SaisieNumerique.Parse(provisionValue.text);
         _loc.provisionPourChargeValue = toggleProvisions.isOn ? prov : 0f;
 
         if (_jourDemande != null)
@@ -848,8 +879,11 @@ public class RevisionPanel : MonoBehaviour
 
     private bool TryParseLoyer(out float loyer)
     {
-        bool ok = float.TryParse(loyerDepart.text?.Replace(',', '.'),
-            NumberStyles.Float, CultureInfo.InvariantCulture, out loyer);
+        // Champ obligatoire : un champ vide reste une erreur (SaisieNumerique
+        // traite le vide comme un 0 legitime, ce qui n'a pas de sens pour un loyer).
+        loyer = 0f;
+        bool ok = !string.IsNullOrWhiteSpace(loyerDepart.text)
+                  && SaisieNumerique.TryParse(loyerDepart.text, out loyer);
         if (!ok) statusText.text = "Loyer de départ invalide";
         return ok;
     }

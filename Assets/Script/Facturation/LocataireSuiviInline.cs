@@ -278,10 +278,11 @@ public class LocataireSuiviInline : MonoBehaviour
         act.childAlignment = TextAnchor.MiddleLeft; act.childForceExpandWidth = false;
         // Période clôturée (reprise) : aucune action (historique).
         if (etat == FacturationSuivi.Etat.Cloture) return;
-        bool genere = !string.IsNullOrEmpty(l.pdfPath) && File.Exists(l.pdfPath);
+        string pdfAbs = FacturationSuivi.CheminPdf(l);
+        bool genere = !string.IsNullOrEmpty(pdfAbs) && File.Exists(pdfAbs);
         if (genere)
         {
-            MiniBtn(act.transform, "PDF", () => Application.OpenURL("file:///" + l.pdfPath.Replace("\\", "/")));
+            MiniBtn(act.transform, "PDF", () => Application.OpenURL("file:///" + pdfAbs.Replace("\\", "/")));
             // Facture déjà émise → « Corriger » (crée une version corrigée, même numéro) ;
             // sinon « Refaire » (regénère). Correction câblée pour le loyer.
             bool corrigeable = l.type == "Loyer"
@@ -300,8 +301,13 @@ public class LocataireSuiviInline : MonoBehaviour
             }));
 
         // Loyer payé sur bail NON commercial → possibilité d'émettre la quittance de loyer.
+        // L'état « Payé » peut être forcé à la main sur une ligne JAMAIS émise : sans le
+        // contrôle numéro + PDF, on éditait une quittance (un reçu) pour une facture
+        // qui n'existe pas.
+        bool reellementEmise = !string.IsNullOrEmpty(l.numero) && !string.IsNullOrEmpty(l.pdfPath);
         if (etat == FacturationSuivi.Etat.Paye && l.type == "Loyer"
-            && !Locataire.EstBailCommercial(_loc.typeDeBail))
+            && !Locataire.EstBailCommercial(_loc.typeDeBail)
+            && reellementEmise)
             MiniBtn(act.transform, "Quittance", () => FactureQuittanceService.Emettre(_fiche, _loc, l));
     }
 

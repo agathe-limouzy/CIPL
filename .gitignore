@@ -145,3 +145,15 @@ x86/
 
 # Publish Web Output
 *.[Pp]ublish.xml
+
+### Secrets — ne JAMAIS commiter
+# Les secrets (clé API Pennylane, mot de passe SMTP, token Mapbox) vivent dans
+# <SaveRoot>/pennylane_secrets.dat, hors du dépôt. Ces règles sont une défense
+# supplémentaire si un fichier de ce type atterrit un jour dans l'arborescence.
+pennylane_secrets.dat
+*secrets*.dat
+*.key
+*.pem
+.env
+.env.*
+!.env.example

@@ -248,13 +248,9 @@ public class TravauxController : MonoBehaviour
 
     // ── Utilitaires ───────────────────────────────────────────────────────────
 
-    private float Parse(string s)
-    {
-        float.TryParse(s?.Replace(',', '.'),
-            System.Globalization.NumberStyles.Float,
-            System.Globalization.CultureInfo.InvariantCulture, out float v);
-        return v;
-    }
+    // Voir SaisieNumerique : tolère la saisie française et signale une valeur
+    // non numérique au lieu de la convertir silencieusement en 0.
+    private float Parse(string s) => SaisieNumerique.ParseOuAvertir(s, "TravauxController");
 
     private int GetDureeMois()
     {
