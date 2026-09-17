@@ -337,14 +337,6 @@ public class BatimentManager : MonoBehaviour
                            "Une sauvegarde de secours existe peut-être dans le dossier Backups.");
     }
 
-    public Batiment LoadBatiment(string id)
-    {
-        string path = GetFilePath(id);
-        if (!File.Exists(path)) return null;
-
-        string json = File.ReadAllText(path);
-        return JsonUtility.FromJson<Batiment>(json);
-    }
 
     // ── Utilitaires ──────────────────────────────────────────────────────────
 
@@ -380,5 +372,4 @@ public class BatimentManager : MonoBehaviour
     private string GetFilePath(string id) =>
         Path.Combine(SaveFolder, $"batiment_{id}.json");
 
-    public string GetSaveFolder() => SaveFolder;
 }

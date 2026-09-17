@@ -121,9 +121,4 @@ public class TileLoader : MonoBehaviour
         }
     }
 
-    public void HidePin()
-    {
-        if (targetImage != null)
-            targetImage.texture = null;
-    }
 }

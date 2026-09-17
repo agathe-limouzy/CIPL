@@ -45,20 +45,6 @@ public static class SaveIO
         return true;
     }
 
-    /// Charge une sauvegarde existante depuis un dossier (SANS déplacer l'actuelle).
-    /// `dir` doit contenir (ou recevoir) le sous-dossier CIPL_Saves.
-    public static bool LoadSave(out int nbBatiments)
-    {
-        nbBatiments = 0;
-        if (!PickFolder("Charger une sauvegarde — choisir le dossier", out var dir)) return false;
-        SaveLocationService.SetSaveRoot(dir);   // pointe sur <dir>/CIPL_Saves
-        Reload();
-        // Inscrit la sauvegarde chargée dans la liste des entreprises (sinon elle
-        // n'apparaîtrait pas dans le sélecteur « Entreprises »).
-        EntrepriseService.EnsureActiveRegistered();
-        nbBatiments = CountBatiments();
-        return true;
-    }
 
     /// Revient à l'emplacement par défaut et recharge.
     public static void ResetToDefault()

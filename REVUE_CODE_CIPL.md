@@ -140,6 +140,118 @@ Un défaut de mon propre correctif a été trouvé par l'exécution, pas par la 
 
 **Vérifié et sain** (fausses pistes écartées une par une) : gardes de `Substring`/`Split` (`TryDecompose`, `Initiales`, SIRET, autocomplétion) · accumulation de listeners (cibles recréées à chaque construction, `_manualEditable` vidé, `ObjectiveManager` dans `Start`) · divisions (`NbPeriodes` ne renvoie jamais 0) · les appelants de `Renommer*` honorent le `false` et reviennent en arrière · `SaveAll`/`SauvegardeDeFermeture` itèrent sur une copie.
 
+### À faire : ligne de suivi en prefab (spécifié le 17/09/2026, non commencé)
+
+Les deux vues du suivi construisent **la même ligne** en code, chacune de son côté — c'est ce qui a permis au défaut d'alignement (`childForceExpandWidth`) d'exister en double. Le projet utilise pourtant déjà le pattern prefab ailleurs : `RentabiliteRow`, `locataireRowPrefab`, `achatItemPrefab`, `BuildingCardItem`.
+
+**Écrans concernés, par rentabilité** (mesure : appels `UIFactory.` et reconstruction complète à chaque refresh) :
+
+| Écran | UIFactory | Prefabs | Verdict |
+|---|---|---|---|
+| `LocataireSuiviInline` | 41 | 1 | **à convertir** — même ligne que ci-dessous |
+| `FacturationSuiviPanel` | 44 | 0 | **à convertir** — partage le prefab avec le précédent |
+| `FacturationHomeSection` | 48 | 0 | à convertir ensuite (écran d'accueil) |
+| `ChargePanel`, `EntreprisePanel` | 45 | 0 | plus tard, plus petits |
+| `ReglagePanel` (102), les 4 panneaux de facture (69–83) | — | 0 | **ne pas convertir** : formulaires construits une seule fois, aucune répétition. Le gain serait l'édition visuelle, au prix de dizaines de références sérialisées fragiles, invisibles aux tests. |
+
+**Structure du prefab à créer** (`Assets/Prefab/SuiviFactureRow.prefab`) — largeurs reprises des constantes actuelles :
+`Row` (Image + HorizontalLayoutGroup, padding 16/16, spacing 10, **childForceExpandWidth = false**, LayoutElement minHeight 46)
+→ `Libelle` (TMP, flexW 1, minW 200, ellipsis) · `Echeance` (TMP, 130) · `Montant` (TMP, 140, aligné à droite) · `EtatCell` (HBox 132) > `Pill` (Button 96×28 + bordure) · `ActionsCell` (HBox 280, spacing 6) > **4 boutons pré-créés**, activés au besoin.
+
+**API du script `SuiviRowUI`** : `Setup(libelle, echeance, montant, couleurs, etatLibelle, etatBg, etatFg, etatCliquable, onEtat, actions)` où `actions` est une liste de `(libellé, callback)`. Jusqu'à **4 actions simultanées**, libellés variables : `PDF` · `Corriger` (loyer émis/impayé) ou `Refaire` · `Générer` · `Rappel` (impayé) · `Quittance` (loyer payé, bail non commercial, facture réellement émise). Cas particulier : période `Cloture` = pastille non cliquable et **aucune** action.
+
+**Pourquoi ce n'est pas fait ici** : la conversion ne peut pas être validée sans mode Play, et elle tomberait juste après une session qui a beaucoup touché à la facturation, sur un arbre non commité. À faire **après** le commit et le tour en Play, en commençant par la vue inline seule, l'autre vue restant en code le temps de comparer les deux rendus côte à côte.
+
+### Nettoyage du projet (16/09/2026)
+
+Méthode : rien n'a été supprimé sur une impression. Pour chaque fichier, le GUID de son `.meta` a été cherché dans les 37 scènes/prefabs/assets **et** son nom dans les 111 scripts ; seuls les candidats à **zéro référence des deux côtés** ont été retenus, puis vérifiés un par un. Tout ce qui a été supprimé est suivi par git, donc récupérable par `git checkout`.
+
+**Supprimé** — 5 scripts (756 lignes), 13 méthodes (85 lignes), 2 prefabs, 1 image :
+
+| Type | Éléments |
+|---|---|
+| Scripts | `PLU/PLUPanelUI.cs` · `Maps/TextureScale.cs` · `Tools/NestedScrollRect.cs` · `Maps/PineSpriteGenerator.cs` · `Facturation/FacturationGlobalPanel.cs` (353 l., voir ci-dessous) |
+| Prefabs | `Building Card.prefab` (ancienne version — c'est `BuildingCardItem.prefab` qui porte le composant `BuildingCard` en scène) · `Toggle Possiblity .prefab` |
+| Image | `UI/sec_arrow.png` |
+| Méthodes | `BatimentManager.LoadBatiment`/`GetSaveFolder` · `BatimentPrefab.GetBatimentData` · `DateInputController.LoadSavedDate` · `MapController.getLat`/`getLon` · `TileLoader.HidePin` · `TrimestreInput.CannotModify`/`GetPreviousYear` · `SaveIO.LoadSave` · `ScrollAutoResize.ScrollToBottom` · `RentabiliteCalculator.CoutInterets` · `TravauxController.GetSaveData` |
+
+**Faux positifs écartés — à ne jamais supprimer sur la foi d'une recherche de références :**
+
+| Élément | Pourquoi il n'a aucune référence | |
+|---|---|---|
+| `FacturationBootstrap`, `EntrepriseBootstrap` | `[RuntimeInitializeOnLoadMethod]` : **Unity les exécute sans que personne ne les cite**. Les supprimer aurait cassé l'initialisation au démarrage. | gardés |
+| `papperData.cs` | Le fichier ne porte pas le nom de ses types : il déclare `AnnuaireEntreprise` et `AnnuaireResponse`, bien utilisés par la recherche SIRET. | gardé |
+| `StreamingAssets/logo_cipl.png` | StreamingAssets se charge **par chemin**, pas par GUID — c'est le logo imprimé sur les factures. | gardé |
+| `InputFieldMinHeight.CalculateLayoutInput*` | Implémentations de `ILayoutElement`, appelées par le moteur de layout. | gardées |
+| `ScrollAutoResize.OnTransformChildrenChanged` | Message Unity. | gardé |
+
+**Refactorisé** — deux duplications supprimées, sans changement de comportement :
+- `Sanitize` existait en **5 exemplaires** (4 identiques + la variante de la quittance) → `DossiersDonnees.NomFichier`, à côté de `NomDossier`. La quittance garde sa spécificité (espaces en tirets, repli « Quittance ») mais s'appuie sur la base commune.
+- Les listes de formats de numérotation étaient **dupliquées dans les 4 panneaux** de facture, avec le risque qu'elles divergent → `FactureNumerotation.Labels`/`.Ids`, source unique.
+
+**Vérifié** : compilation propre, puis 9 assertions en exécution (neutralisation des caractères interdits, `null` toléré, nom valide inchangé, formats de numérotation, survie des bootstraps, des types Pappers et de `BuildingCard`, `CheminPdf` et `Mensualite` toujours opérationnels).
+
+**`FacturationGlobalPanel.cs` — supprimé sur décision de l'utilisatrice (16/09)**. Vue globale des créances (filtres bâtiment/banque/locataire/état + tableau des factures dues), jamais branchée à aucune scène ni à aucun code. La colonne « Créances » du menu est assurée par `FacturationHomeSection`, qui reste en place. Le fichier étant suivi par git, il est récupérable par `git checkout` si le besoin d'une vue globale filtrable revient — c'est la référence à reprendre plutôt qu'à réécrire.
+
+**Laissé en l'état** : `Col(string)` dupliqué en 4 exemplaires d'une ligne (gain nul, risque non nul).
+
+**Audit de la scène — rien à nettoyer.** `SampleScene` : 643 GameObjects, **0 script manquant** (aucune référence cassée), **0 coquille vide** (objet sans composant ni enfant). Les **29 objets désactivés ne sont pas du déchet** : ce sont les `Template` des dropdowns — Unity les désactive par conception — et les écrans masqués activés par code (`Calcul`, `Savegarde`, `Panel PLU/GroupeCadastre`, `Objectif`). Les 4 « noms dupliqués sous un même parent » sont des éléments répétés légitimes (chips de modes du calcul rapide, colonnes d'en-tête). Les suppressions de fichiers n'ont créé **aucun orphelin en cascade** (scan relancé après coup).
+
+**Reste le plus gros gisement, non traité : les packages.** `Packages/manifest.json` déclare `com.unity.feature.2d`, qui tire 2D Animation, Aseprite, PSD Importer, SpriteShape, PixelPerfect, Tilemap Extras, **Burst**, Collections et Mathematics — **aucun fichier du projet ne les référence**, et c'est Burst qui produit les erreurs de compilation observées dans la console. S'y ajoutent `com.unity.timeline`, `com.unity.visualscripting` (son unique `using`, dans `BatimentPrefab.cs`, était inutile et a été retiré) et une quinzaine de modules sans emploi pour une application de gestion en UI 2D (`ai`, `cloth`, `particlesystem`, `physics`, `physics2d`, `terrain`, `vehicles`, `vr`, `xr`, `wind`, `umbra`, `video`…).
+
+Non fait volontairement : retirer un package touche la résolution de dépendances et la compilation de **tout** le projet. Le gain est du confort (temps de compilation, poids du build), pas une correction — le rapport risque/bénéfice ne justifie pas de le faire sans validation. À traiter par petits lots, avec une compilation vérifiée entre chaque.
+
+### Protocole d'émission mutualisé — `FactureEmission` (16/09/2026)
+
+**Le problème de fond, pas ses symptômes.** Les quatre panneaux de facture recopiaient la même séquence d'émission : détecter une facture déjà émise, suffixer le numéro et le nom de fichier, générer, puis marquer le suivi et avancer la séquence. Quatre copies, donc quatre occasions d'oublier — et c'est exactement ce qui s'est produit : **H2** (garde présente sur un seul panneau), **H2-bis** (deux états sur quatre), **G1** (`pdfPath` absolu répété), **G3/G4** (chemins construits à la main).
+
+`Facturation/FactureEmission.cs` porte désormais cette règle, en deux temps dont l'ordre n'est pas négociable :
+
+| | |
+|---|---|
+| `Preparer(loc, key, numeroPropose)` | **Avant** la génération. Décide correction ou première émission, renvoie le numéro à imprimer et le suffixe de nom de fichier (`-corrigee2`) — donc le PDF d'origine n'est jamais écrasé. |
+| `Enregistrer(...)` | **Après** une génération réussie. En correction : conserve numéro et statut, n'avance pas la séquence. En première émission : marque la ligne envoyée, consomme le numéro, oublie l'ID saisi. |
+
+`RibNom(ribId)` remplace au passage quatre copies de trois lignes.
+
+**Vérifié** : plus aucun panneau n'appelle `EstDejaEmise`, `MarquerCorrige` ou ne touche `factureSeq` directement — la recherche ne renvoie rien. Chacun se contente de deux appels au service.
+
+**Ce qui n'a pas changé** : chaque panneau garde son libellé propre (« charges passées en payé », « le montant du dépôt n'a pas été modifié ») via un paramètre optionnel — la mutualisation ne devait pas appauvrir les messages, c'est le genre de régression invisible qui passe les tests et se voit à l'usage.
+
+**Six tests ajoutés** (`FactureEmissionTests`) : première émission qui consomme un numéro · seconde émission traitée en correction sans rien consommer · corrections successives numérotées avec une seule séquence consommée en tout · loyer préparé en avance également protégé · messages.
+
+**Second lot — les helpers partagés (16/09)** : `TryDate` existait en **quatre copies strictement identiques** et `NumeroPrefixe` aussi (la seule différence entre elles était un commentaire — vérifié, il n'y avait pas de divergence réelle, mais rien ne l'empêchait).
+
+- `TryDate` → `Tools/SaisieDate.cs`, pendant de `SaisieNumerique` : formats explicites (`dd/MM/yyyy`, `d/M/yyyy`, `dd/MM/yy`, `d/M/yy`) en culture invariante. Utilisable par les autres formulaires qui parsent des dates à la main.
+- `NumeroPrefixe` → `FactureNumerotation.Prefixe`, à côté des formats `AN`/`AMN`/`AJMN` qu'il consomme. **C'est là que se jouera H1** : l'arbitrage sur la numérotation (séquence unique globale ou identifiant stable de locataire) ne touchera plus qu'un seul endroit.
+
+Les noms locaux sont conservés en délégation d'une ligne : **aucun site d'appel n'a été modifié**, donc aucun risque de rupture. Vérifié : plus aucun `DateTime.TryParseExact` ni `switch (fmt)` dans les panneaux. 12 tests ajoutés (`SaisieDateTests`), dont le cas `03/04/2026` qui doit toujours être le 3 avril.
+
+Les quatre panneaux passent de 2 850 à **2 770 lignes** — le gain en volume est modeste, l'important est ailleurs : les règles qui produisaient des bugs (émission, numérotation, dates) n'ont plus qu'une seule implémentation.
+
+**Prochaine étape possible** : ce qui reste dupliqué est de la **construction d'UI** (`LoadIntoUI`, `SaveFromUI`, `ShowPreview`, `ZoomBtn`, `RefreshEntetePreview`…), pas de la règle métier. L'extraire demanderait une classe de base MonoBehaviour et présente un risque bien supérieur pour un gain surtout cosmétique. À ne faire que si ces panneaux doivent réellement évoluer.
+
+### Tests automatisés — 66 tests EditMode (16/09/2026)
+
+Jusqu'ici, **chaque vérification était refaite à la main**, par scripts jetables. Ces scripts sont désormais des tests que n'importe qui relance en moins de 2 secondes.
+
+**Comment les lancer** : `Window → General → Test Runner → EditMode → Run All`. Aucun mode Play requis.
+
+| Fichier | Couvre |
+|---|---|
+| `Assets/Editor/Tests/SaisieNumeriqueTests.cs` | M3 / M3-bis — symétrie point/virgule (8 paires), séparateurs mixtes, espaces insécables, saisie invalide refusée, champ vide |
+| `Assets/Editor/Tests/FacturationSuiviTests.cs` | H2 / H2-bis / H3 / G1 — les 4 états « émise », numéro et séquence préservés à la correction, statut conservé, impayé à échéance+15, échéance en culture invariante, `pdfPath` relatif et ancien format absolu |
+| `Assets/Editor/Tests/DonneesDisqueTests.cs` | M5 / G1 / G2 / G4 — nommage des fichiers, aller-retour relatif↔absolu, migration acceptée puis refusée sans rien écraser, corbeille photos (suppression → annulation → purge), vidage du cache |
+| `Assets/Editor/Tests/InfraTest.cs` | L'infrastructure elle-même |
+
+**Où vivent les tests, et pourquoi là.** Le code de CIPL est dans `Assembly-CSharp` (aucun `.asmdef`), et un assembly défini par `.asmdef` **ne peut pas** référencer `Assembly-CSharp`. Les tests sont donc sous `Assets/Editor/`, compilés dans `Assembly-CSharp-Editor`, qui lui y a accès — et exclus des builds. Vérifié empiriquement avant d'écrire la suite.
+
+**Isolation des données — le point le plus important.** `DonneesDisqueTests` écrit sur le disque. Son `SetUp` mémorise la racine réelle puis bascule `SaveLocationService` sur `%TEMP%/cipl_tests_<guid>/CIPL_Saves` ; son `TearDown` **restaure la racine réelle en première instruction**, avant même de nettoyer. Vérifié après exécution : racine rendue, 3 bâtiments intacts. Toute évolution de ces tests doit préserver cette garantie.
+
+*Deux tests ont échoué au premier lancement, et les deux fois c'était le test qui avait tort, pas le code : un chemin de PDF placé hors racine (que `VersRelatif` laisse donc absolu, à juste titre) et un `Debug.LogError` volontaire non déclaré par `LogAssert.Expect`.*
+
+**Non couvert** : la corbeille des bâtiments (`DeleteBatiment`/`RestoreBatiment` exigent une scène et `BatimentManager.Instance` — vérifiée par réflexion en session, pas figée en test) · `FermetureGuard` avec fiche réellement en édition · les gardes d'avoir et les parcours UI des panneaux. Ce sont les mêmes points que la liste « à passer en Play ».
+
 ### Seconde passe — findings non numérotés (16/09/2026)
 
 Le tableau ci-dessus ne couvrait que les findings **numérotés**. L'exploration en avait remonté d'autres, jamais promus en findings, donc passés à travers. Traités depuis :

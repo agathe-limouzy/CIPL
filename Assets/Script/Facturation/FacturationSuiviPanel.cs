@@ -185,7 +185,10 @@ public class FacturationSuiviPanel : MonoBehaviour
         var hl = p.gameObject.AddComponent<HorizontalLayoutGroup>();
         hl.padding = new RectOffset(16, 16, 0, 0); hl.spacing = 10;
         hl.childControlWidth = true; hl.childControlHeight = true;
-        hl.childForceExpandWidth = true; hl.childForceExpandHeight = true;
+        // Voir LocataireSuiviInline.Row : activé, childForceExpandWidth fait ignorer
+        // les `flexibleWidth` à Unity, qui répartit alors l'espace restant à parts
+        // égales — les colonnes de largeur fixe se décalaient entre en-tête et lignes.
+        hl.childForceExpandWidth = false; hl.childForceExpandHeight = true;
         hl.childAlignment = TextAnchor.MiddleLeft;
         p.gameObject.AddComponent<LayoutElement>().minHeight = minH;
         return p.transform;

@@ -195,6 +195,10 @@ public static class LoyerHistoryService
 
     // ── Parsing utilitaires ───────────────────────────────────────────────────
 
+    /// "125.50  (2020-T2)" -> 125.50. Exposé : la facture de révision du dépôt
+    /// réutilise la même lecture pour imprimer les indices.
+    public static float IndiceValeur(string s) => ParseIndiceValeur(s);
+
     // "125.50  (2020-T2)" -> 125.50
     private static float ParseIndiceValeur(string s)
     {
@@ -203,6 +207,9 @@ public static class LoyerHistoryService
         string tete = (par >= 0 ? s.Substring(0, par) : s).Trim();
         return float.TryParse(tete, NumberStyles.Float, CultureInfo.InvariantCulture, out float v) ? v : 0f;
     }
+
+    /// "125.50  (2020-T2)" -> "2020-T2". Exposé : voir `IndiceValeur`.
+    public static string IndicePeriode(string s, string fallback) => ParseIndicePeriode(s, fallback);
 
     // "125.50  (2020-T2)" -> "2020-T2" ; sinon repli sur trimestreDeRevision
     private static string ParseIndicePeriode(string s, string fallback)

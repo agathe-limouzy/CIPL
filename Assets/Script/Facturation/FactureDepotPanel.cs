@@ -20,8 +20,9 @@ public class FactureDepotPanel : MonoBehaviour
     static readonly Color CoBleu = Hex("#2C3E5E"), CoBleuL = Hex("#DEE3EB");
     static readonly Color CoDepot = Hex("#2A6F82"), CoDepotL = Hex("#E2EFF2");
 
-    static readonly List<string> NumFmtLabels = new List<string> { "Année / Numéro", "Année / Mois-Numéro", "Année / JourMois-Numéro" };
-    static readonly List<string> NumFmtIds = new List<string> { "AN", "AMN", "AJMN" };
+    // Source unique : FactureNumerotation (les quatre panneaux dupliquaient ces listes).
+    static List<string> NumFmtLabels => FactureNumerotation.Labels;
+    static List<string> NumFmtIds => FactureNumerotation.Ids;
 
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
 
@@ -326,15 +327,7 @@ public class FactureDepotPanel : MonoBehaviour
         RefreshEntetePreview();
     }
 
-    static string NumeroPrefixe(string fmt, DateTime d)
-    {
-        switch (fmt)
-        {
-            case "AN": return $"{d.Year}/";
-            case "AJMN": return $"{d.Year}/{d.Day:D2}{d.Month:D2}";
-            default: return $"{d.Year}/{d.Month:D2}";
-        }
-    }
+    static string NumeroPrefixe(string fmt, DateTime d) => FactureNumerotation.Prefixe(fmt, d);
 
     string ComposedNumero()
     {
@@ -374,6 +367,7 @@ public class FactureDepotPanel : MonoBehaviour
         string entResolved = ent != null ? FactureVarResolver.Resolve(ent.texte, _loc, _bat, ctx) : "";
         var foot = (R.basDePage ?? "").Replace("\r", "").Split('\n');
         float nouveau = Nouveau(), ancien = ParseF(_ancien.text), complement = nouveau - ancien;
+        int.TryParse((_nbPeriodes.text ?? "").Trim(), out int nbTermes);
 
         return new FacturePdfService.RegulData
         {
@@ -385,15 +379,19 @@ public class FactureDepotPanel : MonoBehaviour
             numero = ComposedNumero(),
             subtitle = "Révision du dépôt de garantie",
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
+            // Explication du calcul : indice de référence → nouvel indice → nouveau
+            // loyer, puis la règle des N termes qui donne le dépôt.
+            explicationHtml = ExplicationDepot.Html(_loc, Mathf.Max(1, nbTermes), complement, ctx.date),
             charges = new List<FacturePdfService.RegulLigne>(),   // pas de page 2
             totalCharges = nouveau, provisions = ancien, soldeHT = complement,
             tva = 0f, ttc = complement,
             labelTotal = "Nouveau dépôt de garantie",
             labelProvisions = "Dépôt de garantie déjà versé",
-            labelSolde = "Complément à régler",
+            // « Complément à régler » serait faux quand c'est nous qui remboursons.
+            labelSolde = FactureEmission.LibelleSolde(complement, "Complément à régler"),
             masquerTva = true,
             tvaDebit = false, retard = _retard.isOn,
-            sommePhrase = _sommePhrase.text,
+            sommePhrase = FactureEmission.PhraseSomme(_sommePhrase.text, complement),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
             legal = R.phraseRetard,
@@ -419,15 +417,29 @@ public class FactureDepotPanel : MonoBehaviour
         SaveFromUI();
         var d = BuildData();
 
-        // Complément négatif = remboursement au locataire → avoir, pas facture.
-        if (d.soldeHT < 0f)
+        // Complément négatif = le nouveau dépôt est inférieur à l'ancien, donc c'est
+        // NOUS qui devons. Le document est émis quand même (comptablement, c'est un
+        // avoir : il consomme un numéro comme une facture), mais il est confirmé —
+        // inverser le sens d'une somme ne doit pas tenir à un clic.
+        if (d.soldeHT < -0.005f && ConfirmDialog.Instance != null)
         {
-            UndoToast.Instance?.ShowInfo(
-                "Complément négatif : le nouveau dépôt est inférieur à l'ancien. Il s'agit d'un " +
-                "remboursement à établir hors facturation, pas d'une facture. Émission annulée.");
+            ConfirmDialog.Instance.Show(
+                "Remboursement au locataire",
+                "Le nouveau dépôt est inférieur à l'ancien : ce document constate "
+                + (-d.soldeHT).ToString("N2", FacturePdfService.FrCulture)
+                + " € dus AU locataire, et non réclamés. "
+                + "Il consommera un numéro comme une facture.",
+                () => Emettre(d), "Émettre");
             return;
         }
 
+        Emettre(d);
+    }
+
+    /// Génère le PDF et met le suivi à jour. Séparé de `SauvegarderEtEnvoyer` pour
+    /// pouvoir être repris après une confirmation (voir le cas du remboursement).
+    void Emettre(FacturePdfService.RegulData d)
+    {
         string dir = FactureDir();
         int year = (TryDate(_date.text, out var dt) ? dt : DateTime.Today).Year;
 
@@ -439,12 +451,11 @@ public class FactureDepotPanel : MonoBehaviour
 
         // Déjà émise → version « corrigée(X) » : même numéro, aucune nouvelle
         // séquence consommée, et le PDF d'origine est conservé.
-        bool correction = FacturationSuivi.EstDejaEmise(_loc, key, out var recExist);
-        int x = correction ? recExist.corrections + 1 : 0;
-        if (correction && !string.IsNullOrEmpty(recExist.numero))
-            d.numero = recExist.numero + $" corrigée({x})";
+        var emission = FactureEmission.Preparer(_loc, key, d.numero);
+        d.numero = emission.NumeroFacture;
+        bool correction = emission.Correction;
 
-        string fname = Sanitize($"RevisionDepot-{_nom.text}-{year}{(correction ? $"-corrigee{x}" : "")}") + ".pdf";
+        string fname = Sanitize($"RevisionDepot-{_nom.text}-{year}{emission.SuffixeFichier}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
         if (!FacturePdfService.GenerateRegulPdf(d, pdf, out string err))
@@ -456,30 +467,22 @@ public class FactureDepotPanel : MonoBehaviour
         string png = Path.Combine(dir, "apercu_depot.png");
         if (FacturePdfService.GenerateRegulPreviewPng(d, png, out _)) ShowPreview(png);
 
-        if (correction)
-        {
-            FacturationSuivi.MarquerCorrige(_loc, key, d.subtitle, pdf, d.soldeHT);
-            _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
-            LocataireSuiviInline.RefreshFor(_fiche);
-            UndoToast.Instance?.ShowInfo($"Facture de révision du dépôt corrigée ({x}) enregistrée.");
-            return;
-        }
+        // Le dépôt de la fiche n'est PAS modifié par l'émission.
+        string message = FactureEmission.Enregistrer(_loc, key, "Depot", emission,
+            d.subtitle, _loc.factureDepot?.dateEcheanceISO, pdf, d.soldeHT, _ribDD?.SelectedId,
+            _loc.factureDepot, "Facture de révision du dépôt",
+            "Facture de révision du dépôt enregistrée. Le montant du dépôt n'a pas été modifié.");
 
-        // Suivi : ligne de révision du dépôt « Envoyé » (rattachée à l'année de la date limite).
-        var ribS = ReglageService.GetRib(_ribDD?.SelectedId);
-        string ribNom = ribS != null ? (!string.IsNullOrWhiteSpace(ribS.name) ? ribS.name : ribS.titulaire) : "";
-        FacturationSuivi.MarquerEnvoye(_loc, key, "Depot",
-            d.subtitle, _loc.factureDepot?.dateEcheanceISO, d.numero, pdf, d.soldeHT, _ribDD?.SelectedId, ribNom);
-
-        // Numéro consommé (le dépôt de la fiche n'est PAS modifié ici).
-        _loc.factureSeq = Mathf.Max(1, _loc.factureSeq) + 1;
-        if (_loc.factureDepot != null) _loc.factureDepot.numeroId = "";
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
-        if (_numeroId != null) _numeroId.text = "";
-        RefreshNumero();
 
-        UndoToast.Instance?.ShowInfo("Facture de révision du dépôt enregistrée. Le montant du dépôt n'a pas été modifié.");
+        if (!correction)
+        {
+            if (_numeroId != null) _numeroId.text = "";
+            RefreshNumero();
+        }
+
+        UndoToast.Instance?.ShowInfo(message);
     }
 
     void ShowPreview(string pngPath)
@@ -615,11 +618,7 @@ public class FactureDepotPanel : MonoBehaviour
         return UIFactory.Text(h.transform, "—", 16, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
     }
 
-    static string Sanitize(string s)
-    {
-        foreach (var c in Path.GetInvalidFileNameChars()) s = (s ?? "").Replace(c, '-');
-        return s;
-    }
+    static string Sanitize(string s) => DossiersDonnees.NomFichier(s);
 
     // Passe par SaisieNumerique : « . » et « , » y sont interchangeables et les
     // espaces de milliers acceptes (cette copie locale ne gerait que la virgule).
@@ -627,8 +626,5 @@ public class FactureDepotPanel : MonoBehaviour
 
     static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
-    static bool TryDate(string s, out DateTime d) =>
-        DateTime.TryParseExact((s ?? "").Trim(),
-            new[] { "dd/MM/yyyy", "d/M/yyyy", "dd/MM/yy", "d/M/yy" },
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out d);
+    static bool TryDate(string s, out DateTime d) => SaisieDate.TryParse(s, out d);
 }

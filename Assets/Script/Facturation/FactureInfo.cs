@@ -4,6 +4,32 @@ using System;
 /// par locataire (le doc parle de factureState{ Loyer, Refacturation, … }).
 /// Les montants ne sont pas stockés ici : ils sont recalculés depuis le locataire.
 [Serializable]
+/// Formats de numérotation proposés par les panneaux de facture. Une seule source :
+/// les quatre panneaux en portaient chacun leur copie, qui pouvaient diverger.
+public static class FactureNumerotation
+{
+    public static readonly System.Collections.Generic.List<string> Labels =
+        new System.Collections.Generic.List<string>
+        { "Année / Numéro", "Année / Mois-Numéro", "Année / JourMois-Numéro" };
+
+    public static readonly System.Collections.Generic.List<string> Ids =
+        new System.Collections.Generic.List<string> { "AN", "AMN", "AJMN" };
+
+    /// Partie calendaire du numéro de facture, selon le format retenu.
+    /// Les quatre panneaux en avaient chacun leur copie — c'est aussi ici que se
+    /// jouera l'arbitrage H1 (séquence unique ou identifiant stable de locataire),
+    /// désormais à un seul endroit.
+    public static string Prefixe(string format, System.DateTime date)
+    {
+        switch (format)
+        {
+            case "AN":   return $"{date.Year}/";
+            case "AJMN": return $"{date.Year}/{date.Day:D2}{date.Month:D2}";
+            default:     return $"{date.Year}/{date.Month:D2}";   // AMN
+        }
+    }
+}
+
 public class FactureInfo
 {
     // Destinataire (mémorisé sur la facture — peut différer du locataire).

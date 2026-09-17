@@ -237,7 +237,13 @@ public class LocataireSuiviInline : MonoBehaviour
         var hl = p.gameObject.AddComponent<HorizontalLayoutGroup>();
         hl.padding = new RectOffset(16, 16, 0, 0); hl.spacing = 10;
         hl.childControlWidth = true; hl.childControlHeight = true;
-        hl.childForceExpandWidth = true; hl.childForceExpandHeight = true;
+        // childForceExpandWidth DOIT rester false : activé, Unity ignore les
+        // `flexibleWidth` et distribue l'espace restant à parts égales entre toutes
+        // les cellules. Les largeurs fixes des colonnes (WEch, WMontant…) n'étaient
+        // alors plus respectées, et l'en-tête se décalait des lignes — une cellule de
+        // texte et une cellule de boutons n'ayant pas la même largeur minimale.
+        // C'est la colonne « Facture » (flexW: 1) qui absorbe l'espace disponible.
+        hl.childForceExpandWidth = false; hl.childForceExpandHeight = true;
         hl.childAlignment = TextAnchor.MiddleLeft;
         p.gameObject.AddComponent<LayoutElement>().minHeight = minH;
         return p.transform;

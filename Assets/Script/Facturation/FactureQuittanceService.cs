@@ -64,10 +64,11 @@ public static class FactureQuittanceService
         return string.Join(" — ", new[] { bat, lot }.Where(x => !string.IsNullOrWhiteSpace(x)));
     }
 
+    // Comme DossiersDonnees.NomFichier, avec en plus les espaces en tirets et un
+    // repli : le nom du fichier de quittance ne doit jamais etre vide.
     static string Sanitize(string s)
     {
         if (string.IsNullOrEmpty(s)) return "Quittance";
-        foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '-');
-        return s.Replace(' ', '-');
+        return DossiersDonnees.NomFichier(s).Replace(' ', '-');
     }
 }

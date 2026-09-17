@@ -22,8 +22,9 @@ public class FactureRegulPanel : MonoBehaviour
     static readonly Color CoViolet = Hex("#5B3E7A"), CoVioletL = Hex("#E9E0F2");
     static readonly Color CoTaupe = Hex("#5F5E5A"), CoTaupeL = Hex("#E9E6DE");
 
-    static readonly List<string> NumFmtLabels = new List<string> { "Année / Numéro", "Année / Mois-Numéro", "Année / JourMois-Numéro" };
-    static readonly List<string> NumFmtIds = new List<string> { "AN", "AMN", "AJMN" };
+    // Source unique : FactureNumerotation (les quatre panneaux dupliquaient ces listes).
+    static List<string> NumFmtLabels => FactureNumerotation.Labels;
+    static List<string> NumFmtIds => FactureNumerotation.Ids;
 
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
 
@@ -412,15 +413,7 @@ public class FactureRegulPanel : MonoBehaviour
         RefreshEntetePreview();
     }
 
-    static string NumeroPrefixe(string fmt, DateTime d)
-    {
-        switch (fmt)
-        {
-            case "AN": return $"{d.Year}/";
-            case "AJMN": return $"{d.Year}/{d.Day:D2}{d.Month:D2}";
-            default: return $"{d.Year}/{d.Month:D2}";
-        }
-    }
+    static string NumeroPrefixe(string fmt, DateTime d) => FactureNumerotation.Prefixe(fmt, d);
 
     string ComposedNumero()
     {
@@ -504,7 +497,10 @@ public class FactureRegulPanel : MonoBehaviour
             totalARepartir = totalARepartir,
             tvaDebit = _tvaDebit.isOn,
             retard = _retard.isOn,
-            sommePhrase = _sommePhrase.text,
+            // « SOMME À NOUS RÉGLER » devient « SOMME QUI VOUS SERA REMBOURSÉE »
+            // quand le solde est négatif. Libellé du total inversé de même.
+            sommePhrase = FactureEmission.PhraseSomme(_sommePhrase.text, solde),
+            labelSolde = FactureEmission.LibelleSolde(solde, "Solde H.T."),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
             legal = R.phraseRetard,
@@ -533,14 +529,29 @@ public class FactureRegulPanel : MonoBehaviour
 
         // Un solde négatif (provisions > charges) est un AVOIR, pas une facture :
         // l'émettre produirait une facture à HT/TVA/TTC négatifs, non conforme.
-        if (d.ttc < 0f)
+        // Solde négatif = les provisions dépassent les charges réelles, donc c'est
+        // NOUS qui devons. Le document est émis quand même (comptablement un avoir :
+        // il consomme un numéro comme une facture), mais il est confirmé — inverser
+        // le sens d'une somme ne doit pas tenir à un clic.
+        if (d.ttc < -0.005f && ConfirmDialog.Instance != null)
         {
-            UndoToast.Instance?.ShowInfo(
-                "Solde négatif : les provisions dépassent les charges. Il s'agit d'un avoir " +
-                "à établir hors facturation, pas d'une facture. Émission annulée.");
+            ConfirmDialog.Instance.Show(
+                "Remboursement au locataire",
+                "Les provisions versées dépassent les charges réelles : ce document constate "
+                + (-d.ttc).ToString("N2", FacturePdfService.FrCulture)
+                + " € dus AU locataire, et non réclamés. "
+                + "Il consommera un numéro comme une facture.",
+                () => Emettre(d), "Émettre");
             return;
         }
 
+        Emettre(d);
+    }
+
+    /// Génère le PDF et met le suivi à jour. Séparé de `SauvegarderEtEnvoyer` pour
+    /// pouvoir être repris après une confirmation (voir le cas du remboursement).
+    void Emettre(FacturePdfService.RegulData d)
+    {
         int year = SelectedYear();
         string dir = FactureDir();
         string key = $"regul-{year}";
@@ -548,12 +559,11 @@ public class FactureRegulPanel : MonoBehaviour
         // Déjà émise pour cette année → version « corrigée(X) » : même numéro, aucune
         // nouvelle séquence consommée, PDF d'origine conservé. Sans cette garde, un
         // second clic consommait un numéro et écrasait la facture précédente.
-        bool correction = FacturationSuivi.EstDejaEmise(_loc, key, out var recExist);
-        int x = correction ? recExist.corrections + 1 : 0;
-        if (correction && !string.IsNullOrEmpty(recExist.numero))
-            d.numero = recExist.numero + $" corrigée({x})";
+        var emission = FactureEmission.Preparer(_loc, key, d.numero);
+        d.numero = emission.NumeroFacture;
+        bool correction = emission.Correction;
 
-        string fname = Sanitize($"RegularisationdeCharge-{_nom.text}-{year}{(correction ? $"-corrigee{x}" : "")}") + ".pdf";
+        string fname = Sanitize($"RegularisationdeCharge-{_nom.text}-{year}{emission.SuffixeFichier}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
         if (!FacturePdfService.GenerateRegulPdf(d, pdf, out string err))
@@ -568,31 +578,22 @@ public class FactureRegulPanel : MonoBehaviour
         // Les charges régularisées passent en « payé ».
         foreach (var c in ChargesFor(year)) c.paye = true;
 
-        if (correction)
-        {
-            FacturationSuivi.MarquerCorrige(_loc, key, d.subtitle, pdf, d.ttc);
-            _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
-            LocataireSuiviInline.RefreshFor(_fiche);
-            UndoToast.Instance?.ShowInfo($"Régularisation corrigée ({x}) enregistrée.");
-            return;
-        }
+        string message = FactureEmission.Enregistrer(_loc, key, "Regul", emission,
+            d.subtitle, _loc.factureRegul?.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
+            _loc.factureRegul, "Régularisation",
+            "Régularisation enregistrée (PDF) · charges passées en payé. Envoi réel non activé.");
 
-        // Suivi : la ligne de régularisation de l'année passe « Envoyé ».
-        var ribS = ReglageService.GetRib(_ribDD?.SelectedId);
-        string ribNom = ribS != null ? (!string.IsNullOrWhiteSpace(ribS.name) ? ribS.name : ribS.titulaire) : "";
-        FacturationSuivi.MarquerEnvoye(_loc, key, "Regul",
-            d.subtitle, _loc.factureRegul?.dateEcheanceISO, d.numero, pdf, d.ttc, _ribDD?.SelectedId, ribNom);
-
-        // N° consommé → séquence +1 ; on oublie l'ID mémorisé.
-        _loc.factureSeq = Mathf.Max(1, _loc.factureSeq) + 1;
-        if (_loc.factureRegul != null) _loc.factureRegul.numeroId = "";
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();   // persiste locataire + charges
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
-        if (_numeroId != null) _numeroId.text = "";
-        RefreshNumero();
-        RefreshCharges();   // les charges régularisées disparaissent (désormais payées)
 
-        UndoToast.Instance?.ShowInfo("Régularisation enregistrée (PDF) · charges passées en payé. Envoi réel non activé.");
+        if (!correction)
+        {
+            if (_numeroId != null) _numeroId.text = "";
+            RefreshNumero();
+            RefreshCharges();   // les charges régularisées disparaissent (désormais payées)
+        }
+
+        UndoToast.Instance?.ShowInfo(message);
     }
 
     void ShowPreview(string pngPath)
@@ -727,11 +728,7 @@ public class FactureRegulPanel : MonoBehaviour
         return UIFactory.Text(h.transform, "—", 16, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
     }
 
-    static string Sanitize(string s)
-    {
-        foreach (var c in Path.GetInvalidFileNameChars()) s = (s ?? "").Replace(c, '-');
-        return s;
-    }
+    static string Sanitize(string s) => DossiersDonnees.NomFichier(s);
 
     // Passe par SaisieNumerique : « . » et « , » y sont interchangeables et les
     // espaces de milliers acceptes (cette copie locale ne gerait que la virgule).
@@ -741,8 +738,5 @@ public class FactureRegulPanel : MonoBehaviour
 
     static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
-    static bool TryDate(string s, out DateTime d) =>
-        DateTime.TryParseExact((s ?? "").Trim(),
-            new[] { "dd/MM/yyyy", "d/M/yyyy", "dd/MM/yy", "d/M/yy" },
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out d);
+    static bool TryDate(string s, out DateTime d) => SaisieDate.TryParse(s, out d);
 }

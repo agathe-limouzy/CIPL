@@ -126,20 +126,6 @@ public class TravauxController : MonoBehaviour
         DropdownComptant.interactable = false;
     }
 
-    public TravauxFinancement GetSaveData()
-    {
-        _data.coutTotal = Parse(txtCoutTotal.GetNewSave());
-        _data.description = txtDescription.GetNewSave();
-        _data.emprunt = (DropdownComptant.value == 1);
-        _data.montantEmprunte = Parse(txtMontantEmprunte.GetNewSave());
-        _data.apportPersonnel = Parse(txtApport.GetNewSave());
-        _data.tauxInteretAnnuel = Parse(txtTauxInteret.GetNewSave());
-        _data.dureeMois = GetDureeMois();
-        _data.mensualiteCalculee = RentabiliteCalculator.Mensualite(
-            _data.montantEmprunte, _data.tauxInteretAnnuel, _data.dureeMois);
-        _data.dateDebutTravaux = dateDebutTravaux?.saveThedate() ?? DateTime.Today;
-        return _data;
-    }
 
     // ── Mode financement ──────────────────────────────────────────────────────
 

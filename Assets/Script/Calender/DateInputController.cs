@@ -127,12 +127,4 @@ public class DateInputController : MonoBehaviour
 
 
 
-// ── Appelle cette méthode depuis un autre script pour récupérer la date ──
-public static DateTime LoadSavedDate()
-    {
-        string saved = PlayerPrefs.GetString("SavedDate", "");
-        if (DateTime.TryParse(saved, out DateTime date))
-            return date;
-        return DateTime.Today;
-    }
 }

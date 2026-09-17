@@ -26,8 +26,9 @@ public class FactureLoyerPanel : MonoBehaviour
     static readonly string[] MoisNoms =
     { "Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre" };
 
-    static readonly List<string> NumFmtLabels = new List<string> { "Année / Numéro", "Année / Mois-Numéro", "Année / JourMois-Numéro" };
-    static readonly List<string> NumFmtIds = new List<string> { "AN", "AMN", "AJMN" };
+    // Source unique : FactureNumerotation (les quatre panneaux dupliquaient ces listes).
+    static List<string> NumFmtLabels => FactureNumerotation.Labels;
+    static List<string> NumFmtIds => FactureNumerotation.Ids;
 
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
     FactureEtat _correctionTarget;   // ligne du suivi à corriger (ouverture via « Corriger »)
@@ -337,15 +338,13 @@ public class FactureLoyerPanel : MonoBehaviour
 
         // Facture déjà émise pour cette période → on refait une version « corrigée(X) »
         // (même numéro, sans consommer de nouvelle séquence).
-        bool correction = FacturationSuivi.EstDejaEmise(_loc, key, out var recExist);
-        int x = correction ? recExist.corrections + 1 : 0;
-
         var d = BuildData();
-        if (correction && !string.IsNullOrEmpty(recExist.numero))
-            d.numero = recExist.numero + $" corrigée({x})";
+        var emission = FactureEmission.Preparer(_loc, key, d.numero);
+        d.numero = emission.NumeroFacture;
+        bool correction = emission.Correction;
 
         string dir = FactureDir();
-        string fname = Sanitize($"Loyer-{_nom.text}-{d.subtitle}{(correction ? $"-corrigee{x}" : "")}") + ".pdf";
+        string fname = Sanitize($"Loyer-{_nom.text}-{d.subtitle}{emission.SuffixeFichier}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
         if (!FacturePdfService.GeneratePdf(d, pdf, out string err))
@@ -358,36 +357,27 @@ public class FactureLoyerPanel : MonoBehaviour
         string png = Path.Combine(dir, "apercu.png");
         if (FacturePdfService.GeneratePreviewPng(d, png, out _)) ShowPreview(png);
 
-        if (correction)
-        {
-            // Met à jour la ligne existante (lien PDF + libellé « corrigée(X) »),
-            // conserve le numéro et le statut. Pas de nouvelle séquence consommée.
-            FacturationSuivi.MarquerCorrige(_loc, key, d.subtitle, pdf, d.ttc);
-            _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
-            LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
-            _correctionTarget = null;
-            _titre.text = "Information Facture — Loyer";
-            UndoToast.Instance?.ShowInfo($"Facture corrigée ({x}) enregistrée (PDF). Envoi réel non activé.");
-            return;
-        }
+        // Correction (même numéro, aucune séquence consommée) ou première émission :
+        // la règle vit dans FactureEmission, plus dans chacun des quatre panneaux.
+        string message = FactureEmission.Enregistrer(_loc, key, "Loyer", emission,
+            d.subtitle, fl.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
+            _loc.factureLoyer, "Facture");
 
-        // Suivi : la ligne du loyer de cette période passe « Envoyé » (ou « En attente
-        // d'envoi » si préparée plus de 15 j avant l'échéance — décidé dans MarquerEnvoye).
-        var ribS = ReglageService.GetRib(_ribDD?.SelectedId);
-        string ribNom = ribS != null ? (!string.IsNullOrWhiteSpace(ribS.name) ? ribS.name : ribS.titulaire) : "";
-        FacturationSuivi.MarquerEnvoye(_loc, key, "Loyer",
-            d.subtitle, fl.dateEcheanceISO, d.numero, pdf, d.ttc, _ribDD?.SelectedId, ribNom);
-
-        // N° consommé → on avance la séquence (unique par locataire) et on oublie
-        // l'ID mémorisé pour reproposer la nouvelle séquence à la prochaine ouverture.
-        _loc.factureSeq = Mathf.Max(1, _loc.factureSeq) + 1;
-        if (_loc.factureLoyer != null) _loc.factureLoyer.numeroId = "";
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
-        if (_numeroId != null) _numeroId.text = "";
-        RefreshNumero();
 
-        UndoToast.Instance?.ShowInfo("Facture enregistrée (PDF). Envoi réel non activé — rien n'a été émis.");
+        if (correction)
+        {
+            _correctionTarget = null;
+            _titre.text = "Information Facture — Loyer";
+        }
+        else
+        {
+            if (_numeroId != null) _numeroId.text = "";
+            RefreshNumero();
+        }
+
+        UndoToast.Instance?.ShowInfo(message);
     }
 
     // Charge l'image rendue dans le RawImage d'aperçu (ratio ajusté à l'image).
@@ -409,11 +399,7 @@ public class FactureLoyerPanel : MonoBehaviour
         catch (Exception e) { UndoToast.Instance?.ShowInfo("Aperçu illisible : " + e.Message); }
     }
 
-    static string Sanitize(string s)
-    {
-        foreach (var c in Path.GetInvalidFileNameChars()) s = (s ?? "").Replace(c, '-');
-        return s;
-    }
+    static string Sanitize(string s) => DossiersDonnees.NomFichier(s);
 
     UIDropdown BuildRibDropdown(Transform parent)
     {
@@ -671,15 +657,7 @@ public class FactureLoyerPanel : MonoBehaviour
     }
 
     // Préfixe « format possible » selon le format et la date (l'ID vient après).
-    static string NumeroPrefixe(string fmt, DateTime d)
-    {
-        switch (fmt)
-        {
-            case "AN": return $"{d.Year}/";
-            case "AJMN": return $"{d.Year}/{d.Day:D2}{d.Month:D2}";
-            default: return $"{d.Year}/{d.Month:D2}"; // AMN
-        }
-    }
+    static string NumeroPrefixe(string fmt, DateTime d) => FactureNumerotation.Prefixe(fmt, d);
 
     // N° complet = préfixe format + ID locataire saisi.
     string ComposedNumero()
@@ -826,8 +804,5 @@ public class FactureLoyerPanel : MonoBehaviour
 
     static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
-    static bool TryDate(string s, out DateTime d) =>
-        DateTime.TryParseExact((s ?? "").Trim(),
-            new[] { "dd/MM/yyyy", "d/M/yyyy", "dd/MM/yy", "d/M/yy" },
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out d);
+    static bool TryDate(string s, out DateTime d) => SaisieDate.TryParse(s, out d);
 }

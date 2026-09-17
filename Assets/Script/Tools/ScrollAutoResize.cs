@@ -82,11 +82,6 @@ trackedText.gameObject.activeSelf)
         Canvas.ForceUpdateCanvases();   // ← ajouter : propage le résultat
     }
 
-    // Scroll vers le bas après injection Pappers
-    public void ScrollToBottom(ScrollRect scrollRect)
-    {
-        StartCoroutine(DoScrollToBottom(scrollRect));
-    }
 
     private IEnumerator DoScrollToBottom(ScrollRect scrollRect)
     {

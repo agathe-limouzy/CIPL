@@ -81,11 +81,6 @@ public class TrimestreInput : MonoBehaviour
             trimestreDropdown.value = t - 1;
     }
 
-    public void CannotModify()
-    {
-        anneeDropdown.interactable = false;
-        trimestreDropdown.interactable = false;
-    }
 
     public void CanModify()
     {
@@ -95,12 +90,4 @@ public class TrimestreInput : MonoBehaviour
 
     
 
-    public string GetPreviousYear()
-    {
-        if (!IsValid) return "";
-        string[] parts = TrimestreValue.Split(new string[] { "-T" },
-            StringSplitOptions.None);
-        if (parts.Length != 2) return "";
-        return $"{int.Parse(parts[0]) - 1}-T{parts[1]}";
-    }
 }

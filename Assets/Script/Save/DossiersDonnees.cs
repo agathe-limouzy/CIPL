@@ -29,6 +29,16 @@ public static class DossiersDonnees
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
     };
 
+    /// Rend un texte utilisable comme NOM DE FICHIER : les caractères interdits par
+    /// le système deviennent des tirets. Mutualise une méthode `Sanitize` qui existait
+    /// en cinq exemplaires (les quatre panneaux de facture et le service de quittance).
+    public static string NomFichier(string nom)
+    {
+        if (nom == null) return "";
+        foreach (var c in Path.GetInvalidFileNameChars()) nom = nom.Replace(c, '-');
+        return nom;
+    }
+
     /// Convertit un nom saisi en segment de dossier sûr.
     /// Déterministe : deux appels sur le même nom donnent toujours le même dossier.
     public static string NomDossier(string nom)

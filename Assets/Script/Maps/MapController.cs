@@ -183,14 +183,6 @@ public class MapController : MonoBehaviour
     }
     
 
-    public double getLat()
-    {
-        return _pinLat;
-    }
-    public double getLon()
-    {
-        return _pinLon;
-    }
 
     private IEnumerator OnAddressFound()
     {

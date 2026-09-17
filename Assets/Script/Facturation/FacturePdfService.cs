@@ -202,6 +202,9 @@ public static class FacturePdfService
     {
         public string clientNom, clientAdresseHtml, clientSiret, refInterne;
         public string dateStr, numero, subtitle, bodyHtml, sommePhrase;
+        /// Bloc explicatif inséré sous le titre (révision du dépôt : tableau
+        /// d'indexation du loyer + règle des N termes). Vide = rien d'imprimé.
+        public string explicationHtml;
         public System.Collections.Generic.List<RegulLigne> charges = new System.Collections.Generic.List<RegulLigne>();
         public float totalCharges, provisions, soldeHT, tva, ttc;
         // Libellés des 3 lignes de totaux (défauts = régularisation ; réutilisé pour le dépôt).
@@ -229,6 +232,7 @@ public static class FacturePdfService
             .Replace("{{NUMERO}}", H(d.numero))
             .Replace("{{BODY}}", d.bodyHtml ?? "")
             .Replace("{{SUBTITLE}}", H(d.subtitle))
+            .Replace("{{EXPLICATION}}", d.explicationHtml ?? "")
             .Replace("{{TOTAUX_BLOCK}}", TotauxBlock(d))
             .Replace("{{DETAIL_PAGE}}", DetailPage(d))
             .Replace("{{SOMME_PHRASE}}", H(d.sommePhrase))

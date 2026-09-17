@@ -15,10 +15,6 @@ public static class RentabiliteCalculator
         return montant * t / (1.0 - Math.Pow(1.0 + t, -dureeMois));
     }
 
-    public static double CoutInterets(double montant, double tauxAnnuel, int dureeMois)
-    {
-        return Mensualite(montant, tauxAnnuel, dureeMois) * dureeMois - montant;
-    }
 
     public static double CashFlowAnnuel(double loyerAnnuel, double mensualite)
         => loyerAnnuel - mensualite * 12d;

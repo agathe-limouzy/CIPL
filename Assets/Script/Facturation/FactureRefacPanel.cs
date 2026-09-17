@@ -21,8 +21,9 @@ public class FactureRefacPanel : MonoBehaviour
     static readonly Color CoAmbre = Hex("#7A5AA6"), CoAmbreL = Hex("#ECE4F5");   // violet — charges
     static readonly Color CoTaupe = Hex("#5F5E5A"), CoTaupeL = Hex("#E9E6DE");
 
-    static readonly List<string> NumFmtLabels = new List<string> { "Année / Numéro", "Année / Mois-Numéro", "Année / JourMois-Numéro" };
-    static readonly List<string> NumFmtIds = new List<string> { "AN", "AMN", "AJMN" };
+    // Source unique : FactureNumerotation (les quatre panneaux dupliquaient ces listes).
+    static List<string> NumFmtLabels => FactureNumerotation.Labels;
+    static List<string> NumFmtIds => FactureNumerotation.Ids;
 
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
 
@@ -349,15 +350,7 @@ public class FactureRefacPanel : MonoBehaviour
         RefreshEntetePreview();
     }
 
-    static string NumeroPrefixe(string fmt, DateTime d)
-    {
-        switch (fmt)
-        {
-            case "AN": return $"{d.Year}/";
-            case "AJMN": return $"{d.Year}/{d.Day:D2}{d.Month:D2}";
-            default: return $"{d.Year}/{d.Month:D2}";
-        }
-    }
+    static string NumeroPrefixe(string fmt, DateTime d) => FactureNumerotation.Prefixe(fmt, d);
 
     string ComposedNumero()
     {
@@ -451,12 +444,11 @@ public class FactureRefacPanel : MonoBehaviour
 
         // Déjà refacturée → version « corrigée(X) » : même numéro, aucune nouvelle
         // séquence consommée, PDF d'origine conservé.
-        bool correction = FacturationSuivi.EstDejaEmise(_loc, key, out var recExist);
-        int x = correction ? recExist.corrections + 1 : 0;
-        if (correction && !string.IsNullOrEmpty(recExist.numero))
-            d.numero = recExist.numero + $" corrigée({x})";
+        var emission = FactureEmission.Preparer(_loc, key, d.numero);
+        d.numero = emission.NumeroFacture;
+        bool correction = emission.Correction;
 
-        string fname = Sanitize($"Refacturation-{charge.nom}-{_nom.text}-{dt:MM-yyyy}{(correction ? $"-corrigee{x}" : "")}") + ".pdf";
+        string fname = Sanitize($"Refacturation-{charge.nom}-{_nom.text}-{dt:MM-yyyy}{emission.SuffixeFichier}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
         if (!FacturePdfService.GeneratePdf(d, pdf, out string err))
@@ -471,30 +463,22 @@ public class FactureRefacPanel : MonoBehaviour
         // La charge refacturée passe en « payé ».
         charge.paye = true;
 
-        if (correction)
-        {
-            FacturationSuivi.MarquerCorrige(_loc, key, d.subtitle, pdf, d.ttc);
-            _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
-            LocataireSuiviInline.RefreshFor(_fiche);
-            UndoToast.Instance?.ShowInfo($"Refacturation corrigée ({x}) enregistrée.");
-            return;
-        }
+        string message = FactureEmission.Enregistrer(_loc, key, "Refac", emission,
+            d.subtitle, _loc.factureRefac?.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
+            _loc.factureRefac, "Refacturation",
+            "Refacturation enregistrée (PDF) · charge passée en payé. Envoi réel non activé.");
 
-        // Suivi : ligne de refacturation « Envoyé » (datée à l'échéance de la facture).
-        var ribS = ReglageService.GetRib(_ribDD?.SelectedId);
-        string ribNom = ribS != null ? (!string.IsNullOrWhiteSpace(ribS.name) ? ribS.name : ribS.titulaire) : "";
-        FacturationSuivi.MarquerEnvoye(_loc, key, "Refac",
-            d.subtitle, _loc.factureRefac?.dateEcheanceISO, d.numero, pdf, d.ttc, _ribDD?.SelectedId, ribNom);
-
-        _loc.factureSeq = Mathf.Max(1, _loc.factureSeq) + 1;
-        if (_loc.factureRefac != null) _loc.factureRefac.numeroId = "";
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
-        if (_numeroId != null) _numeroId.text = "";
-        RefreshNumero();
-        LoadIntoUI();   // recharge la liste (la charge payée disparaît)
 
-        UndoToast.Instance?.ShowInfo("Refacturation enregistrée (PDF) · charge passée en payé. Envoi réel non activé.");
+        if (!correction)
+        {
+            if (_numeroId != null) _numeroId.text = "";
+            RefreshNumero();
+            LoadIntoUI();   // recharge la liste (la charge payée disparaît)
+        }
+
+        UndoToast.Instance?.ShowInfo(message);
     }
 
     void ShowPreview(string pngPath)
@@ -631,11 +615,7 @@ public class FactureRefacPanel : MonoBehaviour
         return UIFactory.Text(h.transform, "—", 16, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
     }
 
-    static string Sanitize(string s)
-    {
-        foreach (var c in Path.GetInvalidFileNameChars()) s = (s ?? "").Replace(c, '-');
-        return s;
-    }
+    static string Sanitize(string s) => DossiersDonnees.NomFichier(s);
 
     // Passe par SaisieNumerique : « . » et « , » y sont interchangeables et les
     // espaces de milliers acceptes (cette copie locale ne gerait que la virgule).
@@ -643,8 +623,5 @@ public class FactureRefacPanel : MonoBehaviour
 
     static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
-    static bool TryDate(string s, out DateTime d) =>
-        DateTime.TryParseExact((s ?? "").Trim(),
-            new[] { "dd/MM/yyyy", "d/M/yyyy", "dd/MM/yy", "d/M/yy" },
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out d);
+    static bool TryDate(string s, out DateTime d) => SaisieDate.TryParse(s, out d);
 }
