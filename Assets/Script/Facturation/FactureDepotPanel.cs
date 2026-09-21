@@ -19,6 +19,10 @@ public class FactureDepotPanel : MonoBehaviour
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
     static readonly Color CoBleu = Hex("#2C3E5E"), CoBleuL = Hex("#DEE3EB");
     static readonly Color CoDepot = Hex("#2A6F82"), CoDepotL = Hex("#E2EFF2");
+    // Couleurs de cartes. `CoContenu` et `CoReglement` portent le même rôle — donc la
+    // même teinte — dans les quatre panneaux ; seule la carte du type change de couleur.
+    static readonly Color CoContenu   = Hex("#5F5E5A"), CoContenuL   = Hex("#E9E6DE");
+    static readonly Color CoReglement = Hex("#854F0B"), CoReglementL = Hex("#F6E6C8");
 
     // Source unique : FactureNumerotation (les quatre panneaux dupliquaient ces listes).
     static List<string> NumFmtLabels => FactureNumerotation.Labels;
@@ -28,6 +32,7 @@ public class FactureDepotPanel : MonoBehaviour
 
     TMP_Text _titre, _entetePreview, _modeInfo, _previewHint, _tNouveau, _tAncien, _tComplement, _perLine;
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _nbPeriodes, _ancien, _emailEnvoi;
+    TMP_InputField _depotRappel, _depotDu, _depotRembourse, _depotEquilibre;
     TMP_Text _numeroPrefixe;
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD;
     Toggle _ttcToggle, _retard, _envoiEmail;
@@ -119,30 +124,34 @@ public class FactureDepotPanel : MonoBehaviour
         _adresse = UIFactory.Input(d.transform, "Adresse (plusieurs lignes possibles)", 88, true);
         _siret = Labeled(d, "SIRET");
 
-        var f = UIFactory.Section(content, "Facture", CoBleu, CoBleuL);
-        UIFactory.Text(f.transform, "RIB CIPL", 16, UITheme.TexteSecondaire);
-        _ribDD = BuildRibDropdown(f.transform);
-        _date = Labeled(f, "Date");
+        // L'écran suit l'ordre du DOCUMENT IMPRIMÉ : en-tête, contenu, pied de
+        // règlement. Dans chaque carte, le champ qui change à chaque facture précède
+        // celui qui ne bouge qu'une fois par an (RIB, format du numéro). Même ordre
+        // dans les quatre panneaux : seule la carte du type varie.
+
+        // ── 1. En-tête du document ──
+        var e = UIFactory.Section(content, "En-tête du document", CoBleu, CoBleuL);
+        _date = Labeled(e, "Date");
         _date.onValueChanged.AddListener(_ => RefreshNumero());
-        _echeance = Labeled(f, "Date d'échéance (défaut de la phrase de règlement)");
-        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
-        _sommePhrase = Labeled(f, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
-        UIFactory.Text(f.transform, "Format du n° de facture", 16, UITheme.TexteSecondaire);
-        _numeroFormatDD = UIDropdown.Create(f.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
-        BuildNumeroRow(f);
-        _refInterne = Labeled(f, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
+        _refInterne = Labeled(e, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
         _refInterne.onValueChanged.AddListener(_ => RefreshEntetePreview());
-        UIFactory.Text(f.transform, "Texte de présentation (entête / paragraphe)", 16, UITheme.TexteSecondaire);
-        _enteteDD = BuildEnteteDropdown(f.transform);
-        UIFactory.Text(f.transform, "Aperçu (variables remplacées) :", 14, UITheme.TexteSecondaire);
-        var pv = UIFactory.Panel("Preview", f.transform, Color.white);
+        UIFactory.Text(e.transform, "Format du n° de facture", 16, UITheme.TexteSecondaire);
+        _numeroFormatDD = UIDropdown.Create(e.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
+        BuildNumeroRow(e);
+
+        // ── 2. Contenu ──
+        var c = UIFactory.Section(content, "Contenu", CoContenu, CoContenuL);
+        UIFactory.Text(c.transform, "Texte de présentation (entête / paragraphe)", 16, UITheme.TexteSecondaire);
+        _enteteDD = BuildEnteteDropdown(c.transform);
+        UIFactory.Text(c.transform, "Aperçu (variables remplacées) :", 14, UITheme.TexteSecondaire);
+        var pv = UIFactory.Panel("Preview", c.transform, Color.white);
         UIFactory.Border(pv.gameObject);
         var pvv = pv.gameObject.AddComponent<VerticalLayoutGroup>();
         pvv.padding = new RectOffset(12, 12, 10, 10); pvv.childControlWidth = true; pvv.childControlHeight = true; pvv.childForceExpandWidth = true;
         pv.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         _entetePreview = UIFactory.Text(pvv.transform, "—", 15, UITheme.TextePrincipal);
 
-        // ── Dépôt de garantie ──
+        // ── Dépôt de garantie (contenu propre au type) ──
         var g = UIFactory.Section(content, "Dépôt de garantie", CoDepot, CoDepotL);
         _ttcToggle = UIFactory.Toggle(g.transform, "Locataire soumis à la TVA (loyer TTC)", true);
         _ttcToggle.onValueChanged.AddListener(_ => RefreshTotaux());
@@ -157,8 +166,46 @@ public class FactureDepotPanel : MonoBehaviour
         _tAncien     = MontRow(g, "Dépôt déjà versé");
         _tComplement = MontRow(g, "Complément à régler");
 
+        // Phrases du bloc explicatif imprimé sous le titre du document. Elles
+        // appartiennent à CETTE facture, pas à l'entreprise — d'où leur place ici
+        // plutôt que dans les Réglages. Trois variantes et non un texte unique :
+        // la phrase imprimée dépend du sens de la dette, et ce choix-là reste au code.
+        UIFactory.Text(g.transform,
+            "Explication imprimée sur le document — variables : {depot.termes} · {depot.nb} · "
+            + "{depot.base} · {depot.montant}, plus les {loc.*} et {bat.*}. « / » ouvre la liste. "
+            + "HTML simple accepté (<b>gras</b>).",
+            14, UITheme.TexteSecondaire);
+
+        UIFactory.Text(g.transform, "Rappel du montant requis", 16, UITheme.TexteSecondaire);
+        _depotRappel = UIFactory.Input(g.transform, "Je vous rappelle qu'il doit correspondre à…", 70, true);
+        SlashAutocomplete.Attach(_depotRappel);
+
+        UIFactory.Text(g.transform, "Le locataire nous doit un complément", 16, UITheme.TexteSecondaire);
+        _depotDu = UIFactory.Input(g.transform, "…vous nous devez…", 70, true);
+        SlashAutocomplete.Attach(_depotDu);
+
+        UIFactory.Text(g.transform, "Nous devons un remboursement au locataire", 16, UITheme.TexteSecondaire);
+        _depotRembourse = UIFactory.Input(g.transform, "…nous vous devons…", 70, true);
+        SlashAutocomplete.Attach(_depotRembourse);
+
+        UIFactory.Text(g.transform, "Dépôt déjà au bon montant (rien à régler)", 16, UITheme.TexteSecondaire);
+        _depotEquilibre = UIFactory.Input(g.transform, "…aucun ajustement n'est nécessaire.", 70, true);
+        SlashAutocomplete.Attach(_depotEquilibre);
+
+        // ── 3. Règlement (pied du document) ──
+        // L'échéance, la phrase qu'elle alimente et le RIB sont voisins : le lien se
+        // voit, d'où la mention « (défaut de la phrase de règlement) » retirée du
+        // libellé de l'échéance — elle ne servait qu'à compenser l'éloignement.
+        var p = UIFactory.Section(content, "Règlement", CoReglement, CoReglementL);
+        _echeance = Labeled(p, "Date d'échéance");
+        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
+        _sommePhrase = Labeled(p, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
+        SlashAutocomplete.Attach(_sommePhrase);
+        UIFactory.Text(p.transform, "RIB CIPL", 16, UITheme.TexteSecondaire);
+        _ribDD = BuildRibDropdown(p.transform);
+        _retard = UIFactory.Toggle(p.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
+
         var o = UIFactory.Section(content, "Options & envoi", CoVert, CoVertL);
-        _retard = UIFactory.Toggle(o.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
         _modeInfo = UIFactory.Text(o.transform, "", 15, UITheme.TexteSecondaire);
         _envoiEmail = UIFactory.Toggle(o.transform, "Envoyer par email (au lieu de Pennylane)", false);
         _emailEnvoi = Labeled(o, "Email d'envoi");
@@ -240,6 +287,14 @@ public class FactureDepotPanel : MonoBehaviour
         _autoSomme = DefaultSomme();
         _sommePhrase.text = !string.IsNullOrEmpty(f?.sommePhrase) ? f.sommePhrase : _autoSomme;
 
+        // Pré-remplies avec le texte d'usine quand la facture n'a rien : l'utilisatrice
+        // doit voir la phrase réellement imprimée et la retoucher sur place, pas
+        // deviner ce qu'un champ vide produira.
+        _depotRappel.text    = ExplicationDepot.Ou(f?.depotRappel,    ExplicationDepot.RappelDefaut);
+        _depotDu.text        = ExplicationDepot.Ou(f?.depotDu,        ExplicationDepot.DuDefaut);
+        _depotRembourse.text = ExplicationDepot.Ou(f?.depotRembourse, ExplicationDepot.RembourseDefaut);
+        _depotEquilibre.text = ExplicationDepot.Ou(f?.depotEquilibre, ExplicationDepot.EquilibreDefaut);
+
         string fmt = f != null && !string.IsNullOrEmpty(f.numeroFormat) ? f.numeroFormat : "AMN";
         _numeroFormatDD.SetOptions(NumFmtLabels, NumFmtIds, fmt);
         _refInterne.text = f?.refInterne ?? "";
@@ -295,6 +350,7 @@ public class FactureDepotPanel : MonoBehaviour
         if (complement < 0f)
             _tComplement.text = $"{complement:N2} €  ⚠ remboursement (avoir)";
 
+        RefreshSommeDefault();   // le solde vient de changer : la phrase doit suivre son signe
         RefreshEntetePreview();
     }
 
@@ -303,9 +359,15 @@ public class FactureDepotPanel : MonoBehaviour
 
     // ── Numéro / phrase / aperçu entête ────────────────────────────────────────
 
+    /// Phrase proposée par défaut. Elle suit le SIGNE du solde : sinon le champ
+    /// afficherait « SOMME À NOUS RÉGLER » pendant que le PDF imprimerait
+    /// « SOMME QUI VOUS SERA REMBOURSÉE » — l'écran mentirait sur ce qui est émis.
+    /// `FactureEmission.PhraseSomme` reste le filet de sécurité à la génération.
     string DefaultSomme()
     {
-        DateTime ech = TryDate(_echeance.text, out var ed) ? ed : DateTime.Today;
+        if (Nouveau() - ParseF(_ancien.text) < -0.005f) return "SOMME QUI VOUS SERA REMBOURSÉE";
+
+        DateTime ech = TryDate(_echeance != null ? _echeance.text : "", out var ed) ? ed : DateTime.Today;
         return "SOMME À NOUS RÉGLER LE " + ech.ToString("d MMMM yyyy", FacturePdfService.FrCulture);
     }
 
@@ -381,7 +443,7 @@ public class FactureDepotPanel : MonoBehaviour
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             // Explication du calcul : indice de référence → nouvel indice → nouveau
             // loyer, puis la règle des N termes qui donne le dépôt.
-            explicationHtml = ExplicationDepot.Html(_loc, Mathf.Max(1, nbTermes), complement, ctx.date),
+            explicationHtml = ExplicationDepot.Html(_loc, Mathf.Max(1, nbTermes), complement, ctx.date, _bat, _loc.factureDepot),
             charges = new List<FacturePdfService.RegulLigne>(),   // pas de page 2
             totalCharges = nouveau, provisions = ancien, soldeHT = complement,
             tva = 0f, ttc = complement,
@@ -391,7 +453,10 @@ public class FactureDepotPanel : MonoBehaviour
             labelSolde = FactureEmission.LibelleSolde(complement, "Complément à régler"),
             masquerTva = true,
             tvaDebit = false, retard = _retard.isOn,
-            sommePhrase = FactureEmission.PhraseSomme(_sommePhrase.text, complement),
+            // Résolue APRÈS PhraseSomme : celle-ci peut substituer sa propre phrase
+            // selon le signe du complément, et cette phrase-là doit être résolue aussi.
+            sommePhrase = FactureVarResolver.Resolve(
+                FactureEmission.PhraseSomme(_sommePhrase.text, complement), _loc, _bat, ctx),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
             legal = R.phraseRetard,
@@ -524,6 +589,10 @@ public class FactureDepotPanel : MonoBehaviour
         f.envoiEmail = _envoiEmail.isOn;
         f.emailDest = _emailEnvoi.text;
         f.refInterne = _refInterne.text;
+        f.depotRappel    = _depotRappel.text;
+        f.depotDu        = _depotDu.text;
+        f.depotRembourse = _depotRembourse.text;
+        f.depotEquilibre = _depotEquilibre.text;
         int.TryParse((_nbPeriodes.text ?? "").Trim(), out int nb);
         f.moisPeriode = Mathf.Max(0, nb);
         f.loyerMontant = Nouveau();

@@ -18,6 +18,30 @@ public static class FacturePdfService
 
     static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
 
+    // ── Lignes optionnelles du document : textes d'usine ────────────────────────
+    //
+    // Ces deux lignes s'affichent selon une case du panneau. Leur formulation était
+    // écrite en dur ici : on pouvait les mettre ou non, pas les reformuler. Elle vit
+    // maintenant sur la facture (`FactureInfo.texteTvaDebit` / `texteMensuel`), et
+    // ces constantes servent de point de départ et de filet — un texte vide y
+    // retombe, donc une facture déjà émise sort exactement comme avant.
+
+    public const string TvaDebitDefaut = "la TVA est payée sur les débits";
+
+    // NB : les libellés du tableau (Total H.T., TVA 20%, Total T.T.C.) et le bloc RIB
+    // restent figés dans le gabarit, volontairement. Ce sont des étiquettes
+    // comptables, pas de la rédaction : les rendre libres permettrait d'annoncer
+    // « TVA 10 % » sur un document qui en calcule 20.
+
+    /// `{montant}` est remplacé par le montant mensuel, en gras.
+    public const string MensuelDefaut =
+        "Suite à votre demande, le montant mensuel à régler est de: {montant}";
+
+    /// Texte retenu : celui de la facture s'il est renseigné, sinon celui d'usine.
+    /// Même règle que `ExplicationDepot.Ou`, pour les lignes du corps de facture.
+    public static string Texte(string texteFacture, string defaut)
+        => string.IsNullOrWhiteSpace(texteFacture) ? defaut : texteFacture;
+
     /// Données à injecter dans le template.
     public class Data
     {
@@ -29,6 +53,11 @@ public static class FacturePdfService
         public bool tvaDebit, retard;
         public bool afficherMensuel;   // ligne « montant mensuel à régler »
         public float montantMensuel;   // TTC de la période ÷ nombre de mois de la période
+
+        // Formulation de ces deux lignes optionnelles. Vide = texte d'usine
+        // (TvaDebitDefaut / MensuelDefaut) : une facture antérieure sort inchangée.
+        public string texteTvaDebit, texteMensuel;
+
         public string ribTitulaire, ribDomiciliation, ribNum, ribIban, ribBic;
         public string legal, foot1, foot2;
     }
@@ -55,9 +84,9 @@ public static class FacturePdfService
             .Replace("{{TVA}}", Euro(d.tva))
             .Replace("{{TTC}}", Euro(d.ttc))
             .Replace("{{TVA_DEBIT}}", d.tvaDebit
-                ? "<div class=\"tva\">&nbsp;la TVA est pay&eacute;e sur les d&eacute;bits</div>" : "")
+                ? $"<div class=\"tva\">&nbsp;{Texte(d.texteTvaDebit, TvaDebitDefaut)}</div>" : "")
             .Replace("{{MENSUEL_ROW}}", d.afficherMensuel && d.montantMensuel > 0f
-                ? $"<div class=\"mensuel\">Suite &agrave; votre demande, le montant mensuel &agrave; r&eacute;gler est de:<b>{Euro(d.montantMensuel)}</b></div>"
+                ? $"<div class=\"mensuel\">{Texte(d.texteMensuel, MensuelDefaut).Replace("{montant}", $"<b>{Euro(d.montantMensuel)}</b>")}</div>"
                 : "")
             .Replace("{{SOMME_PHRASE}}", H(d.sommePhrase))
             .Replace("{{RIB_TITULAIRE}}", H(d.ribTitulaire))

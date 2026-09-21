@@ -5,7 +5,12 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\agath\\\\Documents\\\\CIPL\\\\CIPL_Test\" -Recurse -Include \"*.js\", \"*.jsx\", \"*.ts\", \"*.tsx\", \"*.vue\", \"*.json\")",
       "Bash(Select-Object -First 30)",
       "Skill(assets-find)",
-      "Skill(assets-find:*)"
+      "Skill(assets-find:*)",
+      "mcp__ai-game-developer__assets-refresh",
+      "mcp__ai-game-developer__console-get-logs",
+      "mcp__ai-game-developer__tests-run",
+      "Bash(grep -on '>[A-ZÀÉÈ][^<>{}]\\\\{3,40\\\\}<' Assets/Script/Facturation/FacturePdfService.cs)",
+      "mcp__ai-game-developer__script-execute"
     ]
   },
   "enableAllProjectMcpServers": true,

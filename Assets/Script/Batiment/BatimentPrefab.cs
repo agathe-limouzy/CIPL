@@ -432,6 +432,12 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     {
 
         var data = new Locataire();
+
+        // Horodate la fiche et y duplique les réglages de facture du locataire créé
+        // juste avant (tous bâtiments confondus). À faire AVANT de construire la fiche :
+        // le panneau lit ces valeurs à son ouverture.
+        HeritageFacture.Appliquer(data, HeritageFacture.TousLesLocataires());
+
         var prefab = SpawnPrefabLocataireInPanel(data, menulocataire.ContentPrefab.transform, needToModify);
         listLocataire.Add(data);
         dictionnairelocataire.Add(data, prefab);

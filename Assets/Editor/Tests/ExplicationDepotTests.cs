@@ -8,6 +8,11 @@ public class ExplicationDepotTests
 {
     static readonly DateTime Effet = new DateTime(2025, 7, 1);
 
+    // Les phrases vivent sur la FACTURE, plus dans les réglages : ces tests posent
+    // donc un `FactureInfo` local et ne touchent plus rien de global. Plus besoin
+    // d'isoler le reglage.json de la machine — l'ancien SetUp/TearDown qui le
+    // sauvegardait est parti avec les champs qu'il protégeait.
+
     static Locataire LocataireRevise() => new Locataire
     {
         Name = "SARL DEMO",
@@ -56,6 +61,88 @@ public class ExplicationDepotTests
         Assert.That(html, Does.Contain("aucun ajustement"));
         Assert.That(html, Does.Not.Contain("vous nous devez"));
         Assert.That(html, Does.Not.Contain("nous vous devons"));
+    }
+
+    // ── Phrases réglables ───────────────────────────────────────────────────
+
+    [Test]
+    public void Une_phrase_reformulee_sur_la_facture_remplace_le_texte_d_usine()
+    {
+        // Le cas demandé à l'origine : passer « vous nous devez » en minuscules.
+        // Si ce test tombe, c'est que le texte est resté écrit en dur.
+        var depot = new FactureInfo
+        {
+            depotDu = "et ainsi, il ressort que vous nous devez : {depot.montant} — merci de nous régler."
+        };
+
+        string html = ExplicationDepot.Html(LocataireRevise(), 2, 281.80f, Effet, null, depot);
+
+        Assert.That(html, Does.Contain("et ainsi, il ressort que vous nous devez"));
+        Assert.That(html, Does.Contain("merci de nous régler"));
+        Assert.That(html, Does.Not.Contain("par retour de courrier"), "l'ancien texte ne doit plus sortir");
+    }
+
+    [Test]
+    public void Chaque_facture_garde_ses_propres_phrases()
+    {
+        // Le fond de la demande : ce n'est plus un texte unique partagé.
+        var a = new FactureInfo { depotDu = "Facture A : {depot.montant}" };
+        var b = new FactureInfo { depotDu = "Facture B : {depot.montant}" };
+
+        string htmlA = ExplicationDepot.Html(LocataireRevise(), 2, 281.80f, Effet, null, a);
+        string htmlB = ExplicationDepot.Html(LocataireRevise(), 2, 281.80f, Effet, null, b);
+
+        Assert.That(htmlA, Does.Contain("Facture A").And.Not.Contain("Facture B"));
+        Assert.That(htmlB, Does.Contain("Facture B").And.Not.Contain("Facture A"));
+    }
+
+    [Test]
+    public void Les_variables_du_depot_sont_remplacees()
+    {
+        var depot = new FactureInfo
+        {
+            depotRappel = "[{depot.nb}|{depot.termes}|{depot.base}] pour {loc.nom}",
+            depotDu = "montant : {depot.montant}"
+        };
+
+        string html = EspacesNormalisees(
+            ExplicationDepot.Html(LocataireRevise(), 2, 281.80f, Effet, null, depot));
+
+        Assert.That(html, Does.Contain("[deux|deux termes|H.T.] pour SARL DEMO"));
+        Assert.That(html, Does.Contain("montant : 281,80 €"));
+        Assert.That(html, Does.Not.Contain("{depot."), "aucune variable ne doit rester en clair");
+        Assert.That(html, Does.Not.Contain("{loc."));
+    }
+
+    [Test]
+    public void Le_montant_est_toujours_positif_meme_sur_un_remboursement()
+    {
+        // La phrase dit déjà « nous vous devons » : réimprimer un signe moins
+        // ferait lire « nous vous devons -281,80 € », soit l'inverse du sens voulu.
+        var depot = new FactureInfo { depotRembourse = "à rembourser : {depot.montant}" };
+
+        string html = EspacesNormalisees(
+            ExplicationDepot.Html(LocataireRevise(), 2, -281.80f, Effet, null, depot));
+
+        Assert.That(html, Does.Contain("à rembourser : 281,80 €"));
+        Assert.That(html, Does.Not.Contain("-281,80"));
+    }
+
+    [Test]
+    public void Sans_facture_ou_avec_une_phrase_vide_le_texte_d_usine_s_imprime()
+    {
+        // Non-régression : les factures antérieures n'ont aucune de ces phrases,
+        // leur document doit sortir exactement comme avant.
+        string sansFacture = ExplicationDepot.Html(LocataireRevise(), 2, 281.80f, Effet);
+        Assert.That(sansFacture, Does.Contain("par retour de courrier"));
+
+        var vide = new FactureInfo { depotDu = "   " };
+        string avecVide = ExplicationDepot.Html(LocataireRevise(), 2, 281.80f, Effet, null, vide);
+
+        Assert.That(avecVide, Does.Contain("par retour de courrier"),
+                    "un champ laissé vide retombe sur le texte d'usine");
+        Assert.That(avecVide, Does.Contain("Dépôt de garantie"));
+        Assert.That(avecVide, Does.Not.Contain("{depot."));
     }
 
     // ── Tableau d'indexation ────────────────────────────────────────────────

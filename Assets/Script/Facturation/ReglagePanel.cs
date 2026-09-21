@@ -387,6 +387,15 @@ public class ReglagePanel : MonoBehaviour
         _phraseRetard = UIFactory.Input(body.transform, "En cas de retard…", 90, true);
         UIFactory.Text(body.transform, "Bas de page (mentions société)", 17, UITheme.TexteSecondaire);
         _basDePage = UIFactory.Input(body.transform, "SAS au capital…", 90, true);
+
+        // Ces deux textes-là sont bien des textes d'ENTREPRISE : ils s'impriment à
+        // l'identique sur les quatre types de facture. Les phrases de l'explication
+        // du dépôt, elles, se règlent dans le panneau de la facture de dépôt —
+        // elles appartiennent au document, pas à l'entreprise.
+        UIFactory.Text(body.transform,
+            "Les textes propres à un type de facture (explication du dépôt de garantie…) "
+            + "se modifient dans le panneau de la facture concernée.",
+            14, UITheme.TexteSecondaire);
     }
 
     // ── Section Sauvegarde ─────────────────────────────────────────────────────

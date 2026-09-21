@@ -57,6 +57,14 @@ public class Locataire : Data
     // Base du calcul du dépôt : loyer TTC (locataire soumis à TVA) ou HT (sinon).
     public bool depotSurTTC = true;
 
+    // Date de création de la fiche. Sert à retrouver le locataire créé juste avant,
+    // dont les réglages de facture sont dupliqués sur le nouveau (voir
+    // HeritageFacture). L'ordre dans les listes ne suffisait pas : les locataires
+    // sont répartis entre plusieurs bâtiments, donc leur chronologie réelle n'est pas
+    // reconstituable par simple parcours. Vide sur les fiches antérieures : elles
+    // comptent alors comme les plus anciennes.
+    public string creationISO;
+
     // Facturation : état mémorisé du menu « Information Facture » par type.
     public FactureInfo factureLoyer;
     public FactureInfo factureRegul;   // régularisation des charges

@@ -20,7 +20,10 @@ public class FactureRegulPanel : MonoBehaviour
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
     static readonly Color CoBleu = Hex("#2C3E5E"), CoBleuL = Hex("#DEE3EB");
     static readonly Color CoViolet = Hex("#5B3E7A"), CoVioletL = Hex("#E9E0F2");
-    static readonly Color CoTaupe = Hex("#5F5E5A"), CoTaupeL = Hex("#E9E6DE");
+    // Couleurs de cartes. `CoContenu` et `CoReglement` portent le même rôle — donc la
+    // même teinte — dans les quatre panneaux ; seule la carte du type change de couleur.
+    static readonly Color CoContenu   = Hex("#5F5E5A"), CoContenuL   = Hex("#E9E6DE");
+    static readonly Color CoReglement = Hex("#854F0B"), CoReglementL = Hex("#F6E6C8");
 
     // Source unique : FactureNumerotation (les quatre panneaux dupliquaient ces listes).
     static List<string> NumFmtLabels => FactureNumerotation.Labels;
@@ -118,6 +121,13 @@ public class FactureRegulPanel : MonoBehaviour
 
         var content = MakeScroll(left.transform);
 
+        // L'écran suit l'ordre du DOCUMENT IMPRIMÉ : en-tête, contenu, pied de
+        // règlement. Le RIB était le premier champ alors qu'il s'imprime en dernier,
+        // et le « N° interne » venait après le numéro alors qu'il s'imprime au-dessus.
+        // Dans chaque carte, le champ qui change à chaque facture (date, montants)
+        // précède celui qui ne bouge qu'une fois par an (RIB, format du numéro).
+        // Même ordre attendu dans les quatre panneaux : seule la carte du type varie.
+
         // ── Destinataire ──
         var d = UIFactory.Section(content, "Destinataire", CoVert, CoVertL);
         _nom = Labeled(d, "Nom");
@@ -125,31 +135,29 @@ public class FactureRegulPanel : MonoBehaviour
         _adresse = UIFactory.Input(d.transform, "Adresse (plusieurs lignes possibles)", 88, true);
         _siret = Labeled(d, "SIRET");
 
-        // ── Facture ──
-        var f = UIFactory.Section(content, "Facture", CoBleu, CoBleuL);
-        UIFactory.Text(f.transform, "RIB CIPL", 16, UITheme.TexteSecondaire);
-        _ribDD = BuildRibDropdown(f.transform);
-        _date = Labeled(f, "Date");
+        // ── 1. En-tête du document ──
+        var e = UIFactory.Section(content, "En-tête du document", CoBleu, CoBleuL);
+        _date = Labeled(e, "Date");
         _date.onValueChanged.AddListener(_ => RefreshNumero());
-        _echeance = Labeled(f, "Date d'échéance (défaut de la phrase de règlement)");
-        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
-        _sommePhrase = Labeled(f, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
-        UIFactory.Text(f.transform, "Format du n° de facture", 16, UITheme.TexteSecondaire);
-        _numeroFormatDD = UIDropdown.Create(f.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
-        BuildNumeroRow(f);
-        _refInterne = Labeled(f, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
+        _refInterne = Labeled(e, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
         _refInterne.onValueChanged.AddListener(_ => RefreshEntetePreview());
-        UIFactory.Text(f.transform, "Texte de présentation (entête / paragraphe)", 16, UITheme.TexteSecondaire);
-        _enteteDD = BuildEnteteDropdown(f.transform);
-        UIFactory.Text(f.transform, "Aperçu (variables remplacées) :", 14, UITheme.TexteSecondaire);
-        var pv = UIFactory.Panel("Preview", f.transform, Color.white);
+        UIFactory.Text(e.transform, "Format du n° de facture", 16, UITheme.TexteSecondaire);
+        _numeroFormatDD = UIDropdown.Create(e.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
+        BuildNumeroRow(e);
+
+        // ── 2. Contenu ──
+        var c = UIFactory.Section(content, "Contenu", CoContenu, CoContenuL);
+        UIFactory.Text(c.transform, "Texte de présentation (entête / paragraphe)", 16, UITheme.TexteSecondaire);
+        _enteteDD = BuildEnteteDropdown(c.transform);
+        UIFactory.Text(c.transform, "Aperçu (variables remplacées) :", 14, UITheme.TexteSecondaire);
+        var pv = UIFactory.Panel("Preview", c.transform, Color.white);
         UIFactory.Border(pv.gameObject);
         var pvv = pv.gameObject.AddComponent<VerticalLayoutGroup>();
         pvv.padding = new RectOffset(12, 12, 10, 10); pvv.childControlWidth = true; pvv.childControlHeight = true; pvv.childForceExpandWidth = true;
         pv.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         _entetePreview = UIFactory.Text(pvv.transform, "—", 15, UITheme.TextePrincipal);
 
-        // ── Régularisation ──
+        // ── Régularisation (contenu propre au type) ──
         var g = UIFactory.Section(content, "Régularisation des charges", CoViolet, CoVioletL);
         UIFactory.Text(g.transform, "Année à régulariser (charges impayées)", 16, UITheme.TexteSecondaire);
         _anneeDD = UIDropdown.Create(g.transform, new List<string> { "—" }, new List<string> { DateTime.Today.Year.ToString() }, 0, _ => RefreshCharges());
@@ -165,10 +173,22 @@ public class FactureRegulPanel : MonoBehaviour
         _tTVA        = MontRow(g, "TVA 20 %");
         _tTTC        = MontRow(g, "Total TTC");
 
+        // ── 3. Règlement (pied du document) ──
+        // L'échéance, la phrase qu'elle alimente et le RIB sont voisins : le lien se
+        // voit, d'où la mention « (défaut de la phrase de règlement) » retirée du
+        // libellé de l'échéance — elle ne servait qu'à compenser l'éloignement.
+        var p = UIFactory.Section(content, "Règlement", CoReglement, CoReglementL);
+        _echeance = Labeled(p, "Date d'échéance");
+        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
+        _sommePhrase = Labeled(p, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
+        SlashAutocomplete.Attach(_sommePhrase);
+        UIFactory.Text(p.transform, "RIB CIPL", 16, UITheme.TexteSecondaire);
+        _ribDD = BuildRibDropdown(p.transform);
+        _retard = UIFactory.Toggle(p.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
+
         // ── Options / envoi ──
         var o = UIFactory.Section(content, "Options & envoi", CoVert, CoVertL);
         _tvaDebit = UIFactory.Toggle(o.transform, "Ajouter la mention « TVA payée sur les débits »", true);
-        _retard = UIFactory.Toggle(o.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
         _modeInfo = UIFactory.Text(o.transform, "", 15, UITheme.TexteSecondaire);
         _envoiEmail = UIFactory.Toggle(o.transform, "Envoyer par email (au lieu de Pennylane)", false);
         _emailEnvoi = Labeled(o, "Email d'envoi");
@@ -228,6 +248,7 @@ public class FactureRegulPanel : MonoBehaviour
     {
         if (_loc == null) return;
         var f = _loc.factureRegul;
+
 
         _titre.text = $"Régularisation des charges · {(_loc.Name ?? "")}";
 
@@ -378,6 +399,8 @@ public class FactureRegulPanel : MonoBehaviour
         // une facture à montant négatif.
         if (solde < 0f)
             _tSolde.text = $"{solde:N2} €  ⚠ trop-perçu (avoir)";
+
+        RefreshSommeDefault();   // le solde vient de changer : la phrase doit suivre son signe
     }
 
     /// Arrondi au centime — évite les dérives de `float` sur les montants.
@@ -389,9 +412,15 @@ public class FactureRegulPanel : MonoBehaviour
 
     // ── Numéro / aperçu entête ─────────────────────────────────────────────────
 
+    /// Phrase proposée par défaut. Elle suit le SIGNE du solde : sinon le champ
+    /// afficherait « SOMME À NOUS RÉGLER » pendant que le PDF imprimerait
+    /// « SOMME QUI VOUS SERA REMBOURSÉE » — l'écran mentirait sur ce qui est émis.
+    /// `FactureEmission.PhraseSomme` reste le filet de sécurité à la génération.
     string DefaultSomme()
     {
-        DateTime ech = TryDate(_echeance.text, out var ed) ? ed : DateTime.Today;
+        if (ChargesFor(SelectedYear()).Sum(QuotePart) - ParseF(_provisions.text) < -0.005f) return "SOMME QUI VOUS SERA REMBOURSÉE";
+
+        DateTime ech = TryDate(_echeance != null ? _echeance.text : "", out var ed) ? ed : DateTime.Today;
         return "SOMME À NOUS RÉGLER LE " + ech.ToString("d MMMM yyyy", FacturePdfService.FrCulture);
     }
 
@@ -499,7 +528,10 @@ public class FactureRegulPanel : MonoBehaviour
             retard = _retard.isOn,
             // « SOMME À NOUS RÉGLER » devient « SOMME QUI VOUS SERA REMBOURSÉE »
             // quand le solde est négatif. Libellé du total inversé de même.
-            sommePhrase = FactureEmission.PhraseSomme(_sommePhrase.text, solde),
+            // Résolue APRÈS PhraseSomme : celle-ci peut substituer sa propre phrase
+            // selon le signe du solde, et cette phrase-là doit être résolue aussi.
+            sommePhrase = FactureVarResolver.Resolve(
+                FactureEmission.PhraseSomme(_sommePhrase.text, solde), _loc, _bat, ctx),
             labelSolde = FactureEmission.LibelleSolde(solde, "Solde H.T."),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,

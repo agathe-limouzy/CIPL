@@ -18,8 +18,13 @@ public class FactureRefacPanel : MonoBehaviour
 
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
     static readonly Color CoBleu = Hex("#2C3E5E"), CoBleuL = Hex("#DEE3EB");
-    static readonly Color CoAmbre = Hex("#7A5AA6"), CoAmbreL = Hex("#ECE4F5");   // violet — charges
-    static readonly Color CoTaupe = Hex("#5F5E5A"), CoTaupeL = Hex("#E9E6DE");
+    // Couleurs de cartes. `CoContenu` et `CoReglement` portent le même rôle — donc la
+    // même teinte — dans les quatre panneaux ; seule la carte du type change de couleur.
+    // (`CoCharge` s'appelait `CoAmbre` alors qu'il est violet : nom corrigé, l'ambre
+    // désigne désormais le règlement dans les quatre fichiers.)
+    static readonly Color CoCharge    = Hex("#7A5AA6"), CoChargeL    = Hex("#ECE4F5");   // violet — charges
+    static readonly Color CoContenu   = Hex("#5F5E5A"), CoContenuL   = Hex("#E9E6DE");
+    static readonly Color CoReglement = Hex("#854F0B"), CoReglementL = Hex("#F6E6C8");
 
     // Source unique : FactureNumerotation (les quatre panneaux dupliquaient ces listes).
     static List<string> NumFmtLabels => FactureNumerotation.Labels;
@@ -120,31 +125,35 @@ public class FactureRefacPanel : MonoBehaviour
         _adresse = UIFactory.Input(d.transform, "Adresse (plusieurs lignes possibles)", 88, true);
         _siret = Labeled(d, "SIRET");
 
-        var f = UIFactory.Section(content, "Facture", CoBleu, CoBleuL);
-        UIFactory.Text(f.transform, "RIB CIPL", 16, UITheme.TexteSecondaire);
-        _ribDD = BuildRibDropdown(f.transform);
-        _date = Labeled(f, "Date");
+        // L'écran suit l'ordre du DOCUMENT IMPRIMÉ : en-tête, contenu, pied de
+        // règlement. Dans chaque carte, le champ qui change à chaque facture précède
+        // celui qui ne bouge qu'une fois par an (RIB, format du numéro). Même ordre
+        // dans les quatre panneaux : seule la carte du type varie.
+
+        // ── 1. En-tête du document ──
+        var e = UIFactory.Section(content, "En-tête du document", CoBleu, CoBleuL);
+        _date = Labeled(e, "Date");
         _date.onValueChanged.AddListener(_ => RefreshNumero());
-        _echeance = Labeled(f, "Date d'échéance (défaut de la phrase de règlement)");
-        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
-        _sommePhrase = Labeled(f, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
-        UIFactory.Text(f.transform, "Format du n° de facture", 16, UITheme.TexteSecondaire);
-        _numeroFormatDD = UIDropdown.Create(f.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
-        BuildNumeroRow(f);
-        _refInterne = Labeled(f, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
+        _refInterne = Labeled(e, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
         _refInterne.onValueChanged.AddListener(_ => RefreshEntetePreview());
-        UIFactory.Text(f.transform, "Texte de présentation (entête / paragraphe)", 16, UITheme.TexteSecondaire);
-        _enteteDD = BuildEnteteDropdown(f.transform);
-        UIFactory.Text(f.transform, "Aperçu (variables remplacées) :", 14, UITheme.TexteSecondaire);
-        var pv = UIFactory.Panel("Preview", f.transform, Color.white);
+        UIFactory.Text(e.transform, "Format du n° de facture", 16, UITheme.TexteSecondaire);
+        _numeroFormatDD = UIDropdown.Create(e.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
+        BuildNumeroRow(e);
+
+        // ── 2. Contenu ──
+        var c = UIFactory.Section(content, "Contenu", CoContenu, CoContenuL);
+        UIFactory.Text(c.transform, "Texte de présentation (entête / paragraphe)", 16, UITheme.TexteSecondaire);
+        _enteteDD = BuildEnteteDropdown(c.transform);
+        UIFactory.Text(c.transform, "Aperçu (variables remplacées) :", 14, UITheme.TexteSecondaire);
+        var pv = UIFactory.Panel("Preview", c.transform, Color.white);
         UIFactory.Border(pv.gameObject);
         var pvv = pv.gameObject.AddComponent<VerticalLayoutGroup>();
         pvv.padding = new RectOffset(12, 12, 10, 10); pvv.childControlWidth = true; pvv.childControlHeight = true; pvv.childForceExpandWidth = true;
         pv.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         _entetePreview = UIFactory.Text(pvv.transform, "—", 15, UITheme.TextePrincipal);
 
-        // ── Charge à refacturer ──
-        var g = UIFactory.Section(content, "Charge à refacturer", CoAmbre, CoAmbreL);
+        // ── Charge à refacturer (contenu propre au type) ──
+        var g = UIFactory.Section(content, "Charge à refacturer", CoCharge, CoChargeL);
         UIFactory.Text(g.transform, "Charge (impayée) concernée", 16, UITheme.TexteSecondaire);
         _chargeDD = UIDropdown.Create(g.transform, new List<string> { "—" }, new List<string> { (string)null }, 0, _ => OnChargeSelected());
         _montant = Labeled(g, "Montant HT (quote-part du locataire)");
@@ -155,9 +164,21 @@ public class FactureRefacPanel : MonoBehaviour
         _tTTC = MontRow(g, "Total TTC");
         _pj = UIFactory.Toggle(g.transform, "Joindre le justificatif de la charge (PJ)", true);
 
+        // ── 3. Règlement (pied du document) ──
+        // L'échéance, la phrase qu'elle alimente et le RIB sont voisins : le lien se
+        // voit, d'où la mention « (défaut de la phrase de règlement) » retirée du
+        // libellé de l'échéance — elle ne servait qu'à compenser l'éloignement.
+        var p = UIFactory.Section(content, "Règlement", CoReglement, CoReglementL);
+        _echeance = Labeled(p, "Date d'échéance");
+        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
+        _sommePhrase = Labeled(p, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
+        SlashAutocomplete.Attach(_sommePhrase);
+        UIFactory.Text(p.transform, "RIB CIPL", 16, UITheme.TexteSecondaire);
+        _ribDD = BuildRibDropdown(p.transform);
+        _retard = UIFactory.Toggle(p.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
+
         var o = UIFactory.Section(content, "Options & envoi", CoVert, CoVertL);
         _tvaDebit = UIFactory.Toggle(o.transform, "Ajouter la mention « TVA payée sur les débits »", true);
-        _retard = UIFactory.Toggle(o.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
         _modeInfo = UIFactory.Text(o.transform, "", 15, UITheme.TexteSecondaire);
         _envoiEmail = UIFactory.Toggle(o.transform, "Envoyer par email (au lieu de Pennylane)", false);
         _emailEnvoi = Labeled(o, "Email d'envoi");
@@ -328,7 +349,7 @@ public class FactureRefacPanel : MonoBehaviour
 
     string DefaultSomme()
     {
-        DateTime ech = TryDate(_echeance.text, out var ed) ? ed : DateTime.Today;
+        DateTime ech = TryDate(_echeance != null ? _echeance.text : "", out var ed) ? ed : DateTime.Today;
         return "SOMME À NOUS RÉGLER LE " + ech.ToString("d MMMM yyyy", FacturePdfService.FrCulture);
     }
 
@@ -411,7 +432,9 @@ public class FactureRefacPanel : MonoBehaviour
             bodyHtml = body,
             totalPeriode = ht, provision = 0f, totalHT = ht, tva = ht * .2f, ttc = ht * 1.2f,
             tvaDebit = _tvaDebit.isOn, retard = _retard.isOn,
-            sommePhrase = _sommePhrase.text,
+            // Résolue comme l'entête : le menu « / » propose des variables, elles
+            // doivent donc être remplacées et non imprimées telles quelles.
+            sommePhrase = FactureVarResolver.Resolve(_sommePhrase.text, _loc, _bat, ctx),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
             legal = R.phraseRetard,

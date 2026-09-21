@@ -54,5 +54,19 @@ public static class FactureVariables
         new("{societe.nom}",     "Nom de la société",       "Société"),
         new("{societe.siret}",   "SIRET société",           "Société"),
         new("{societe.tva}",     "N° TVA société",          "Société"),
+
+        // ── Ligne du montant mensuel (facture de loyer) ────────────
+        // Résolu par FacturePdfService, donc uniquement dans le texte de cette
+        // ligne-là. Ailleurs il resterait tel quel : le groupe le dit dans le menu.
+        new("{montant}",         "Montant mensuel calculé",  "Ligne montant mensuel"),
+
+        // ── Explication du dépôt ───────────────────────────────────
+        // Résolues par ExplicationDepot, donc UNIQUEMENT dans les phrases
+        // d'explication du dépôt (Réglages → Textes fixes). Ailleurs elles
+        // resteraient telles quelles : le groupe le dit dans le menu.
+        new("{depot.termes}",    "Nb de termes (« deux termes »)", "Explication dépôt"),
+        new("{depot.nb}",        "Nb en lettres (« deux »)",       "Explication dépôt"),
+        new("{depot.base}",      "Base de calcul (H.T./T.T.C.)",   "Explication dépôt"),
+        new("{depot.montant}",   "Montant du dépôt (positif)",     "Explication dépôt"),
     };
 }

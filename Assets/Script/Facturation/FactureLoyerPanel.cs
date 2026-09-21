@@ -20,8 +20,11 @@ public class FactureLoyerPanel : MonoBehaviour
 
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
     static readonly Color CoBleu = Hex("#2C3E5E"), CoBleuL = Hex("#DEE3EB");
-    static readonly Color CoAmbre = Hex("#854F0B"), CoAmbreL = Hex("#F6E6C8");
-    static readonly Color CoTaupe = Hex("#5F5E5A"), CoTaupeL = Hex("#E9E6DE");
+    // Couleurs de cartes. `CoContenu` et `CoReglement` portent le même rôle — donc la
+    // même teinte — dans les quatre panneaux ; seule la carte du type change de couleur.
+    static readonly Color CoContenu   = Hex("#5F5E5A"), CoContenuL   = Hex("#E9E6DE");
+    static readonly Color CoReglement = Hex("#854F0B"), CoReglementL = Hex("#F6E6C8");
+    static readonly Color CoLoyer     = Hex("#5B3E7A"), CoLoyerL     = Hex("#E9E0F2");
 
     static readonly string[] MoisNoms =
     { "Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre" };
@@ -35,6 +38,7 @@ public class FactureLoyerPanel : MonoBehaviour
 
     TMP_Text _titre, _entetePreview, _modeInfo, _mTotalHT, _mTVA, _mTTC, _numeroPrefixe;
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _annee, _refInterne, _sommePhrase, _loyer, _provision, _emailEnvoi;
+    TMP_InputField _texteTvaDebit, _texteMensuel;
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _periodeDD;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     Toggle _tvaDebit, _retard, _envoiEmail, _mensuel;
@@ -157,26 +161,41 @@ public class FactureLoyerPanel : MonoBehaviour
         _adresse = UIFactory.Input(d.transform, "Adresse (plusieurs lignes possibles)", 88, true);
         _siret = Labeled(d, "SIRET");
 
-        // ── Facture ──
-        var f = UIFactory.Section(content, "Facture", CoBleu, CoBleuL);
-        UIFactory.Text(f.transform, "RIB CIPL", 16, UITheme.TexteSecondaire);
-        _ribDD = BuildRibDropdown(f.transform);
-        _date = Labeled(f, "Date");
+        // L'écran suit l'ordre du DOCUMENT IMPRIMÉ : en-tête, contenu, pied de
+        // règlement. Dans chaque carte, le champ qui change à chaque facture précède
+        // celui qui ne bouge qu'une fois par an (RIB, format du numéro). Même ordre
+        // dans les quatre panneaux : seule la carte du type varie.
+
+        // ── 1. En-tête du document ──
+        var e = UIFactory.Section(content, "En-tête du document", CoBleu, CoBleuL);
+        _date = Labeled(e, "Date");
         _date.onValueChanged.AddListener(_ => RefreshNumero());
-        _echeance = Labeled(f, "Date d'échéance (défaut de la phrase de règlement)");
-        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
-        _sommePhrase = Labeled(f, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
-        UIFactory.Text(f.transform, "Format du n° de facture", 16, UITheme.TexteSecondaire);
-        _numeroFormatDD = UIDropdown.Create(f.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
-        BuildNumeroRow(f);
-
         // Texte libre affiché en rouge avec le n° (ex. « N° Interne Magasin 001048 »).
-        _refInterne = Labeled(f, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
+        _refInterne = Labeled(e, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
         _refInterne.onValueChanged.AddListener(_ => RefreshEntetePreview());
+        UIFactory.Text(e.transform, "Format du n° de facture", 16, UITheme.TexteSecondaire);
+        _numeroFormatDD = UIDropdown.Create(e.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
+        BuildNumeroRow(e);
 
+        // ── 2. Contenu ──
+        var c = UIFactory.Section(content, "Contenu", CoContenu, CoContenuL);
+        UIFactory.Text(c.transform, "Texte de présentation (entête / paragraphe)", 16, UITheme.TexteSecondaire);
+        _enteteDD = BuildEnteteDropdown(c.transform);
+        UIFactory.Text(c.transform, "Aperçu (variables remplacées) :", 14, UITheme.TexteSecondaire);
+        var pv = UIFactory.Panel("Preview", c.transform, Color.white);
+        UIFactory.Border(pv.gameObject);
+        var pvv = pv.gameObject.AddComponent<VerticalLayoutGroup>();
+        pvv.padding = new RectOffset(12, 12, 10, 10); pvv.childControlWidth = true; pvv.childControlHeight = true; pvv.childForceExpandWidth = true;
+        pv.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        _entetePreview = UIFactory.Text(pvv.transform, "—", 15, UITheme.TextePrincipal);
+
+        // ── Loyer facturé (contenu propre au type) ──
+        // La période rejoint les montants : elle s'imprime dans le corps du document,
+        // pas dans l'en-tête, et c'est elle qui détermine le loyer de la ligne.
+        var mo = UIFactory.Section(content, "Loyer facturé", CoLoyer, CoLoyerL);
         // Période facturée : mois / trimestre / semestre / année selon la périodicité.
-        UIFactory.Text(f.transform, "Période facturée", 16, UITheme.TexteSecondaire);
-        var perRow = UIFactory.HBox(f.transform, 8, false, "PeriodeRow");
+        UIFactory.Text(mo.transform, "Période facturée", 16, UITheme.TexteSecondaire);
+        var perRow = UIFactory.HBox(mo.transform, 8, false, "PeriodeRow");
         UIFactory.LE(perRow.gameObject, minH: 46);
         _periodeDD = UIDropdown.Create(perRow.transform, new List<string>(MoisNoms),
             Enumerable.Range(1, 12).Select(i => i.ToString()).ToList(), 0, _ => RefreshEntetePreview());
@@ -186,18 +205,6 @@ public class FactureLoyerPanel : MonoBehaviour
         _annee.onValueChanged.AddListener(_ => RefreshEntetePreview());
         UIFactory.LE(_annee.gameObject, prefW: 110, flexW: 0, minH: 46);
 
-        UIFactory.Text(f.transform, "Texte de présentation (entête / paragraphe)", 16, UITheme.TexteSecondaire);
-        _enteteDD = BuildEnteteDropdown(f.transform);
-        UIFactory.Text(f.transform, "Aperçu (variables remplacées) :", 14, UITheme.TexteSecondaire);
-        var pv = UIFactory.Panel("Preview", f.transform, Color.white);
-        UIFactory.Border(pv.gameObject);
-        var pvv = pv.gameObject.AddComponent<VerticalLayoutGroup>();
-        pvv.padding = new RectOffset(12, 12, 10, 10); pvv.childControlWidth = true; pvv.childControlHeight = true; pvv.childForceExpandWidth = true;
-        pv.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        _entetePreview = UIFactory.Text(pvv.transform, "—", 15, UITheme.TextePrincipal);
-
-        // ── Montants ──
-        var mo = UIFactory.Section(content, "Montants", CoTaupe, CoTaupeL);
         _loyer = Labeled(mo, "Loyer HT (période)");
         _loyer.contentType = TMP_InputField.ContentType.DecimalNumber;
         _loyer.onValueChanged.AddListener(_ => { RefreshMontants(); RefreshEntetePreview(); });
@@ -208,13 +215,45 @@ public class FactureLoyerPanel : MonoBehaviour
         _mTVA     = MontRow(mo, "TVA 20 %");
         _mTTC     = MontRow(mo, "Total TTC");
 
-        // ── Options / envoi ──
-        var o = UIFactory.Section(content, "Options & envoi", CoVert, CoVertL);
-        _tvaDebit = UIFactory.Toggle(o.transform, "Ajouter la mention « TVA payée sur les débits »", true);
-        _retard = UIFactory.Toggle(o.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
-        // Option (hors mensuel) : ligne « montant mensuel à régler » = loyer de la période ÷ nb de mois.
-        _mensuel = UIFactory.Toggle(o.transform, "Ajouter « le montant mensuel à régler » (loyer de la période ÷ nb de mois)", true);
+        // Les deux lignes optionnelles qui s'impriment JUSTE SOUS ces totaux. Elles
+        // étaient rangées dans « Options & envoi », donc loin de ce qu'elles
+        // commandent — impossible de deviner où décocher « Suite à votre demande… ».
+        // La case et sa formulation vont ensemble, là où la ligne apparaît.
+        _tvaDebit = UIFactory.Toggle(mo.transform, "Ajouter la mention « TVA payée sur les débits »", true);
+        _texteTvaDebit = UIFactory.Input(mo.transform, FacturePdfService.TvaDebitDefaut, 46, true);
+        SlashAutocomplete.Attach(_texteTvaDebit);
+
+        // Ligne « montant mensuel » : seulement pour un loyer non mensuel.
+        _mensuel = UIFactory.Toggle(mo.transform, "Ajouter « le montant mensuel à régler » (loyer de la période ÷ nb de mois)", true);
         _mensuel.onValueChanged.AddListener(_ => RefreshMontants());
+        _texteMensuel = UIFactory.Input(mo.transform, FacturePdfService.MensuelDefaut, 46, true);
+        SlashAutocomplete.Attach(_texteMensuel);
+        UIFactory.Text(mo.transform,
+            "Dans cette phrase, {montant} porte le montant mensuel calculé. « / » ouvre la liste des variables.",
+            14, UITheme.TexteSecondaire);
+
+        // ── 3. Règlement (pied du document) ──
+        // L'échéance, la phrase qu'elle alimente et le RIB sont voisins : le lien se
+        // voit, d'où la mention « (défaut de la phrase de règlement) » retirée du
+        // libellé de l'échéance — elle ne servait qu'à compenser l'éloignement.
+        var p = UIFactory.Section(content, "Règlement", CoReglement, CoReglementL);
+        _echeance = Labeled(p, "Date d'échéance");
+        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
+        _sommePhrase = Labeled(p, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
+        SlashAutocomplete.Attach(_sommePhrase);
+        UIFactory.Text(p.transform, "RIB CIPL", 16, UITheme.TexteSecondaire);
+        _ribDD = BuildRibDropdown(p.transform);
+
+        _retard = UIFactory.Toggle(p.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
+        UIFactory.Text(p.transform,
+            "Le texte de la phrase de retard et le bas de page se modifient dans Réglages — "
+            + "ils sont imprimés à l'identique sur tous les documents.",
+            14, UITheme.TexteSecondaire);
+
+        // ── Options / envoi ──
+        // Ne reste ici que ce qui concerne l'ENVOI. Tout ce qui commande une ligne
+        // imprimée vit dans la carte où cette ligne apparaît.
+        var o = UIFactory.Section(content, "Options & envoi", CoVert, CoVertL);
         _modeInfo = UIFactory.Text(o.transform, "", 15, UITheme.TexteSecondaire);
         _envoiEmail = UIFactory.Toggle(o.transform, "Envoyer par email (au lieu de Pennylane)", false);
         _emailEnvoi = Labeled(o, "Email d'envoi");
@@ -304,7 +343,12 @@ public class FactureLoyerPanel : MonoBehaviour
             totalPeriode = loyer, provision = prov, totalHT = totalHT, tva = tva, ttc = ttc,
             tvaDebit = _tvaDebit.isOn, retard = _retard.isOn,
             afficherMensuel = afficheMensuel, montantMensuel = afficheMensuel ? ttc / moisParPeriode : 0f,
-            sommePhrase = _sommePhrase.text,
+            // Les textes libres passent par le même résolveur que l'entête : sans ça,
+            // le menu « / » proposerait d'insérer {loc.nom}… qui s'imprimerait tel quel
+            // sur un document envoyé au client.
+            texteTvaDebit = FactureVarResolver.Resolve(_texteTvaDebit.text, _loc, _bat, ctx),
+            texteMensuel = FactureVarResolver.Resolve(_texteMensuel.text, _loc, _bat, ctx),
+            sommePhrase = FactureVarResolver.Resolve(_sommePhrase.text, _loc, _bat, ctx),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
             legal = R.phraseRetard,
@@ -530,6 +574,13 @@ public class FactureLoyerPanel : MonoBehaviour
         // Ligne « montant mensuel » : seulement pour un loyer non mensuel (trim / semestre / an).
         _mensuel.isOn = f?.ajouterMensuel ?? true;
         _mensuel.gameObject.SetActive(_loc.periodiciteLoyer != Periodicite.mensuel);
+
+        // Pré-remplis avec le texte d'usine : l'utilisatrice doit voir la phrase
+        // réellement imprimée, pas un champ vide dont il faut deviner l'effet.
+        _texteTvaDebit.text = FacturePdfService.Texte(f?.texteTvaDebit, FacturePdfService.TvaDebitDefaut);
+        _texteMensuel.text  = FacturePdfService.Texte(f?.texteMensuel,  FacturePdfService.MensuelDefaut);
+        // La phrase suit sa case : inutile de la montrer si la ligne ne s'imprime pas.
+        _texteMensuel.gameObject.SetActive(_loc.periodiciteLoyer != Periodicite.mensuel);
         _envoiEmail.isOn = f?.envoiEmail ?? false;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
         _modeInfo.text = R.modeEnvoi == ModeEnvoi.Pennylane
@@ -631,7 +682,7 @@ public class FactureLoyerPanel : MonoBehaviour
     // Phrase de règlement par défaut, dérivée de l'échéance.
     string DefaultSomme()
     {
-        DateTime ech = TryDate(_echeance.text, out var ed) ? ed : DateTime.Today;
+        DateTime ech = TryDate(_echeance != null ? _echeance.text : "", out var ed) ? ed : DateTime.Today;
         return "SOMME À NOUS RÉGLER LE " + ech.ToString("d MMMM yyyy", FacturePdfService.FrCulture);
     }
 
@@ -696,7 +747,10 @@ public class FactureLoyerPanel : MonoBehaviour
         sb.AppendLine($"Total HT : {totalHT:N2} €");
         sb.AppendLine($"TVA 20 % : {tva:N2} €");
         sb.AppendLine($"<b>Total TTC : {ttc:N2} €</b>");
-        if (_tvaDebit.isOn) sb.AppendLine("« la TVA est payée sur les débits »");
+        if (_tvaDebit.isOn)
+            sb.AppendLine("« " + FactureVarResolver.Resolve(
+                FacturePdfService.Texte(_texteTvaDebit.text, FacturePdfService.TvaDebitDefaut),
+                _loc, _bat, BuildContext()) + " »");
         sb.AppendLine();
         if (rib != null)
         {
@@ -757,6 +811,8 @@ public class FactureLoyerPanel : MonoBehaviour
         f.tvaDebit = _tvaDebit.isOn;
         f.ajouterRetard = _retard.isOn;
         f.ajouterMensuel = _mensuel.isOn;
+        f.texteTvaDebit = _texteTvaDebit.text;
+        f.texteMensuel = _texteMensuel.text;
         f.envoiEmail = _envoiEmail.isOn;
         f.emailDest = _emailEnvoi.text;
         f.loyerMontant = ParseF(_loyer.text);

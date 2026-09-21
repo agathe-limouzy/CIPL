@@ -38,9 +38,13 @@ C'est le point le plus important de cette passation. Un `SaveAll()` livré « co
 
 ### Prochaines étapes
 
-1. Reste à passer en Play : gardes d'avoir (régul/dépôt) · `FermetureGuard` · parcours UI des panneaux.
-2. H1, après avis de l'expert-comptable.
-3. ~~Reliquat mineur~~ — **traité le 16/09**, voir la section « Reliquat mineur » plus bas : garde sur `ReloadFromDisk` · arguments Edge · annulation de suppression de photo.
+1. Reste à passer en Play : gardes d'avoir (régul/dépôt) · `FermetureGuard` · parcours UI des panneaux · **le nouvel ordre des cartes, maintenant dans les quatre panneaux** et **la phrase de règlement au signe du solde, dès l'ouverture** (17/09, voir les deux sections dédiées). Le rendu de la régularisation est validé ; les trois autres ne le sont pas encore.
+2. À passer en Play également (21/09) : les **textes de facture réglables dans le panneau** — « TVA sur les débits » et « montant mensuel » ont quitté *Options & envoi* pour la carte *Loyer facturé*, sous la ligne qu'ils commandent — et le **menu « / » sur tous les champs libres**, avec les variables réellement résolues. Vérifier qu'aucun `{jeton}` ne ressort sur le PDF ni sur l'aperçu texte.
+3. À passer en Play également : les **phrases de l'explication du dépôt** (17/09, déplacées le 21/09 des Réglages vers la carte « Dépôt de garantie » du panneau Dépôt — les Réglages ne gardent que la phrase de retard et le bas de page, les seuls textes imprimés à l'identique sur les quatre types) et **l'héritage en chaîne des réglages de facture** (18/09) — régler le 1er locataire, créer le 2e et vérifier qu'il arrive déjà réglé, le retoucher, créer le 3e et vérifier qu'il suit le **2e**. Puis créer un **nouveau bâtiment** et vérifier que son 1er locataire reprend le dernier créé de l'autre bâtiment. La logique est couverte par 19 tests ; l'aller-retour par l'écran ne l'est pas.
+   *Première version écartée le 18/09* : un modèle unique au niveau de l'entreprise, écrasé à chaque enregistrement. Il donnait le bon résultat sur l'enchaînement simple, mais pas la règle voulue — la source doit être le dernier locataire **créé**, et la copie appartenir à sa fiche. Machinerie retirée en totalité (`ModeleFacture`, `ReglageService.Modele`/`MemoriserModele`, les replis dans les quatre panneaux) : une seule règle vit dans le code.
+4. Prefab `SuiviFactureRow`, après le commit et le tour en Play.
+5. H1, après avis de l'expert-comptable.
+6. ~~Reliquat mineur~~ — **traité le 16/09**, voir la section « Reliquat mineur » plus bas : garde sur `ReloadFromDisk` · arguments Edge · annulation de suppression de photo.
 
 ### Garde-fous permanents
 
@@ -139,6 +143,69 @@ Un défaut de mon propre correctif a été trouvé par l'exécution, pas par la 
 **Reste non migré** : les enregistrements existants gardent leurs chemins absolus (ils restent lisibles, mais ne suivront pas un futur déplacement tant que la facture n'est pas ré-émise) et les PDF déjà copiés dans les anciens dossiers `Batiment/<GUID>/` n'ont pas été déplacés. Une migration au démarrage serait possible ; elle n'a pas été faite ici, c'est une décision à prendre.
 
 **Vérifié et sain** (fausses pistes écartées une par une) : gardes de `Substring`/`Split` (`TryDecompose`, `Initiales`, SIRET, autocomplétion) · accumulation de listeners (cibles recréées à chaque construction, `_manualEditable` vidé, `ObjectiveManager` dans `Start`) · divisions (`NbPeriodes` ne renvoie jamais 0) · les appelants de `Renommer*` honorent le `false` et reviennent en arrière · `SaveAll`/`SauvegardeDeFermeture` itèrent sur une copie.
+
+### La phrase de règlement proposée à l'écran était inerte à l'ouverture (17/09/2026)
+
+**CONFIRMÉ par lecture du chemin d'appel** · `FactureRegulPanel.cs`, `FactureDepotPanel.cs` — `DefaultSomme` / `LoadIntoUI`
+
+Trouvé en reprenant le chantier, dans une modification **écrite mais pas encore commitée** : `DefaultSomme()` avait été rendue sensible au signe du solde, pour que le champ « Phrase de règlement » ne propose plus « SOMME À NOUS RÉGLER » quand le PDF, lui, imprimera « SOMME QUI VOUS SERA REMBOURSÉE » (`FactureEmission.PhraseSomme`). L'intention était juste, le câblage non : `LoadIntoUI` appelle `_autoSomme = DefaultSomme()` **avant** de remplir `_provisions` / `_ancien` et le sélecteur d'année. Le solde lu valait donc toujours 0.
+
+Conséquence : à l'ouverture d'un panneau en situation de remboursement, **l'écran continuait d'afficher exactement la phrase que le correctif visait à supprimer**. Rien ne la recalculait ensuite — ni la saisie des provisions, ni le changement d'année ; seule une retouche manuelle de la date d'échéance, via le seul listener câblé sur `RefreshSommeDefault`, faisait apparaître la bonne phrase.
+
+Correctif : `RefreshSommeDefault()` appelé **en fin de `RefreshTotaux()`** dans les deux panneaux. C'est le point de passage unique de tout ce qui change le solde — provisions, ancien dépôt, nombre de périodes, année, chargement de la fiche — donc une seule ligne par panneau plutôt qu'un listener sur chaque champ. La règle « une phrase saisie à la main est respectée » reste portée par la comparaison à `_autoSomme` : inchangée.
+
+*La leçon n'est pas celle de `SaveAll` (« compiler ne prouve rien ») mais sa voisine : **un correctif peut être exact et n'être jamais atteint**. Ici il fallait suivre l'ordre de `LoadIntoUI`, pas relire `DefaultSomme`.* À vérifier en Play, comme tout ce qui touche à l'UI.
+
+### Réorganiser les champs des 4 panneaux de facture — fait (17/09/2026)
+
+**Principe : l'écran suit l'ordre du document imprimé.** Aujourd'hui le RIB est le premier champ alors qu'il s'imprime en dernier, et le « N° interne » vient après le numéro alors qu'il s'imprime au-dessus — d'où l'impression de désordre. Trois sections, correspondant aux trois zones du PDF :
+
+| Section | Champs |
+|---|---|
+| **1. En-tête du document** | Date · Texte / N° interne · Format du n° + N° de facture |
+| **2. Contenu** | Texte de présentation (+ aperçu collé dessous) · puis les champs propres au type (charges de l'année, ancien/nouveau dépôt, période de loyer…) |
+| **3. Règlement** (pied) | Date d'échéance · Phrase de règlement · RIB CIPL · case pénalités de retard |
+
+Gain principal : l'échéance, la phrase qu'elle alimente et le RIB deviennent voisins — la mention « (défaut de la phrase de règlement) » devient inutile, le lien se voit.
+
+**Deux règles à tenir** : le **même ordre dans les quatre panneaux** (seule la section 2 varie selon le type) ; et dans chaque section, **le variable avant le stable** (date et montants changent à chaque facture, RIB et format de numéro une fois par an).
+
+**Coût** : trois `UIFactory.Section` par panneau et un déplacement d'appels dans les méthodes de construction. Aucune logique touchée, aucun champ ajouté ni retiré — les 88 tests restent valides. À faire **panneau par panneau**, en commençant par la régularisation, avec validation visuelle en Play avant de propager aux trois autres.
+
+**Fait sur `FactureRegulPanel` (17/09).** Un écart assumé avec la spec, décidé avec l'utilisatrice : les champs propres au type **ne fusionnent pas** dans la carte « Contenu », ils gardent leur carte et leur couleur juste en dessous — sinon « Montants » et « Dépôt de garantie » perdaient leur titre et la carte devenait très longue. Six cartes, donc, dans cet ordre :
+
+| Carte | Champs |
+|---|---|
+| Destinataire (vert) | Nom · Adresse · SIRET — inchangée |
+| **En-tête du document** (bleu) | Date · Texte / N° interne · Format du n° · ligne N° de facture |
+| **Contenu** (taupe) | Texte de présentation · aperçu variables remplacées |
+| Régularisation des charges (violet) | Année · charges · provisions · totaux — contenu inchangé |
+| **Règlement** (ambre) | Date d'échéance · Phrase de règlement · RIB CIPL · case pénalités de retard |
+| Options & envoi (vert) | TVA sur les débits · mode d'envoi · email · note « rien n'est émis » |
+
+Libellé raccourci au passage : « Date d'échéance (défaut de la phrase de règlement) » → **« Date d'échéance »**. La parenthèse ne servait qu'à compenser l'éloignement des deux champs ; ils sont maintenant voisins.
+
+Le vrai risque n'était pas le rendu mais **l'ordre de construction** : `RefreshEntetePreview` déréférence `_entetePreview` sans garde, et `BuildContext` lit `_provisions`, `_date` et `_anneeDD`. Vérifié avant de déplacer quoi que ce soit — tous sont créés avant les champs qui les déclenchent, et ni `UIDropdown.Create` ni `UIFactory.Toggle` n'invoquent leur callback à la création (sinon le code d'avant planterait déjà, `_chargesBox` étant affecté après `_anneeDD`). `_echeance` passant désormais **après** `_provisions`, sa lecture dans `DefaultSomme` a été gardée (`_echeance != null ? … : ""`), sur le modèle de `RefreshNumero`.
+
+**Vérifié** : compilation propre (seule subsiste l'erreur Burst connue, venant des packages inutilisés) et **88/88 tests EditMode verts** — aucune logique n'ayant été touchée, un rouge aurait signalé un déplacement mal fait. **Reste à valider en Play** : c'est de la construction d'UI, aucun test ne la couvre.
+
+**Propagé aux trois autres panneaux le 17/09, après validation du rendu de la régularisation.** Les quatre ont maintenant **exactement les six mêmes cartes dans le même ordre** ; seule la quatrième change de titre et de couleur :
+
+| Panneau | Carte du type |
+|---|---|
+| Loyer | **Loyer facturé** (violet) — « Période facturée » l'a rejointe, voir ci-dessous |
+| Régularisation | Régularisation des charges (violet) |
+| Refacturation | Charge à refacturer (violet clair) |
+| Dépôt | Dépôt de garantie (bleu canard) |
+
+Deux points au-delà du simple déplacement :
+
+- **« Période facturée » quitte l'en-tête du panneau Loyer** pour rejoindre les montants. Elle était dans la carte « Facture » avec le numéro, alors qu'elle s'imprime dans le **corps** du document — et c'est elle qui détermine le loyer de la ligne, donc elle appartient au même bloc que lui. La carte « Montants » est renommée « Loyer facturé » en conséquence : « Montants » serait devenu faux.
+- **Les noms de couleurs mentaient d'un fichier à l'autre.** `CoAmbre` valait `#854F0B` (ambre) dans Loyer et `#7A5AA6` (**violet**) dans Refacturation : un même nom, deux couleurs, dans quatre fichiers qu'on modifie toujours ensemble — exactement le genre de piège qui fait qu'on colle la mauvaise teinte sans s'en apercevoir. `CoContenu` (taupe) et `CoReglement` (ambre) portent désormais le même rôle et la même valeur dans les quatre ; le violet des charges s'appelle `CoCharge`.
+
+La garde `_echeance != null` de `DefaultSomme` a été posée dans les quatre, pas seulement là où elle est nécessaire aujourd'hui : le champ passe désormais **après** les montants dans les quatre panneaux, et la prochaine réorganisation ne doit pas avoir à y repenser.
+
+**Vérifié après propagation** : plus aucune trace de l'ancienne carte « Facture » ni de couleur orpheline (`CoTaupe`/`CoAmbre` ne subsistent que dans un commentaire d'explication), compilation **sans aucune erreur** — pas même Burst cette fois — et **88/88 tests EditMode verts**.
 
 ### À faire : ligne de suivi en prefab (spécifié le 17/09/2026, non commencé)
 

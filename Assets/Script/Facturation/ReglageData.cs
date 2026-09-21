@@ -70,6 +70,10 @@ public class ReglageData
         "le taux d'intérêt légal seront appliquées + une indemnité forfaitaire de 40 € pour frais de " +
         "recouvrement (Art L 441-6 du C.com).";
 
+    // NB : les phrases de l'explication du dépôt ne sont PAS ici. Elles appartiennent
+    // à la facture de dépôt (`FactureInfo.depot*`), pas à l'entreprise — seuls la
+    // phrase de retard et le bas de page, imprimés à l'identique sur tous les
+    // documents, sont des textes d'entreprise.
     public string basDePage =
         "SAS au capital de 1 500 000 € - Siret : 717 220 883 00044 - TVA intracommunautaire FR 28 717 220 883 - Code APE 6820B\n" +
         "Siège Social : \"La Louve\" 6 route d'Agde - 31 590 Saint Marcel Paulel - Tel : 06.07.04.69.28 - Email : contact@cipl.fr";

@@ -55,6 +55,20 @@ public class FactureInfo
     public string chargeId;         // refacturation : id de la charge refacturée
     public bool joindrePj;          // refacturation : joindre le justificatif de la charge
 
+    // Dépôt : phrases du bloc explicatif imprimé sous le titre. Propres à CETTE
+    // facture — elles étaient dans les réglages, donc communes à toute l'entreprise,
+    // alors que la formulation appartient au document. Vide = texte d'usine
+    // (`ExplicationDepot.*Defaut`), ce qui laisse les factures antérieures inchangées.
+    // Formulation des deux lignes optionnelles du corps de facture, commandées par
+    // les cases du même nom. Vide = texte d'usine (`FacturePdfService.*Defaut`).
+    public string texteTvaDebit;    // « la TVA est payée sur les débits »
+    public string texteMensuel;     // « Suite à votre demande… » — {montant} = le montant mensuel
+
+    public string depotRappel;      // rappel du montant requis
+    public string depotDu;          // le locataire nous doit un complément
+    public string depotRembourse;   // nous devons un remboursement au locataire
+    public string depotEquilibre;   // dépôt déjà au bon montant, rien à régler
+
     // Montants (pré-remplis depuis le locataire, éditables et mémorisés).
     public float loyerMontant;      // loyer HT de la période
     public float provisionMontant;  // provision pour charges de la période
