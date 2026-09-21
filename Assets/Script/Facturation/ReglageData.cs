@@ -42,9 +42,18 @@ public class EnteteData
 [Serializable]
 public class SmtpConfig
 {
-    public string host = "smtp.office365.com"; // Outlook / Microsoft 365
+    // Valeurs de départ, pas une contrainte : n'importe quelle messagerie convient
+    // (Gmail, Outlook/M365, OVH, Free, Orange…) dès lors qu'elle accepte STARTTLS,
+    // ce que toutes proposent sur le port 587.
+    public string host = "smtp.office365.com";
     public int port = 587;
     public bool useStartTls = true;
+
+    // Identifiant de connexion au serveur. Vide = on utilise l'adresse d'expédition.
+    // Ils diffèrent chez beaucoup de fournisseurs (compte OVH, alias Gmail…) : sans
+    // ce champ, impossible d'envoyer depuis une adresse autre que son login.
+    public string username = "";
+
     public string fromEmail = "";              // ex "contact@cipl.fr"
     public string fromName = "GROUPE CIPL";
 }

@@ -289,7 +289,15 @@ public static class FacturationSuivi
     }
 
     // Force manuellement l'état d'une ligne (statut = "" pour revenir à l'auto À venir/À faire).
-    public static void SetStatut(Locataire loc, FactureEtat ligne, string statut)
+    /// Change le statut d'une ligne de suivi et **répercute sur les charges** qu'elle
+    /// couvre : marquer une régularisation ou une refacturation « payé » encaisse ses
+    /// charges, l'inverse les remet en attente.
+    ///
+    /// `bat` est optionnel pour ne casser aucun appel, mais sans lui la répercussion
+    /// n'a pas lieu — les charges vivent sur le bâtiment. Les deux vues du suivi le
+    /// passent. La règle est ici et non chez elles : dupliquée, elle finirait par
+    /// n'exister que dans une seule (c'est l'histoire de H2).
+    public static void SetStatut(Locataire loc, FactureEtat ligne, string statut, Batiment bat = null)
     {
         if (loc == null || ligne == null) return;
         if (loc.facturesEtat == null) loc.facturesEtat = new List<FactureEtat>();
@@ -303,7 +311,52 @@ public static class FacturationSuivi
         rec.statut = statut ?? "";
         if (statut == "Envoye" && string.IsNullOrEmpty(rec.dateEnvoiISO))
             rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
+
+        RepercuterSurCharges(loc, bat, rec, EtatDe(rec));
     }
+
+    /// Les charges couvertes par cette facture suivent son sort.
+    ///
+    /// Payée → le virement est arrivé, elles sont encaissées. Tout autre état → la
+    /// facture est partie mais pas réglée : elles repassent « en attente », ce qui
+    /// permet de corriger une validation faite par erreur sans rien perdre.
+    ///
+    /// Leur date de mise sur facture (`factureeISO`) n'est jamais effacée : elles ne
+    /// doivent pas redevenir sélectionnables, la facture ayant bien été émise.
+    static void RepercuterSurCharges(Locataire loc, Batiment bat, FactureEtat ligne, Etat etat)
+    {
+        if (bat?.charges == null || ligne == null || string.IsNullOrEmpty(ligne.key)) return;
+
+        bool payee = etat == Etat.Paye;
+
+        // Refacturation : la clé porte l'id de la charge, le lien est direct.
+        if (ligne.key.StartsWith("refac-"))
+        {
+            string chargeId = ligne.key.Substring("refac-".Length);
+            var c = bat.charges.FirstOrDefault(x => x != null && x.id == chargeId);
+            if (c != null && c.EstFacturee) c.paye = payee;
+            return;
+        }
+
+        // Régularisation : la clé porte l'année. On ne touche qu'aux charges déjà
+        // portées sur une facture — les autres n'ont rien à voir avec celle-ci.
+        if (ligne.key.StartsWith("regul-")
+            && int.TryParse(ligne.key.Substring("regul-".Length), out int annee))
+        {
+            foreach (var c in bat.charges)
+            {
+                if (c == null || !c.EstFacturee) continue;
+                if (TryYear(c.dateISO) != annee) continue;
+
+                bool concerne = c.tousLocataires
+                    || (c.locatairesConcernes != null && c.locatairesConcernes.Contains(loc.id));
+                if (concerne) c.paye = payee;
+            }
+        }
+    }
+
+    /// Année d'une date ISO, 0 si illisible.
+    static int TryYear(string iso) => DateTime.TryParse(iso, out var d) ? d.Year : 0;
 
     // ── Périodes / libellés (alignés sur FactureLoyerPanel) ─────────────────────
 

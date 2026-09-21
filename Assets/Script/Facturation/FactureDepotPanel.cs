@@ -33,9 +33,12 @@ public class FactureDepotPanel : MonoBehaviour
     TMP_Text _titre, _entetePreview, _modeInfo, _previewHint, _tNouveau, _tAncien, _tComplement, _perLine;
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _nbPeriodes, _ancien, _emailEnvoi;
     TMP_InputField _depotRappel, _depotDu, _depotRembourse, _depotEquilibre;
+    TMP_InputField _texteTvaDebit;
+    TMP_InputField _emailObjet, _emailCorps;
+    bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     TMP_Text _numeroPrefixe;
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD;
-    Toggle _ttcToggle, _retard, _envoiEmail;
+    Toggle _ttcToggle, _tvaDebit, _retard;
     string _autoSomme;
 
     RawImage _previewImg;
@@ -166,6 +169,13 @@ public class FactureDepotPanel : MonoBehaviour
         _tAncien     = MontRow(g, "Dépôt déjà versé");
         _tComplement = MontRow(g, "Complément à régler");
 
+        // La mention s'imprime sous ces totaux, donc sa case vit ici — même règle que
+        // sur les trois autres panneaux. Le tableau du dépôt reste sans ligne TVA ni
+        // T.T.C. (`masquerTva`) : c'est la mention qui devient disponible, pas la TVA.
+        _tvaDebit = UIFactory.Toggle(g.transform, "Ajouter la mention « TVA payée sur les débits »", true);
+        _texteTvaDebit = UIFactory.Input(g.transform, FacturePdfService.TvaDebitDefaut, 46, true);
+        SlashAutocomplete.Attach(_texteTvaDebit);
+
         // Phrases du bloc explicatif imprimé sous le titre du document. Elles
         // appartiennent à CETTE facture, pas à l'entreprise — d'où leur place ici
         // plutôt que dans les Réglages. Trois variantes et non un texte unique :
@@ -207,7 +217,17 @@ public class FactureDepotPanel : MonoBehaviour
 
         var o = UIFactory.Section(content, "Options & envoi", CoVert, CoVertL);
         _modeInfo = UIFactory.Text(o.transform, "", 15, UITheme.TexteSecondaire);
-        _envoiEmail = UIFactory.Toggle(o.transform, "Envoyer par email (au lieu de Pennylane)", false);
+
+        // Message d'accompagnement. Il appartient bien à l'envoi, donc à cette carte.
+        UIFactory.Text(o.transform, "Objet du message", 16, UITheme.TexteSecondaire);
+        _emailObjet = UIFactory.Input(o.transform, EmailService.ObjetDefaut);
+        SlashAutocomplete.Attach(_emailObjet);
+        UIFactory.Text(o.transform, "Corps du message", 16, UITheme.TexteSecondaire);
+        _emailCorps = UIFactory.Input(o.transform, EmailService.CorpsDefaut, 110, true);
+        SlashAutocomplete.Attach(_emailCorps);
+        UIFactory.Text(o.transform,
+            "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement.",
+            14, UITheme.TexteSecondaire);
         _emailEnvoi = Labeled(o, "Email d'envoi");
         UIFactory.Text(o.transform,
             "Note : cette facture ne modifie pas le montant du dépôt (voir le bouton « Révision dépôt de garantie »). Rien n'est émis pour l'instant.",
@@ -310,9 +330,14 @@ public class FactureDepotPanel : MonoBehaviour
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
         RefreshNumero();
 
+        _tvaDebit.isOn = f?.tvaDebit ?? true;
+        // Pré-remplie avec le texte d'usine : la phrase réellement imprimée doit être
+        // visible, pas à deviner derrière un champ vide.
+        _texteTvaDebit.text = FacturePdfService.Texte(f?.texteTvaDebit, FacturePdfService.TvaDebitDefaut);
         _retard.isOn = f?.ajouterRetard ?? true;
-        _envoiEmail.isOn = f?.envoiEmail ?? false;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
+        _emailObjet.text = FacturePdfService.Texte(f?.emailObjet, EmailService.ObjetDefaut);
+        _emailCorps.text = FacturePdfService.Texte(f?.emailCorps, EmailService.CorpsDefaut);
         _modeInfo.text = R.modeEnvoi == ModeEnvoi.Pennylane
             ? "Mode global : Pennylane (e-facture Factur-X)."
             : "Mode global : Email direct (SMTP).";
@@ -452,7 +477,8 @@ public class FactureDepotPanel : MonoBehaviour
             // « Complément à régler » serait faux quand c'est nous qui remboursons.
             labelSolde = FactureEmission.LibelleSolde(complement, "Complément à régler"),
             masquerTva = true,
-            tvaDebit = false, retard = _retard.isOn,
+            tvaDebit = _tvaDebit.isOn, retard = _retard.isOn,
+            texteTvaDebit = FactureVarResolver.Resolve(_texteTvaDebit.text, _loc, _bat, ctx),
             // Résolue APRÈS PhraseSomme : celle-ci peut substituer sa propre phrase
             // selon le signe du complément, et cette phrase-là doit être résolue aussi.
             sommePhrase = FactureVarResolver.Resolve(
@@ -505,6 +531,9 @@ public class FactureDepotPanel : MonoBehaviour
     /// pouvoir être repris après une confirmation (voir le cas du remboursement).
     void Emettre(FacturePdfService.RegulData d)
     {
+        // L'envoi est asynchrone : sans cette garde, un double clic partirait deux fois.
+        if (_envoiEnCours) { UndoToast.Instance?.ShowInfo("Un envoi est déjà en cours."); return; }
+
         string dir = FactureDir();
         int year = (TryDate(_date.text, out var dt) ? dt : DateTime.Today).Year;
 
@@ -532,6 +561,76 @@ public class FactureDepotPanel : MonoBehaviour
         string png = Path.Combine(dir, "apercu_depot.png");
         if (FacturePdfService.GenerateRegulPreviewPng(d, png, out _)) ShowPreview(png);
 
+        // Pas d'envoi demandé : on enregistre, rien ne part. Le bouton s'appelant
+        // « Sauvegarder et envoyer », il faut le dire, sinon on attend un mail en vain.
+        if (R.modeEnvoi != ModeEnvoi.Email)
+        {
+            Finaliser(d, key, emission, correction, pdf,
+                "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
+            return;
+        }
+
+        // Refus AVANT la confirmation si quelque chose manque.
+        string dest = (_emailEnvoi.text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(dest))
+        {
+            UndoToast.Instance?.ShowInfo("Aucune adresse email pour ce locataire. "
+                + "Rien n'a été envoyé ; le PDF est enregistré.");
+            return;
+        }
+
+        string manque = EmailService.CeQuiManque();
+        if (manque != null) { UndoToast.Instance?.ShowInfo(manque + " Le PDF est enregistré."); return; }
+
+        var ctx = BuildContext();
+        string objet = FactureVarResolver.Resolve(
+            FacturePdfService.Texte(_emailObjet.text, EmailService.ObjetDefaut), _loc, _bat, ctx);
+        string corps = FactureVarResolver.Resolve(
+            FacturePdfService.Texte(_emailCorps.text, EmailService.CorpsDefaut), _loc, _bat, ctx);
+
+        // Sans confirmation disponible, rien ne part.
+        if (ConfirmDialog.Instance == null)
+        {
+            UndoToast.Instance?.ShowInfo("Confirmation indisponible : rien n'a été envoyé. "
+                + "Le PDF est enregistré.");
+            return;
+        }
+
+        ConfirmDialog.Instance.Show(
+            "Envoyer la facture de dépôt par email ?",
+            $"À : {dest}\nObjet : {objet}\nPièce jointe : {Path.GetFileName(pdf)}\n\n"
+            + "Le message part immédiatement et ne pourra pas être rappelé.",
+            () => StartCoroutine(EnvoyerPuisFinaliser(d, key, emission, correction, pdf, dest, objet, corps)),
+            "Envoyer");
+    }
+
+    /// Envoie, attend, et n'enregistre QUE si le message est parti.
+    System.Collections.IEnumerator EnvoyerPuisFinaliser(
+        FacturePdfService.RegulData d, string key, FactureEmission.Decision emission,
+        bool correction, string pdf, string dest, string objet, string corps)
+    {
+        _envoiEnCours = true;
+        UndoToast.Instance?.ShowInfo($"Envoi en cours vers {dest}…");
+
+        var envoi = EmailService.Envoyer(dest, objet, corps, new[] { pdf });
+        while (!envoi.Termine) yield return null;
+
+        _envoiEnCours = false;
+
+        if (!envoi.Succes)
+        {
+            UndoToast.Instance?.ShowInfo("Envoi échoué — " + envoi.Erreur
+                + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : tu peux réessayer.");
+            yield break;
+        }
+
+        Finaliser(d, key, emission, correction, pdf, $" et envoyée à {dest}");
+    }
+
+    /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après succès).
+    void Finaliser(FacturePdfService.RegulData d, string key, FactureEmission.Decision emission,
+                   bool correction, string pdf, string suffixeMessage = "")
+    {
         // Le dépôt de la fiche n'est PAS modifié par l'émission.
         string message = FactureEmission.Enregistrer(_loc, key, "Depot", emission,
             d.subtitle, _loc.factureDepot?.dateEcheanceISO, pdf, d.soldeHT, _ribDD?.SelectedId,
@@ -547,7 +646,7 @@ public class FactureDepotPanel : MonoBehaviour
             RefreshNumero();
         }
 
-        UndoToast.Instance?.ShowInfo(message);
+        UndoToast.Instance?.ShowInfo(message + suffixeMessage);
     }
 
     void ShowPreview(string pngPath)
@@ -585,9 +684,12 @@ public class FactureDepotPanel : MonoBehaviour
         f.numeroFormat = _numeroFormatDD?.SelectedId ?? "AMN";
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();
+        f.tvaDebit = _tvaDebit.isOn;
+        f.texteTvaDebit = _texteTvaDebit.text;
         f.ajouterRetard = _retard.isOn;
-        f.envoiEmail = _envoiEmail.isOn;
         f.emailDest = _emailEnvoi.text;
+        f.emailObjet = _emailObjet.text;
+        f.emailCorps = _emailCorps.text;
         f.refInterne = _refInterne.text;
         f.depotRappel    = _depotRappel.text;
         f.depotDu        = _depotDu.text;

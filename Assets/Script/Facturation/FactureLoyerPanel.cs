@@ -39,9 +39,11 @@ public class FactureLoyerPanel : MonoBehaviour
     TMP_Text _titre, _entetePreview, _modeInfo, _mTotalHT, _mTVA, _mTTC, _numeroPrefixe;
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _annee, _refInterne, _sommePhrase, _loyer, _provision, _emailEnvoi;
     TMP_InputField _texteTvaDebit, _texteMensuel;
+    TMP_InputField _emailObjet, _emailCorps;
+    bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _periodeDD;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
-    Toggle _tvaDebit, _retard, _envoiEmail, _mensuel;
+    Toggle _tvaDebit, _retard, _mensuel;
 
     // Aperçu de la facture rendue (image à droite du formulaire).
     RawImage _previewImg;
@@ -255,7 +257,17 @@ public class FactureLoyerPanel : MonoBehaviour
         // imprimée vit dans la carte où cette ligne apparaît.
         var o = UIFactory.Section(content, "Options & envoi", CoVert, CoVertL);
         _modeInfo = UIFactory.Text(o.transform, "", 15, UITheme.TexteSecondaire);
-        _envoiEmail = UIFactory.Toggle(o.transform, "Envoyer par email (au lieu de Pennylane)", false);
+
+        // Message d'accompagnement. Il appartient bien à l'envoi, donc à cette carte.
+        UIFactory.Text(o.transform, "Objet du message", 16, UITheme.TexteSecondaire);
+        _emailObjet = UIFactory.Input(o.transform, EmailService.ObjetDefaut);
+        SlashAutocomplete.Attach(_emailObjet);
+        UIFactory.Text(o.transform, "Corps du message", 16, UITheme.TexteSecondaire);
+        _emailCorps = UIFactory.Input(o.transform, EmailService.CorpsDefaut, 110, true);
+        SlashAutocomplete.Attach(_emailCorps);
+        UIFactory.Text(o.transform,
+            "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement.",
+            14, UITheme.TexteSecondaire);
         _emailEnvoi = Labeled(o, "Email d'envoi");
         UIFactory.Text(o.transform,
             "Note : l'envoi réel (Pennylane / email) sera activé après validation — rien n'est émis pour l'instant.",
@@ -376,6 +388,9 @@ public class FactureLoyerPanel : MonoBehaviour
     // effectué ici (Pennylane / email seront activés après validation).
     void SauvegarderEtEnvoyer()
     {
+        // L'envoi est asynchrone : sans cette garde, un double clic partirait deux fois.
+        if (_envoiEnCours) { UndoToast.Instance?.ShowInfo("Un envoi est déjà en cours."); return; }
+
         SaveFromUI();
         var fl = _loc.factureLoyer;
         string key = $"loyer-{fl.anneePeriode}-P{fl.moisPeriode}";
@@ -401,8 +416,92 @@ public class FactureLoyerPanel : MonoBehaviour
         string png = Path.Combine(dir, "apercu.png");
         if (FacturePdfService.GeneratePreviewPng(d, png, out _)) ShowPreview(png);
 
-        // Correction (même numéro, aucune séquence consommée) ou première émission :
-        // la règle vit dans FactureEmission, plus dans chacun des quatre panneaux.
+        // Pas d'envoi demandé : on enregistre comme avant, rien ne part. Le bouton
+        // s'appelant « Sauvegarder et envoyer », il faut le DIRE — sinon on croit
+        // légitimement qu'un mail est parti et on attend sa réception.
+        if (R.modeEnvoi != ModeEnvoi.Email)
+        {
+            Finaliser(d, key, emission, correction, pdf,
+                "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
+            return;
+        }
+
+        // Envoi demandé. On refuse AVANT d'ouvrir la confirmation si quelque chose
+        // manque : mieux vaut un message net qu'une boîte de dialogue qui promet un
+        // départ impossible.
+        string dest = (_emailEnvoi.text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(dest))
+        {
+            UndoToast.Instance?.ShowInfo("Aucune adresse email pour ce locataire. "
+                + "La facture n'a pas été envoyée ; le PDF est enregistré.");
+            return;
+        }
+
+        string manque = EmailService.CeQuiManque();
+        if (manque != null) { UndoToast.Instance?.ShowInfo(manque + " Le PDF est enregistré."); return; }
+
+        var ctx = BuildContext();
+        string objet = FactureVarResolver.Resolve(
+            FacturePdfService.Texte(_emailObjet.text, EmailService.ObjetDefaut), _loc, _bat, ctx);
+        string corps = FactureVarResolver.Resolve(
+            FacturePdfService.Texte(_emailCorps.text, EmailService.CorpsDefaut), _loc, _bat, ctx);
+
+        // Sans boîte de confirmation disponible, on n'envoie PAS : un départ non
+        // confirmé vaut moins qu'un PDF enregistré qu'on renverra plus tard.
+        if (ConfirmDialog.Instance == null)
+        {
+            UndoToast.Instance?.ShowInfo("Confirmation indisponible : rien n'a été envoyé. "
+                + "Le PDF est enregistré.");
+            return;
+        }
+
+        // Un email ne se rappelle pas : on montre exactement ce qui va partir.
+        ConfirmDialog.Instance.Show(
+            "Envoyer la facture par email ?",
+            $"À : {dest}\nObjet : {objet}\nPièce jointe : {Path.GetFileName(pdf)}\n\n"
+            + "Le message part immédiatement et ne pourra pas être rappelé.",
+            () => StartCoroutine(EnvoyerPuisFinaliser(d, key, emission, correction, pdf, dest, objet, corps)),
+            "Envoyer");
+    }
+
+    /// Envoie, attend le résultat, et n'enregistre QUE si le message est parti.
+    ///
+    /// L'ordre n'est pas négociable : `FactureEmission.Enregistrer` écrit « Envoyé »
+    /// dans le suivi et consomme le numéro. L'appeler avant de savoir ferait dire au
+    /// suivi plus qu'il ne sait — c'est le défaut H3, corrigé en septembre.
+    ///
+    /// Conséquence voulue d'un échec : rien n'est consommé, donc un nouvel essai
+    /// reprend le même numéro et réécrit le même PDF.
+    System.Collections.IEnumerator EnvoyerPuisFinaliser(
+        FacturePdfService.Data d, string key, FactureEmission.Decision emission,
+        bool correction, string pdf, string dest, string objet, string corps)
+    {
+        _envoiEnCours = true;   // un second clic produirait un second envoi
+        UndoToast.Instance?.ShowInfo($"Envoi en cours vers {dest}…");
+
+        var envoi = EmailService.Envoyer(dest, objet, corps, new[] { pdf });
+        while (!envoi.Termine) yield return null;
+
+        _envoiEnCours = false;
+
+        if (!envoi.Succes)
+        {
+            UndoToast.Instance?.ShowInfo("Envoi échoué — " + envoi.Erreur
+                + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : tu peux réessayer.");
+            yield break;
+        }
+
+        Finaliser(d, key, emission, correction, pdf, $" et envoyée à {dest}");
+    }
+
+    /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après un
+    /// envoi réussi). Correction ou première émission : la règle vit dans
+    /// FactureEmission, plus dans chacun des quatre panneaux.
+    void Finaliser(FacturePdfService.Data d, string key, FactureEmission.Decision emission,
+                   bool correction, string pdf, string suffixeMessage = "")
+    {
+        var fl = _loc.factureLoyer;
+
         string message = FactureEmission.Enregistrer(_loc, key, "Loyer", emission,
             d.subtitle, fl.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
             _loc.factureLoyer, "Facture");
@@ -421,7 +520,7 @@ public class FactureLoyerPanel : MonoBehaviour
             RefreshNumero();
         }
 
-        UndoToast.Instance?.ShowInfo(message);
+        UndoToast.Instance?.ShowInfo(message + suffixeMessage);
     }
 
     // Charge l'image rendue dans le RawImage d'aperçu (ratio ajusté à l'image).
@@ -581,8 +680,9 @@ public class FactureLoyerPanel : MonoBehaviour
         _texteMensuel.text  = FacturePdfService.Texte(f?.texteMensuel,  FacturePdfService.MensuelDefaut);
         // La phrase suit sa case : inutile de la montrer si la ligne ne s'imprime pas.
         _texteMensuel.gameObject.SetActive(_loc.periodiciteLoyer != Periodicite.mensuel);
-        _envoiEmail.isOn = f?.envoiEmail ?? false;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
+        _emailObjet.text = FacturePdfService.Texte(f?.emailObjet, EmailService.ObjetDefaut);
+        _emailCorps.text = FacturePdfService.Texte(f?.emailCorps, EmailService.CorpsDefaut);
         _modeInfo.text = R.modeEnvoi == ModeEnvoi.Pennylane
             ? "Mode global : Pennylane (e-facture Factur-X)."
             : "Mode global : Email direct (SMTP).";
@@ -813,8 +913,9 @@ public class FactureLoyerPanel : MonoBehaviour
         f.ajouterMensuel = _mensuel.isOn;
         f.texteTvaDebit = _texteTvaDebit.text;
         f.texteMensuel = _texteMensuel.text;
-        f.envoiEmail = _envoiEmail.isOn;
         f.emailDest = _emailEnvoi.text;
+        f.emailObjet = _emailObjet.text;
+        f.emailCorps = _emailCorps.text;
         f.loyerMontant = ParseF(_loyer.text);
         f.provisionMontant = ParseF(_provision.text);
         f.refInterne = _refInterne.text;

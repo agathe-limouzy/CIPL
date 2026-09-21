@@ -10,9 +10,23 @@ Chaque finding porte un statut :
 
 ---
 
-## Passation — à lire en premier (16/09/2026)
+## Passation — à lire en premier (mise à jour 21/09/2026)
 
 Ce document est le **suivi de la revue de code**. Tout ce qui suit a été écrit et compilé ; ce qui a été *réellement exécuté* est listé plus bas, et la distinction compte.
+
+### Où en est le chantier au 21/09 — **117 tests EditMode verts**
+
+Le détail de la facturation est dans `FACTURATION_CIPL_PENNYLANE.md` ; voici l'essentiel pour reprendre.
+
+**Fait et validé en Play** : réorganisation des 4 panneaux de facture selon l'ordre du document imprimé · héritage en chaîne des réglages d'un locataire au suivant (T1 → T2 → T3, à travers les bâtiments) · textes du document réglables sur la facture, avec variables et menu « / » · **envoi réel par email**, branché sur les 4 panneaux.
+
+**Le défaut majeur de la soirée — voir C4** : `FactureInfo` n'était pas `[Serializable]`, donc **aucun réglage de facture n'a jamais été écrit sur le disque**. Corrigé et verrouillé par des tests. Conséquence pratique : tout réglage saisi avant le 21/09 est perdu et doit être re-saisi une fois.
+
+**Envoi par email — état réel** : fonctionne, validé avec **Gmail**. L'adresse `@cipl.fr` est **bloquée** : le locataire Microsoft 365 de l'entreprise interdit les mots de passe d'application et n'a pas SMTP AUTH activé, et le compte de l'utilisatrice n'est pas administrateur. Il faut l'admin du locataire, ou un compte OVH (le SPF de `cipl.fr` l'autorise déjà).
+
+**À reprendre** : le tour en Play des panneaux Régularisation / Refacturation / Dépôt (seul le Loyer a été vu de bout en bout) · le prefab `SuiviFactureRow` · **H1**, la numérotation, toujours en attente de l'expert-comptable.
+
+**Piège d'outillage** : le lanceur de tests par MCP se bloque si Unity est en **mode Play** ou si une scène est **non enregistrée** — il reste alors verrouillé jusqu'à une recompilation. Sortir du Play et enregistrer la scène avant de lancer.
 
 ### Décisions prises, et leur motif
 
@@ -36,15 +50,31 @@ C'est le point le plus important de cette passation. Un `SaveAll()` livré « co
 
 « Compiler ne prouve rien » s'est vérifié une seconde fois : exécuter H2 a montré que le correctif **fermait le mauvais périmètre** — il protégeait les états Envoyé/Impayé, en laissant dehors le cas le plus courant du panneau Loyer. Détail en **H2-bis** dans le tableau des corrections.
 
+### C4 — le réglage des factures n'était jamais enregistré (21/09/2026)
+
+**CONFIRMÉ sur le fichier de sauvegarde réel** · `Facturation/FactureInfo.cs`
+
+`[Serializable]` n'était pas sur `FactureInfo` : l'attribut avait glissé sur `FactureNumerotation`, une classe **`static`** où il ne sert à rien, parce qu'elle avait été insérée entre le commentaire de `FactureInfo` et son attribut. Syntaxiquement valide — **aucun avertissement**.
+
+`JsonUtility` ignorait donc les quatre champs `factureLoyer / factureRegul / factureRefac / factureDepot`. Vérifié sur `batiment_*.json` : `factureSeq` et `facturesEtat` présents, **aucune** des quatre clés. RIB, entête, format de numéro, cases, textes, adresse d'envoi — tout tenait en mémoire puis disparaissait dès que les données repassaient par le JSON, ce que font les prefabs en permanence.
+
+Trouvé par l'usage, pas par la relecture : « j'ai coché envoyer par email et je n'ai rien reçu ». La trace d'appel montrait la branche « pas d'envoi demandé », donc une case lue à `false` alors qu'elle avait été cochée — c'est en cherchant pourquoi que le fichier a livré la réponse.
+
+Correctif : attribut remis sur la classe, commentaire expliquant pourquoi il est vital. `FactureInfoSerialisationTests` verrouille les deux faces : les réglages survivent à un aller-retour JSON, et les quatre clés apparaissent dans le texte produit.
+
+*Même famille que C1/C2/C3 : une perte de données silencieuse. Elle rejoint aussi la leçon de `SaveAll` — compiler ne prouve rien, et ici même les 115 tests d'alors ne prouvaient rien, aucun ne relisant un modèle depuis le disque.*
+
 ### Prochaines étapes
 
 1. Reste à passer en Play : gardes d'avoir (régul/dépôt) · `FermetureGuard` · parcours UI des panneaux · **le nouvel ordre des cartes, maintenant dans les quatre panneaux** et **la phrase de règlement au signe du solde, dès l'ouverture** (17/09, voir les deux sections dédiées). Le rendu de la régularisation est validé ; les trois autres ne le sont pas encore.
 2. À passer en Play également (21/09) : les **textes de facture réglables dans le panneau** — « TVA sur les débits » et « montant mensuel » ont quitté *Options & envoi* pour la carte *Loyer facturé*, sous la ligne qu'ils commandent — et le **menu « / » sur tous les champs libres**, avec les variables réellement résolues. Vérifier qu'aucun `{jeton}` ne ressort sur le PDF ni sur l'aperçu texte.
 3. À passer en Play également : les **phrases de l'explication du dépôt** (17/09, déplacées le 21/09 des Réglages vers la carte « Dépôt de garantie » du panneau Dépôt — les Réglages ne gardent que la phrase de retard et le bas de page, les seuls textes imprimés à l'identique sur les quatre types) et **l'héritage en chaîne des réglages de facture** (18/09) — régler le 1er locataire, créer le 2e et vérifier qu'il arrive déjà réglé, le retoucher, créer le 3e et vérifier qu'il suit le **2e**. Puis créer un **nouveau bâtiment** et vérifier que son 1er locataire reprend le dernier créé de l'autre bâtiment. La logique est couverte par 19 tests ; l'aller-retour par l'écran ne l'est pas.
    *Première version écartée le 18/09* : un modèle unique au niveau de l'entreprise, écrasé à chaque enregistrement. Il donnait le bon résultat sur l'enchaînement simple, mais pas la règle voulue — la source doit être le dernier locataire **créé**, et la copie appartenir à sa fiche. Machinerie retirée en totalité (`ModeleFacture`, `ReglageService.Modele`/`MemoriserModele`, les replis dans les quatre panneaux) : une seule règle vit dans le code.
-4. Prefab `SuiviFactureRow`, après le commit et le tour en Play.
-5. H1, après avis de l'expert-comptable.
-6. ~~Reliquat mineur~~ — **traité le 16/09**, voir la section « Reliquat mineur » plus bas : garde sur `ReloadFromDisk` · arguments Edge · annulation de suppression de photo.
+4. À passer en Play (21/09, soir) : **le cycle de vie des charges** — régulariser des charges, vérifier qu'elles passent « en attente de paiement » (ambre) et non « payé », qu'elles disparaissent du choix, puis marquer la facture « Payé » dans le suivi et vérifier qu'elles passent au vert ; la repasser en « Impayé » et vérifier le retour en attente **sans** qu'elles redeviennent sélectionnables.
+5. À passer en Play également : **l'envoi email sur Régularisation, Refacturation et Dépôt** — seul le Loyer a été vu de bout en bout. Tester surtout **l'échec** (mot de passe faux) : PDF présent, ligne non marquée, charges non payées, et un second essai qui reprend le même numéro.
+6. Prefab `SuiviFactureRow`, après le commit et le tour en Play.
+7. H1, après avis de l'expert-comptable.
+8. ~~Reliquat mineur~~ — **traité le 16/09**, voir la section « Reliquat mineur » plus bas : garde sur `ReloadFromDisk` · arguments Edge · annulation de suppression de photo.
 
 ### Garde-fous permanents
 

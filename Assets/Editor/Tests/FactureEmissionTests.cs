@@ -23,6 +23,91 @@ public class FactureEmissionTests
         return loc;
     }
 
+    // ── Un envoi raté ne doit rien consommer ────────────────────────────────
+
+    [Test]
+    public void Sans_appel_a_Enregistrer_rien_n_est_consomme_et_le_numero_reste_disponible()
+    {
+        // C'est la règle qui protège l'envoi par email : le panneau ne doit appeler
+        // `Enregistrer` qu'après un envoi RÉUSSI. Ce test vérifie que s'abstenir
+        // laisse bien la facture réémettable à l'identique — sinon un mail raté
+        // brûlerait un numéro et la ligne afficherait « envoyé » à tort.
+        var loc = NouveauLocataire();
+        int seqAvant = loc.factureSeq;
+
+        // Premier essai : on prépare, la génération réussit, mais l'envoi échoue →
+        // le panneau n'appelle pas `Enregistrer`.
+        var premier = FactureEmission.Preparer(loc, Key, "2026/09001");
+
+        Assert.That(premier.Correction, Is.False);
+        Assert.That(loc.factureSeq, Is.EqualTo(seqAvant), "préparer ne consomme rien");
+        Assert.That(FacturationSuivi.EstDejaEmise(loc, Key, out _), Is.False,
+                    "aucune ligne « envoyée » tant que rien n'est enregistré");
+
+        // Second essai après correction du problème d'envoi : même numéro proposé,
+        // toujours traité comme une première émission.
+        var second = FactureEmission.Preparer(loc, Key, "2026/09001");
+
+        Assert.That(second.Correction, Is.False, "un envoi raté ne transforme pas le suivant en correction");
+        Assert.That(second.NumeroFacture, Is.EqualTo("2026/09001"), "le numéro reste disponible");
+        Assert.That(second.SuffixeFichier, Is.Empty, "le PDF garde son nom, il sera simplement réécrit");
+
+        // Cette fois l'envoi réussit → le panneau enregistre, et là seulement.
+        FactureEmission.Enregistrer(loc, Key, "Regul", second, "Régularisation 2026",
+            Iso(30), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1",
+            loc.factureRegul, "Régularisation");
+
+        Assert.That(loc.factureSeq, Is.EqualTo(seqAvant + 1), "un seul numéro consommé, au succès");
+        Assert.That(FacturationSuivi.EstDejaEmise(loc, Key, out _), Is.True);
+    }
+
+    // ── Le réglage survit à l'émission ──────────────────────────────────────
+
+    [Test]
+    public void Emettre_ne_touche_pas_au_reglage_de_la_facture()
+    {
+        // Le besoin : après avoir généré et envoyé, on ne doit pas avoir à tout
+        // re-régler la fois suivante pour ce locataire. `Enregistrer` est le seul
+        // endroit qui modifie la FactureInfo après l'émission — c'est donc ici que
+        // la garde a sa place.
+        var loc = NouveauLocataire();
+        var f = loc.factureRegul;
+
+        f.ribId = "rib-bnp";
+        f.enteteId = "entete-trimestriel";
+        f.numeroFormat = "AJMN";
+        f.tvaDebit = false;
+        f.ajouterRetard = false;
+        f.ajouterMensuel = false;
+        f.joindrePj = true;
+        f.sommePhrase = "Valeur en votre aimable règlement";
+        f.destAdresse = "12 rue de Rivoli";
+        f.depotDu = "et ainsi, vous nous devez {depot.montant}";
+        f.texteTvaDebit = "TVA acquittée sur les débits";
+        f.texteMensuel = "Mensuellement : {montant}";
+
+        var d = FactureEmission.Preparer(loc, Key, "2026/09001");
+        FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
+            Iso(30), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1", f, "Régularisation");
+
+        Assert.That(f.ribId, Is.EqualTo("rib-bnp"));
+        Assert.That(f.enteteId, Is.EqualTo("entete-trimestriel"));
+        Assert.That(f.numeroFormat, Is.EqualTo("AJMN"));
+        Assert.That(f.tvaDebit, Is.False, "une case décochée le reste après l'envoi");
+        Assert.That(f.ajouterRetard, Is.False);
+        Assert.That(f.ajouterMensuel, Is.False);
+        Assert.That(f.joindrePj, Is.True);
+        Assert.That(f.sommePhrase, Is.EqualTo("Valeur en votre aimable règlement"));
+        Assert.That(f.destAdresse, Is.EqualTo("12 rue de Rivoli"));
+        Assert.That(f.depotDu, Is.EqualTo("et ainsi, vous nous devez {depot.montant}"));
+        Assert.That(f.texteTvaDebit, Is.EqualTo("TVA acquittée sur les débits"));
+        Assert.That(f.texteMensuel, Is.EqualTo("Mensuellement : {montant}"));
+
+        // Seule exception, et elle est voulue : l'ID saisi est oublié pour que la
+        // facture suivante propose le numéro suivant.
+        Assert.That(f.numeroId, Is.Null.Or.Empty, "seul le N° interne est remis à zéro");
+    }
+
     // ── Première émission ───────────────────────────────────────────────────
 
     [Test]

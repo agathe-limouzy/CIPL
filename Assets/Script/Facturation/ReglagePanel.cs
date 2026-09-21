@@ -20,11 +20,13 @@ public class ReglagePanel : MonoBehaviour
     static readonly Color CoPetrole = Hex("#16697A"), CoPetroleL = Hex("#D7E9EC");
 
     // Références UI
-    TMP_InputField _apiKey, _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd;
+    TMP_InputField _apiKey, _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd, _smtpUser;
     TMP_InputField _mapboxToken;
     TMP_InputField _phraseRetard, _basDePage, _entrepriseNom;
     Toggle _modePennylane;
     GameObject _smtpCard;
+    Button _testEmail;
+    TMP_Text _testInfo;
     Transform _ribList, _enteteList;
     TMP_Text _savePath;
     RawImage _logoPreview;
@@ -152,27 +154,95 @@ public class ReglagePanel : MonoBehaviour
         _mapboxToken.contentType = TMP_InputField.ContentType.Password;
 
         _modePennylane = UIFactory.Toggle(body.transform, "Envoyer via Pennylane (e-facture Factur-X)", true);
-        _modePennylane.onValueChanged.AddListener(on =>
-        {
-            if (_smtpCard != null) _smtpCard.SetActive(!on);
-        });
+
+        // Cette case ne gouverne QUE l'envoi des factures. Les réglages SMTP restent
+        // visibles dans les deux modes : les relances d'impayé partent par email même
+        // en Pennylane, donc les masquer les rendait inconfigurables.
+        UIFactory.Text(body.transform,
+            "Cette case choisit comment partent les FACTURES. Les relances d'impayé passent "
+            + "par email dans tous les cas : les réglages SMTP ci-dessous servent donc toujours. "
+            + "(L'envoi Pennylane n'est pas encore implémenté.)",
+            14, UITheme.TexteSecondaire);
 
         // Sous-carte SMTP (mode Email)
         var smtpBody = UIFactory.Card(body.transform);
         _smtpCard = smtpBody.gameObject; // la carte SMTP (le VLG est porté par la carte)
-        UIFactory.Text(smtpBody.transform, "Envoi par email direct (SMTP)", 19, UITheme.TextePrincipal, true);
+        UIFactory.Text(smtpBody.transform, "Envoi par email (SMTP)", 19, UITheme.TextePrincipal, true);
         UIFactory.Text(smtpBody.transform,
-            "Le PDF est envoyé au locataire à l'adresse de la facture. Outlook / Microsoft 365 : "
-            + "smtp.office365.com : 587. ⚠ SMTP AUTH souvent à activer côté admin M365.",
+            "Sert aux relances d'impayé dans tous les cas, et à l'envoi des factures si le mode "
+            + "email est choisi ci-dessus. N'importe quelle messagerie convient, avec le port 587 :",
             15, UITheme.TexteSecondaire);
+        UIFactory.Text(smtpBody.transform,
+            "Gmail : smtp.gmail.com  ·  Outlook / Microsoft 365 : smtp.office365.com  ·  "
+            + "OVH : ssl0.ovh.net  ·  Free : smtp.free.fr  ·  Orange : smtp.orange.fr",
+            14, UITheme.TexteSecondaire);
+        UIFactory.Text(smtpBody.transform,
+            "⚠ Gmail et Outlook exigent un mot de passe d'application (créé dans les réglages de "
+            + "sécurité du compte), pas le mot de passe habituel. Sur Microsoft 365, SMTP AUTH est "
+            + "souvent à activer côté administrateur. Le port 465 n'est pas géré : utilise 587.",
+            14, UITheme.Alerte);
 
         _smtpHost = LabeledInput(smtpBody.transform, "Serveur SMTP", "smtp.office365.com");
         _smtpPort = LabeledInput(smtpBody.transform, "Port", "587");
         _smtpPort.contentType = TMP_InputField.ContentType.IntegerNumber;
         _smtpFromEmail = LabeledInput(smtpBody.transform, "Adresse d'expédition", "contact@cipl.fr");
         _smtpFromName = LabeledInput(smtpBody.transform, "Nom d'expédition", "GROUPE CIPL");
+        _smtpUser = LabeledInput(smtpBody.transform,
+            "Identifiant SMTP (si différent de l'adresse d'expédition)", "laisser vide si identique");
         _smtpPwd = LabeledInput(smtpBody.transform, "Mot de passe (d'application)", "••••••");
         _smtpPwd.contentType = TMP_InputField.ContentType.Password;
+
+        // Test d'envoi. Il écrit à l'adresse d'EXPÉDITION, jamais à un locataire :
+        // c'est le seul moyen de valider serveur, port, mot de passe et STARTTLS
+        // sans qu'un vrai destinataire puisse recevoir quoi que ce soit.
+        _testEmail = UIFactory.Button(smtpBody.transform, "Envoyer un email de test",
+                                      UITheme.Carte, UITheme.TextePrincipal, 42, 17);
+        UIFactory.Border(_testEmail.gameObject);
+        _testEmail.onClick.AddListener(TesterEnvoi);
+
+        _testInfo = UIFactory.Text(smtpBody.transform,
+            "Le test part vers l'adresse d'expédition ci-dessus. Enregistre les réglages avant.",
+            14, UITheme.TexteSecondaire);
+    }
+
+    // ── Test d'envoi SMTP ──────────────────────────────────────────────────────
+
+    void TesterEnvoi()
+    {
+        string manque = EmailService.CeQuiManque();
+        if (manque != null) { _testInfo.text = manque; _testInfo.color = UITheme.Alerte; return; }
+
+        string destinataire = ReglageService.Current.smtp.fromEmail;
+
+        _testEmail.interactable = false;
+        _testInfo.color = UITheme.TexteSecondaire;
+        _testInfo.text = $"Envoi en cours vers {destinataire}…";
+
+        var envoi = EmailService.Envoyer(destinataire, EmailService.TestObjet, EmailService.TestCorps());
+        StartCoroutine(AttendreEnvoi(envoi, destinataire));
+    }
+
+    /// L'envoi tourne sur un thread de fond ; l'UI ne peut être touchée que depuis
+    /// le thread principal, d'où cette attente en coroutine plutôt qu'un callback.
+    System.Collections.IEnumerator AttendreEnvoi(EmailService.Envoi envoi, string destinataire)
+    {
+        while (!envoi.Termine) yield return null;
+
+        _testEmail.interactable = true;
+
+        if (envoi.Succes)
+        {
+            _testInfo.color = UITheme.Primaire;
+            _testInfo.text = $"Envoyé à {destinataire}. Vérifie la réception — si le message n'arrive pas, "
+                           + "regarde les indésirables avant de conclure à un échec.";
+            UndoToast.Instance?.ShowInfo("Email de test envoyé.");
+        }
+        else
+        {
+            _testInfo.color = UITheme.Alerte;
+            _testInfo.text = envoi.Erreur;
+            UndoToast.Instance?.ShowInfo("Échec du test d'envoi — détail sous le bouton.");
+        }
     }
 
     TMP_InputField LabeledInput(Transform parent, string label, string placeholder)
@@ -429,11 +499,13 @@ public class ReglagePanel : MonoBehaviour
         _apiKey.text = ReglageService.GetApiKey();
         if (_mapboxToken != null) _mapboxToken.text = ReglageService.GetMapboxToken();
         _modePennylane.isOn = R.modeEnvoi == ModeEnvoi.Pennylane;
-        if (_smtpCard != null) _smtpCard.SetActive(R.modeEnvoi == ModeEnvoi.Email);
+        // La carte SMTP reste visible quel que soit le mode : les relances d'impayé
+        // partent par email même quand les factures passent par Pennylane.
         _smtpHost.text = R.smtp.host;
         _smtpPort.text = R.smtp.port.ToString();
         _smtpFromEmail.text = R.smtp.fromEmail;
         _smtpFromName.text = R.smtp.fromName;
+        _smtpUser.text = R.smtp.username;
         _smtpPwd.text = ReglageService.GetSmtpPassword();
         _phraseRetard.text = R.phraseRetard;
         _basDePage.text = R.basDePage;
@@ -459,6 +531,7 @@ public class ReglagePanel : MonoBehaviour
         int.TryParse(_smtpPort.text.Trim(), out int port); R.smtp.port = port == 0 ? 587 : port;
         R.smtp.fromEmail = _smtpFromEmail.text.Trim();
         R.smtp.fromName = _smtpFromName.text.Trim();
+        R.smtp.username = _smtpUser.text.Trim();
         ReglageService.SetSmtpPassword(_smtpPwd.text);
         R.phraseRetard = _phraseRetard.text;
         R.basDePage = _basDePage.text;

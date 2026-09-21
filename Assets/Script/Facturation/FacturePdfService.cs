@@ -239,6 +239,9 @@ public static class FacturePdfService
         // Libellés des 3 lignes de totaux (défauts = régularisation ; réutilisé pour le dépôt).
         public string labelTotal, labelProvisions, labelSolde;
         public bool masquerTva;   // true = pas de ligne TVA/TTC (ex. révision du dépôt de garantie)
+        // Formulation de la mention « TVA payée sur les débits ». Vide = texte
+        // d'usine (`TvaDebitDefaut`) : un document antérieur sort inchangé.
+        public string texteTvaDebit;
         // Page 2 (détail) : titre = adresse du bâtiment, colonne quote-part = nom locataire.
         public string detailTitre, locataireNom;
         public float surfaceImmeuble, totalARepartir;
@@ -297,8 +300,11 @@ public static class FacturePdfService
               .Append("<tr class=\"ttc\"><td>Total T.T.C.</td><td class=\"r\">").Append(Euro(d.ttc)).Append("</td></tr>");
         }
         sb.Append("</table>");
-        if (d.tvaDebit && !d.masquerTva)
-            sb.Append("<div class=\"tva\">&nbsp;la TVA est pay&eacute;e sur les d&eacute;bits</div>");
+        // `masquerTva` gouverne les LIGNES Total H.T. / TVA / T.T.C. du tableau, pas
+        // cette mention : les lier interdisait de l'imprimer sur la facture de dépôt,
+        // qui masque ces lignes. La case du panneau décide seule.
+        if (d.tvaDebit)
+            sb.Append($"<div class=\"tva\">&nbsp;{Texte(d.texteTvaDebit, TvaDebitDefaut)}</div>");
         return sb.ToString();
     }
 

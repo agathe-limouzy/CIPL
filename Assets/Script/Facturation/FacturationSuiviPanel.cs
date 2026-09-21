@@ -280,7 +280,10 @@ public class FacturationSuiviPanel : MonoBehaviour
 
         Action<string> set = statut =>
         {
-            FacturationSuivi.SetStatut(_loc, ligne, statut);
+            // Le bâtiment porte les charges : sans lui, marquer « payé » ne les
+            // encaisserait pas.
+            FacturationSuivi.SetStatut(_loc, ligne, statut,
+                _fiche.batimentPrefabOrigin != null ? _fiche.batimentPrefabOrigin.getBatiment() : null);
             _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
             Destroy(scrim.gameObject);
             RebuildTable();

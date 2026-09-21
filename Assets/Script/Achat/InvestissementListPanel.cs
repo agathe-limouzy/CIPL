@@ -250,8 +250,12 @@ public class InvestissementListPanel : MonoBehaviour
             if (ui.txtPrix != null) ui.txtPrix.text = $"{ch.cout:N0} €";
             if (ui.txtMensualite != null)
             {
-                ui.txtMensualite.text = ch.paye ? "Payé" : "Impayé";
-                ui.txtMensualite.color = ch.paye ? Col("#0F6E56") : Col("#D85A30");
+                // Trois états, pas deux : une charge facturée n'est pas payée, mais
+                // l'afficher « impayé » laisserait croire qu'elle reste à refacturer.
+                ui.txtMensualite.text = ch.Etat;
+                ui.txtMensualite.color = ch.paye ? Col("#0F6E56")
+                                       : ch.EstFacturee ? Col("#EF9F27")   // ambre : en attente
+                                       : Col("#D85A30");
             }
             if (ui.txtDate != null)
             {

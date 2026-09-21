@@ -31,7 +31,6 @@ public static class HeritageFacture
             tvaDebit       = src.tvaDebit,
             ajouterRetard  = src.ajouterRetard,
             ajouterMensuel = src.ajouterMensuel,
-            envoiEmail     = src.envoiEmail,
             joindrePj      = src.joindrePj,
 
             // Formulations imprimées sur le document : de la rédaction, sans date ni
@@ -39,6 +38,10 @@ public static class HeritageFacture
             // c'est tout l'intérêt (reformuler une fois, les suivants en héritent).
             texteTvaDebit  = src.texteTvaDebit,
             texteMensuel   = src.texteMensuel,
+
+            // Message d'accompagnement de l'email : de la rédaction, pas une donnée.
+            emailObjet     = src.emailObjet,
+            emailCorps     = src.emailCorps,
 
             depotRappel    = src.depotRappel,
             depotDu        = src.depotDu,

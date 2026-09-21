@@ -34,10 +34,13 @@ public class FactureRegulPanel : MonoBehaviour
     TMP_Text _titre, _entetePreview, _modeInfo, _previewHint;
     TMP_Text _tCharges, _tProvisions, _tSolde, _tTVA, _tTTC;
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _provisions, _emailEnvoi;
+    TMP_InputField _texteTvaDebit;
+    TMP_InputField _emailObjet, _emailCorps;
+    bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     TMP_Text _numeroPrefixe;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _anneeDD;
-    Toggle _tvaDebit, _retard, _envoiEmail;
+    Toggle _tvaDebit, _retard;
     Transform _chargesBox;
 
     RawImage _previewImg;
@@ -173,6 +176,13 @@ public class FactureRegulPanel : MonoBehaviour
         _tTVA        = MontRow(g, "TVA 20 %");
         _tTTC        = MontRow(g, "Total TTC");
 
+        // La ligne « la TVA est payée sur les débits » s'imprime juste sous ces
+        // totaux : sa case vit donc ici, pas dans la carte d'envoi où on ne pensait
+        // pas à la chercher. Même règle que sur le panneau Loyer.
+        _tvaDebit = UIFactory.Toggle(g.transform, "Ajouter la mention « TVA payée sur les débits »", true);
+        _texteTvaDebit = UIFactory.Input(g.transform, FacturePdfService.TvaDebitDefaut, 46, true);
+        SlashAutocomplete.Attach(_texteTvaDebit);
+
         // ── 3. Règlement (pied du document) ──
         // L'échéance, la phrase qu'elle alimente et le RIB sont voisins : le lien se
         // voit, d'où la mention « (défaut de la phrase de règlement) » retirée du
@@ -187,10 +197,20 @@ public class FactureRegulPanel : MonoBehaviour
         _retard = UIFactory.Toggle(p.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
 
         // ── Options / envoi ──
+        // Ne reste ici que ce qui concerne l'ENVOI.
         var o = UIFactory.Section(content, "Options & envoi", CoVert, CoVertL);
-        _tvaDebit = UIFactory.Toggle(o.transform, "Ajouter la mention « TVA payée sur les débits »", true);
         _modeInfo = UIFactory.Text(o.transform, "", 15, UITheme.TexteSecondaire);
-        _envoiEmail = UIFactory.Toggle(o.transform, "Envoyer par email (au lieu de Pennylane)", false);
+
+        // Message d'accompagnement. Il appartient bien à l'envoi, donc à cette carte.
+        UIFactory.Text(o.transform, "Objet du message", 16, UITheme.TexteSecondaire);
+        _emailObjet = UIFactory.Input(o.transform, EmailService.ObjetDefaut);
+        SlashAutocomplete.Attach(_emailObjet);
+        UIFactory.Text(o.transform, "Corps du message", 16, UITheme.TexteSecondaire);
+        _emailCorps = UIFactory.Input(o.transform, EmailService.CorpsDefaut, 110, true);
+        SlashAutocomplete.Attach(_emailCorps);
+        UIFactory.Text(o.transform,
+            "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement.",
+            14, UITheme.TexteSecondaire);
         _emailEnvoi = Labeled(o, "Email d'envoi");
         UIFactory.Text(o.transform,
             "Note : l'envoi réel (Pennylane / email) sera activé après validation — rien n'est émis pour l'instant.",
@@ -291,9 +311,13 @@ public class FactureRegulPanel : MonoBehaviour
         RefreshNumero();
 
         _tvaDebit.isOn = f?.tvaDebit ?? true;
+        // Pré-remplie avec le texte d'usine : la phrase réellement imprimée doit être
+        // visible, pas à deviner derrière un champ vide.
+        _texteTvaDebit.text = FacturePdfService.Texte(f?.texteTvaDebit, FacturePdfService.TvaDebitDefaut);
         _retard.isOn = f?.ajouterRetard ?? true;
-        _envoiEmail.isOn = f?.envoiEmail ?? false;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
+        _emailObjet.text = FacturePdfService.Texte(f?.emailObjet, EmailService.ObjetDefaut);
+        _emailCorps.text = FacturePdfService.Texte(f?.emailCorps, EmailService.CorpsDefaut);
         _modeInfo.text = R.modeEnvoi == ModeEnvoi.Pennylane
             ? "Mode global : Pennylane (e-facture Factur-X)."
             : "Mode global : Email direct (SMTP).";
@@ -317,7 +341,7 @@ public class FactureRegulPanel : MonoBehaviour
         if (_bat?.charges == null) return res;
         foreach (var c in _bat.charges)
         {
-            if (c.paye) continue;
+            if (c.paye || c.EstFacturee) continue;   // déjà facturée = plus proposée, même impayée
             bool concerne = c.tousLocataires || (c.locatairesConcernes != null && c.locatairesConcernes.Contains(_loc.id));
             if (!concerne) continue;
             if (TryYear(c.dateISO) != year) continue;
@@ -332,7 +356,7 @@ public class FactureRegulPanel : MonoBehaviour
         if (_bat?.charges != null)
             foreach (var c in _bat.charges)
             {
-                if (c.paye) continue;
+                if (c.paye || c.EstFacturee) continue;   // déjà facturée = plus proposée, même impayée
                 bool concerne = c.tousLocataires || (c.locatairesConcernes != null && c.locatairesConcernes.Contains(_loc.id));
                 if (!concerne) continue;
                 int y = TryYear(c.dateISO); if (y > 0) set.Add(y);
@@ -532,6 +556,7 @@ public class FactureRegulPanel : MonoBehaviour
             // selon le signe du solde, et cette phrase-là doit être résolue aussi.
             sommePhrase = FactureVarResolver.Resolve(
                 FactureEmission.PhraseSomme(_sommePhrase.text, solde), _loc, _bat, ctx),
+            texteTvaDebit = FactureVarResolver.Resolve(_texteTvaDebit.text, _loc, _bat, ctx),
             labelSolde = FactureEmission.LibelleSolde(solde, "Solde H.T."),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
@@ -584,6 +609,9 @@ public class FactureRegulPanel : MonoBehaviour
     /// pouvoir être repris après une confirmation (voir le cas du remboursement).
     void Emettre(FacturePdfService.RegulData d)
     {
+        // L'envoi est asynchrone : sans cette garde, un double clic partirait deux fois.
+        if (_envoiEnCours) { UndoToast.Instance?.ShowInfo("Un envoi est déjà en cours."); return; }
+
         int year = SelectedYear();
         string dir = FactureDir();
         string key = $"regul-{year}";
@@ -607,13 +635,89 @@ public class FactureRegulPanel : MonoBehaviour
         string png = Path.Combine(dir, "apercu_regul.png");
         if (FacturePdfService.GenerateRegulPreviewPng(d, png, out _, 794, 2246)) ShowPreview(png);
 
-        // Les charges régularisées passent en « payé ».
-        foreach (var c in ChargesFor(year)) c.paye = true;
+        // Pas d'envoi demandé : on enregistre, rien ne part. Le bouton s'appelant
+        // « Sauvegarder et envoyer », il faut le dire, sinon on attend un mail en vain.
+        if (R.modeEnvoi != ModeEnvoi.Email)
+        {
+            Finaliser(d, year, key, emission, correction, pdf,
+                "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
+            return;
+        }
+
+        // Refus AVANT la confirmation si quelque chose manque.
+        string dest = (_emailEnvoi.text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(dest))
+        {
+            UndoToast.Instance?.ShowInfo("Aucune adresse email pour ce locataire. "
+                + "Rien n'a été envoyé ; le PDF est enregistré.");
+            return;
+        }
+
+        string manque = EmailService.CeQuiManque();
+        if (manque != null) { UndoToast.Instance?.ShowInfo(manque + " Le PDF est enregistré."); return; }
+
+        var ctx = BuildContext();
+        string objet = FactureVarResolver.Resolve(
+            FacturePdfService.Texte(_emailObjet.text, EmailService.ObjetDefaut), _loc, _bat, ctx);
+        string corps = FactureVarResolver.Resolve(
+            FacturePdfService.Texte(_emailCorps.text, EmailService.CorpsDefaut), _loc, _bat, ctx);
+
+        // Sans confirmation disponible, rien ne part.
+        if (ConfirmDialog.Instance == null)
+        {
+            UndoToast.Instance?.ShowInfo("Confirmation indisponible : rien n'a été envoyé. "
+                + "Le PDF est enregistré.");
+            return;
+        }
+
+        ConfirmDialog.Instance.Show(
+            "Envoyer la régularisation par email ?",
+            $"À : {dest}\nObjet : {objet}\nPièce jointe : {Path.GetFileName(pdf)}\n\n"
+            + "Le message part immédiatement et ne pourra pas être rappelé.",
+            () => StartCoroutine(EnvoyerPuisFinaliser(d, year, key, emission, correction, pdf, dest, objet, corps)),
+            "Envoyer");
+    }
+
+    /// Envoie, attend, et n'enregistre QUE si le message est parti. Un échec laisse
+    /// le numéro disponible et les charges NON payées : tant que la facture n'est pas
+    /// partie, rien de ce qu'elle emporte ne doit être considéré comme acquis.
+    System.Collections.IEnumerator EnvoyerPuisFinaliser(
+        FacturePdfService.RegulData d, int year, string key, FactureEmission.Decision emission,
+        bool correction, string pdf, string dest, string objet, string corps)
+    {
+        _envoiEnCours = true;
+        UndoToast.Instance?.ShowInfo($"Envoi en cours vers {dest}…");
+
+        var envoi = EmailService.Envoyer(dest, objet, corps, new[] { pdf });
+        while (!envoi.Termine) yield return null;
+
+        _envoiEnCours = false;
+
+        if (!envoi.Succes)
+        {
+            UndoToast.Instance?.ShowInfo("Envoi échoué — " + envoi.Erreur
+                + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : tu peux réessayer.");
+            yield break;
+        }
+
+        Finaliser(d, year, key, emission, correction, pdf, $" et envoyée à {dest}");
+    }
+
+    /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après succès).
+    void Finaliser(FacturePdfService.RegulData d, int year, string key,
+                   FactureEmission.Decision emission, bool correction, string pdf,
+                   string suffixeMessage = "")
+    {
+        // Les charges régularisées passent « en attente de paiement », PAS « payé » :
+        // la facture vient de partir, le virement n'est pas arrivé. Elles sortent du
+        // choix (pour ne pas être régularisées deux fois) sans prétendre être encaissées.
+        string aujourdhui = DateTime.Today.ToString("yyyy-MM-dd");
+        foreach (var c in ChargesFor(year)) c.factureeISO = aujourdhui;
 
         string message = FactureEmission.Enregistrer(_loc, key, "Regul", emission,
             d.subtitle, _loc.factureRegul?.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
             _loc.factureRegul, "Régularisation",
-            "Régularisation enregistrée (PDF) · charges passées en payé. Envoi réel non activé.");
+            "Régularisation enregistrée (PDF) · charges en attente de paiement.");
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();   // persiste locataire + charges
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
@@ -625,7 +729,7 @@ public class FactureRegulPanel : MonoBehaviour
             RefreshCharges();   // les charges régularisées disparaissent (désormais payées)
         }
 
-        UndoToast.Instance?.ShowInfo(message);
+        UndoToast.Instance?.ShowInfo(message + suffixeMessage);
     }
 
     void ShowPreview(string pngPath)
@@ -664,9 +768,11 @@ public class FactureRegulPanel : MonoBehaviour
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();
         f.tvaDebit = _tvaDebit.isOn;
+        f.texteTvaDebit = _texteTvaDebit.text;
         f.ajouterRetard = _retard.isOn;
-        f.envoiEmail = _envoiEmail.isOn;
         f.emailDest = _emailEnvoi.text;
+        f.emailObjet = _emailObjet.text;
+        f.emailCorps = _emailCorps.text;
         f.refInterne = _refInterne.text;
         f.provisionMontant = ParseF(_provisions.text);
         f.anneePeriode = SelectedYear();

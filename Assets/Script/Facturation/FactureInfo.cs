@@ -1,9 +1,5 @@
 using System;
 
-/// État mémorisé du menu « Information Facture » pour un type de facture donné,
-/// par locataire (le doc parle de factureState{ Loyer, Refacturation, … }).
-/// Les montants ne sont pas stockés ici : ils sont recalculés depuis le locataire.
-[Serializable]
 /// Formats de numérotation proposés par les panneaux de facture. Une seule source :
 /// les quatre panneaux en portaient chacun leur copie, qui pouvaient diverger.
 public static class FactureNumerotation
@@ -30,6 +26,17 @@ public static class FactureNumerotation
     }
 }
 
+/// État mémorisé du menu « Information Facture » pour un type de facture donné,
+/// par locataire (le doc parle de factureState{ Loyer, Refacturation, … }).
+/// Les montants ne sont pas stockés ici : ils sont recalculés depuis le locataire.
+///
+/// `[Serializable]` est VITAL et doit rester collé à cette classe : sans lui,
+/// `JsonUtility` ignore purement et simplement les quatre champs `factureX` du
+/// locataire, et tout le réglage des factures disparaît à la relecture du fichier —
+/// sans erreur, sans trace, on croit juste que « ça ne s'enregistre pas ».
+/// L'attribut avait glissé sur `FactureNumerotation` (classe statique, où il ne sert
+/// à rien) parce qu'elle avait été insérée entre ce commentaire et la classe.
+[Serializable]
 public class FactureInfo
 {
     // Destinataire (mémorisé sur la facture — peut différer du locataire).
@@ -48,8 +55,13 @@ public class FactureInfo
     public bool tvaDebit = true;    // mention « TVA payée sur les débits »
     public bool ajouterRetard = true; // ajoute la phrase de retard/pénalités
     public bool ajouterMensuel = true; // ligne « montant mensuel à régler » (loyer période ÷ nb mois ; hors mensuel)
-    public bool envoiEmail;         // true = email direct ; false = Pennylane (selon réglage global)
+    // NB : pas de champ « envoyer par email » ici. Le mode d'envoi est un réglage
+    // d'ENTREPRISE (Réglages → Connexion & envoi) ; le doubler par facture donnait
+    // deux réglages pour une seule décision, dont l'un ignorait l'autre.
     public string emailDest;        // adresse d'envoi (pré-remplie depuis le locataire)
+    // Message d'accompagnement. Vides = modèle d'usine (`EmailService.*Defaut`).
+    public string emailObjet;
+    public string emailCorps;
     public string objet;            // objet/titre (ex « Loyer avril 2026 »), éditable
     public string refInterne;       // texte libre affiché avec le n° (ex « N° Interne Magasin 001048 »)
     public string chargeId;         // refacturation : id de la charge refacturée

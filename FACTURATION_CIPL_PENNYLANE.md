@@ -252,7 +252,8 @@ Le token Mapbox vit à part, au niveau application : `<persistentDataPath>/cipl_
   - **Six cartes identiques dans les quatre panneaux**, seule la quatrième change : « Loyer facturé » · « Régularisation des charges » · « Charge à refacturer » · « Dépôt de garantie ». Dans le panneau Loyer, **« Période facturée » quitte l'en-tête pour rejoindre les montants** : elle s'imprime dans le corps du document et c'est elle qui détermine le loyer de la ligne. La case « pénalités de retard » quitte Options & envoi pour le pied de Règlement, dans les quatre.
   - **Nommage des couleurs aligné au passage** : `CoContenu` (taupe) et `CoReglement` (ambre) désignent le même rôle, donc la même teinte, dans les quatre fichiers. Le piège corrigé : `CoAmbre` valait `#854F0B` (ambre) dans Loyer mais `#7A5AA6` (**violet**) dans Refacturation — un même nom pour deux couleurs, dans des fichiers qu'on modifie toujours ensemble. Il s'appelle désormais `CoCharge` côté Refacturation.
   - **Aucune logique touchée**, aucun champ ajouté ni retiré : déplacement d'appels dans `Build()`. Compilation propre et **88 tests EditMode verts**. Le rendu lui-même se valide en Play — aucun test ne couvre la construction d'UI.
-- **Protocole d'émission mutualisé — `FactureEmission` (2026-09-16).** Les quatre panneaux recopiaient la même séquence : `EstDejaEmise` → suffixe `corrigée(X)` sur le numéro ET sur le nom de fichier → génération → `MarquerCorrige` ou `MarquerEnvoye` + `factureSeq + 1`. Quatre copies, d'où H2 (garde sur un seul panneau) puis H2-bis (deux états sur quatre). La règle **« une facture déjà émise ne consomme jamais un second numéro »** vit maintenant dans un seul fichier. Deux points d'entrée, dans cet ordre impératif : `Preparer(loc, key, numeroPropose)` **avant** la génération (il fournit le numéro à imprimer et le suffixe du fichier, donc le PDF d'origine n'est pas écrasé), `Enregistrer(...)` **après** une génération réussie (sinon le suivi annoncerait un PDF inexistant). Vérifié : plus aucun panneau ne touche `EstDejaEmise`, `MarquerCorrige` ni `factureSeq`. Chaque panneau conserve son message propre via un paramètre optionnel. Couvert par `FactureEmissionTests` (6 tests).
+- **Protocole d'émission mutualisé — `FactureEmission` (2026-09-16).** Les quatre panneaux recopiaient la même séquence : `EstDejaEmise` → suffixe `corrigée(X)` sur le numéro ET sur le nom de fichier → génération → `MarquerCorrige` ou `MarquerEnvoye` + `factureSeq + 1`. Quatre copies, d'où H2 (garde sur un seul panneau) puis H2-bis (deux états sur quatre). La règle **« une facture déjà émise ne consomme jamais un second numéro »** vit maintenant dans un seul fichier. Deux points d'entrée, dans cet ordre impératif : `Preparer(loc, key, numeroPropose)` **avant** la génération (il fournit le numéro à imprimer et le suffixe du fichier, donc le PDF d'origine n'est pas écrasé), `Enregistrer(...)` **après** une génération réussie (sinon le suivi annoncerait un PDF inexistant). Vérifié : plus aucun panneau ne touche `EstDejaEmise`, `MarquerCorrige` ni `factureSeq`. Chaque panneau conserve son message propre via un paramètre optionnel. Couvert par `FactureEmissionTests` (7 tests).
+- **Le réglage survit à l'émission (2026-09-21).** Vérifié plutôt que supposé : `SauvegarderEtEnvoyer` appelle `SaveFromUI()` puis persiste par `SaveAfterModifyToDoListLocataire()`, et les quatre panneaux **réécrivent tout ce qu'ils relisent** — relevé champ par champ entre `LoadIntoUI` et `SaveFromUI`. Le réglage reste donc sur la fiche **du locataire**, et la facture suivante le retrouve sans rien re-saisir. Seule exception, volontaire : `Enregistrer` remet `numeroId` à vide pour que la facture suivante propose le numéro suivant. Rien n'empêchait ça de régresser : `Enregistrer` étant le seul point qui modifie la `FactureInfo` après l'émission, un test y vérifie maintenant que RIB, entête, format, cases et textes en ressortent intacts.
 - **Chemins des PDF stockés en relatif (2026-09-16).** `FactureEtat.pdfPath` et `ChargeBatiment.pdfPath` conservaient un chemin **absolu** (`C:\…\CIPL_Saves\Batiment\Immeuble Rivoli\Dupont\Facture\Loyer-…pdf`). Conséquence : changer d'emplacement de sauvegarde, migrer l'entreprise, ouvrir la sauvegarde depuis une autre machine ou **renommer un bâtiment ou un locataire** cassait le lien de toutes les factures déjà émises — le bouton « PDF » disparaissait des deux vues du suivi (`File.Exists` faux) alors que les fichiers avaient bien suivi le déplacement. `MarquerEnvoye` et `MarquerCorrige` passent maintenant par `DossiersDonnees.VersRelatif` ; la lecture se fait par le nouveau `FacturationSuivi.CheminPdf(ligne)` (`VersAbsolu`), qui **renvoie tels quels les enregistrements absolus antérieurs** — aucun n'est perdu. Attention pour toute évolution : ne plus jamais ouvrir `pdfPath` brut.
 - **Quittances et PDF de charges rangés au bon endroit (2026-09-16).** La quittance partait dans `Batiment/<GUID bâtiment>/<GUID locataire>/Facture` et les justificatifs de charge dans `Batiment/<GUID bâtiment>/Charge` — deux arborescences GUID en parallèle de l'arborescence nommée, invisibles pour qui ouvre le dossier lisible d'un bâtiment, et non déplacées par un renommage. Les deux passent désormais par `DossiersDonnees.DossierFactures(nom, nom)` et `DossierCharges(nom)` — cette dernière existait depuis la standardisation de l'arborescence et n'avait jamais été branchée. Les PDF déjà copiés dans les anciens dossiers GUID ne sont **pas** migrés automatiquement.
 - **Lancement d'Edge : arguments passés un par un (2026-09-16).** `FacturePdfService.RunEdge` assemblait sa ligne de commande par interpolation, en posant lui-même les guillemets autour de chemins venant des noms de bâtiment et de locataire et du dossier de sauvegarde. Ce n'était pas exploitable sous Windows (`UseShellExecute = false`, donc aucun shell ; et NTFS interdit le guillemet dans un chemin), mais la sûreté reposait sur une garantie du **système de fichiers** plutôt que du code. `ProcessStartInfo.ArgumentList` (vérifié disponible dans le Mono d'Unity) reçoit désormais un argument par entrée — c'est .NET qui cite. `ScreenshotArgs` renvoie un `string[]`, les trois appels `--print-to-pdf` aussi ; aucune signature publique ne change. Vérifié : PDF réellement produit par Edge dans un chemin contenant espaces, `&`, `%`, apostrophe, `#` et parenthèses.
@@ -264,10 +265,16 @@ Le token Mapbox vit à part, au niveau application : `<persistentDataPath>/cipl_
 
 | Texte | Où on le modifie | Case pour le mettre ou non |
 |---|---|---|
-| « la TVA est payée sur les débits » | panneau Loyer, carte *Loyer facturé* | oui, existante |
+| « la TVA est payée sur les débits » | **les 4 panneaux**, carte du type | oui |
 | « Suite à votre demande, le montant mensuel… » | panneau Loyer, carte *Loyer facturé* | oui, existante |
 | Phrase de règlement | les 4 panneaux, carte *Règlement* | — (toujours imprimée) |
 | Les 4 phrases de l'explication du dépôt | panneau Dépôt, carte *Dépôt de garantie* | choix par le signe du solde |
+
+**La mention « TVA payée sur les débits » est disponible sur les quatre types** (2026-09-21). Elle était impossible sur le dépôt, pour une raison qui n'était pas un choix : `TotauxBlock` testait `d.tvaDebit && !d.masquerTva`, et le dépôt masque les lignes TVA/T.T.C. La condition liait donc la **mention** au **tableau**. Elle ne teste plus que `d.tvaDebit` — `masquerTva` gouverne les lignes, la case gouverne la mention. Le tableau du dépôt reste sans TVA ni T.T.C. : c'est la mention qui devient disponible, pas la TVA.
+
+**Sa formulation aussi est modifiable, sur les quatre** (2026-09-21). Elle était codée en dur à deux endroits : `BuildHtml` (Loyer, Refacturation) et `TotauxBlock` (Régularisation, Dépôt). `RegulData` porte maintenant `texteTvaDebit` comme `Data`, et les deux passent par `FacturePdfService.Texte(...)` — donc un champ vide retombe sur le texte d'usine et un document antérieur sort inchangé. Les quatre panneaux ont le même câblage : case, texte pré-rempli, menu « / », variables résolues, valeur sauvegardée sur le locataire et relue à l'ouverture.
+
+**Pourquoi la mention ne dépend pas du calcul** : « la TVA est payée sur les débits » est une **mention souvent obligatoire sur la facture**, indépendante du fait qu'une TVA soit calculée ou affichée. La lier à la présence des lignes TVA était donc une erreur de raisonnement, pas seulement une gêne. Sur le dépôt, elle est **cochée par défaut** et c'est voulu : le document peut la porter sans qu'aucune TVA n'y figure.
 
 **Les cases ont rejoint la ligne qu'elles commandent.** « TVA sur les débits » et « montant mensuel » étaient rangées dans *Options & envoi*, à l'autre bout du formulaire : on ne pouvait pas deviner où décocher « Suite à votre demande… ». *Options & envoi* ne garde que l'envoi. Règle qui vaut pour la suite : **ce qui commande une ligne du document vit dans la carte où cette ligne s'imprime.**
 
@@ -278,6 +285,55 @@ Le token Mapbox vit à part, au niveau application : `<persistentDataPath>/cipl_
 Le piège à ne jamais rouvrir : **brancher un champ au menu sans le résoudre**. L'utilisatrice insère `{loc.nom}` en confiance et le jeton s'imprime tel quel sur un document envoyé au client. `FactureVariablesTests` le verrouille — il parcourt le catalogue et échoue si une variable proposée par le menu ressort inchangée. Les deux groupes résolus ailleurs (`{depot.*}` par `ExplicationDepot`, `{montant}` par `FacturePdfService`) sont exclus explicitement, et un test vérifie que leur groupe l'annonce.
 
 Le champ affiche toujours le **modèle**, jamais le texte résolu : c'est ce qui permet à `RefreshSommeDefault` de comparer la saisie à `_autoSomme` pour savoir si la phrase a été personnalisée.
+
+### Cycle de vie d'une charge : trois états, pas deux (2026-09-21)
+
+L'émission faisait passer les charges directement en « payé ». Le bâtiment affirmait donc avoir encaissé une somme jamais reçue.
+
+```
+Impayé  ──(facture émise)──>  En attente de paiement  ──(facture marquée « Payé »)──>  Payé
+                                       ▲                                                │
+                                       └────────(facture remise en Impayé / Envoyé)─────┘
+```
+
+`ChargeBatiment.factureeISO` (date de mise sur facture, `yyyy-MM-dd`) porte l'état intermédiaire ; `paye` garde son sens — le virement est arrivé. `EstFacturee`, `EnAttentePaiement` et `Etat` évitent que les écrans divergent sur la lecture de ces deux champs.
+
+- **Sélection** : les panneaux Régularisation et Refacturation excluent `paye || EstFacturee`. Une charge déjà facturée n'est plus proposée, payée ou non — c'est ce qui empêche la double facturation.
+- **`factureeISO` n'est jamais effacée**, même si la facture repasse en impayé : elle a bien été émise.
+- **Affichage** : trois états dans la liste des charges, l'intermédiaire en ambre.
+
+**La bascule en « payé » est automatique** : marquer une régularisation ou une refacturation « Payé » dans le suivi encaisse ses charges ; l'inverse les remet en attente, ce qui permet de corriger une validation faite par erreur. La règle vit dans **`FacturationSuivi.SetStatut`**, point de passage unique des deux vues du suivi — la dupliquer chez elles aurait reproduit H2, où une garde n'existait que dans un panneau sur quatre. `SetStatut` reçoit pour cela le `Batiment` en paramètre optionnel (les charges y vivent) ; sans lui, la répercussion n'a simplement pas lieu.
+
+Le lien facture → charges : la clé de suivi porte l'id de la charge en refacturation (`refac-<id>`), l'année en régularisation (`regul-<année>`, charges de cette année concernant ce locataire). Loyer et Dépôt n'ont aucune charge liée.
+
+*Migration non faite* : les charges marquées « payées » par l'ancien comportement le restent. Impossible de distinguer celles que l'application a marquées à tort de celles réellement encaissées — à corriger à la main si besoin.
+
+### Un seul réglage décide du mode d'envoi (2026-09-21)
+
+Chaque panneau portait une case « Envoyer par email (au lieu de Pennylane) », **décochée par défaut**, qui doublait le mode d'envoi global des Réglages. Deux réglages pour une seule décision, dont l'un ignorait l'autre : le mode global pouvait être sur « Email » sans qu'aucun mail ne parte, et rien ne l'expliquait.
+
+La case et le champ `FactureInfo.envoiEmail` sont supprimés. **`ReglageData.modeEnvoi` décide seul.** Les panneaux gardent ce qui leur appartient : adresse du destinataire, objet et corps du message. Quand le mode est Pennylane, le message de fin le dit et renvoie vers Réglages → Connexion & envoi.
+
+### CRITIQUE — le réglage des factures n'était jamais enregistré (2026-09-21)
+
+**Symptôme** : case « Envoyer par email » cochée, et pourtant aucun email. Plus largement : l'impression de devoir tout re-régler à chaque fois.
+
+**Cause** : `[Serializable]` n'était **pas sur `FactureInfo`**. L'attribut avait glissé sur `FactureNumerotation` — une classe `static`, où il ne sert à rien — parce que celle-ci avait été insérée entre le commentaire de `FactureInfo` et son attribut :
+
+```csharp
+/// État mémorisé du menu « Information Facture »…   ← commentaire de FactureInfo
+[Serializable]                                       ← son attribut
+/// Formats de numérotation…                         ← insertion
+public static class FactureNumerotation              ← qui capte l'attribut
+```
+
+Syntaxiquement valide : **aucun avertissement du compilateur**.
+
+**Portée** : `JsonUtility` ignorait les quatre champs `factureLoyer / factureRegul / factureRefac / factureDepot` du locataire. Constaté sur le fichier de sauvegarde réel — il contenait `factureSeq` et `facturesEtat`, et **aucune** de ces quatre clés. Tout le réglage (RIB, entête, format de numéro, cases, textes, adresse d'envoi) tenait en mémoire puis disparaissait dès que les données repassaient par le JSON, ce que font les prefabs en permanence. Aucune erreur, aucune trace.
+
+**Correctif** : attribut remis sur `FactureInfo`, avec un commentaire expliquant pourquoi il est vital et comment il avait dérivé. Couvert par `FactureInfoSerialisationTests` : un aller-retour JSON doit rendre les réglages intacts, et les quatre clés doivent apparaître dans le texte produit — c'était exactement le symptôme.
+
+**Leçon** : un attribut mal placé ne casse rien de visible. Ni la compilation, ni les tests d'alors, ni l'usage immédiat — seule la relecture du fichier révélait la perte. La sérialisation d'un modèle mérite son test, au même titre qu'une règle métier.
 
 ### Héritage du réglage de facture : une chaîne de locataire en locataire (2026-09-18)
 
@@ -331,6 +387,22 @@ Les quatre phrases **suivent la chaîne d'héritage** (`HeritageFacture`) : refo
 Les textes d'usine sont identiques mot pour mot à l'ancien code : à réglages neufs, le document imprimé est inchangé.
 
 **Piège disparu avec le déplacement** : tant que les phrases vivaient dans les réglages, `ExplicationDepotTests` lisait le `reglage.json` **réel** de la machine — ses 14 assertions seraient passées au rouge dès la première reformulation, sans qu'aucune régression n'ait eu lieu. Il avait donc fallu un `SetUp`/`TearDown` d'isolation ; les phrases étant maintenant posées sur un `FactureInfo` local, cette isolation n'a plus lieu d'être et a été retirée. 5 tests couvrent le sujet : le cas demandé (« vous nous devez » en minuscules), deux factures qui gardent chacune sa formulation, la substitution des variables, le montant toujours positif sur un remboursement, et la non-régression d'une facture sans ces champs.
+
+### Envoi par email — SMTP (2026-09-21)
+
+**`EmailService`** est le premier code du projet capable de faire partir quelque chose vers l'extérieur. Deux garanties portées par le service, pas par ses appelants : **rien ne part sans destinataire explicite** (aucune adresse par défaut, aucun repli sur la fiche), et **`Succes` n'est vrai que si le serveur a accepté**. L'envoi tourne sur un thread de fond (un serveur injoignable gèlerait l'éditeur 30 s), le mot de passe ne figure dans aucun message ni journal, et une pièce jointe introuvable **fait échouer l'envoi** plutôt que d'expédier une facture sans sa facture. Depuis le 21/09, tout échec est aussi journalisé en console : il n'existait que dans un message éphémère.
+
+**N'importe quelle messagerie convient**, port 587 (STARTTLS) : Gmail, Outlook/M365, OVH, Free, Orange. Deux points appris à l'usage :
+- l'**identifiant** peut différer de l'adresse d'expédition (alias, compte OVH) — d'où le champ dédié, vide = on prend l'adresse d'expédition ;
+- le **port 465** (SSL implicite) n'est pas géré par `System.Net.Mail` et est refusé avec un message explicite, plutôt que d'échouer par expiration de délai.
+
+**Les réglages SMTP restent visibles dans les deux modes d'envoi** : les relances d'impayé partent par email même quand les factures passent par Pennylane. Les conditionner au mode les rendait inconfigurables — corrigé le 21/09.
+
+**Envoi réel d'une facture** (les **quatre** panneaux, câblage identique) : PDF généré → si la case « envoyer par email » est cochée, refus immédiat si destinataire ou réglages manquants, **confirmation affichant destinataire, objet et pièce jointe**, envoi, puis **`FactureEmission.Enregistrer` seulement en cas de succès**. Un échec garde le PDF, ne marque rien, et laisse le numéro disponible pour un nouvel essai — c'est la règle H3 appliquée à l'envoi : le suivi ne doit jamais affirmer plus qu'il ne sait. Objet et corps sont réglables, avec variables et menu « / », et suivent la chaîne d'héritage.
+
+Deux gardes : un double clic ne peut pas produire deux envois, et **sans boîte de confirmation disponible, rien ne part**. Quand la case est décochée, le message de fin le dit explicitement — le bouton s'appelant « Sauvegarder et envoyer », le silence était trompeur.
+
+**État côté CIPL** : le locataire Microsoft 365 interdit les mots de passe d'application et n'a pas SMTP AUTH activé — `@cipl.fr` reste inutilisable sans intervention d'un administrateur. Validé avec Gmail en attendant ; le code ne dépend d'aucun fournisseur.
 
 ### Modèle de données (esquisse)
 - **Reglage** : apiKey ; **modeEnvoi (Pennylane | Email)** ; **smtp{host, port, fromEmail, cred (hors repo)}** ; ribs[{id, name, titulaire, domiciliation, rib, iban, bic}] ; entetes[{id, nom, texte+variables}] ; phraseRetard ; basDePage ; emplacementSauvegarde.

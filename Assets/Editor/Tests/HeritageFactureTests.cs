@@ -45,7 +45,6 @@ public class HeritageFactureTests
         numeroFormat = format,
         ajouterRetard = retard,
         tvaDebit = retard,
-        envoiEmail = !retard,
         joindrePj = !retard,
         ajouterMensuel = retard
     };
