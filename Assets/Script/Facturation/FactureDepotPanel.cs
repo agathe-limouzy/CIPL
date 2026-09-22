@@ -565,7 +565,7 @@ public class FactureDepotPanel : MonoBehaviour
         // « Sauvegarder et envoyer », il faut le dire, sinon on attend un mail en vain.
         if (R.modeEnvoi != ModeEnvoi.Email)
         {
-            Finaliser(d, key, emission, correction, pdf,
+            Finaliser(d, key, emission, correction, pdf, false,
                 "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
             return;
         }
@@ -624,17 +624,17 @@ public class FactureDepotPanel : MonoBehaviour
             yield break;
         }
 
-        Finaliser(d, key, emission, correction, pdf, $" et envoyée à {dest}");
+        Finaliser(d, key, emission, correction, pdf, true, $" et envoyée à {dest}");
     }
 
     /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après succès).
     void Finaliser(FacturePdfService.RegulData d, string key, FactureEmission.Decision emission,
-                   bool correction, string pdf, string suffixeMessage = "")
+                   bool correction, string pdf, bool envoye, string suffixeMessage = "")
     {
         // Le dépôt de la fiche n'est PAS modifié par l'émission.
         string message = FactureEmission.Enregistrer(_loc, key, "Depot", emission,
             d.subtitle, _loc.factureDepot?.dateEcheanceISO, pdf, d.soldeHT, _ribDD?.SelectedId,
-            _loc.factureDepot, "Facture de révision du dépôt",
+            _loc.factureDepot, "Facture de révision du dépôt", envoye,
             "Facture de révision du dépôt enregistrée. Le montant du dépôt n'a pas été modifié.");
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();

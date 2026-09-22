@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using TMPro;
@@ -29,23 +30,44 @@ public class LocataireSuiviInline : MonoBehaviour
     public void Setup(LocatairePrefab fiche, Transform extBody, Transform extTitre)
     {
         _fiche = fiche;
-        _extBody = extBody; _extTitre = extTitre;
-        _loc = fiche != null ? fiche.GetLocataire() : null;
+        // La coquille n'est fournie qu'au premier appel, par LocataireFacturationFields.
+        // Les appels suivants (Load, après chaque enregistrement) arrivent sans elle :
+        // l'écraser ferait reconstruire le décor interne PAR-DESSUS la section de la
+        // fiche, au lieu de la remplir.
+        if (extBody != null) _extBody = extBody;
+        if (extTitre != null) _extTitre = extTitre;
+        _year = DateTime.Today.Year;
+        Refresh();
+    }
+
+    // Rafraîchit le tableau (après génération/modification d'une facture, ou après
+    // l'enregistrement de la fiche) — et rattrape le cas où le locataire n'existait
+    // pas encore au premier appel.
+    //
+    // À la création d'une fiche, la section est construite AVANT que le locataire
+    // entre dans `listLocataire` : `GetLocataire()` renvoyait null, le bandeau se
+    // masquait, et plus rien ne le rallumait — le suivi restait vide jusqu'au
+    // redémarrage de l'application. Pire, la sortie se faisait avant `Build()`, donc
+    // la coquille était perdue. Le locataire est donc relu à CHAQUE passage.
+    public void Refresh()
+    {
+        _loc = _fiche != null ? _fiche.GetLocataire() : null;
         if (_loc == null) { gameObject.SetActive(false); return; }
         gameObject.SetActive(true);
         if (!_built) Build();
-        _year = DateTime.Today.Year;
         RebuildYears();
         RebuildTable();
     }
 
-    // Rafraîchit le tableau sans reconstruire le décor (après génération/modif d'une
-    // facture, pour que le Suivi se mette à jour tout de suite).
-    public void Refresh()
+    // Rafraîchit tous les Suivis ouverts. Appelé depuis l'enregistrement du bâtiment,
+    // point de passage unique des 18 chemins qui modifient un locataire : le loyer
+    // (RevisionPanel) et le dépôt (pop-up de révision) alimentent le suivi sans
+    // passer par un panneau de facture, et laissaient donc un tableau périmé — ou
+    // vide, sur une fiche tout juste créée.
+    public static void RefreshTous()
     {
-        if (!_built || _loc == null) return;
-        RebuildYears();
-        RebuildTable();
+        foreach (var s in Resources.FindObjectsOfTypeAll<LocataireSuiviInline>())
+            if (s != null && s._fiche != null) s.Refresh();
     }
 
     // Rafraîchit le Suivi de la fiche concernée (appelé par les panneaux de facture).
@@ -183,12 +205,22 @@ public class LocataireSuiviInline : MonoBehaviour
 
     // ── Tableau ─────────────────────────────────────────────────────────────────
 
-    const float WEch = 130, WMontant = 140, WEtat = 132, WActions = 280;
-
     void RebuildTable()
     {
         if (_tableBox == null || _loc == null) return;
         foreach (Transform c in _tableBox) Destroy(c.gameObject);
+
+        // La ligne vient du prefab SuiviFactureRow, porté par la fiche (les deux vues
+        // du suivi sont créées par code et ne peuvent pas recevoir de référence par
+        // l'inspecteur). Sans lui, aucun tableau : on le dit, plutôt que d'afficher
+        // une carte vide sans cause visible.
+        var prefab = _fiche != null ? _fiche.suiviRowPrefab : null;
+        if (prefab == null)
+        {
+            Debug.LogError("Suivi de facturation : le champ « suiviRowPrefab » n'est pas câblé "
+                + "sur le prefab LocatairePrefab — le tableau ne peut pas être construit.");
+            return;
+        }
 
         var lignes = FacturationSuivi.Lignes(_loc, _year);
 
@@ -199,18 +231,13 @@ public class LocataireSuiviInline : MonoBehaviour
         cv.childControlWidth = true; cv.childControlHeight = true; cv.childForceExpandWidth = true;
         card.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-        var head = Row(cv.transform, Hex("#EDEBE3"), 36);
-        FactCell(head, "Facture", UITheme.TexteSecondaire, true);
-        FixCell(head, "Échéance", WEch, false, UITheme.TexteSecondaire, true);
-        FixCell(head, "Montant TTC", WMontant, true, UITheme.TexteSecondaire, true);
-        FixCell(head, "État", WEtat, false, UITheme.TexteSecondaire, true);
-        FixCell(head, "Actions", WActions, false, UITheme.TexteSecondaire, true);
+        Ligne(prefab, cv.transform).SetupEntete("Facture", "Échéance", "Montant TTC", "État", "Actions",
+            Hex("#EDEBE3"), UITheme.TexteSecondaire);
 
         if (lignes.Count == 0)
         {
-            var empty = Row(cv.transform, UITheme.Carte, 44);
-            var t = UIFactory.Text(empty, "Aucune facture pour cette année.", 14, UITheme.TexteSecondaire);
-            UIFactory.LE(t.gameObject, flexW: 1);
+            Ligne(prefab, cv.transform).SetupVide("Aucune facture pour cette année.",
+                UITheme.Carte, UITheme.TexteSecondaire);
             return;
         }
 
@@ -219,92 +246,51 @@ public class LocataireSuiviInline : MonoBehaviour
         {
             var etat = FacturationSuivi.EtatDe(l);
             bool clot = etat == FacturationSuivi.Etat.Cloture;   // période reprise (historique) → grisée
-            Color cMain = clot ? Hex("#A8A7A1") : UITheme.TextePrincipal;
-            Color cSec = clot ? Hex("#B7B6B0") : UITheme.TexteSecondaire;
-            var row = Row(cv.transform, clot ? Hex("#F0EEE8") : ((i % 2 == 0) ? UITheme.Carte : Hex("#F6F4EC")), 46);
+            var couleurs = new SuiviRowUI.Couleurs(
+                clot ? Hex("#F0EEE8") : ((i % 2 == 0) ? UITheme.Carte : Hex("#F6F4EC")),
+                clot ? Hex("#A8A7A1") : UITheme.TextePrincipal,
+                clot ? Hex("#B7B6B0") : UITheme.TexteSecondaire);
             i++;
-            FactCell(row, l.libelle, cMain, false);
-            FixCell(row, Ech(l.echeanceISO), WEch, false, cSec, false);
-            FixCell(row, Montant(l.montant), WMontant, true, cMain, false);
-            PillCell(row, l, etat, WEtat);
-            ActionsCell(row, l, etat, WActions);
+            var lgn = l;
+            var row = Ligne(prefab, cv.transform);
+            row.Setup(l.libelle, Ech(l.echeanceISO), Montant(l.montant), couleurs,
+                FacturationSuivi.EtatLibelle(etat), EtatBg(etat), EtatFg(etat),
+                // Période clôturée (reprise) : pastille statique, et aucune action.
+                !clot, () => OpenStatutMenu(lgn, (RectTransform)row.pastille.transform),
+                Actions(l, etat));
         }
     }
 
-    Transform Row(Transform parent, Color bg, float minH)
-    {
-        var p = UIFactory.Panel("Row", parent, bg);
-        var hl = p.gameObject.AddComponent<HorizontalLayoutGroup>();
-        hl.padding = new RectOffset(16, 16, 0, 0); hl.spacing = 10;
-        hl.childControlWidth = true; hl.childControlHeight = true;
-        // childForceExpandWidth DOIT rester false : activé, Unity ignore les
-        // `flexibleWidth` et distribue l'espace restant à parts égales entre toutes
-        // les cellules. Les largeurs fixes des colonnes (WEch, WMontant…) n'étaient
-        // alors plus respectées, et l'en-tête se décalait des lignes — une cellule de
-        // texte et une cellule de boutons n'ayant pas la même largeur minimale.
-        // C'est la colonne « Facture » (flexW: 1) qui absorbe l'espace disponible.
-        hl.childForceExpandWidth = false; hl.childForceExpandHeight = true;
-        hl.childAlignment = TextAnchor.MiddleLeft;
-        p.gameObject.AddComponent<LayoutElement>().minHeight = minH;
-        return p.transform;
-    }
+    SuiviRowUI Ligne(GameObject prefab, Transform parent)
+        => Instantiate(prefab, parent).GetComponent<SuiviRowUI>();
 
-    void FactCell(Transform row, string text, Color color, bool bold)
+    // Actions de la ligne, dans l'ordre d'affichage — 4 au maximum (le prefab en
+    // porte 4), ce que le pire cas atteint tout juste : PDF · Corriger · Rappel.
+    List<(string libelle, Action onClick)> Actions(FactureEtat l, FacturationSuivi.Etat etat)
     {
-        var t = UIFactory.Text(row, text, 14, color, bold, TextAlignmentOptions.Left);
-        t.enableWordWrapping = false; t.overflowMode = TextOverflowModes.Ellipsis;
-        UIFactory.LE(t.gameObject, flexW: 1, minW: 200);
-    }
-
-    void FixCell(Transform row, string text, float w, bool right, Color color, bool bold)
-    {
-        var t = UIFactory.Text(row, text, 14, color, bold,
-            right ? TextAlignmentOptions.Right : TextAlignmentOptions.Left);
-        UIFactory.LE(t.gameObject, prefW: w, minW: w, flexW: 0);
-    }
-
-    void PillCell(Transform row, FactureEtat l, FacturationSuivi.Etat etat, float w)
-    {
-        var cell = UIFactory.HBox(row, 0, false, "EtatCell");
-        UIFactory.LE(cell.gameObject, prefW: w, minW: w, flexW: 0);
-        cell.childAlignment = TextAnchor.MiddleLeft; cell.childForceExpandWidth = false;
-        var pill = UIFactory.Button(cell.transform, FacturationSuivi.EtatLibelle(etat), EtatBg(etat), EtatFg(etat), 28, 13, false);
-        UIFactory.Border(pill.gameObject, EtatFg(etat));
-        UIFactory.LE(pill.gameObject, prefW: 96, flexW: 0, minH: 28);
-        // Période clôturée (reprise) : pastille statique, non actionnable.
-        if (etat == FacturationSuivi.Etat.Cloture) { pill.interactable = false; return; }
-        var lgn = l;
-        pill.onClick.AddListener(() => OpenStatutMenu(lgn, (RectTransform)pill.transform));
-    }
-
-    void ActionsCell(Transform row, FactureEtat l, FacturationSuivi.Etat etat, float w)
-    {
-        var act = UIFactory.HBox(row, 6, false, "Actions");
-        UIFactory.LE(act.gameObject, prefW: w, minW: w, flexW: 0);
-        act.childAlignment = TextAnchor.MiddleLeft; act.childForceExpandWidth = false;
-        // Période clôturée (reprise) : aucune action (historique).
-        if (etat == FacturationSuivi.Etat.Cloture) return;
+        var a = new List<(string libelle, Action onClick)>();
+        if (etat == FacturationSuivi.Etat.Cloture) return a;   // période reprise : historique
         string pdfAbs = FacturationSuivi.CheminPdf(l);
         bool genere = !string.IsNullOrEmpty(pdfAbs) && File.Exists(pdfAbs);
         if (genere)
         {
-            MiniBtn(act.transform, "PDF", () => Application.OpenURL("file:///" + pdfAbs.Replace("\\", "/")));
+            a.Add(("PDF", () => Application.OpenURL("file:///" + pdfAbs.Replace("\\", "/"))));
             // Facture déjà émise → « Corriger » (crée une version corrigée, même numéro) ;
             // sinon « Refaire » (regénère). Correction câblée pour le loyer.
             bool corrigeable = l.type == "Loyer"
                 && (etat == FacturationSuivi.Etat.Envoye || etat == FacturationSuivi.Etat.Impaye);
-            MiniBtn(act.transform, corrigeable ? "Corriger" : "Refaire",
-                () => OuvrirGeneration(l.type, corrigeable ? l : null));
+            a.Add((corrigeable ? "Corriger" : "Refaire",
+                () => OuvrirGeneration(l.type, corrigeable ? l : null)));
         }
-        else MiniBtn(act.transform, "Générer", () => OuvrirGeneration(l.type, null));
+        else a.Add(("Générer", () => OuvrirGeneration(l.type, null)));
 
         // Facture impayée → option « rappel d'échéance » (brouillon email manuel).
         if (etat == FacturationSuivi.Etat.Impaye)
-            MiniBtn(act.transform, "Rappel", () => FactureRappelService.Demander(_loc, l, () =>
+            a.Add(("Rappel", () => FactureRappelService.Demander(_loc, l, () =>
             {
                 _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
                 RebuildTable();
-            }));
+            })));
 
         // Loyer payé sur bail NON commercial → possibilité d'émettre la quittance de loyer.
         // L'état « Payé » peut être forcé à la main sur une ligne JAMAIS émise : sans le
@@ -314,7 +300,8 @@ public class LocataireSuiviInline : MonoBehaviour
         if (etat == FacturationSuivi.Etat.Paye && l.type == "Loyer"
             && !Locataire.EstBailCommercial(_loc.typeDeBail)
             && reellementEmise)
-            MiniBtn(act.transform, "Quittance", () => FactureQuittanceService.Emettre(_fiche, _loc, l));
+            a.Add(("Quittance", () => FactureQuittanceService.Emettre(_fiche, _loc, l)));
+        return a;
     }
 
     // ── Menu de changement d'état ───────────────────────────────────────────────
@@ -378,13 +365,6 @@ public class LocataireSuiviInline : MonoBehaviour
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
-
-    void MiniBtn(Transform parent, string label, Action onClick)
-    {
-        var b = UIFactory.Button(parent, label, UITheme.Carte, UITheme.TextePrincipal, 30, 13, false);
-        UIFactory.Border(b.gameObject); UIFactory.LE(b.gameObject, prefW: 74, flexW: 0, minH: 30);
-        b.onClick.AddListener(() => onClick());
-    }
 
     static string Montant(float v) => v > 0f ? v.ToString("#,##0.00", Fr) + " €" : "—";
     static string Ech(string iso) => DateTime.TryParse(iso, out var d) ? d.ToString("dd/MM/yyyy") : "—";

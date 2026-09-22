@@ -43,6 +43,7 @@ public class FactureLoyerPanel : MonoBehaviour
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _periodeDD;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
+    string _autoEcheance;// dernière échéance proposée (suivie tant qu'elle n'est pas saisie à la main)
     Toggle _tvaDebit, _retard, _mensuel;
 
     // Aperçu de la facture rendue (image à droite du formulaire).
@@ -200,11 +201,12 @@ public class FactureLoyerPanel : MonoBehaviour
         var perRow = UIFactory.HBox(mo.transform, 8, false, "PeriodeRow");
         UIFactory.LE(perRow.gameObject, minH: 46);
         _periodeDD = UIDropdown.Create(perRow.transform, new List<string>(MoisNoms),
-            Enumerable.Range(1, 12).Select(i => i.ToString()).ToList(), 0, _ => RefreshEntetePreview());
+            Enumerable.Range(1, 12).Select(i => i.ToString()).ToList(), 0,
+            _ => { RefreshEntetePreview(); RefreshEcheanceDefault(); });
         UIFactory.LE(_periodeDD.gameObject, flexW: 1, minH: 46);
         _annee = UIFactory.Input(perRow.transform, "Année");
         _annee.contentType = TMP_InputField.ContentType.IntegerNumber;
-        _annee.onValueChanged.AddListener(_ => RefreshEntetePreview());
+        _annee.onValueChanged.AddListener(_ => { RefreshEntetePreview(); RefreshEcheanceDefault(); });
         UIFactory.LE(_annee.gameObject, prefW: 110, flexW: 0, minH: 46);
 
         _loyer = Labeled(mo, "Loyer HT (période)");
@@ -421,7 +423,7 @@ public class FactureLoyerPanel : MonoBehaviour
         // légitimement qu'un mail est parti et on attend sa réception.
         if (R.modeEnvoi != ModeEnvoi.Email)
         {
-            Finaliser(d, key, emission, correction, pdf,
+            Finaliser(d, key, emission, correction, pdf, false,
                 "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
             return;
         }
@@ -491,20 +493,20 @@ public class FactureLoyerPanel : MonoBehaviour
             yield break;
         }
 
-        Finaliser(d, key, emission, correction, pdf, $" et envoyée à {dest}");
+        Finaliser(d, key, emission, correction, pdf, true, $" et envoyée à {dest}");
     }
 
     /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après un
     /// envoi réussi). Correction ou première émission : la règle vit dans
     /// FactureEmission, plus dans chacun des quatre panneaux.
     void Finaliser(FacturePdfService.Data d, string key, FactureEmission.Decision emission,
-                   bool correction, string pdf, string suffixeMessage = "")
+                   bool correction, string pdf, bool envoye, string suffixeMessage = "")
     {
         var fl = _loc.factureLoyer;
 
         string message = FactureEmission.Enregistrer(_loc, key, "Loyer", emission,
             d.subtitle, fl.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
-            _loc.factureLoyer, "Facture");
+            _loc.factureLoyer, "Facture", envoye);
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
@@ -635,13 +637,11 @@ public class FactureLoyerPanel : MonoBehaviour
         DateTime now = DateTime.Today;
         _date.text = f != null && DateTime.TryParse(f.dateISO, out var dd)
             ? dd.ToString("dd/MM/yyyy") : now.ToString("dd/MM/yyyy");
-        // Échéance : mémorisée, sinon proposée à +30 jours de la date de facture.
-        _echeance.text = f != null && DateTime.TryParse(f.dateEcheanceISO, out var de)
-            ? de.ToString("dd/MM/yyyy")
-            : (TryDate(_date.text, out var dbase) ? dbase.AddDays(30) : now.AddDays(30)).ToString("dd/MM/yyyy");
-        // Phrase de règlement : mémorisée si personnalisée, sinon défaut basé sur l'échéance.
-        _autoSomme = DefaultSomme();
-        _sommePhrase.text = !string.IsNullOrEmpty(f?.sommePhrase) ? f.sommePhrase : _autoSomme;
+        // L'échéance — et la phrase de règlement qu'elle alimente — sont posées PLUS
+        // BAS, après le sélecteur de période : le loyer est dû au jour de demande de
+        // la période facturée, donc la période doit être connue d'abord.
+        string echeanceMemorisee = f != null && DateTime.TryParse(f.dateEcheanceISO, out var de)
+            ? de.ToString("dd/MM/yyyy") : null;
 
         // Format du n° de facture (dropdown) : mémorisé, défaut AMN (Année/Mois-Numéro).
         string fmt = f != null && !string.IsNullOrEmpty(f.numeroFormat) ? f.numeroFormat : "AMN";
@@ -655,6 +655,16 @@ public class FactureLoyerPanel : MonoBehaviour
         int periodeSel = f != null && f.moisPeriode > 0 ? f.moisPeriode : DefaultPeriodeIndex(_loc.periodiciteLoyer);
         _periodeDD.SetOptions(plabels, pids, periodeSel.ToString());
         _annee.text = (f != null && f.anneePeriode > 0 ? f.anneePeriode : DateTime.Today.Year).ToString();
+
+        // Échéance : mémorisée si la facture en portait une, sinon le jour de demande
+        // du loyer sur la période choisie — la même règle que le suivi, via
+        // FacturationSuivi.EcheanceLoyer. Elle se recalcule ensuite à chaque
+        // changement de période ou d'année, tant qu'elle n'a pas été saisie à la main.
+        _autoEcheance = DefaultEcheance();
+        _echeance.text = !string.IsNullOrEmpty(echeanceMemorisee) ? echeanceMemorisee : _autoEcheance;
+        // Phrase de règlement : mémorisée si personnalisée, sinon défaut basé sur l'échéance.
+        _autoSomme = DefaultSomme();
+        _sommePhrase.text = !string.IsNullOrEmpty(f?.sommePhrase) ? f.sommePhrase : _autoSomme;
 
         // Montants pré-remplis (ou repris s'ils ont été saisis/mémorisés).
         int n = LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer);
@@ -744,16 +754,18 @@ public class FactureLoyerPanel : MonoBehaviour
 
     // Période proposée par défaut = la période EN COURS (d'après la date du jour),
     // pas systématiquement la 1re. Évite de facturer le « 1er trimestre » par erreur.
-    static int DefaultPeriodeIndex(Periodicite p)
+    /// Période en cours = la dernière dont le mois d'échéance est déjà atteint.
+    /// Passe par FacturationSuivi.MoisEcheance, donc suit les mois de facturation
+    /// cochés : sur un trimestriel facturé en février/mai/août/novembre, le calcul
+    /// « (mois − 1) / 3 + 1 » proposait la mauvaise période.
+    int DefaultPeriodeIndex(Periodicite p)
     {
         int m = DateTime.Today.Month;
-        switch (p)
-        {
-            case Periodicite.mensuel:     return m;                 // mois courant
-            case Periodicite.trimestriel: return (m - 1) / 3 + 1;   // trimestre courant (sept → 3)
-            case Periodicite.BiAnnuel:    return m <= 6 ? 1 : 2;    // semestre courant
-            default:                      return 1;                 // annuel
-        }
+        int n = LoyerSummaryUI.NbPeriodes(p);
+        int enCours = 1;
+        for (int per = 1; per <= n; per++)
+            if (FacturationSuivi.MoisEcheance(_loc, per) <= m) enCours = per;
+        return enCours;
     }
 
     int PeriodeAnnee()
@@ -784,6 +796,28 @@ public class FactureLoyerPanel : MonoBehaviour
     {
         DateTime ech = TryDate(_echeance != null ? _echeance.text : "", out var ed) ? ed : DateTime.Today;
         return "SOMME À NOUS RÉGLER LE " + ech.ToString("d MMMM yyyy", FacturePdfService.FrCulture);
+    }
+
+    // Échéance proposée : le jour où le loyer est demandé, sur la période facturée.
+    // Une seule règle, partagée avec le suivi (FacturationSuivi.EcheanceLoyer) : le
+    // panneau proposait « date de facture + 30 jours », une date que le suivi ne
+    // reconnaissait pas — la facture et sa ligne de suivi n'avaient pas la même échéance.
+    string DefaultEcheance()
+    {
+        int periode = 1;
+        if (_periodeDD != null) int.TryParse(_periodeDD.SelectedId, out periode);
+        if (periode < 1) periode = 1;
+        return FacturationSuivi.EcheanceLoyer(_loc, PeriodeAnnee(), periode).ToString("dd/MM/yyyy");
+    }
+
+    // L'échéance suit la période tant qu'elle n'a pas été saisie à la main — même
+    // règle que la phrase de règlement, qu'elle alimente à son tour.
+    void RefreshEcheanceDefault()
+    {
+        if (_loc == null || _echeance == null) return;
+        string def = DefaultEcheance();
+        if (_echeance.text == _autoEcheance) _echeance.text = def;   // déclenche RefreshSommeDefault
+        _autoEcheance = def;
     }
 
     // La phrase suit l'échéance tant qu'elle n'a pas été personnalisée.

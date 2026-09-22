@@ -71,23 +71,76 @@ public float GetLoyerTotal()
     return total;
 }
 public float GetTailleBatiment() => batiment.tailleBatiment;
+
+    float _depassementSignale;   // dernier dépassement annoncé, pour ne pas le répéter
+
+    /// Surface encore disponible pour un lot dont l'occupant n'a rien saisi : ce qui
+    /// reste du bâtiment une fois retirés les lots réellement saisis, partagé à parts
+    /// égales entre ceux qui n'ont rien saisi (`tailleLot <= 0` = « pas encore défini »).
+    ///
+    /// Le bâtiment est la donnée SOURCE : c'est la surface qu'on saisit, et elle ne
+    /// bouge jamais toute seule. Avant, il valait la somme des lots dès deux
+    /// locataires — ajouter un locataire de 1500 m² à un bâtiment de 1250 m² en
+    /// faisait un bâtiment de 2750 m², alors que c'est le lot du premier, hérité par
+    /// défaut faute d'avoir pu être saisi, qui devait se réduire d'autant.
+    public float TailleLotDisponible(Locataire pour)
+        => TailleLotDisponible(batiment.tailleBatiment, listLocataire, pour);
+
+    /// La règle elle-même, sans l'écran : testable, et unique.
+    public static float TailleLotDisponible(float tailleBatiment, IList<Locataire> lots, Locataire pour)
+    {
+        if (lots == null || lots.Count == 0) return tailleBatiment;
+        if (pour != null && pour.tailleLot > 0f) return pour.tailleLot;
+
+        float saisies = 0f;
+        int auto = 0;
+        foreach (var l in lots)
+        {
+            if (l == null) continue;
+            if (l.tailleLot > 0f) saisies += l.tailleLot;
+            else auto++;
+        }
+        float reste = Mathf.Max(0f, tailleBatiment - saisies);   // dépassement : voir TailleLotDepassement
+        return auto > 1 ? reste / auto : reste;
+    }
+
+    /// Surface réellement occupée par un locataire : la sienne si elle est saisie,
+    /// sinon sa part du disponible. Point de passage unique — tout ce qui affiche ou
+    /// calcule une surface de lot doit passer par là.
+    public float TailleLotEffective(Locataire loc)
+        => loc == null ? 0f : (loc.tailleLot > 0f ? loc.tailleLot : TailleLotDisponible(loc));
+
+    /// De combien les lots saisis dépassent la surface du bâtiment (0 si tout rentre).
+    /// Ne bloque rien : la saisie est respectée, l'écran avertit.
+    public float TailleLotDepassement() => TailleLotDepassement(batiment.tailleBatiment, listLocataire);
+
+    public static float TailleLotDepassement(float tailleBatiment, IList<Locataire> lots)
+    {
+        if (lots == null) return 0f;
+        float saisies = lots.Where(l => l != null && l.tailleLot > 0f).Sum(l => l.tailleLot);
+        return Mathf.Max(0f, saisies - tailleBatiment);
+    }
+
+    /// Réaffiche les lots dont la surface découle du bâtiment. Ne touche PAS à
+    /// `batiment.tailleBatiment` : elle n'appartient qu'à la saisie du bâtiment.
     public void RefreshTailleBatiment()
     {
-        if (listLocataire.Count > 1)
+        if (listLocataire == null) return;
+        foreach (var loc in listLocataire)
         {
-            // Batiment = somme, non éditable
-            float total = listLocataire.Sum(l => l.tailleLot);
-            batiment.tailleBatiment = total;
-            tailleBatimentText.ApplySave(total.ToString());
+            if (loc == null || loc.tailleLot > 0f) continue;   // surface saisie : on n'y touche pas
+            if (dictionnairelocataire.TryGetValue(loc, out var locPrefab) && locPrefab != null)
+                locPrefab.RefreshTailleLot(TailleLotDisponible(loc));
         }
-        else if (listLocataire.Count == 1)
-        {
-            // Batiment éditable, locataire = miroir
-            var loc = listLocataire[0];
-            loc.tailleLot = batiment.tailleBatiment;
-            if (dictionnairelocataire.TryGetValue(loc, out var locPrefab))
-                locPrefab.RefreshTailleLot(batiment.tailleBatiment);
-        }
+
+        // Avertissement une fois par dépassement : cette méthode est appelée à chaque
+        // enregistrement, un toast à chaque fois serait insupportable.
+        float trop = TailleLotDepassement();
+        if (trop > 0.01f && Mathf.Abs(trop - _depassementSignale) > 0.01f)
+            UndoToast.Instance?.ShowInfo(
+                $"Les surfaces des locataires dépassent celle du bâtiment de {trop:0.##} m². "
+                + "Corrigez la surface du bâtiment ou celle d'un lot.");
+        _depassementSignale = trop;
     }
 
     // ── Bascule vue résumé / fiche complète ──────────────────────────────────
@@ -495,6 +548,11 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         RebuildLocataireRows();
         BatimentManager.Instance.SaveBatiment(batiment);
         RefreshBatimentTabAlert();
+        // Le suivi de facturation dépend du loyer, du dépôt et de la périodicité :
+        // il doit suivre CHAQUE enregistrement, pas seulement ceux qui viennent d'un
+        // panneau de facture. Sinon régler le loyer ou le dépôt d'une fiche nouvelle
+        // laissait un tableau vide jusqu'au redémarrage de l'application.
+        LocataireSuiviInline.RefreshTous();
     }
 
     /// Ouvre la galerie photos de ce bâtiment (overlay de scène).
@@ -506,9 +564,10 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     public override void Modify()
     {
         nameOfTheBuiding.Modify();
-        if (listLocataire.Count <= 1)
-            tailleBatimentText.Modify(); // éditable seulement si 0 ou 1 locataire
-                                         // si > 1 : reste en lecture seule (somme calculée)
+        // Toujours éditable : la surface du bâtiment est SA donnée, pas une somme.
+        // Elle était verrouillée dès deux locataires, ce qui interdisait de la corriger
+        // alors même que l'app venait de la remplacer par la somme des lots.
+        tailleBatimentText.Modify();
         tailleTerrainText.Modify();
         cadastralTxt?.Modify();
         acquisitionDate?.ModifyDate();
@@ -565,24 +624,9 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         }
 
         batiment.Name = nouveauNom;
-        if (listLocataire.Count > 1)
-        {
-            // Calculé automatiquement, déjà mis à jour par RefreshTailleBatiment
-            float total = listLocataire.Sum(l => l.tailleLot);
-            batiment.tailleBatiment = total;
-            tailleBatimentText.ApplySave(total.ToString());
-        }
-        else
-        {
-            SaveCorrectlyFloat(ref batiment.tailleBatiment, tailleBatimentText.GetNewSave());
-            // Propage au locataire unique si besoin
-            if (listLocataire.Count == 1)
-            {
-                listLocataire[0].tailleLot = batiment.tailleBatiment;
-                if (dictionnairelocataire.TryGetValue(listLocataire[0], out var locPrefab))
-                    locPrefab.RefreshTailleLot(batiment.tailleBatiment);
-            }
-        }
+        // La surface saisie fait foi ; les lots non définis se replient dessus.
+        SaveCorrectlyFloat(ref batiment.tailleBatiment, tailleBatimentText.GetNewSave());
+        RefreshTailleBatiment();
         SaveCorrectlyFloat(ref batiment.tailleTerrain, tailleTerrainText.GetNewSave());
         Debug.Log(batiment.tailleBatiment);
         batiment.adressBatiment = mapController.GetAdress();

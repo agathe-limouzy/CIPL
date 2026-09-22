@@ -10,7 +10,16 @@
       "mcp__ai-game-developer__console-get-logs",
       "mcp__ai-game-developer__tests-run",
       "Bash(grep -on '>[A-ZÀÉÈ][^<>{}]\\\\{3,40\\\\}<' Assets/Script/Facturation/FacturePdfService.cs)",
-      "mcp__ai-game-developer__script-execute"
+      "mcp__ai-game-developer__script-execute",
+      "Bash(cp Assets/Script/Facturation/SuiviRowUI.cs /c/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/c979e0ff-abcf-4f07-af46-05c731c5a764/scratchpad/SuiviRowUI.cs.bak)",
+      "Bash(sed -i 's|if \\(montant != null\\) montant.gameObject.SetActive\\(false\\);|// MUTATION TEMPORAIRE|' Assets/Script/Facturation/SuiviRowUI.cs)",
+      "Bash(xargs grep -n \"public \")",
+      "Bash(python -)",
+      "Bash(echo \"aucun \\(exit=$?\\)\")",
+      "Bash(cp Assets/Script/Batiment/BatimentPrefab.cs /c/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/c979e0ff-abcf-4f07-af46-05c731c5a764/scratchpad/BatimentPrefab.cs.bak)",
+      "Bash(sed -i 's|float reste = Mathf.Max\\(0f, tailleBatiment - saisies\\);|float reste = Mathf.Max\\(0f, tailleBatiment\\); // MUTATION|' Assets/Script/Batiment/BatimentPrefab.cs)",
+      "Bash(git diff *)",
+      "Bash(cd \"C:/Users/agath/Documents/CIPL/CIPL_Git/CIPL\" && cp /c/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/c979e0ff-abcf-4f07-af46-05c731c5a764/scratchpad/FactureEnvoiAuto.cs.bak Assets/Script/Facturation/FactureEnvoiAuto.cs && grep -c \"MUTATION\" Assets/Script/Facturation/FactureEnvoiAuto.cs)"
     ]
   },
   "enableAllProjectMcpServers": true,

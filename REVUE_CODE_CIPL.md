@@ -14,7 +14,7 @@ Chaque finding porte un statut :
 
 Ce document est le **suivi de la revue de code**. Tout ce qui suit a été écrit et compilé ; ce qui a été *réellement exécuté* est listé plus bas, et la distinction compte.
 
-### Où en est le chantier au 21/09 — **117 tests EditMode verts**
+### Où en est le chantier au 22/09 — **156 tests EditMode verts**
 
 Le détail de la facturation est dans `FACTURATION_CIPL_PENNYLANE.md` ; voici l'essentiel pour reprendre.
 
@@ -24,7 +24,7 @@ Le détail de la facturation est dans `FACTURATION_CIPL_PENNYLANE.md` ; voici l'
 
 **Envoi par email — état réel** : fonctionne, validé avec **Gmail**. L'adresse `@cipl.fr` est **bloquée** : le locataire Microsoft 365 de l'entreprise interdit les mots de passe d'application et n'a pas SMTP AUTH activé, et le compte de l'utilisatrice n'est pas administrateur. Il faut l'admin du locataire, ou un compte OVH (le SPF de `cipl.fr` l'autorise déjà).
 
-**À reprendre** : le tour en Play des panneaux Régularisation / Refacturation / Dépôt (seul le Loyer a été vu de bout en bout) · le prefab `SuiviFactureRow` · **H1**, la numérotation, toujours en attente de l'expert-comptable.
+**À reprendre** : le tour en Play des panneaux Régularisation / Refacturation / Dépôt (seul le Loyer a été vu de bout en bout) · le rendu de la ligne de suivi passée en prefab (`SuiviFactureRow`, fait le 21/09 au soir — reste à voir à l'écran) · **H1**, la numérotation, toujours en attente de l'expert-comptable.
 
 **Piège d'outillage** : le lanceur de tests par MCP se bloque si Unity est en **mode Play** ou si une scène est **non enregistrée** — il reste alors verrouillé jusqu'à une recompilation. Sortir du Play et enregistrer la scène avant de lancer.
 
@@ -72,7 +72,7 @@ Correctif : attribut remis sur la classe, commentaire expliquant pourquoi il est
    *Première version écartée le 18/09* : un modèle unique au niveau de l'entreprise, écrasé à chaque enregistrement. Il donnait le bon résultat sur l'enchaînement simple, mais pas la règle voulue — la source doit être le dernier locataire **créé**, et la copie appartenir à sa fiche. Machinerie retirée en totalité (`ModeleFacture`, `ReglageService.Modele`/`MemoriserModele`, les replis dans les quatre panneaux) : une seule règle vit dans le code.
 4. À passer en Play (21/09, soir) : **le cycle de vie des charges** — régulariser des charges, vérifier qu'elles passent « en attente de paiement » (ambre) et non « payé », qu'elles disparaissent du choix, puis marquer la facture « Payé » dans le suivi et vérifier qu'elles passent au vert ; la repasser en « Impayé » et vérifier le retour en attente **sans** qu'elles redeviennent sélectionnables.
 5. À passer en Play également : **l'envoi email sur Régularisation, Refacturation et Dépôt** — seul le Loyer a été vu de bout en bout. Tester surtout **l'échec** (mot de passe faux) : PDF présent, ligne non marquée, charges non payées, et un second essai qui reprend le même numéro.
-6. Prefab `SuiviFactureRow`, après le commit et le tour en Play.
+6. ~~Prefab `SuiviFactureRow`~~ — **fait le 21/09 au soir** (voir la section dédiée). Reste le rendu à voir en Play, et la conversion de la seconde vue après comparaison.
 7. H1, après avis de l'expert-comptable.
 8. ~~Reliquat mineur~~ — **traité le 16/09**, voir la section « Reliquat mineur » plus bas : garde sur `ReloadFromDisk` · arguments Edge · annulation de suppression de photo.
 
@@ -237,27 +237,113 @@ La garde `_echeance != null` de `DefaultSomme` a été posée dans les quatre, p
 
 **Vérifié après propagation** : plus aucune trace de l'ancienne carte « Facture » ni de couleur orpheline (`CoTaupe`/`CoAmbre` ne subsistent que dans un commentaire d'explication), compilation **sans aucune erreur** — pas même Burst cette fois — et **88/88 tests EditMode verts**.
 
-### À faire : ligne de suivi en prefab (spécifié le 17/09/2026, non commencé)
+### Six défauts trouvés par l'usage, et une évolution (22/09/2026)
 
-Les deux vues du suivi construisent **la même ligne** en code, chacune de son côté — c'est ce qui a permis au défaut d'alignement (`childForceExpandWidth`) d'exister en double. Le projet utilise pourtant déjà le pattern prefab ailleurs : `RentabiliteRow`, `locataireRowPrefab`, `achatItemPrefab`, `BuildingCardItem`.
+Signalés en utilisant l'application, tous **CONFIRMÉS** par lecture du chemin de code. Trois ont la même signature que les défauts déjà rencontrés ici : ce n'est pas le calcul qui est faux, c'est qu'il n'est jamais atteint, ou qu'il porte sur la mauvaise donnée.
 
-**Écrans concernés, par rentabilité** (mesure : appels `UIFactory.` et reconstruction complète à chaque refresh) :
+#### 1. Un champ affichait sa valeur DEUX fois — `InputAndText.cs`
 
-| Écran | UIFactory | Prefabs | Verdict |
-|---|---|---|---|
-| `LocataireSuiviInline` | 41 | 1 | **à convertir** — même ligne que ci-dessous |
-| `FacturationSuiviPanel` | 44 | 0 | **à convertir** — partage le prefab avec le précédent |
-| `FacturationHomeSection` | 48 | 0 | à convertir ensuite (écran d'accueil) |
-| `ChargePanel`, `EntreprisePanel` | 45 | 0 | plus tard, plus petits |
-| `ReglagePanel` (102), les 4 panneaux de facture (69–83) | — | 0 | **ne pas convertir** : formulaires construits une seule fois, aucune répétition. Le gain serait l'édition visuelle, au prix de dizaines de références sérialisées fragiles, invisibles aux tests. |
+Capture à l'appui : « Taille Batiment : 1250 [1250] m² », le texte et le champ de saisie côte à côte.
 
-**Structure du prefab à créer** (`Assets/Prefab/SuiviFactureRow.prefab`) — largeurs reprises des constantes actuelles :
-`Row` (Image + HorizontalLayoutGroup, padding 16/16, spacing 10, **childForceExpandWidth = false**, LayoutElement minHeight 46)
-→ `Libelle` (TMP, flexW 1, minW 200, ellipsis) · `Echeance` (TMP, 130) · `Montant` (TMP, 140, aligné à droite) · `EtatCell` (HBox 132) > `Pill` (Button 96×28 + bordure) · `ActionsCell` (HBox 280, spacing 6) > **4 boutons pré-créés**, activés au besoin.
+Cause, vérifiée en lisant l'état sérialisé des prefabs : **`textSaved` et `inputModify` sont actifs tous les deux dans les prefabs** — les 14 champs du bâtiment, les 11 du locataire, sans exception. L'affichage correct ne tenait qu'au fait qu'un `Modify()` ou un `ApplySave()` passe et masque l'un des deux. Tout champ qu'aucun de ces appels n'atteint montrait donc la valeur en double — et `Modify()` **sautait** justement `tailleBatimentText` dès qu'il y avait plus d'un locataire.
 
-**API du script `SuiviRowUI`** : `Setup(libelle, echeance, montant, couleurs, etatLibelle, etatBg, etatFg, etatCliquable, onEtat, actions)` où `actions` est une liste de `(libellé, callback)`. Jusqu'à **4 actions simultanées**, libellés variables : `PDF` · `Corriger` (loyer émis/impayé) ou `Refaire` · `Générer` · `Rappel` (impayé) · `Quittance` (loyer payé, bail non commercial, facture réellement émise). Cas particulier : période `Cloture` = pastille non cliquable et **aucune** action.
+Correctif à la racine : `Awake()` pose l'état de repos (lecture seule) une fois pour toutes. Un seul endroit, tous les champs de l'application — y compris ceux des écrans Achat et Travaux, qui avaient le même défaut latent.
 
-**Pourquoi ce n'est pas fait ici** : la conversion ne peut pas être validée sans mode Play, et elle tomberait juste après une session qui a beaucoup touché à la facturation, sur un arbre non commité. À faire **après** le commit et le tour en Play, en commençant par la vue inline seule, l'autre vue restant en code le temps de comparer les deux rendus côte à côte.
+#### 2. L'échéance du loyer ignorait le jour où le loyer est demandé — `FactureLoyerPanel.cs`
+
+Le panneau proposait « date de facture **+ 30 jours** », alors que le suivi calcule l'échéance d'une période avec `loc.jourDemandeLoyer` (« le X du mois »). La facture et sa propre ligne de suivi n'avaient donc pas la même échéance — et la phrase de règlement imprimée sur le PDF, qui découle de l'échéance, annonçait une date qui ne correspondait à rien.
+
+La règle vivait déjà dans `FacturationSuivi.Lignes` : elle est extraite en `FacturationSuivi.EcheanceLoyer(loc, année, période)`, appelée par le suivi **et** par le panneau. Une seule règle, donc plus de divergence possible.
+
+*Piège au passage, le même que la phrase de règlement du 17/09* : l'échéance était posée **avant** le sélecteur de période dans `LoadIntoUI`. Calculée là, elle n'aurait jamais vu la période choisie. Elle est donc posée après, et se recalcule à chaque changement de période ou d'année — tant qu'elle n'a pas été saisie à la main.
+
+#### 3. La surface du bâtiment gonflait à chaque locataire — `BatimentPrefab.cs`
+
+La surface du bâtiment était **dérivée** : dès deux locataires, `tailleBatiment = somme des lots`. Ajouter un locataire de 1500 m² à un bâtiment de 1250 m² en faisait un bâtiment de 2750 m². Pire, le lot du **premier** locataire n'était pas saisissable (il recopiait la surface du bâtiment) : impossible de le réduire pour faire de la place au second, alors que c'est exactement ce que la situation demandait.
+
+Règle retenue — **le bâtiment est la donnée source** : sa surface est celle qu'on saisit, et elle ne bouge plus jamais toute seule. Chaque lot se saisit librement, pré-rempli avec ce qui reste. Un lot jamais saisi (`tailleLot <= 0`) prend le disponible — partagé à parts égales s'il y en a plusieurs — donc il **se réduit** quand un autre locataire prend sa part. Si les lots saisis dépassent le bâtiment, la saisie est respectée et l'écart est signalé une fois (pas à chaque enregistrement).
+
+Aucun champ ajouté, donc **aucune migration** : la convention « `tailleLot <= 0` = pas encore défini » laisse les fiches existantes, qui ont toutes une valeur > 0, comme des surfaces fermes.
+
+#### 4. Le suivi de facturation restait vide jusqu'au redémarrage — `LocataireSuiviInline.cs`
+
+Deux causes, cumulées :
+
+- **La sortie se faisait avant `Build()`.** À la création d'une fiche, la section de suivi est construite *avant* que le locataire entre dans `listLocataire` : `GetLocataire()` renvoyait `null`, le bandeau se masquait — et rien ne le rallumait, `Refresh()` sortant lui aussi sur `_loc == null` sans jamais relire. Pire, la coquille (`extBody`/`extTitre`) était alors perdue : l'appel suivant arrivant sans elle, le décor interne se serait reconstruit **par-dessus** la section de la fiche.
+- **Régler le loyer ou le dépôt ne rafraîchissait rien.** Ces deux réglages passent par leurs propres pop-ups (`RevisionPanel`, révision du dépôt), pas par un panneau de facture — or seuls les panneaux de facture appelaient `RefreshFor`. Le tableau restait donc tel qu'il était avant le réglage.
+
+Correctifs : `Refresh()` relit le locataire à chaque passage et rallume le bandeau ; `Setup` ne remplace la coquille que si on lui en fournit une ; et `LocataireSuiviInline.RefreshTous()` est appelée depuis `BatimentPrefab.SaveAfterModifyToDoListLocataire()` — le point de passage unique des **18** chemins qui modifient un locataire, plutôt qu'une garde répétée chez chacun.
+
+#### 5. Le calendrier du loyer était écrit deux fois — `FacturationAlertes.cs`
+
+Vérification faite en confirmant la règle voulue (rappel à J‑22, envoi à J‑15, échéance au jour de demande) : elle était **déjà implémentée**, avec les bons délais. Mais la même règle vivait à deux endroits — le suivi et les alertes — et les deux copies avaient divergé, exactement comme la ligne de tableau la veille.
+
+- **Aucun rappel si le jour de demande n'est pas renseigné** : l'alerte abandonnait (`return null`) là où le suivi plaçait l'échéance au 1er. Des loyers à échéance s'affichaient sans le moindre rappel — sur les fiches au réglage incomplet, donc les plus exposées.
+- **Les mois de facturation cochés étaient ignorés par le suivi** : sur un bail trimestriel facturé en février, l'alerte annonçait le 05/02 et le tableau le 05/01.
+
+Les alertes passent désormais par `FacturationSuivi.EcheanceLoyer`, et les mois cochés commandent les échéances (décision de l'utilisatrice, 22/09) — de même que `PeriodeIndex`, son inverse, sans quoi la clé `loyer-{année}-P{n}` ne désignerait plus la bonne ligne. Détail dans `FACTURATION_CIPL_PENNYLANE.md`.
+
+#### 6. Le suivi annonçait des envois qui n'avaient pas eu lieu — `FacturationSuivi.cs`
+
+Constaté en documentant le point 5 : le statut se déduisait de la **date**, pas du fait. Une facture préparée à plus de 15 j de l'échéance était « En attente d'envoi », puis `EtatDe` la basculait toute seule en « Envoyé » à J‑15 — même si l'envoi par email n'était pas activé, cas où le panneau affichait pourtant « rien n'a été émis ». Le suivi en disait donc plus qu'il ne savait, le défaut exact de H3.
+
+Le statut suit désormais le fait : les quatre panneaux savent déjà s'ils viennent du chemin « PDF seul » ou « envoi réussi » (`EnvoyerPuisFinaliser` n'enregistre qu'après acquittement du serveur) ; cette information est simplement transmise jusqu'à `MarquerEnvoye`. Une facture non partie reste « En attente d'envoi », ne devient jamais « Impayée » — on ne reproche pas un impayé à qui n'a rien reçu — et **garde son alerte allumée**, `DejaTraite` ne la comptant plus comme traitée. `EstDejaEmise`, elle, continue de la compter comme émise : le PDF existe, le numéro est consommé, H2‑bis reste couvert.
+
+Le calendrier (15 j + 1 semaine) était écrit **trois fois**, dont un `22` en dur dans `Lead`. Une seule source désormais.
+
+#### 7. Nouveau — envoi groupé proposé au lancement (`FactureEnvoiAuto.cs`)
+
+Demandé après le point 6, et rendu possible par lui : puisqu'une facture reste « en attente d'envoi » tant qu'elle n'est pas partie, l'application sait exactement ce qui doit partir. Au démarrage, elle propose la liste des factures dont la date d'envoi (J‑15) est atteinte, **retards compris**.
+
+*Rien ne part tout seul.* Un envoi ne se rappelle pas : la fenêtre montre locataire, destinataire et montant, chaque ligne se décoche, « Plus tard » reste disponible, et une seconde confirmation récapitule avant le départ. C'est l'arbitrage de l'utilisatrice face à un envoi réellement automatique — le travail manuel disparaît, la relecture non.
+
+L'envoi se fait en série, chaque succès étant sauvegardé immédiatement : une interruption au milieu laisse marqué parti ce qui est parti. Un échec laisse la ligne en attente pour le lancement suivant. Le statut est mis à jour directement, sans repasser par `FactureEmission` — le numéro est déjà consommé, y repasser en prendrait un second.
+
+La règle de sélection est **séparée de l'écran** et l'existence du PDF lui est injectée : elle se teste sans disque et sans mode Play (10 assertions). Vérifiée par mutation — en retirant la garde de date puis celle de statut, trois tests échouent (« une facture déjà envoyée repart », « une facture non due part trop tôt »).
+
+#### Vérification
+
+**156 tests EditMode verts** (126 + 30). Les nouveaux (`SurfacesEtEcheanceTests`) couvrent la règle des surfaces avec le scénario exact rapporté et le calcul d'échéance (jour borné à la longueur du mois — « le 31 » en février tombe le 28, ou le 29 en année bissextile — périodicités trimestrielle, semestrielle, annuelle), plus le fait que les lignes du suivi passent bien par la règle extraite.
+
+**Les tests mordent** : vérifié par mutation. En remettant l'ancien calcul de surface, trois tests échouent avec le bon message (`Expected: 750, But was: 1250` — le bug rapporté, exactement), puis repassent au vert après restauration.
+
+**Reste à voir en Play** : le champ de taille qui n'affiche plus qu'une valeur · la répartition des surfaces sur un bâtiment à deux locataires · l'échéance proposée à l'ouverture du panneau Loyer et au changement de période · le suivi de facturation rempli **sans quitter l'application**, juste après avoir créé un locataire et réglé son loyer et son dépôt.
+
+### Ligne de suivi en prefab — fait (21/09/2026, soir)
+
+Spécifié le 17/09, réalisé ici. Les deux vues du suivi construisaient **la même ligne** en code, chacune de son côté — c'est ce qui a permis au défaut d'alignement (`childForceExpandWidth`) d'exister en double, et, on le découvre au passage, à la garde « Quittance » de diverger (voir plus bas).
+
+**Livré** : `Assets/Prefab/SuiviFactureRow.prefab` + `Facturation/SuiviRowUI.cs`, et `LocataireSuiviInline` converti. `FacturationSuiviPanel` reste **en code**, comme prévu : c'est le filet de comparaison des deux rendus en Play.
+
+Le prefab a été construit **par script** (Roslyn, via MCP) en réutilisant `UIFactory` plutôt qu'en re-saisissant couleurs et largeurs à la main : le rendu est identique par construction, pas par recopie.
+
+**Trois choses que la spécification du 17/09 n'avait pas vues** — toutes trouvées en faisant, pas en relisant :
+
+| Surprise | Conséquence |
+|---|---|
+| **`UIFactory.Rounded()` génère son sprite au runtime** (`UIFactory.cs:11`) : ce n'est pas un asset, la référence ne survit pas à la sérialisation du prefab | Les coins arrondis auraient disparu, silencieusement. `SuiviRowUI` repose le sprite sur chaque `Image` à l'instanciation — donc le prefab **ne supprime pas** tout le code de style, contrairement à ce qu'annonçait la spec |
+| **Aucune des deux vues ne peut recevoir de référence d'inspecteur** : `LocataireSuiviInline` est un `AddComponent` à la volée (`LocataireFacturationFields.cs:290`), `FacturationSuiviPanel` un `new GameObject` | La spec supposait un câblage direct, impossible. Le prefab transite par `LocatairePrefab` (`suiviRowPrefab`), que les deux vues ont déjà en main via `_fiche`. Pas de dossier `Resources/` créé : le projet n'en a aucun et n'appelle jamais `Resources.Load` |
+| **L'en-tête n'est pas une ligne comme les autres** (ni pastille, ni actions) | La laisser en code aurait fait *réapparaître* le défaut visé : deux constructions pour un même alignement. Elle passe par le même prefab via `SetupEntete`, où les colonnes État et Actions deviennent du texte nu. Idem pour la ligne « Aucune facture » (`SetupVide`) |
+
+**Verrouillé par 9 tests** (`Assets/Editor/Tests/SuiviRowPrefabTests.cs`) — c'est le point que cette revue redoutait, « des références sérialisées fragiles, **invisibles aux tests** ». Ils le rendent visible sans passer par le Play : les 11 références du prefab, `childForceExpandWidth == false` (le défaut historique, désormais figé), les largeurs de colonnes comparées aux constantes de `SuiviRowUI`, le câblage de `suiviRowPrefab` sur la fiche relu **depuis le disque**, puis le comportement de `Setup` / `SetupEntete` / `SetupVide` (nombre d'actions activées, pastille non cliquable sur période clôturée, cellules masquées puis rétablies, callback rattaché à la bonne ligne).
+
+**Les tests mordent-ils vraiment ?** Vérifié par mutation : en retirant une seule ligne de `SetupVide`, la suite échoue avec le bon message (`montant masqué — Expected: False, But was: True`), puis repasse au vert après restauration. *Un test vert ne prouve rien s'il n'atteint pas le code — même leçon que « compiler ne prouve rien ».*
+
+**Piège d'outillage découvert ici** : les tests salissaient `Assets/TextMesh Pro/.../LiberationSans SDF - Fallback.asset` (+114 lignes) à **chaque exécution**. Un libellé accentué, un « € » ou un tiret cadratin remis à TMP peuple l'atlas dynamique de la police de repli, qui est un asset du dépôt. Les libellés de test sont donc en ASCII, avec un commentaire qui interdit de les « corriger » — les assertions ne comparent que la chaîne transmise, jamais le rendu. L'asset a été remis à son état commité.
+
+**Reste à voir en Play** : alignement en-tête / lignes, libellé long tronqué en ellipse, année sans facture, menu d'état, les boutons d'action dans chaque cas (`PDF` + `Corriger`/`Refaire`, `Rappel`, `Quittance`), période clôturée sans action — puis comparer avec la vue plein écran restée en code.
+
+**Ensuite** : convertir `FacturationSuiviPanel` au même prefab une fois les deux rendus comparés, puis `FacturationHomeSection`. Ne **pas** convertir `ReglagePanel` ni les 4 panneaux de facture : formulaires construits une seule fois, aucune répétition — arbitrage inchangé.
+
+### La garde « Quittance » manquait dans la vue plein écran (21/09/2026)
+
+**CONFIRMÉ par comparaison des deux copies** · `Facturation/FacturationSuiviPanel.cs`
+
+Trouvé en convertissant la ligne en prefab, donc en mettant les deux constructions côte à côte. `LocataireSuiviInline` vérifiait `reellementEmise` (numéro **et** PDF non vides) avant de proposer « Quittance » ; `FacturationSuiviPanel` ne le vérifiait pas.
+
+L'état « Payé » peut être forcé à la main sur une ligne **jamais émise** : dans la vue plein écran, on pouvait donc éditer une quittance — un reçu de paiement — pour une facture qui n'existe pas. Correctif : même garde des deux côtés.
+
+*C'est le second défaut imputable à cette duplication, après l'alignement. Le motif de passer la ligne en prefab n'était donc pas cosmétique : deux copies d'un même écran divergent, et la divergence se paie en pièces comptables fausses.*
 
 ### Nettoyage du projet (16/09/2026)
 

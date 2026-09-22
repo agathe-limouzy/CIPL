@@ -32,21 +32,24 @@ public static class FacturationSuivi
                    System.Globalization.DateTimeStyles.None, out d);
     }
 
+    // Le calendrier du loyer, en un seul endroit — le « 15 jours » était écrit ici,
+    // dans FacturationAlertes, et une troisième fois en dur dans Lead (22 = 15 + 7).
     public const int ImpayeApresEcheanceJours = 15; // Impayé auto 15 j après l'échéance si non réglé
-    public const int EnvoiAvantJours          = 15; // loyer préparé tôt → envoyé auto 15 j avant l'échéance
+    public const int EnvoiAvantJours          = 15; // la facture doit partir 15 j avant l'échéance
+    public const int RappelAvantEnvoiJours    = 7;  // « encore 1 semaine » : rappel de préparer la facture
 
     static readonly string[] MoisNoms =
     { "Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre" };
 
     // Délai (jours avant l'échéance) à partir duquel une ligne passe « À faire ».
-    // Diagramme : Loyer = 15 j avant l'envoi + 1 semaine = 22 j avant l'échéance ;
+    // Loyer = la date d'envoi (J-15), plus une semaine pour préparer la facture ;
     // Régul / Dépôt = à la date elle-même (pas d'anticipation dans le suivi ;
     // l'anticipation « à préparer » est portée par FacturationAlertes).
     public static int Lead(string type)
     {
         switch (type)
         {
-            case "Loyer": return 22;
+            case "Loyer": return EnvoiAvantJours + RappelAvantEnvoiJours;   // 22 j
             default: return 0;         // Régul / Dépôt / Refac : à la date d'échéance
         }
     }
@@ -62,11 +65,9 @@ public static class FacturationSuivi
         // Loyers : une ligne par PÉRIODE de l'année (suit la périodicité du loyer :
         // mensuel → 12 lignes, trimestriel → 4, etc.).
         int n = NbPeriodes(loc.periodiciteLoyer);
-        int jour = loc.jourDemandeLoyer > 0 ? loc.jourDemandeLoyer : 1;
         for (int p = 1; p <= n; p++)
         {
-            int mois = MoisEcheance(loc.periodiciteLoyer, p);
-            var ech = new DateTime(year, mois, Mathf.Clamp(jour, 1, DateTime.DaysInMonth(year, mois)));
+            var ech = EcheanceLoyer(loc, year, p);
             res.Add(Fusion(stored, $"loyer-{year}-P{p}", "Loyer",
                 $"Loyer {PeriodeLibelle(loc.periodiciteLoyer, p, year)}", ech, 0f));
         }
@@ -157,11 +158,15 @@ public static class FacturationSuivi
         if (s == "Impaye") return Etat.Impaye;
         if (s == "Cloture") return Etat.Cloture;   // période reprise (historique)
 
-        if (s == "Envoye" || s == "AttenteEnvoi")
+        // En attente d'envoi : le PDF existe, rien n'est parti. Cet état ne se
+        // périme pas — il ne devient « Envoyé » que par un envoi réel ou un forçage
+        // manuel, et surtout PAS « Impayé » : on ne peut pas reprocher un impayé à
+        // qui n'a jamais reçu sa facture. L'oubli est rattrapé par l'alerte, qui
+        // reste allumée tant que la facture n'est pas partie (voir DejaTraite).
+        if (s == "AttenteEnvoi") return Etat.AttenteEnvoi;
+
+        if (s == "Envoye")
         {
-            // En attente d'envoi : loyer préparé tôt, envoyé (état) auto 15 j avant l'échéance.
-            if (s == "AttenteEnvoi" && hasEch && today < ech.AddDays(-EnvoiAvantJours))
-                return Etat.AttenteEnvoi;
             // Envoyé → Impayé 15 j après l'échéance si non réglé.
             if (hasEch && today >= ech.AddDays(ImpayeApresEcheanceJours))
                 return Etat.Impaye;
@@ -193,9 +198,12 @@ public static class FacturationSuivi
 
     // ── Écriture ────────────────────────────────────────────────────────────────
 
-    // Passe la ligne « Envoyé » (à la génération d'une facture).
+    /// Enregistre une facture générée. `envoyeReellement` = le document est
+    /// effectivement parti (email accepté par le serveur) ; sinon la ligne reste
+    /// « En attente d'envoi », PDF prêt mais rien d'expédié.
     public static void MarquerEnvoye(Locataire loc, string key, string type, string libelle,
-        string echeanceISO, string numero, string pdfPath, float montant, string ribId, string ribNom)
+        string echeanceISO, string numero, string pdfPath, float montant, string ribId, string ribNom,
+        bool envoyeReellement)
     {
         if (loc == null || string.IsNullOrEmpty(key)) return;
         if (loc.facturesEtat == null) loc.facturesEtat = new List<FactureEtat>();
@@ -219,11 +227,17 @@ public static class FacturationSuivi
         rec.ribId = ribId; rec.ribNom = ribNom;
         rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
 
-        // Diagramme : un loyer préparé plus de 15 j avant l'échéance passe « En
-        // attente d'envoi » (envoyé auto — état seulement — à J-15) ; sinon « Envoyé ».
-        bool loyerTot = type == "Loyer" && TryEcheance(echeanceISO, out var ech)
-                        && DateTime.Today < ech.AddDays(-EnvoiAvantJours);
-        rec.statut = loyerTot ? "AttenteEnvoi" : "Envoye";
+        // « Envoyé » veut dire envoyé. Le statut suit le FAIT, plus le calendrier :
+        // une facture dont le PDF est généré mais que rien n'a fait partir reste « En
+        // attente d'envoi », aussi longtemps qu'il le faut.
+        //
+        // Avant, le statut se déduisait de la date (préparée à plus de 15 j → « en
+        // attente », sinon « envoyée ») et `EtatDe` basculait ensuite tout seul à
+        // J-15. Le suivi affichait donc « Envoyé » pour des factures qui n'étaient
+        // jamais parties — y compris quand l'envoi email n'était même pas activé.
+        // L'utilisatrice garde la main : le menu de la pastille permet de forcer
+        // « Envoyé » quand la facture est partie autrement (Pennylane, courrier).
+        rec.statut = envoyeReellement ? "Envoye" : "AttenteEnvoi";
     }
 
     // Vrai si la ligne `key` correspond à une facture DÉJÀ ÉMISE (PDF généré, numéro
@@ -276,7 +290,8 @@ public static class FacturationSuivi
         rec.pdfPath = DossiersDonnees.VersRelatif(pdfPath);
         if (montant > 0f) rec.montant = montant;
         rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
-        if (string.IsNullOrEmpty(rec.statut)) rec.statut = "Envoye";
+        // Corriger ne fait rien partir : une ligne sans statut est prête, pas envoyée.
+        if (string.IsNullOrEmpty(rec.statut)) rec.statut = "AttenteEnvoi";
         return rec.corrections;
     }
 
@@ -387,14 +402,21 @@ public static class FacturationSuivi
         return res;
     }
 
-    // Vrai si la ligne `key` a déjà été traitée (envoyée / impayée / payée) → l'alerte
-    // « à faire » correspondante peut s'éteindre.
+    /// Vrai si la ligne `key` a déjà été traitée (envoyée / impayée / payée) →
+    /// l'alerte « à faire » correspondante peut s'éteindre.
+    ///
+    /// « En attente d'envoi » n'est PAS traité : le PDF est prêt, mais la facture
+    /// n'est pas partie — c'est même le moment où le rappel est le plus utile. Éteindre
+    /// l'alerte là aurait rendu l'oubli silencieux, et c'est bien ce qui se passait.
+    ///
+    /// À ne pas confondre avec `EstDejaEmise`, qui protège du double numéro : pour
+    /// elle, « en attente d'envoi » compte bel et bien comme émise (le PDF existe, le
+    /// numéro est consommé). Deux questions différentes, deux réponses différentes.
     public static bool DejaTraite(Locataire loc, string key)
     {
         var rec = loc?.facturesEtat?.FirstOrDefault(x => x.key == key);
         if (rec == null) return false;
-        return rec.statut == "Envoye" || rec.statut == "AttenteEnvoi"
-            || rec.statut == "Impaye" || rec.statut == "Paye";
+        return rec.statut == "Envoye" || rec.statut == "Impaye" || rec.statut == "Paye";
     }
 
     // Index de période (1..N) d'un mois, selon la périodicité (inverse de MoisEcheance).
@@ -407,6 +429,61 @@ public static class FacturationSuivi
             case Periodicite.Annuel:      return 1;
             default:                      return month; // mensuel
         }
+    }
+
+    /// Échéance d'une période de loyer : le jour où le loyer est demandé
+    /// (`jourDemandeLoyer`, « le X »), posé sur le mois d'échéance de la période.
+    /// Le jour est borné à la longueur réelle du mois — « le 31 » en février tombe
+    /// le 28 ou le 29, et non le 3 mars.
+    ///
+    /// Publique parce que le panneau de facture doit proposer EXACTEMENT cette date :
+    /// il proposait « date de facture + 30 jours », une échéance que le suivi ne
+    /// reconnaissait pas, alors que la règle vivait déjà ici.
+    public static DateTime EcheanceLoyer(Locataire loc, int year, int periode)
+    {
+        int jour = loc != null && loc.jourDemandeLoyer > 0 ? loc.jourDemandeLoyer : 1;
+        int mois = MoisEcheance(loc, periode);
+        return new DateTime(year, mois, Mathf.Clamp(jour, 1, DateTime.DaysInMonth(year, mois)));
+    }
+
+    /// Mois d'échéance d'une période, pour CE locataire : les mois qu'on a cochés
+    /// dans la révision de loyer (`moisFacturationLoyer`) s'ils existent, sinon le
+    /// calendrier standard de la périodicité.
+    ///
+    /// Les mois cochés étaient respectés par les alertes et ignorés par le suivi :
+    /// sur un bail trimestriel facturé en février, l'alerte annonçait le 05/02 et le
+    /// tableau affichait le 05/01 — deux dates pour un même loyer.
+    /// Sans objet en mensuel (les douze mois sont facturés de toute façon).
+    public static int MoisEcheance(Locataire loc, int periode)
+    {
+        var p = loc != null ? loc.periodiciteLoyer : Periodicite.mensuel;
+        var choisis = MoisChoisis(loc);
+        if (choisis != null)
+            return choisis[Mathf.Clamp(periode - 1, 0, choisis.Count - 1)];
+        return MoisEcheance(p, periode);
+    }
+
+    /// Les mois de facturation cochés, triés et filtrés — ou null s'il n'y a rien à
+    /// suivre (bail mensuel, liste vide, valeurs hors 1-12).
+    static List<int> MoisChoisis(Locataire loc)
+    {
+        if (loc == null || loc.periodiciteLoyer == Periodicite.mensuel) return null;
+        if (loc.moisFacturationLoyer == null || loc.moisFacturationLoyer.Count == 0) return null;
+        var tries = loc.moisFacturationLoyer.Where(m => m >= 1 && m <= 12).Distinct().OrderBy(m => m).ToList();
+        return tries.Count > 0 ? tries : null;
+    }
+
+    /// Numéro de période correspondant à un mois, pour CE locataire — l'inverse de
+    /// `MoisEcheance`, donc il doit suivre les mêmes mois cochés.
+    public static int PeriodeIndex(Locataire loc, int month)
+    {
+        var choisis = MoisChoisis(loc);
+        if (choisis != null)
+        {
+            int i = choisis.IndexOf(month);
+            if (i >= 0) return i + 1;
+        }
+        return PeriodeIndex(loc != null ? loc.periodiciteLoyer : Periodicite.mensuel, month);
     }
 
     static int MoisEcheance(Periodicite p, int periode)

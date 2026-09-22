@@ -250,8 +250,14 @@ public class FacturationSuiviPanel : MonoBehaviour
             }));
 
         // Loyer payé sur bail NON commercial → possibilité d'émettre la quittance de loyer.
+        // L'état « Payé » peut être forcé à la main sur une ligne JAMAIS émise : sans le
+        // contrôle numéro + PDF, on éditait une quittance (un reçu) pour une facture
+        // qui n'existe pas. Garde présente dans LocataireSuiviInline, absente ici — la
+        // ligne étant construite en double, les deux copies avaient divergé.
+        bool reellementEmise = !string.IsNullOrEmpty(l.numero) && !string.IsNullOrEmpty(l.pdfPath);
         if (etat == FacturationSuivi.Etat.Paye && l.type == "Loyer"
-            && !Locataire.EstBailCommercial(_loc.typeDeBail))
+            && !Locataire.EstBailCommercial(_loc.typeDeBail)
+            && reellementEmise)
             MiniBtn(act.transform, "Quittance", () => FactureQuittanceService.Emettre(_fiche, _loc, l));
     }
 

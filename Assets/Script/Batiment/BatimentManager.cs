@@ -53,6 +53,13 @@ public class BatimentManager : MonoBehaviour
 
         // L'application démarre sur le menu général (Home)
         menuManager.OpenGeneralMenu();
+
+        // Factures prêtes dont la date d'envoi est atteinte : on propose de les
+        // envoyer maintenant. Après OpenGeneralMenu, pour que la fenêtre s'affiche
+        // par-dessus l'écran d'accueil et non l'inverse. Ne demande rien s'il n'y a
+        // rien à envoyer, si l'email n'est pas configuré, ou si c'est déjà reporté
+        // pour aujourd'hui.
+        FactureEnvoiAuto.ProposerAuDemarrage(BatimentPrefab);
     }
 
     // Racine utilisée par le dernier LoadAll. La sauvegarde de fermeture ne doit pas

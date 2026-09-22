@@ -639,7 +639,7 @@ public class FactureRegulPanel : MonoBehaviour
         // « Sauvegarder et envoyer », il faut le dire, sinon on attend un mail en vain.
         if (R.modeEnvoi != ModeEnvoi.Email)
         {
-            Finaliser(d, year, key, emission, correction, pdf,
+            Finaliser(d, year, key, emission, correction, pdf, false,
                 "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
             return;
         }
@@ -700,12 +700,12 @@ public class FactureRegulPanel : MonoBehaviour
             yield break;
         }
 
-        Finaliser(d, year, key, emission, correction, pdf, $" et envoyée à {dest}");
+        Finaliser(d, year, key, emission, correction, pdf, true, $" et envoyée à {dest}");
     }
 
     /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après succès).
     void Finaliser(FacturePdfService.RegulData d, int year, string key,
-                   FactureEmission.Decision emission, bool correction, string pdf,
+                   FactureEmission.Decision emission, bool correction, string pdf, bool envoye,
                    string suffixeMessage = "")
     {
         // Les charges régularisées passent « en attente de paiement », PAS « payé » :
@@ -716,7 +716,7 @@ public class FactureRegulPanel : MonoBehaviour
 
         string message = FactureEmission.Enregistrer(_loc, key, "Regul", emission,
             d.subtitle, _loc.factureRegul?.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
-            _loc.factureRegul, "Régularisation",
+            _loc.factureRegul, "Régularisation", envoye,
             "Régularisation enregistrée (PDF) · charges en attente de paiement.");
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();   // persiste locataire + charges

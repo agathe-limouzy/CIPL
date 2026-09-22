@@ -60,10 +60,14 @@ public static class FactureEmission
     /// `messagePremiereEmission` permet à un panneau de garder sa formulation propre
     /// (« charges passées en payé », « le dépôt n'a pas été modifié »…). Laissé vide,
     /// un message générique est renvoyé.
+    /// `envoyeReellement` : le document est parti (email accepté par le serveur).
+    /// Sinon la ligne reste « En attente d'envoi » — le suivi ne doit jamais annoncer
+    /// un envoi qui n'a pas eu lieu.
     public static string Enregistrer(Locataire loc, string key, string type, Decision decision,
                                      string libelle, string echeanceISO, string pdfPath,
                                      float montant, string ribId, FactureInfo info,
-                                     string nomLisible, string messagePremiereEmission = null)
+                                     string nomLisible, bool envoyeReellement,
+                                     string messagePremiereEmission = null)
     {
         if (decision.Correction)
         {
@@ -72,7 +76,8 @@ public static class FactureEmission
         }
 
         FacturationSuivi.MarquerEnvoye(loc, key, type, libelle, echeanceISO,
-                                       decision.NumeroFacture, pdfPath, montant, ribId, RibNom(ribId));
+                                       decision.NumeroFacture, pdfPath, montant, ribId, RibNom(ribId),
+                                       envoyeReellement);
 
         // Numéro consommé : la séquence (unique par locataire, tous types) avance, et
         // l'ID saisi est oublié pour que la prochaine ouverture propose le suivant.
@@ -80,7 +85,7 @@ public static class FactureEmission
         if (info != null) info.numeroId = "";
 
         return string.IsNullOrEmpty(messagePremiereEmission)
-            ? $"{nomLisible} enregistrée (PDF). Envoi réel non activé — rien n'a été émis."
+            ? $"{nomLisible} enregistrée (PDF). Rien n'a été envoyé : la ligne reste « en attente d'envoi »."
             : messagePremiereEmission;
     }
 

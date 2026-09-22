@@ -5870,6 +5870,7 @@ MonoBehaviour:
   depotDeGarantieTxt: {fileID: 5061318930735137754}
   "tauxDeRentabilit\xE9": {fileID: 2967119179790051930}
   loyerSummary: {fileID: 3358712361546358292}
+  suiviRowPrefab: {fileID: 7181620289740387169, guid: 02c30246d6300f847b7c317a4958e575, type: 3}
   bailFile: {fileID: 2985802343814417948}
   badgeBail: {fileID: 5654696070091117364}
   badgeBailTxt: {fileID: 6835933335703274120}

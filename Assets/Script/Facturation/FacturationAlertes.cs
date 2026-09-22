@@ -20,8 +20,10 @@ public static class FacturationAlertes
         public AlerteType type;
     }
 
-    const int LoyerEnvoiAvant   = 15;   // loyer envoyé 15 j avant l'échéance
-    const int LoyerAttentionLead = 7;   // attention 1 semaine avant la date d'envoi
+    // Le calendrier du loyer vit dans FacturationSuivi : le redéclarer ici a déjà
+    // laissé les deux écrans annoncer des dates différentes.
+    const int LoyerEnvoiAvant    = FacturationSuivi.EnvoiAvantJours;     // envoi 15 j avant l'échéance
+    const int LoyerAttentionLead = FacturationSuivi.RappelAvantEnvoiJours; // + 1 semaine pour préparer
     const int RegulAttentionLead = 7;   // régularisation : 1 semaine avant
     const int DepotAttentionLead = 15;  // dépôt : 15 j avant
 
@@ -34,7 +36,7 @@ public static class FacturationAlertes
         // ── Loyer ──
         var e = ProchaineEcheanceLoyer(loc, today);
         if (e.HasValue && !AvantReprise(loc, e.Value) && !FacturationSuivi.DejaTraite(loc,
-                $"loyer-{e.Value.Year}-P{FacturationSuivi.PeriodeIndex(loc.periodiciteLoyer, e.Value.Month)}"))
+                $"loyer-{e.Value.Year}-P{FacturationSuivi.PeriodeIndex(loc, e.Value.Month)}"))
         {
             DateTime E = e.Value, envoi = E.AddDays(-LoyerEnvoiAvant);
             if (today >= envoi)
@@ -87,24 +89,23 @@ public static class FacturationAlertes
     /// Vrai si au moins une alerte URGENTE (pour la pastille d'onglet).
     public static bool AUrgent(Locataire loc) => Pour(loc).Any(a => a.niveau == Niveau.Urgent);
 
-    // Prochaine échéance de loyer : jour de demande, sur les mois facturés
-    // (tous les mois si mensuel / non défini).
+    /// Prochaine échéance de loyer, calculée par `FacturationSuivi.EcheanceLoyer` —
+    /// la MÊME règle que le tableau de suivi, et non plus une seconde implémentation.
+    ///
+    /// Les deux divergeaient sur deux points, tous deux corrigés :
+    /// • le jour non renseigné faisait abandonner l'alerte (`return null`), alors que
+    ///   le suivi affichait quand même les lignes — des loyers à échéance sans aucun
+    ///   rappel pour les accompagner ;
+    /// • les mois de facturation cochés étaient suivis ici et ignorés là-bas, ce qui
+    ///   donnait deux dates différentes pour un même loyer trimestriel.
     static DateTime? ProchaineEcheanceLoyer(Locataire loc, DateTime today)
     {
-        if (loc.jourDemandeLoyer <= 0) return null;
-        int jour = Mathf.Clamp(loc.jourDemandeLoyer, 1, 31);
-        List<int> mois = (loc.periodiciteLoyer == Periodicite.mensuel
-                          || loc.moisFacturationLoyer == null || loc.moisFacturationLoyer.Count == 0)
-            ? Enumerable.Range(1, 12).ToList()
-            : loc.moisFacturationLoyer;
-
+        int n = FacturationSuivi.NbPeriodes(loc.periodiciteLoyer);
         DateTime best = DateTime.MaxValue;
         for (int y = today.Year; y <= today.Year + 1; y++)
-            foreach (int m in mois)
+            for (int p = 1; p <= n; p++)
             {
-                if (m < 1 || m > 12) continue;
-                int day = Mathf.Min(jour, DateTime.DaysInMonth(y, m));
-                var dt = new DateTime(y, m, day);
+                var dt = FacturationSuivi.EcheanceLoyer(loc, y, p);
                 if (dt >= today && dt < best) best = dt;
             }
         return best == DateTime.MaxValue ? (DateTime?)null : best;

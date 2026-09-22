@@ -27,6 +27,12 @@ public class LocatairePrefab : PrefabBatLoc
     [Header("Loyer")]
     public LoyerSummaryUI loyerSummary;
 
+    // Ligne du tableau de suivi de facturation. Elle est portée ici parce que les deux
+    // vues du suivi sont créées par code (AddComponent / new GameObject) et ne peuvent
+    // donc pas recevoir de référence par l'inspecteur ; la fiche, elle, est un prefab.
+    [Header("Facturation")]
+    public GameObject suiviRowPrefab;
+
     [Header("Bail")]
     public BailFileUI bailFile;
     public GameObject badgeBail;     // pastille "Renouvellement à prévoir" / "Bail expiré"
@@ -197,7 +203,7 @@ public class LocatairePrefab : PrefabBatLoc
             telephoneLocataireTxt.ApplySave(newLocataire.telephoneLocataire);
             mapController.ApplySave(newLocataire.adresseLocataire);
             lotBatimentTxt.ApplySave(newLocataire.lotBatiment.ToString());
-            tailleLotTxt.ApplySave(newLocataire.tailleLot.ToString());
+            tailleLotTxt.ApplySave(batimentPrefabOrigin.TailleLotEffective(newLocataire).ToString());
             typedeBailDropDown.value = (int)newLocataire.typeDeBail;
             typedeBailDropDown.interactable = false;
 
@@ -350,15 +356,15 @@ public class LocatairePrefab : PrefabBatLoc
 
         SaveCorrectlyInt(ref locataire.lotBatiment, lotBatimentTxt.GetNewSave());
 
-        if (batimentPrefabOrigin.listLocataire.Count > 1)
-        {
-            SaveCorrectlyFloat(ref locataire.tailleLot, tailleLotTxt.GetNewSave());
-            batimentPrefabOrigin.RefreshTailleBatiment();
-        }
-        else
-        {
-            tailleLotTxt.ApplySave(batimentPrefabOrigin.GetTailleBatiment().ToString());
-        }
+        // Surface du lot : toujours saisissable. Si la valeur rendue est encore
+        // celle qui était proposée (le disponible du bâtiment), on la laisse « non
+        // définie » (0) — ainsi elle continue de suivre le bâtiment quand un autre
+        // locataire prend sa part, au lieu de figer un chiffre jamais choisi.
+        float saisie = locataire.tailleLot;
+        SaveCorrectlyFloat(ref saisie, tailleLotTxt.GetNewSave());
+        float propose = batimentPrefabOrigin.TailleLotDisponible(locataire);
+        locataire.tailleLot = Mathf.Abs(saisie - propose) < 0.01f ? 0f : saisie;
+        batimentPrefabOrigin.RefreshTailleBatiment();
 
         locataire.typeDeBail = (BailType)typedeBailDropDown.value;
         typedeBailDropDown.interactable = false;
@@ -398,8 +404,10 @@ public class LocatairePrefab : PrefabBatLoc
         telephoneLocataireTxt.Modify();
         mapController.Modify();
         lotBatimentTxt.Modify();
-        if (batimentPrefabOrigin.listLocataire.Count > 1)
-            tailleLotTxt.Modify();
+        // Toujours saisissable, pré-rempli avec le disponible : le lot du premier
+        // locataire était imposé, donc impossible à réduire quand un second arrivait.
+        tailleLotTxt.ApplyValue(batimentPrefabOrigin.TailleLotEffective(GetLocataire()).ToString());
+        tailleLotTxt.Modify();
         typedeBailDropDown.interactable = true;
         dateDebutBail.ModifyDate();
         dateFinBail.ModifyDate();

@@ -70,6 +70,21 @@ public class Locataire : Data
     public FactureInfo factureRegul;   // régularisation des charges
     public FactureInfo factureRefac;   // refacturation d'une charge
     public FactureInfo factureDepot;   // révision du dépôt de garantie (facture du complément)
+
+    /// Le réglage de facture correspondant à un type du suivi (« Loyer », « Regul »,
+    /// « Refac », « Depot »). Null si le type est inconnu ou le réglage jamais saisi.
+    public FactureInfo FactureInfoDe(string type)
+    {
+        switch (type)
+        {
+            case "Loyer": return factureLoyer;
+            case "Regul": return factureRegul;
+            case "Refac": return factureRefac;
+            case "Depot": return factureDepot;
+            default: return null;
+        }
+    }
+
     // Séquence de numérotation des factures (unique par locataire, tous types).
     public int factureSeq = 1;
     // Suivi des états de facturation (lignes générées / envoyées / payées / forcées).

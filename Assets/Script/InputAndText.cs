@@ -19,6 +19,15 @@ public class InputAndText : MonoBehaviour
     private void Awake()
     {
         EnsureInit();
+        // Dans les prefabs, le texte ET le champ de saisie sont actifs tous les deux
+        // (vérifié : les 14 champs du bâtiment, les 11 du locataire). L'affichage
+        // correct ne tenait donc qu'à un appel de Modify()/ApplySave() quelque part —
+        // et tout champ qu'aucun de ces appels n'atteint montrait la valeur DEUX fois,
+        // une en texte et une en saisie. Cas vécu : « Taille Batiment », que Modify()
+        // sautait dès qu'il y avait plus d'un locataire.
+        // L'état de repos est donc posé ici, une fois pour toutes : lecture seule.
+        if (inputModify != null) inputModify.gameObject.SetActive(false);
+        if (textSaved != null) textSaved.gameObject.SetActive(true);
     }
 
     // Awake ne tourne pas si l'objet est instancié sous un parent inactif :

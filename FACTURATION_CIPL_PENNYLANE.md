@@ -335,6 +335,80 @@ Syntaxiquement valide : **aucun avertissement du compilateur**.
 
 **Leçon** : un attribut mal placé ne casse rien de visible. Ni la compilation, ni les tests d'alors, ni l'usage immédiat — seule la relecture du fichier révélait la perte. La sérialisation d'un modèle mérite son test, au même titre qu'une règle métier.
 
+### L'échéance du loyer suit le jour de demande (2026-09-22)
+
+Le panneau Loyer proposait une échéance à **date de facture + 30 jours**. Le suivi, lui, calcule l'échéance d'une période avec `loc.jourDemandeLoyer` — « le loyer est demandé le X ». La facture imprimée et sa ligne de suivi portaient donc deux dates différentes, et la phrase « SOMME À NOUS RÉGLER LE … », qui découle de l'échéance, annonçait une date arbitraire.
+
+La règle est désormais unique : `FacturationSuivi.EcheanceLoyer(loc, année, période)` — le jour de demande posé sur le mois d'échéance de la période, borné à la longueur réelle du mois (« le 31 » en février tombe le 28, ou le 29 en année bissextile). Le suivi et le panneau l'appellent tous les deux. L'échéance proposée se recalcule au changement de période ou d'année, tant qu'elle n'a pas été saisie à la main ; une échéance mémorisée sur une facture déjà réglée est respectée.
+
+Les trois autres panneaux (Régularisation, Refacturation, Dépôt) gardent le défaut à +30 jours : ils ne facturent pas une période récurrente, il n'y a pas de « jour de demande » à suivre.
+
+### Envoi groupé proposé au lancement (2026-09-22)
+
+Corollaire direct du point précédent : maintenant qu'une facture reste « en attente d'envoi » tant qu'elle n'est pas partie, l'application sait exactement ce qui doit partir. `FactureEnvoiAuto` le propose au démarrage, après le chargement des bâtiments (`BatimentManager.Start`).
+
+**Ce qui est proposé** — une ligne est retenue si elle réunit les cinq conditions : statut « en attente d'envoi » · date d'envoi atteinte (échéance − 15 j, la même règle que l'alerte URGENT) · PDF présent sur le disque · destinataire connu (`FactureInfo.emailDest`, sinon l'adresse de la fiche) · échéance lisible. Les **retards sont rattrapés** : l'application doit être ouverte pour que quoi que ce soit parte, ne pas rattraper donnerait le pire des deux mondes — ni rappel, ni envoi.
+
+**Ce qui n'est pas fait** : *rien ne part tout seul*. Un envoi ne se rappelle pas, donc la fenêtre liste les factures (locataire · bâtiment · libellé · destinataire · montant), chaque ligne se décoche, et « Plus tard » est toujours disponible. Une seconde confirmation récapitule le nombre exact et les destinataires avant le départ. C'est le choix de l'utilisatrice (22/09) face à un envoi réellement automatique : le travail manuel disparaît, la relecture non.
+
+**Pendant l'envoi** : en série, une facture après l'autre. Chaque succès marque la ligne « Envoyé » et **sauvegarde immédiatement** — si l'application s'arrête au milieu, ce qui est parti reste marqué parti. Un échec laisse la ligne en attente, elle repassera au lancement suivant ; le bilan indique le nombre d'envois et la dernière erreur.
+
+Le statut est mis à jour **directement** (`statut = "Envoye"`), sans repasser par `FactureEmission` : le PDF existe et le numéro est déjà consommé, il n'y a rien à réémettre — y passer prendrait une nouvelle séquence.
+
+**Garde-fous** : ne demande rien si l'email n'est pas configuré (`EmailService.CeQuiManque`), ni si l'envoi a été reporté le jour même — relancer l'application dix fois ne doit pas poser dix questions (mémorisé en `PlayerPrefs`, c'est un confort d'écran propre au poste, pas une donnée métier).
+
+**Limites connues** : l'application doit être lancée pour que l'envoi soit proposé · seul l'email existe (aucun appel à l'API Pennylane dans le code) · l'adresse `@cipl.fr` reste bloquée côté Microsoft 365, l'envoi part donc du compte configuré.
+
+### « Envoyé » veut dire envoyé (2026-09-22)
+
+Le statut d'une facture se déduisait de la **date**, pas du fait : une facture préparée à plus de 15 j de l'échéance était « En attente d'envoi », et `EtatDe` la basculait ensuite toute seule en « Envoyé » à J‑15. Le suivi annonçait donc des envois qui n'avaient jamais eu lieu — y compris quand l'envoi par email n'était même pas activé, cas où le panneau affichait pourtant « rien n'a été émis ».
+
+Désormais le statut suit le fait : `FacturationSuivi.MarquerEnvoye(..., envoyeReellement)` et `FactureEmission.Enregistrer(..., envoyeReellement)` reçoivent l'information des quatre panneaux, qui la connaissent déjà — ils distinguent depuis septembre le chemin « PDF seul » du chemin « envoi réussi » (`EnvoyerPuisFinaliser` n'enregistre qu'après acquittement du serveur).
+
+| Situation | Statut |
+|---|---|
+| PDF généré, envoi non demandé ou email non configuré | **En attente d'envoi** |
+| PDF généré, envoi email accepté par le serveur | **Envoyé** |
+| Envoi échoué | rien n'est enregistré (inchangé) : même numéro, même PDF au prochain essai |
+| Facture partie autrement (Pennylane, courrier) | l'utilisatrice force « Envoyé » par la pastille du suivi |
+
+Trois conséquences, toutes voulues :
+
+- **« En attente d'envoi » ne se périme plus.** L'état ne devient « Envoyé » que par un envoi réel ou un forçage manuel.
+- **Une facture jamais envoyée ne devient jamais « Impayée ».** On ne peut pas reprocher un impayé à qui n'a pas reçu sa facture.
+- **L'alerte reste allumée tant que la facture n'est pas partie** : `DejaTraite` ne compte plus « En attente d'envoi » comme traité — c'est même le moment où le rappel est le plus utile. À ne pas confondre avec `EstDejaEmise` (garde anti-double-numéro), pour qui « en attente d'envoi » compte toujours comme émise : le PDF existe et le numéro est consommé. Deux questions différentes, deux réponses différentes — H2‑bis reste couvert par ses tests.
+
+Au passage, le calendrier (15 j d'envoi, +1 semaine de préparation) était écrit **trois fois** : dans `FacturationSuivi`, dans `FacturationAlertes`, et une troisième fois en dur dans `Lead("Loyer") = 22`. Une seule source désormais : `EnvoiAvantJours` et `RappelAvantEnvoiJours`, dont `Lead` est la somme.
+
+### Calendrier du loyer : une seule règle, du rappel à l'impayé (2026-09-22)
+
+Règle confirmée par l'utilisatrice, et désormais portée par un seul calcul :
+
+| Moment | Ce qui se passe | Constante |
+|---|---|---|
+| **J‑22** (15 j + 1 semaine) | la ligne passe « À faire » et l'alerte « Loyer à préparer : envoi attendu avant le … » s'affiche | `Lead("Loyer") = 22`, `LoyerAttentionLead = 7` |
+| **J‑15** | alerte URGENT « à envoyer avant le … » — c'est la date d'envoi par mail ou Pennylane ; une facture préparée d'avance passe de « En attente d'envoi » à « Envoyé » | `LoyerEnvoiAvant` / `EnvoiAvantJours = 15` |
+| **J** | échéance = le « loyer demandé le X » (`jourDemandeLoyer`) | — |
+| **J+15** | « Impayé » si non réglé | `ImpayeApresEcheanceJours = 15` |
+
+Le mécanisme existait déjà ; deux défauts l'empêchaient de fonctionner dans des cas réels, tous deux nés de la **même règle écrite à deux endroits** (le suivi et les alertes) :
+
+- **Aucun rappel quand le jour de demande n'était pas renseigné.** `ProchaineEcheanceLoyer` abandonnait (`return null`), alors que le suivi plaçait l'échéance au 1er du mois : des loyers à échéance s'affichaient dans le tableau sans qu'aucune alerte ne les accompagne — précisément sur les fiches au réglage incomplet, les plus exposées à l'oubli.
+- **Les mois de facturation cochés étaient ignorés par le suivi.** `moisFacturationLoyer` est saisi dans la révision de loyer (cases des 12 mois) et affiché dans le résumé, mais `FacturationSuivi` imposait le calendrier standard : janvier/avril/juillet/octobre pour un trimestriel. Sur un bail facturé en février/mai/août/novembre, l'alerte annonçait le 05/02 et le tableau le 05/01.
+
+Les mois cochés commandent désormais les échéances (`FacturationSuivi.MoisEcheance(loc, période)`, triés, dédoublonnés, bornés à 1‑12), et `PeriodeIndex(loc, mois)` en est l'inverse exact — sans quoi la clé `loyer-{année}-P{n}` des alertes ne désignerait plus la ligne du suivi. Les alertes, la période proposée à l'ouverture du panneau Loyer et la période de reprise passent toutes par ce calcul. **Sans objet en mensuel** : les douze mois sont facturés de toute façon.
+
+*Décision prise avec l'utilisatrice le 22/09* : les mois cochés font foi. Conséquence assumée — sur les baux non mensuels, l'échéance des loyers **non encore facturés** se déplace vers les mois choisis ; les factures déjà émises conservent l'échéance enregistrée sur leur PDF.
+
+### Le suivi de facturation se met à jour sans quitter l'application (2026-09-22)
+
+Sur une fiche fraîchement créée, le tableau de suivi restait vide jusqu'au redémarrage. Deux causes :
+
+- la section est construite **avant** que le locataire entre dans `listLocataire` : le bandeau se masquait, et rien ne le rallumait — le locataire n'était jamais relu ;
+- régler le **loyer** (`RevisionPanel`) ou le **dépôt** (pop-up de révision) ne rafraîchissait rien : seuls les panneaux de facture appelaient `RefreshFor`, alors que ces deux réglages décident du contenu du suivi (montants, et la ligne « Révision du dépôt de garantie » n'apparaît que si `depotDeGarantie > 0` avec une date de révision).
+
+`LocataireSuiviInline.RefreshTous()` est maintenant appelée depuis `BatimentPrefab.SaveAfterModifyToDoListLocataire()`, point de passage unique des 18 chemins qui modifient un locataire — donc tout enregistrement met le suivi à jour, quel que soit l'écran d'où il vient.
+
 ### Héritage du réglage de facture : une chaîne de locataire en locataire (2026-09-18)
 
 **Le problème** : créer un second locataire obligeait à re-régler les quatre types de facture un par un — RIB, modèle d'entête, format du numéro, cases à cocher — alors que ces choix ne dépendent pas du locataire. `FactureInfo` n'étant créé qu'au premier enregistrement (`_loc.factureX ?? new FactureInfo()`), un locataire neuf repartait systématiquement des valeurs d'usine.
@@ -518,6 +592,8 @@ Machine à états cible fournie par l'utilisatrice (schéma). Depuis `Ouverture 
 - **Impayé → « rappel d'échéance »** ✅ (2026-09-12) : bouton **« Rappel »** sur les lignes Impayé des deux vues du suivi (`LocataireSuiviInline` + `FacturationSuiviPanel`, colonne Actions élargie à 280). `FactureRappelService.Demander` ouvre une **confirmation** (`ConfirmDialog`) puis un **brouillon email `mailto:`** pré-rempli (sujet + corps reprenant libellé/n°/montant/échéance + `ReglageData.phraseRetard` + signature `smtp.fromName`) vers `loc.emailLocataire` → **aucun envoi automatique**, l'utilisatrice valide dans sa messagerie (même principe que `ContactLink`). Date mémorisée : `FactureEtat.dernierRappelISO` via `FacturationSuivi.MarquerRappel` (sur l'enregistrement **stocké**, pas la copie `Fusion`).
 
 - **Payé (bail non commercial) → quittance de loyer** ✅ (2026-09-12) : sur une ligne **loyer Payé** dont le bail n'est **pas commercial**, bouton **« Quittance »** (2 vues du suivi) → `FactureQuittanceService.Emettre` génère un **PDF de quittance de loyer** en local (nouveau template `StreamingAssets/quittance_template.html`, style maison, via `FacturePdfService.GenerateQuittancePdf`) puis l'ouvre. Classement commercial/non commercial : `Locataire.EstBailCommercial` (commercial = Bail9ans/Bail10ans/Commercial369/9Ferme/Dérogatoire ; le reste = non commercial → quittance). Montant = TTC payé ; période déduite du libellé ; désignation = bâtiment + lot. Aucune émission réelle.
+
+  **Garde ajoutée le 21/09** : le bouton n'apparaît que si la facture est **réellement émise** — numéro **et** PDF non vides. L'état « Payé » peut être forcé à la main sur une ligne jamais émise ; sans ce contrôle on éditait une quittance, donc un reçu de paiement, pour une facture qui n'existe pas. La garde existait dans `LocataireSuiviInline` et **manquait** dans `FacturationSuiviPanel` : les deux vues construisaient la ligne chacune de leur côté et avaient divergé. Trouvé en passant cette ligne en prefab commun (`SuiviFactureRow`), qui a mis les deux copies côte à côte.
 
 **Reste à faire pour coller au diagramme** :
 - *Corrigée(X)* : étendre Régul/Refac/Dépôt (helpers déjà prêts, aujourd'hui câblé loyer).

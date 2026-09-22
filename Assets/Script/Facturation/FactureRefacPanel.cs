@@ -515,7 +515,7 @@ public class FactureRefacPanel : MonoBehaviour
         // « Sauvegarder et envoyer », il faut le dire, sinon on attend un mail en vain.
         if (R.modeEnvoi != ModeEnvoi.Email)
         {
-            Finaliser(d, charge, key, emission, correction, pdf,
+            Finaliser(d, charge, key, emission, correction, pdf, false,
                 "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
             return;
         }
@@ -577,12 +577,12 @@ public class FactureRefacPanel : MonoBehaviour
             yield break;
         }
 
-        Finaliser(d, charge, key, emission, correction, pdf, $" et envoyée à {dest}");
+        Finaliser(d, charge, key, emission, correction, pdf, true, $" et envoyée à {dest}");
     }
 
     /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après succès).
     void Finaliser(FacturePdfService.Data d, ChargeBatiment charge, string key,
-                   FactureEmission.Decision emission, bool correction, string pdf,
+                   FactureEmission.Decision emission, bool correction, string pdf, bool envoye,
                    string suffixeMessage = "")
     {
         // La charge refacturée passe « en attente de paiement », PAS « payé » : la
@@ -592,7 +592,7 @@ public class FactureRefacPanel : MonoBehaviour
 
         string message = FactureEmission.Enregistrer(_loc, key, "Refac", emission,
             d.subtitle, _loc.factureRefac?.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
-            _loc.factureRefac, "Refacturation",
+            _loc.factureRefac, "Refacturation", envoye,
             "Refacturation enregistrée (PDF) · charge en attente de paiement.");
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();

@@ -19,7 +19,7 @@ public class FactureEmissionTests
         var d = FactureEmission.Preparer(loc, Key, "2026/09001");
         FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
             echeance ?? Iso(-2), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1",
-            loc.factureRegul, "Régularisation");
+            loc.factureRegul, "Régularisation", true);
         return loc;
     }
 
@@ -55,7 +55,7 @@ public class FactureEmissionTests
         // Cette fois l'envoi réussit → le panneau enregistre, et là seulement.
         FactureEmission.Enregistrer(loc, Key, "Regul", second, "Régularisation 2026",
             Iso(30), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1",
-            loc.factureRegul, "Régularisation");
+            loc.factureRegul, "Régularisation", true);
 
         Assert.That(loc.factureSeq, Is.EqualTo(seqAvant + 1), "un seul numéro consommé, au succès");
         Assert.That(FacturationSuivi.EstDejaEmise(loc, Key, out _), Is.True);
@@ -88,7 +88,7 @@ public class FactureEmissionTests
 
         var d = FactureEmission.Preparer(loc, Key, "2026/09001");
         FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
-            Iso(30), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1", f, "Régularisation");
+            Iso(30), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1", f, "Régularisation", true);
 
         Assert.That(f.ribId, Is.EqualTo("rib-bnp"));
         Assert.That(f.enteteId, Is.EqualTo("entete-trimestriel"));
@@ -124,7 +124,7 @@ public class FactureEmissionTests
 
         FactureEmission.Enregistrer(loc, Key, "Regul", decision, "Régularisation 2026",
             Iso(-2), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1",
-            loc.factureRegul, "Régularisation");
+            loc.factureRegul, "Régularisation", true);
 
         Assert.That(loc.factureSeq, Is.EqualTo(seqAvant + 1), "la séquence avance");
         Assert.That(loc.factureRegul.numeroId, Is.Empty, "l'ID saisi est oublié");
@@ -149,7 +149,7 @@ public class FactureEmissionTests
 
         FactureEmission.Enregistrer(loc, Key, "Regul", decision, "Régularisation 2026",
             Iso(-2), "Batiment/X/Dupont/Facture/regul-corrigee1.pdf", 1250f, "rib1",
-            loc.factureRegul, "Régularisation");
+            loc.factureRegul, "Régularisation", true);
 
         Assert.That(loc.factureSeq, Is.EqualTo(seqApresPremiere), "AUCUNE séquence consommée");
         Assert.That(loc.facturesEtat.Find(x => x.key == Key).numero, Is.EqualTo("2026/09001"),
@@ -168,7 +168,7 @@ public class FactureEmissionTests
             Assert.That(d.SuffixeFichier, Is.EqualTo($"-corrigee{attendu}"));
             FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
                 Iso(-2), $"Batiment/X/Dupont/Facture/regul-c{attendu}.pdf", 1200f, "rib1",
-                loc.factureRegul, "Régularisation");
+                loc.factureRegul, "Régularisation", true);
         }
 
         Assert.That(loc.factureSeq, Is.EqualTo(2), "une seule séquence consommée en tout");
@@ -192,7 +192,7 @@ public class FactureEmissionTests
 
         string message = FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
             Iso(-2), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1", loc.factureRegul,
-            "Régularisation", "Régularisation enregistrée · charges passées en payé.");
+            "Régularisation", true, "Régularisation enregistrée · charges passées en payé.");
 
         Assert.That(message, Is.EqualTo("Régularisation enregistrée · charges passées en payé."));
     }
@@ -246,7 +246,7 @@ public class FactureEmissionTests
 
         string message = FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
             Iso(-2), "Batiment/X/Dupont/Facture/regul-c1.pdf", 1200f, "rib1", loc.factureRegul,
-            "Régularisation");
+            "Régularisation", true);
 
         Assert.That(message, Does.Contain("corrigée (1)"));
     }

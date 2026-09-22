@@ -676,7 +676,7 @@ public class RevisionPanel : MonoBehaviour
             }
         string sel = "";
         if (DateTime.TryParse(_loc.repriseFacturationISO, out var rd))
-            sel = $"{rd.Year}-P{FacturationSuivi.PeriodeIndex(p, rd.Month)}";
+            sel = $"{rd.Year}-P{FacturationSuivi.PeriodeIndex(_loc, rd.Month)}";
         _repriseDD.SetOptions(labels, ids, sel);
     }
 

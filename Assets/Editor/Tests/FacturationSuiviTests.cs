@@ -13,7 +13,8 @@ public class FacturationSuiviTests
     static string Iso(int joursDepuisAujourdhui)
         => DateTime.Today.AddDays(joursDepuisAujourdhui).ToString("yyyy-MM-dd");
 
-    static Locataire LocataireAvecFactureEmise(string echeanceISO, string statutForce = null)
+    static Locataire LocataireAvecFactureEmise(string echeanceISO, string statutForce = null,
+                                               bool envoye = true)
     {
         var loc = new Locataire();
         // Chemin SOUS la racine courante : c'est la condition pour qu'il soit
@@ -21,7 +22,7 @@ public class FacturationSuiviTests
         string pdf = System.IO.Path.Combine(
             DossiersDonnees.DossierFactures("Test", "Dupont"), "loyer.pdf");
         FacturationSuivi.MarquerEnvoye(loc, Key, "Loyer", "Loyer 3e trimestre 2026",
-            echeanceISO, "2026/09001", pdf, 3000f, "rib1", "Banque");
+            echeanceISO, "2026/09001", pdf, 3000f, "rib1", "Banque", envoye);
         if (statutForce != null) loc.facturesEtat.Find(x => x.key == Key).statut = statutForce;
         return loc;
     }
@@ -38,10 +39,10 @@ public class FacturationSuiviTests
     [Test]
     public void Un_loyer_prepare_en_avance_est_detecte_comme_deja_emis()
     {
-        // Cas NORMAL du panneau Loyer : préparé plus de 15 j avant l'échéance, donc
-        // « En attente d'envoi ». Il échappait à la garde : un second clic consommait
-        // une nouvelle séquence ET écrasait le PDF déjà généré.
-        var loc = LocataireAvecFactureEmise(Iso(60));
+        // Cas NORMAL du panneau Loyer : PDF généré, rien d'envoyé, donc « En attente
+        // d'envoi ». Il échappait à la garde : un second clic consommait une nouvelle
+        // séquence ET écrasait le PDF déjà généré.
+        var loc = LocataireAvecFactureEmise(Iso(60), envoye: false);
         var rec = loc.facturesEtat.Find(x => x.key == Key);
 
         Assert.That(rec.statut, Is.EqualTo("AttenteEnvoi"), "pré-requis du scénario");
@@ -61,7 +62,7 @@ public class FacturationSuiviTests
     public void Une_ligne_sans_PDF_n_est_pas_une_emission()
     {
         var loc = new Locataire();
-        FacturationSuivi.MarquerEnvoye(loc, Key, "Loyer", "Loyer", Iso(-5), "", "", 0f, "", "");
+        FacturationSuivi.MarquerEnvoye(loc, Key, "Loyer", "Loyer", Iso(-5), "", "", 0f, "", "", true);
         Assert.That(FacturationSuivi.EstDejaEmise(loc, Key, out _), Is.False);
     }
 
@@ -95,7 +96,7 @@ public class FacturationSuiviTests
     public void Corriger_un_loyer_non_encore_envoye_le_laisse_en_attente()
     {
         // Le passer à « Envoyé » afficherait un envoi qui n'a pas eu lieu.
-        var loc = LocataireAvecFactureEmise(Iso(60));
+        var loc = LocataireAvecFactureEmise(Iso(60), envoye: false);
         FacturationSuivi.MarquerCorrige(loc, Key, "Loyer", @"C:\x\corrigee.pdf", 3100f);
         var rec = loc.facturesEtat.Find(x => x.key == Key);
 
@@ -109,6 +110,74 @@ public class FacturationSuiviTests
         var loc = LocataireAvecFactureEmise(Iso(-90), statutForce: "Paye");
         FacturationSuivi.MarquerCorrige(loc, Key, "Loyer", @"C:\x\corrigee.pdf", 3050f);
         Assert.That(loc.facturesEtat.Find(x => x.key == Key).statut, Is.EqualTo("Paye"));
+    }
+
+    // ── « Envoyé » veut dire envoyé (22/09/2026) ────────────────────────────
+    //
+    // Le statut se déduisait de la date : une facture préparée à plus de 15 j de
+    // l'échéance était « en attente », puis `EtatDe` la basculait toute seule à J-15.
+    // Le suivi annonçait donc des envois qui n'avaient jamais eu lieu — y compris
+    // quand l'envoi par email n'était même pas activé.
+
+    [Test]
+    public void Une_facture_generee_sans_envoi_reste_en_attente_d_envoi()
+    {
+        var loc = LocataireAvecFactureEmise(Iso(60), envoye: false);
+        var rec = loc.facturesEtat.Find(x => x.key == Key);
+        Assert.That(rec.statut, Is.EqualTo("AttenteEnvoi"));
+        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
+    }
+
+    [Test]
+    public void Une_facture_non_envoyee_ne_devient_pas_envoyee_avec_le_temps()
+    {
+        // Échéance dans 5 jours : la date d'envoi (J-15) est dépassée sans que rien
+        // ne soit parti. C'est précisément le cas qui affichait « Envoyé » à tort.
+        var loc = LocataireAvecFactureEmise(Iso(5), envoye: false);
+        var rec = loc.facturesEtat.Find(x => x.key == Key);
+        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
+    }
+
+    [Test]
+    public void Une_facture_jamais_envoyee_ne_devient_pas_impayee()
+    {
+        // On ne peut pas reprocher un impayé à qui n'a jamais reçu sa facture.
+        var loc = LocataireAvecFactureEmise(Iso(-40), envoye: false);
+        var rec = loc.facturesEtat.Find(x => x.key == Key);
+        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
+    }
+
+    [Test]
+    public void Une_facture_non_envoyee_garde_son_alerte_allumee()
+    {
+        // Le filet contre l'oubli : tant que rien n'est parti, le rappel reste.
+        var loc = LocataireAvecFactureEmise(Iso(5), envoye: false);
+        Assert.That(FacturationSuivi.DejaTraite(loc, Key), Is.False);
+
+        // …mais elle compte toujours comme émise : le numéro est consommé, un second
+        // clic ne doit pas en prendre un autre (non-régression H2-bis).
+        Assert.That(FacturationSuivi.EstDejaEmise(loc, Key, out _), Is.True);
+    }
+
+    [Test]
+    public void Un_envoi_reel_marque_la_facture_envoyee()
+    {
+        var loc = LocataireAvecFactureEmise(Iso(60), envoye: true);
+        var rec = loc.facturesEtat.Find(x => x.key == Key);
+        Assert.That(rec.statut, Is.EqualTo("Envoye"));
+        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.Envoye));
+        Assert.That(FacturationSuivi.DejaTraite(loc, Key), Is.True, "l'alerte peut s'éteindre");
+    }
+
+    [Test]
+    public void L_utilisatrice_peut_forcer_Envoye_a_la_main()
+    {
+        // Soupape indispensable : la facture peut partir autrement (Pennylane,
+        // courrier, remise en main propre). Le menu de la pastille doit suffire.
+        var loc = LocataireAvecFactureEmise(Iso(5), envoye: false);
+        loc.facturesEtat.Find(x => x.key == Key).statut = "Envoye";
+        var rec = loc.facturesEtat.Find(x => x.key == Key);
+        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.Envoye));
     }
 
     // ── H3 : l'échéance décide de l'impayé ──────────────────────────────────
