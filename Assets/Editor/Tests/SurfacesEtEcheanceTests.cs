@@ -165,6 +165,34 @@ public class SurfacesEtEcheanceTests
         Assert.That(FacturationSuivi.Lignes(loc, 2026).FindAll(l => l.type == "Loyer"), Has.Count.EqualTo(12));
     }
 
+    /// L'échéance appartient à la facture d'UNE période, pas au réglage du type.
+    ///
+    /// Constaté à l'usage : une échéance saisie une fois (21/10) était mémorisée dans
+    /// `FactureInfo.dateEcheanceISO` — un réglage partagé par les douze périodes — et
+    /// se réimposait ensuite à chaque nouvelle facture, écrasant le jour de demande du
+    /// locataire. Sephora, facturée le 8, se voyait proposer le 21.
+    [Test]
+    public void Le_reglage_du_type_ne_porte_pas_l_echeance_d_une_periode()
+    {
+        var loc = Bail(8, Periodicite.mensuel);
+        loc.factureLoyer = new FactureInfo { dateEcheanceISO = "2026-10-21" };
+
+        // La règle ne consulte que le locataire et la période : l'échéance mémorisée
+        // sur le réglage n'a aucune prise dessus.
+        Assert.That(FacturationSuivi.EcheanceLoyer(loc, 2026, 10), Is.EqualTo(new DateTime(2026, 10, 8)));
+    }
+
+    /// Corollaire : la date d'envoi en découle. Avec le 8 octobre, le loyer part le
+    /// 23 septembre — et non le 6 octobre, qui correspondait à la mauvaise échéance.
+    [Test]
+    public void La_date_d_envoi_suit_l_echeance_de_la_periode()
+    {
+        var loc = Bail(8, Periodicite.mensuel);
+        var ech = FacturationSuivi.EcheanceLoyer(loc, 2026, 10);
+        Assert.That(FacturationSuivi.DateEnvoi("Loyer", ech.ToString("yyyy-MM-dd")),
+                    Is.EqualTo(new DateTime(2026, 9, 23)));
+    }
+
     /// La règle du suivi et celle du panneau de facture doivent être la MÊME : c'est
     /// tout l'objet de l'extraction. Si les lignes du suivi cessaient de passer par
     /// EcheanceLoyer, ce test le verrait.

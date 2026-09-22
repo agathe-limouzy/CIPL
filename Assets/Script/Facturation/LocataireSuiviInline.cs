@@ -277,12 +277,19 @@ public class LocataireSuiviInline : MonoBehaviour
             a.Add(("PDF", () => Application.OpenURL("file:///" + pdfAbs.Replace("\\", "/"))));
             // Facture déjà émise → « Corriger » (crée une version corrigée, même numéro) ;
             // sinon « Refaire » (regénère). Correction câblée pour le loyer.
+            // La ligne est TOUJOURS transmise : elle désigne la période à ouvrir.
+            // Sans elle, « Refaire » ouvrait le panneau sur la dernière période
+            // mémorisée — on croyait refaire mars et on éditait avril.
+            // Correction ou simple remplacement, c'est FactureEmission.Preparer qui
+            // tranche, d'après le statut réel de la facture.
             bool corrigeable = l.type == "Loyer"
                 && (etat == FacturationSuivi.Etat.Envoye || etat == FacturationSuivi.Etat.Impaye);
-            a.Add((corrigeable ? "Corriger" : "Refaire",
-                () => OuvrirGeneration(l.type, corrigeable ? l : null)));
+            a.Add((corrigeable ? "Corriger" : "Refaire", () => OuvrirGeneration(l.type, l)));
         }
-        else a.Add(("Générer", () => OuvrirGeneration(l.type, null)));
+        // La ligne désigne la période à ouvrir : cliquer « Générer » sur le loyer
+        // d'octobre doit ouvrir le panneau sur octobre, et non sur la dernière
+        // période éditée.
+        else a.Add(("Générer", () => OuvrirGeneration(l.type, l)));
 
         // Facture impayée → option « rappel d'échéance » (brouillon email manuel).
         if (etat == FacturationSuivi.Etat.Impaye)
@@ -353,13 +360,15 @@ public class LocataireSuiviInline : MonoBehaviour
         b.onClick.AddListener(() => onClick());
     }
 
-    void OuvrirGeneration(string type, FactureEtat correctionTarget = null)
+    void OuvrirGeneration(string type, FactureEtat ligneCiblee = null)
     {
         switch (type)
         {
-            case "Loyer": FactureLoyerPanel.OpenLoyer(_fiche, correctionTarget); break;
-            case "Regul": FactureRegulPanel.OpenRegul(_fiche); break;
-            case "Refac": FactureRefacPanel.OpenRefac(_fiche); break;
+            case "Loyer": FactureLoyerPanel.OpenLoyer(_fiche, ligneCiblee); break;
+            case "Regul": FactureRegulPanel.OpenRegul(_fiche, ligneCiblee); break;
+            case "Refac": FactureRefacPanel.OpenRefac(_fiche, ligneCiblee); break;
+            // Le dépôt n'a rien à cibler : son année vient de la date de révision de
+            // la fiche, il n'y a pas de sélecteur dans le panneau.
             case "Depot": FactureDepotPanel.OpenDepot(_fiche); break;
         }
     }

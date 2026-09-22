@@ -34,7 +34,7 @@ public class FactureLoyerPanel : MonoBehaviour
     static List<string> NumFmtIds => FactureNumerotation.Ids;
 
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
-    FactureEtat _correctionTarget;   // ligne du suivi à corriger (ouverture via « Corriger »)
+    FactureEtat _ligneCiblee;   // ligne du suivi cliquée : elle désigne la période à ouvrir
 
     TMP_Text _titre, _entetePreview, _modeInfo, _mTotalHT, _mTVA, _mTTC, _numeroPrefixe;
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _annee, _refInterne, _sommePhrase, _loyer, _provision, _emailEnvoi;
@@ -45,6 +45,7 @@ public class FactureLoyerPanel : MonoBehaviour
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     string _autoEcheance;// dernière échéance proposée (suivie tant qu'elle n'est pas saisie à la main)
     Toggle _tvaDebit, _retard, _mensuel;
+    Button _btnSauver;   // libellé variable : « … et envoyer » ou « … pour l'envoi du JJ/MM »
 
     // Aperçu de la facture rendue (image à droite du formulaire).
     RawImage _previewImg;
@@ -66,10 +67,14 @@ public class FactureLoyerPanel : MonoBehaviour
 
     public static void OpenLoyer(LocatairePrefab fiche) => OpenLoyer(fiche, null);
 
-    // `correctionTarget` != null : ouverture via « Corriger » sur une facture déjà
-    // émise → on force la période sur la ligne visée et la sauvegarde crée une
-    // version « corrigée(X) » (même numéro).
-    public static void OpenLoyer(LocatairePrefab fiche, FactureEtat correctionTarget)
+    // `ligneCiblee` : la ligne du suivi sur laquelle on a cliqué, quel que soit le
+    // bouton (Générer / Refaire / Corriger). Elle sert à OUVRIR LA BONNE PÉRIODE —
+    // sans elle, le panneau retombait sur la dernière période éditée, et on refaisait
+    // avril en croyant refaire mars.
+    //
+    // Ce que devient la facture (nouvelle, remplacée ou corrigée) ne se décide PAS
+    // ici : FactureEmission.Preparer tranche d'après le statut réel de la ligne.
+    public static void OpenLoyer(LocatairePrefab fiche, FactureEtat ligneCiblee)
     {
         if (fiche == null) return;
         if (Instance == null)
@@ -80,37 +85,47 @@ public class FactureLoyerPanel : MonoBehaviour
             go.transform.SetParent(canvas.rootCanvas.transform, false);
             go.AddComponent<FactureLoyerPanel>();
         }
-        Instance.OpenFor(fiche, correctionTarget);
+        Instance.OpenFor(fiche, ligneCiblee);
     }
 
-    void OpenFor(LocatairePrefab fiche, FactureEtat correctionTarget = null)
+    void OpenFor(LocatairePrefab fiche, FactureEtat ligneCiblee = null)
     {
         _fiche = fiche;
         _loc = fiche.GetLocataire();
         _bat = fiche.batimentPrefabOrigin != null ? fiche.batimentPrefabOrigin.getBatiment() : null;
-        _correctionTarget = correctionTarget;
+        _ligneCiblee = ligneCiblee;
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
         ResetPreview();   // pas d'aperçu du locataire précédent
         LoadIntoUI();
-        ApplyCorrectionTarget();
+        AppliquerLigneCiblee();
     }
 
-    // Force la période/année du formulaire sur la ligne à corriger (clé « loyer-{Y}-P{P} »).
-    void ApplyCorrectionTarget()
+    // Force la période/année du formulaire sur la ligne cliquée (clé « loyer-{Y}-P{P} »).
+    void AppliquerLigneCiblee()
     {
-        _titre.text = _correctionTarget != null
+        // « Correction » ne vaut que pour une facture RÉELLEMENT partie : sur une
+        // facture seulement préparée, on la remplace. La ligne, elle, est transmise
+        // dans les deux cas — c'est elle qui désigne la période à ouvrir.
+        bool partie = _ligneCiblee != null
+            && (_ligneCiblee.statut == "Envoye" || _ligneCiblee.statut == "Impaye"
+             || _ligneCiblee.statut == "Paye");
+        _titre.text = partie
             ? "Information Facture — Loyer (correction)"
             : "Information Facture — Loyer";
-        if (_correctionTarget == null || string.IsNullOrEmpty(_correctionTarget.key)) return;
+        if (_ligneCiblee == null || string.IsNullOrEmpty(_ligneCiblee.key)) return;
 
-        var parts = _correctionTarget.key.Split('-');   // ["loyer","2026","P3"]
+        var parts = _ligneCiblee.key.Split('-');   // ["loyer","2026","P3"]
         if (parts.Length >= 3 && int.TryParse(parts[1], out int y))
         {
             _annee.text = y.ToString();
             string p = parts[2].TrimStart('P', 'p');
             var (plabels, pids) = PeriodeOptions(_loc.periodiciteLoyer);
             _periodeDD.SetOptions(plabels, pids, p);
+            // La période vient de changer : l'échéance et la phrase de règlement en
+            // dépendent, et le bouton annonce la date d'envoi qui en découle. Sans ce
+            // rappel, le panneau gardait l'échéance de la période précédente.
+            RefreshEcheanceDefault();
             RefreshNumero(); RefreshMontants(); RefreshEntetePreview();
         }
     }
@@ -242,7 +257,7 @@ public class FactureLoyerPanel : MonoBehaviour
         // libellé de l'échéance — elle ne servait qu'à compenser l'éloignement.
         var p = UIFactory.Section(content, "Règlement", CoReglement, CoReglementL);
         _echeance = Labeled(p, "Date d'échéance");
-        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
+        _echeance.onValueChanged.AddListener(_ => { RefreshSommeDefault(); RefreshBoutonSauver(); });
         _sommePhrase = Labeled(p, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
         SlashAutocomplete.Attach(_sommePhrase);
         UIFactory.Text(p.transform, "RIB CIPL", 16, UITheme.TexteSecondaire);
@@ -323,10 +338,11 @@ public class FactureLoyerPanel : MonoBehaviour
         ZoomBtn(zbar.transform, "Ajuster", () => _viewer.Fit(), 84);
         ZoomBtn(zbar.transform, "+", () => _viewer.ZoomBy(1.25f));
 
-        // Bouton « Sauvegarder et envoyer » sous l'aperçu.
-        var save = UIFactory.Button(right.transform, "Sauvegarder et envoyer", Hex("#854F0B"), Color.white, 46, 20);
-        UIFactory.LE(save.gameObject, minH: 56, flexH: 0);
-        save.onClick.AddListener(SauvegarderEtEnvoyer);
+        // Bouton principal. Son libellé suit la date d'échéance : avant la date
+        // d'envoi, il annonce le jour du départ au lieu de promettre un envoi immédiat.
+        _btnSauver = UIFactory.Button(right.transform, "Sauvegarder et envoyer", Hex("#854F0B"), Color.white, 46, 20);
+        UIFactory.LE(_btnSauver.gameObject, minH: 56, flexH: 0);
+        _btnSauver.onClick.AddListener(SauvegarderEtEnvoyer);
     }
 
     // Construit les données de la facture (au visuel réel) depuis l'UI courante.
@@ -418,6 +434,17 @@ public class FactureLoyerPanel : MonoBehaviour
         string png = Path.Combine(dir, "apercu.png");
         if (FacturePdfService.GeneratePreviewPng(d, png, out _)) ShowPreview(png);
 
+        // Avant la date d'envoi, RIEN ne part : la facture est préparée et attendra
+        // son jour, où elle sera proposée au lancement de l'application. Un loyer
+        // expédié un mois trop tôt ne se rappelle pas, et le calendrier existe
+        // précisément pour ça.
+        var dateEnvoi = FacturationSuivi.DateEnvoi("Loyer", fl.dateEcheanceISO);
+        if (dateEnvoi.HasValue && DateTime.Today < dateEnvoi.Value)
+        {
+            PreparerPourEnvoi(d, key, emission, correction, pdf, dateEnvoi.Value);
+            return;
+        }
+
         // Pas d'envoi demandé : on enregistre comme avant, rien ne part. Le bouton
         // s'appelant « Sauvegarder et envoyer », il faut le DIRE — sinon on croit
         // légitimement qu'un mail est parti et on attend sa réception.
@@ -464,6 +491,32 @@ public class FactureLoyerPanel : MonoBehaviour
             + "Le message part immédiatement et ne pourra pas être rappelé.",
             () => StartCoroutine(EnvoyerPuisFinaliser(d, key, emission, correction, pdf, dest, objet, corps)),
             "Envoyer");
+    }
+
+    /// Facture préparée avant sa date d'envoi : le PDF est généré, la ligne passe « en
+    /// attente d'envoi », et le départ se fera le jour dit. Le panneau l'annonce — une
+    /// facture qu'on croit partie et qui dort est pire qu'un envoi manuel.
+    void PreparerPourEnvoi(FacturePdfService.Data d, string key, FactureEmission.Decision emission,
+                           bool correction, string pdf, DateTime dateEnvoi)
+    {
+        TryDate(_echeance.text, out var ech);
+        string quand = dateEnvoi.ToString("dddd d MMMM yyyy", FacturePdfService.FrCulture);
+        string detail =
+            $"Cette facture sera envoyée le {quand}, soit "
+            + $"{FacturationSuivi.EnvoiAvantJours} jours avant son échéance du {ech:dd/MM/yyyy}.\n\n"
+            + "Elle est enregistrée dès maintenant et reste « en attente d'envoi ». "
+            + "L'application vous la proposera au lancement, le jour venu.\n\n"
+            + "Pour l'envoyer tout de suite malgré tout, avancez la date d'échéance ou "
+            + "utilisez le bouton « Corriger » depuis le suivi le jour de l'envoi.";
+
+        void Enregistrer() => Finaliser(d, key, emission, correction, pdf, false,
+            $"  Elle partira le {dateEnvoi:dd/MM/yyyy}.");
+
+        if (ConfirmDialog.Instance != null)
+            ConfirmDialog.Instance.Show("Facture prête pour l'envoi différé", detail,
+                Enregistrer, "Enregistrer");
+        else
+            Enregistrer();
     }
 
     /// Envoie, attend le résultat, et n'enregistre QUE si le message est parti.
@@ -513,7 +566,7 @@ public class FactureLoyerPanel : MonoBehaviour
 
         if (correction)
         {
-            _correctionTarget = null;
+            _ligneCiblee = null;
             _titre.text = "Information Facture — Loyer";
         }
         else
@@ -640,8 +693,12 @@ public class FactureLoyerPanel : MonoBehaviour
         // L'échéance — et la phrase de règlement qu'elle alimente — sont posées PLUS
         // BAS, après le sélecteur de période : le loyer est dû au jour de demande de
         // la période facturée, donc la période doit être connue d'abord.
-        string echeanceMemorisee = f != null && DateTime.TryParse(f.dateEcheanceISO, out var de)
-            ? de.ToString("dd/MM/yyyy") : null;
+        // NOTE : `f.dateEcheanceISO` n'est PAS lu ici. C'est le réglage du type de
+        // facture, donc partagé par toutes les périodes : une échéance saisie une fois
+        // (par exemple le 21/10) se réimposait ensuite à chaque nouvelle période, en
+        // écrasant le jour de demande du locataire. L'échéance appartient à la facture
+        // d'UNE période — DefaultEcheance va la chercher sur sa ligne de suivi, ou la
+        // calcule. Le champ reste écrit à la sauvegarde pour les anciens réglages.
 
         // Format du n° de facture (dropdown) : mémorisé, défaut AMN (Année/Mois-Numéro).
         string fmt = f != null && !string.IsNullOrEmpty(f.numeroFormat) ? f.numeroFormat : "AMN";
@@ -661,7 +718,7 @@ public class FactureLoyerPanel : MonoBehaviour
         // FacturationSuivi.EcheanceLoyer. Elle se recalcule ensuite à chaque
         // changement de période ou d'année, tant qu'elle n'a pas été saisie à la main.
         _autoEcheance = DefaultEcheance();
-        _echeance.text = !string.IsNullOrEmpty(echeanceMemorisee) ? echeanceMemorisee : _autoEcheance;
+        _echeance.text = _autoEcheance;
         // Phrase de règlement : mémorisée si personnalisée, sinon défaut basé sur l'échéance.
         _autoSomme = DefaultSomme();
         _sommePhrase.text = !string.IsNullOrEmpty(f?.sommePhrase) ? f.sommePhrase : _autoSomme;
@@ -807,7 +864,21 @@ public class FactureLoyerPanel : MonoBehaviour
         int periode = 1;
         if (_periodeDD != null) int.TryParse(_periodeDD.SelectedId, out periode);
         if (periode < 1) periode = 1;
-        return FacturationSuivi.EcheanceLoyer(_loc, PeriodeAnnee(), periode).ToString("dd/MM/yyyy");
+        int annee = PeriodeAnnee();
+
+        // Une facture RÉELLEMENT PARTIE porte sa propre échéance : celle imprimée sur
+        // le PDF qu'a reçu le locataire. On ne la recalcule pas.
+        //
+        // Une facture seulement préparée, elle, se recalcule : rien n'a été imprimé
+        // pour personne. C'est ce qui rattrape les lignes polluées par l'échéance
+        // mémorisée — un « Loyer Mars 2026 » qu'on retrouvait à échéance du 17 octobre.
+        var ligne = _loc?.facturesEtat?.FirstOrDefault(x => x.key == $"loyer-{annee}-P{periode}");
+        bool partie = ligne != null && (ligne.statut == "Envoye" || ligne.statut == "Impaye"
+                                     || ligne.statut == "Paye");
+        if (partie && FacturationSuivi.TryEcheance(ligne.echeanceISO, out var dech))
+            return dech.ToString("dd/MM/yyyy");
+
+        return FacturationSuivi.EcheanceLoyer(_loc, annee, periode).ToString("dd/MM/yyyy");
     }
 
     // L'échéance suit la période tant qu'elle n'a pas été saisie à la main — même
@@ -818,6 +889,28 @@ public class FactureLoyerPanel : MonoBehaviour
         string def = DefaultEcheance();
         if (_echeance.text == _autoEcheance) _echeance.text = def;   // déclenche RefreshSommeDefault
         _autoEcheance = def;
+        RefreshBoutonSauver();
+    }
+
+    // Date d'envoi de la facture en cours de saisie, d'après l'échéance affichée.
+    DateTime? DateEnvoiSaisie()
+        => TryDate(_echeance != null ? _echeance.text : "", out var ech)
+            ? FacturationSuivi.DateEnvoi("Loyer", ech.ToString("yyyy-MM-dd"))
+            : null;
+
+    // Le bouton dit ce qu'il va faire. Il promettait un envoi immédiat même à un mois
+    // de la date d'envoi — on cliquait alors « et envoyer » en croyant préparer, et le
+    // locataire recevait sa facture bien trop tôt, sans retour possible.
+    void RefreshBoutonSauver()
+    {
+        if (_btnSauver == null) return;
+        var t = _btnSauver.GetComponentInChildren<TMP_Text>(true);
+        if (t == null) return;
+        var envoi = DateEnvoiSaisie();
+        bool enAvance = envoi.HasValue && DateTime.Today < envoi.Value;
+        t.text = enAvance
+            ? $"Enregistrer pour l'envoi du {envoi.Value:dd/MM}"
+            : "Sauvegarder et envoyer";
     }
 
     // La phrase suit l'échéance tant qu'elle n'a pas été personnalisée.

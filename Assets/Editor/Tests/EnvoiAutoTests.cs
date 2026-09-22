@@ -93,6 +93,94 @@ public class EnvoiAutoTests
         Assert.That(Part(Loc(), rec), Is.False);
     }
 
+    // ── Date d'envoi : le panneau n'expédie pas en avance ───────────────────────
+    //
+    // Le bouton « Sauvegarder et envoyer » expédiait sur-le-champ, quelle que soit la
+    // date : préparer une facture un mois à l'avance l'envoyait un mois à l'avance, et
+    // un loyer parti trop tôt ne se rappelle pas.
+
+    [Test]
+    public void La_date_d_envoi_d_un_loyer_est_quinze_jours_avant_l_echeance()
+    {
+        var d = FacturationSuivi.DateEnvoi("Loyer", "2026-10-08");
+        Assert.That(d, Is.EqualTo(new DateTime(2026, 9, 23)));
+    }
+
+    [Test]
+    public void Les_autres_types_n_ont_pas_de_date_d_envoi()
+    {
+        // Une régularisation ou une révision de dépôt s'envoie quand on la fait.
+        Assert.That(FacturationSuivi.DateEnvoi("Regul", "2026-10-08"), Is.Null);
+        Assert.That(FacturationSuivi.DateEnvoi("Refac", "2026-10-08"), Is.Null);
+        Assert.That(FacturationSuivi.DateEnvoi("Depot", "2026-10-08"), Is.Null);
+    }
+
+    [Test]
+    public void Une_echeance_illisible_ne_donne_pas_de_date_d_envoi()
+    {
+        Assert.That(FacturationSuivi.DateEnvoi("Loyer", "pas une date"), Is.Null);
+        Assert.That(FacturationSuivi.DateEnvoi("Loyer", ""), Is.Null);
+    }
+
+    [Test]
+    public void Un_loyer_ne_part_pas_avant_sa_date_d_envoi()
+    {
+        // Le cas vécu : échéance au 8 octobre, date d'envoi le 23 septembre.
+        var veille = new DateTime(2026, 9, 22);
+        Assert.That(FacturationSuivi.PeutPartir("Loyer", "2026-10-08", veille), Is.False);
+
+        var jourJ = new DateTime(2026, 9, 23);
+        Assert.That(FacturationSuivi.PeutPartir("Loyer", "2026-10-08", jourJ), Is.True);
+    }
+
+    [Test]
+    public void Un_loyer_en_retard_peut_toujours_partir()
+    {
+        Assert.That(FacturationSuivi.PeutPartir("Loyer", "2026-10-08", new DateTime(2026, 10, 20)),
+                    Is.True, "une facture en retard doit pouvoir partir");
+    }
+
+    [Test]
+    public void Les_types_sans_date_d_envoi_partent_toujours()
+    {
+        Assert.That(FacturationSuivi.PeutPartir("Regul", "2026-10-08", new DateTime(2026, 1, 1)), Is.True);
+        Assert.That(FacturationSuivi.PeutPartir("Loyer", "illisible", new DateTime(2026, 1, 1)), Is.True,
+                    "sans échéance exploitable, on ne peut rien interdire");
+    }
+
+    // ── La ligne cliquée désigne la période à ouvrir ────────────────────────────
+    //
+    // « Générer » et « Refaire » ouvraient le panneau sur la dernière période éditée :
+    // on cliquait sur mars et on modifiait avril. Chaque type lit sa cible dans la
+    // clé de la ligne.
+
+    [Test]
+    public void La_cle_d_une_regularisation_donne_son_annee()
+    {
+        Assert.That(FactureRegulPanel.AnneeDeCle("regul-2025"), Is.EqualTo(2025));
+        Assert.That(FactureRegulPanel.AnneeDeCle("loyer-2026-P3"), Is.Zero, "autre type");
+        Assert.That(FactureRegulPanel.AnneeDeCle("regul-"), Is.Zero);
+        Assert.That(FactureRegulPanel.AnneeDeCle(null), Is.Zero);
+    }
+
+    /// Un identifiant de charge est un GUID : il contient des tirets. Découper la clé
+    /// avec `Split('-')` ne rendrait que « 3f2a », donc une charge introuvable — et le
+    /// panneau retomberait silencieusement sur une autre charge.
+    [Test]
+    public void La_cle_d_une_refacturation_garde_l_identifiant_entier()
+    {
+        const string guid = "3f2a1b4c-8d90-4e11-9a77-0c5e2b6d7f88";
+        Assert.That(FactureRefacPanel.ChargeDeCle("refac-" + guid), Is.EqualTo(guid));
+    }
+
+    [Test]
+    public void Une_cle_d_un_autre_type_ne_designe_aucune_charge()
+    {
+        Assert.That(FactureRefacPanel.ChargeDeCle("depot-2026"), Is.Null);
+        Assert.That(FactureRefacPanel.ChargeDeCle(""), Is.Null);
+        Assert.That(FactureRefacPanel.ChargeDeCle(null), Is.Null);
+    }
+
     // ── Destinataire ────────────────────────────────────────────────────────────
 
     [Test]

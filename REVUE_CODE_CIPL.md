@@ -14,7 +14,7 @@ Chaque finding porte un statut :
 
 Ce document est le **suivi de la revue de code**. Tout ce qui suit a été écrit et compilé ; ce qui a été *réellement exécuté* est listé plus bas, et la distinction compte.
 
-### Où en est le chantier au 22/09 — **156 tests EditMode verts**
+### Où en est le chantier au 22/09 — **174 tests EditMode verts**
 
 Le détail de la facturation est dans `FACTURATION_CIPL_PENNYLANE.md` ; voici l'essentiel pour reprendre.
 
@@ -64,17 +64,38 @@ Correctif : attribut remis sur la classe, commentaire expliquant pourquoi il est
 
 *Même famille que C1/C2/C3 : une perte de données silencieuse. Elle rejoint aussi la leçon de `SaveAll` — compiler ne prouve rien, et ici même les 115 tests d'alors ne prouvaient rien, aucun ne relisant un modèle depuis le disque.*
 
-### Prochaines étapes
+### Prochaines étapes (mise à jour 22/09/2026)
 
-1. Reste à passer en Play : gardes d'avoir (régul/dépôt) · `FermetureGuard` · parcours UI des panneaux · **le nouvel ordre des cartes, maintenant dans les quatre panneaux** et **la phrase de règlement au signe du solde, dès l'ouverture** (17/09, voir les deux sections dédiées). Le rendu de la régularisation est validé ; les trois autres ne le sont pas encore.
-2. À passer en Play également (21/09) : les **textes de facture réglables dans le panneau** — « TVA sur les débits » et « montant mensuel » ont quitté *Options & envoi* pour la carte *Loyer facturé*, sous la ligne qu'ils commandent — et le **menu « / » sur tous les champs libres**, avec les variables réellement résolues. Vérifier qu'aucun `{jeton}` ne ressort sur le PDF ni sur l'aperçu texte.
-3. À passer en Play également : les **phrases de l'explication du dépôt** (17/09, déplacées le 21/09 des Réglages vers la carte « Dépôt de garantie » du panneau Dépôt — les Réglages ne gardent que la phrase de retard et le bas de page, les seuls textes imprimés à l'identique sur les quatre types) et **l'héritage en chaîne des réglages de facture** (18/09) — régler le 1er locataire, créer le 2e et vérifier qu'il arrive déjà réglé, le retoucher, créer le 3e et vérifier qu'il suit le **2e**. Puis créer un **nouveau bâtiment** et vérifier que son 1er locataire reprend le dernier créé de l'autre bâtiment. La logique est couverte par 19 tests ; l'aller-retour par l'écran ne l'est pas.
-   *Première version écartée le 18/09* : un modèle unique au niveau de l'entreprise, écrasé à chaque enregistrement. Il donnait le bon résultat sur l'enchaînement simple, mais pas la règle voulue — la source doit être le dernier locataire **créé**, et la copie appartenir à sa fiche. Machinerie retirée en totalité (`ModeleFacture`, `ReglageService.Modele`/`MemoriserModele`, les replis dans les quatre panneaux) : une seule règle vit dans le code.
-4. À passer en Play (21/09, soir) : **le cycle de vie des charges** — régulariser des charges, vérifier qu'elles passent « en attente de paiement » (ambre) et non « payé », qu'elles disparaissent du choix, puis marquer la facture « Payé » dans le suivi et vérifier qu'elles passent au vert ; la repasser en « Impayé » et vérifier le retour en attente **sans** qu'elles redeviennent sélectionnables.
-5. À passer en Play également : **l'envoi email sur Régularisation, Refacturation et Dépôt** — seul le Loyer a été vu de bout en bout. Tester surtout **l'échec** (mot de passe faux) : PDF présent, ligne non marquée, charges non payées, et un second essai qui reprend le même numéro.
-6. ~~Prefab `SuiviFactureRow`~~ — **fait le 21/09 au soir** (voir la section dédiée). Reste le rendu à voir en Play, et la conversion de la seconde vue après comparaison.
-7. H1, après avis de l'expert-comptable.
-8. ~~Reliquat mineur~~ — **traité le 16/09**, voir la section « Reliquat mineur » plus bas : garde sur `ReloadFromDisk` · arguments Edge · annulation de suppression de photo.
+Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **174 tests EditMode verts**. Ce qui reste se range en trois tas.
+
+#### A. À voir en Play — le seul vrai reste
+
+Aucun de ces points n'est douteux dans le code ; ils demandent l'écran. Par ordre d'intérêt :
+
+1. **Le cycle complet d'un loyer** (22/09, le plus neuf) : préparer une facture en avance → bouton « Enregistrer pour l'envoi du JJ/MM » + panneau annonçant le jour · la ligne reste **ambre** et ne bascule jamais « Envoyé » toute seule · la corriger avant sa date → elle **remplace** la précédente, garde son numéro, perd le « corrigée(X) » · au lancement le jour dit → le récapitulatif d'envoi apparaît, « Tout envoyer » part et marque « Envoyé », « Plus tard » ne redemande pas le même jour.
+2. **La ligne cliquée ouvre la bonne période** (22/09) : « Générer » / « Refaire » sur le loyer d'octobre → panneau sur octobre, échéance au jour de demande · idem sur une régularisation d'une année donnée et une refacturation d'une charge donnée.
+3. **Surfaces** (22/09) : un bâtiment à deux locataires — le lot non défini se réduit quand l'autre prend sa part, la surface du bâtiment ne bouge plus seule, dépassement signalé une fois.
+4. **Le suivi se remplit sans quitter l'application** (22/09) : créer un locataire, régler loyer et dépôt → le tableau apparaît immédiatement.
+5. **Plus aucun champ n'affiche sa valeur en double** (22/09) : vérifier « Taille Batiment » avec plusieurs locataires, et les écrans Achat / Travaux qui avaient le même défaut latent.
+6. **Le rendu du prefab `SuiviFactureRow`** (21/09) : alignement en-tête / lignes, libellé long tronqué, année sans facture, période clôturée sans action — comparer avec la vue plein écran, restée en code.
+7. **L'envoi email sur Régularisation, Refacturation et Dépôt** — seul le Loyer a été vu de bout en bout. Tester surtout **l'échec** (mot de passe faux) : PDF présent, ligne non marquée, charges non payées, second essai qui reprend le même numéro.
+8. **Le cycle de vie des charges** (21/09) : régularisées → « en attente de paiement » (ambre), hors du choix ; facture « Payé » → vert ; retour « Impayé » → attente **sans** redevenir sélectionnables.
+9. **Reliquat des sessions 17–21/09** : gardes d'avoir (régul/dépôt) · `FermetureGuard` · ordre des cartes dans les trois panneaux non encore vus · phrase de règlement au signe du solde dès l'ouverture · textes de facture réglables et menu « / » (aucun `{jeton}` ne doit ressortir sur le PDF) · phrases de l'explication du dépôt · héritage en chaîne des réglages (T1 → T2 → T3, puis nouveau bâtiment).
+
+#### B. À coder — court
+
+1. **Convertir `FacturationSuiviPanel` au prefab `SuiviFactureRow`**, une fois les deux rendus comparés en Play (point A6). C'est ce qui supprimera la dernière copie de la ligne de tableau.
+2. **Puis `FacturationHomeSection`** (48 appels `UIFactory`, écran d'accueil). Ne **pas** convertir `ReglagePanel` ni les 4 panneaux de facture : formulaires construits une seule fois, arbitrage inchangé.
+
+#### C. En attente d'une décision extérieure
+
+1. **H1 — numérotation des factures**, en attente de l'expert-comptable. Deux locataires facturés le même mois peuvent obtenir le même numéro ; le choix entre séquence globale et identifiant stable par locataire engage la conformité (art. 242 nonies A du CGI). Ne pas trancher seul.
+2. **Pennylane** : aucun appel à l'API n'existe dans le code. Tout ce qui est « envoi » passe aujourd'hui par l'email.
+3. **Adresse `@cipl.fr`** : bloquée côté Microsoft 365 (pas de mot de passe d'application, SMTP AUTH désactivé, compte non administrateur). Il faut l'administrateur du locataire, ou un compte OVH — le SPF de `cipl.fr` l'autorise déjà.
+
+#### Traité et clos
+
+~~Prefab `SuiviFactureRow`~~ (21/09) · ~~six défauts trouvés par l'usage~~ (22/09) · ~~envoi groupé au lancement~~ (22/09) · ~~reliquat mineur~~ (16/09).
 
 ### Garde-fous permanents
 
@@ -303,7 +324,7 @@ La règle de sélection est **séparée de l'écran** et l'existence du PDF lui 
 
 #### Vérification
 
-**156 tests EditMode verts** (126 + 30). Les nouveaux (`SurfacesEtEcheanceTests`) couvrent la règle des surfaces avec le scénario exact rapporté et le calcul d'échéance (jour borné à la longueur du mois — « le 31 » en février tombe le 28, ou le 29 en année bissextile — périodicités trimestrielle, semestrielle, annuelle), plus le fait que les lignes du suivi passent bien par la règle extraite.
+**174 tests EditMode verts** (126 + 48). Les nouveaux (`SurfacesEtEcheanceTests`) couvrent la règle des surfaces avec le scénario exact rapporté et le calcul d'échéance (jour borné à la longueur du mois — « le 31 » en février tombe le 28, ou le 29 en année bissextile — périodicités trimestrielle, semestrielle, annuelle), plus le fait que les lignes du suivi passent bien par la règle extraite.
 
 **Les tests mordent** : vérifié par mutation. En remettant l'ancien calcul de surface, trois tests échouent avec le bon message (`Expected: 750, But was: 1250` — le bug rapporté, exactement), puis repassent au vert après restauration.
 

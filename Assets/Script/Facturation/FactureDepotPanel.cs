@@ -635,7 +635,7 @@ public class FactureDepotPanel : MonoBehaviour
         string message = FactureEmission.Enregistrer(_loc, key, "Depot", emission,
             d.subtitle, _loc.factureDepot?.dateEcheanceISO, pdf, d.soldeHT, _ribDD?.SelectedId,
             _loc.factureDepot, "Facture de révision du dépôt", envoye,
-            "Facture de révision du dépôt enregistrée. Le montant du dépôt n'a pas été modifié.");
+            "Facture de révision du dépôt enregistrée (le montant du dépôt n'a pas été modifié)");
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite

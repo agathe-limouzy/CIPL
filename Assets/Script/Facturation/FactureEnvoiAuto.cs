@@ -98,17 +98,68 @@ public class FactureEnvoiAuto : MonoBehaviour
     /// aujourd'hui — relancer l'application dix fois ne doit pas poser dix questions.
     public static void ProposerAuDemarrage(IEnumerable<BatimentPrefab> bps)
     {
-        if (EmailService.CeQuiManque() != null) return;   // pas d'email configuré : on se tait
-        if (ReporteAujourdhui()) return;
+        string manque = EmailService.CeQuiManque();
+        if (manque != null)
+        {
+            Debug.Log("[EnvoiAuto] Rien n'est proposé : " + manque);
+            return;
+        }
+        if (ReporteAujourdhui())
+        {
+            Debug.Log("[EnvoiAuto] Envoi déjà reporté aujourd'hui — rien n'est reproposé.");
+            return;
+        }
 
         var liste = Selection(bps, DateTime.Today);
-        if (liste.Count == 0) return;
+        if (liste.Count == 0)
+        {
+            // Sans ce compte rendu, une fenêtre absente est indiscernable d'une panne :
+            // on ne sait pas si rien n'est dû, ou si quelque chose bloque.
+            Debug.Log("[EnvoiAuto] Aucune facture à envoyer aujourd'hui. " + Diagnostic(bps));
+            return;
+        }
 
         var canvas = UnityEngine.Object.FindObjectOfType<Canvas>();
         if (canvas == null) return;
         var go = new GameObject("FactureEnvoiAuto", typeof(RectTransform));
         go.transform.SetParent(canvas.rootCanvas.transform, false);
         go.AddComponent<FactureEnvoiAuto>().Construire(liste);
+    }
+
+    /// Pourquoi rien n'est proposé : pour chaque facture en attente d'envoi, ce qui la
+    /// retient. Une facture prête mais sans destinataire ou sans PDF dormirait sinon
+    /// sans rien dire — et le plus souvent, sa date d'envoi n'est simplement pas
+    /// encore arrivée.
+    static string Diagnostic(IEnumerable<BatimentPrefab> bps)
+    {
+        var raisons = new List<string>();
+        if (bps == null) return "Aucun bâtiment chargé.";
+        foreach (var bp in bps)
+        {
+            if (bp?.listLocataire == null) continue;
+            foreach (var loc in bp.listLocataire)
+            {
+                if (loc?.facturesEtat == null) continue;
+                foreach (var rec in loc.facturesEtat)
+                {
+                    if (rec.statut != "AttenteEnvoi") continue;
+                    var envoi = FacturationSuivi.DateEnvoi(rec.type, rec.echeanceISO);
+                    string pdf = FacturationSuivi.CheminPdf(rec);
+                    string quoi = $"{loc.Name} / {rec.libelle}";
+                    if (envoi.HasValue && DateTime.Today < envoi.Value)
+                        raisons.Add($"{quoi} : à envoyer le {envoi.Value:dd/MM/yyyy}");
+                    else if (string.IsNullOrEmpty(pdf) || !File.Exists(pdf))
+                        raisons.Add($"{quoi} : PDF introuvable");
+                    else if (string.IsNullOrWhiteSpace(Destinataire(loc, rec.type)))
+                        raisons.Add($"{quoi} : aucune adresse email");
+                    else
+                        raisons.Add($"{quoi} : échéance illisible « {rec.echeanceISO} »");
+                }
+            }
+        }
+        return raisons.Count == 0
+            ? "Aucune facture n'est en attente d'envoi."
+            : "En attente — " + string.Join(" · ", raisons);
     }
 
     // Confort d'écran, propre au poste : il n'a rien à faire dans la sauvegarde métier.

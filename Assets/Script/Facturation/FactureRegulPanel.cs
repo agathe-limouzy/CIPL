@@ -40,6 +40,7 @@ public class FactureRegulPanel : MonoBehaviour
     TMP_Text _numeroPrefixe;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _anneeDD;
+    FactureEtat _ligneCiblee;   // ligne du suivi cliquée : elle désigne l'année à ouvrir
     Toggle _tvaDebit, _retard;
     Transform _chargesBox;
 
@@ -59,7 +60,12 @@ public class FactureRegulPanel : MonoBehaviour
         gameObject.SetActive(false);
     }
 
-    public static void OpenRegul(LocatairePrefab fiche)
+    public static void OpenRegul(LocatairePrefab fiche) => OpenRegul(fiche, null);
+
+    // `ligneCiblee` : la ligne du suivi sur laquelle on a cliqué (clé « regul-2025 »).
+    // Elle impose l'ANNÉE régularisée — sans elle, le panneau retombait sur l'année
+    // mémorisée ou la première disponible, et on refaisait 2024 en croyant faire 2025.
+    public static void OpenRegul(LocatairePrefab fiche, FactureEtat ligneCiblee)
     {
         if (fiche == null) return;
         if (Instance == null)
@@ -70,12 +76,13 @@ public class FactureRegulPanel : MonoBehaviour
             go.transform.SetParent(canvas.rootCanvas.transform, false);
             go.AddComponent<FactureRegulPanel>();
         }
-        Instance.OpenFor(fiche);
+        Instance.OpenFor(fiche, ligneCiblee);
     }
 
-    void OpenFor(LocatairePrefab fiche)
+    void OpenFor(LocatairePrefab fiche, FactureEtat ligneCiblee = null)
     {
         _fiche = fiche;
+        _ligneCiblee = ligneCiblee;
         _loc = fiche.GetLocataire();
         _bat = fiche.batimentPrefabOrigin != null ? fiche.batimentPrefabOrigin.getBatiment() : null;
         gameObject.SetActive(true);
@@ -300,7 +307,15 @@ public class FactureRegulPanel : MonoBehaviour
         // Années disponibles (charges impayées concernant ce locataire).
         var years = YearsAvailable();
         if (years.Count == 0) years.Add(DateTime.Today.Year - 1);
-        string selYear = f != null && f.anneePeriode > 0 ? f.anneePeriode.ToString() : years[0].ToString();
+
+        // Année désignée par la ligne cliquée. On la REMET dans la liste si besoin :
+        // `YearsAvailable` écarte les charges déjà facturées, donc l'année d'une régul
+        // qu'on veut refaire en avait justement disparu.
+        int cible = AnneeCiblee();
+        if (cible > 0 && !years.Contains(cible)) { years.Add(cible); years.Sort(); years.Reverse(); }
+
+        string selYear = cible > 0 ? cible.ToString()
+            : (f != null && f.anneePeriode > 0 ? f.anneePeriode.ToString() : years[0].ToString());
         _anneeDD.SetOptions(years.Select(y => y.ToString()).ToList(), years.Select(y => y.ToString()).ToList(), selYear);
 
         // Provisions : mémorisées si saisies, sinon provision × nb de périodes.
@@ -348,6 +363,17 @@ public class FactureRegulPanel : MonoBehaviour
             res.Add(c);
         }
         return res;
+    }
+
+    int AnneeCiblee() => AnneeDeCle(_ligneCiblee?.key);
+
+    /// Année portée par une clé de suivi de régularisation (« regul-2025 » → 2025),
+    /// ou 0 si la clé est d'un autre type ou illisible.
+    public static int AnneeDeCle(string key)
+    {
+        const string prefixe = "regul-";
+        if (string.IsNullOrEmpty(key) || !key.StartsWith(prefixe)) return 0;
+        return int.TryParse(key.Substring(prefixe.Length), out int y) ? y : 0;
     }
 
     List<int> YearsAvailable()
@@ -717,7 +743,7 @@ public class FactureRegulPanel : MonoBehaviour
         string message = FactureEmission.Enregistrer(_loc, key, "Regul", emission,
             d.subtitle, _loc.factureRegul?.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
             _loc.factureRegul, "Régularisation", envoye,
-            "Régularisation enregistrée (PDF) · charges en attente de paiement.");
+            "Régularisation enregistrée (PDF) · charges en attente de paiement");
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();   // persiste locataire + charges
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite

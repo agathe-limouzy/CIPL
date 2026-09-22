@@ -18,9 +18,13 @@ public static class FactureEmission
     /// Ce que `Preparer` a décidé. À passer tel quel à `Enregistrer`.
     public class Decision
     {
-        /// Vrai si la facture existe déjà : on refait une version corrigée.
+        /// Vrai si la facture est déjà PARTIE : on émet une version corrigée, qui
+        /// porte le suffixe « corrigée(X) » et son propre fichier.
         public bool Correction;
-        /// X de « corrigée(X) ». 0 pour une première émission.
+        /// Vrai si la facture était préparée mais jamais expédiée : on la REMPLACE
+        /// purement et simplement — même numéro, même fichier, aucun compteur.
+        public bool Reecriture;
+        /// X de « corrigée(X) ». 0 pour une première émission ou une réécriture.
         public int NumeroCorrection;
         /// Numéro à imprimer sur la facture (suffixé si c'est une correction).
         public string NumeroFacture;
@@ -34,16 +38,28 @@ public static class FactureEmission
     /// il est ignoré si la facture a déjà été émise, puisqu'on conserve alors le sien.
     public static Decision Preparer(Locataire loc, string key, string numeroPropose)
     {
-        bool correction = FacturationSuivi.EstDejaEmise(loc, key, out var existante);
+        bool dejaEmise = FacturationSuivi.EstDejaEmise(loc, key, out var existante);
+
+        // Une facture PRÉPARÉE mais jamais expédiée se remplace, elle ne se corrige
+        // pas : personne n'a vu la version précédente. La marquer « corrigée(1) »
+        // fabriquait une rectificative sans facture d'origine — un document faux — et
+        // laissait deux PDF pour une seule facture.
+        //
+        // Le numéro, lui, reste acquis dans les deux cas : il a été consommé à la
+        // première génération, et un numéro consommé le reste (H2-bis).
+        bool jamaisPartie = dejaEmise && existante.statut == "AttenteEnvoi";
+        bool correction = dejaEmise && !jamaisPartie;
+
         int x = correction ? existante.corrections + 1 : 0;
 
         string numero = numeroPropose;
-        if (correction && !string.IsNullOrEmpty(existante.numero))
-            numero = existante.numero + $" corrigée({x})";
+        if (dejaEmise && !string.IsNullOrEmpty(existante.numero))
+            numero = correction ? existante.numero + $" corrigée({x})" : existante.numero;
 
         return new Decision
         {
             Correction = correction,
+            Reecriture = jamaisPartie,
             NumeroCorrection = x,
             NumeroFacture = numero,
             SuffixeFichier = correction ? $"-corrigee{x}" : ""
@@ -75,18 +91,37 @@ public static class FactureEmission
             return $"{nomLisible} corrigée ({decision.NumeroCorrection}) enregistrée.";
         }
 
+        // Remplace la ligne : PDF, montant, échéance et statut sont réécrits. Sur une
+        // facture jamais partie, c'est exactement l'effet voulu — la nouvelle version
+        // prend la place de l'ancienne dans la file d'envoi, et partira à sa date.
         FacturationSuivi.MarquerEnvoye(loc, key, type, libelle, echeanceISO,
                                        decision.NumeroFacture, pdfPath, montant, ribId, RibNom(ribId),
                                        envoyeReellement);
 
         // Numéro consommé : la séquence (unique par locataire, tous types) avance, et
         // l'ID saisi est oublié pour que la prochaine ouverture propose le suivant.
-        loc.factureSeq = Mathf.Max(1, loc.factureSeq) + 1;
-        if (info != null) info.numeroId = "";
+        // Une réécriture, elle, réutilise un numéro DÉJÀ consommé : l'avancer une
+        // seconde fois créerait un trou dans la numérotation.
+        if (!decision.Reecriture)
+        {
+            loc.factureSeq = Mathf.Max(1, loc.factureSeq) + 1;
+            if (info != null) info.numeroId = "";
+        }
 
-        return string.IsNullOrEmpty(messagePremiereEmission)
-            ? $"{nomLisible} enregistrée (PDF). Rien n'a été envoyé : la ligne reste « en attente d'envoi »."
+        // Le message doit dire ce qui s'est RÉELLEMENT passé. Il était renvoyé à
+        // l'identique dans les deux cas, si bien qu'après un envoi réussi le panneau
+        // affichait « Rien n'a été envoyé » suivi de « et envoyée à … » : la phrase
+        // se contredisait elle-même, alors que le mail était bien parti.
+        string basse = string.IsNullOrEmpty(messagePremiereEmission)
+            ? (decision.Reecriture
+                ? $"{nomLisible} remplacée (même numéro)"
+                : $"{nomLisible} enregistrée (PDF)")
             : messagePremiereEmission;
+
+        // Envoi réussi : le panneau ajoute « et envoyée à … », rien à dire de plus.
+        return envoyeReellement
+            ? basse
+            : basse + " — rien n'a été envoyé, la ligne reste « en attente d'envoi ».";
     }
 
     /// Phrase de bas de facture adaptée au sens de la somme. « SOMME À NOUS RÉGLER

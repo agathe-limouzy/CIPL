@@ -227,6 +227,13 @@ public static class FacturationSuivi
         rec.ribId = ribId; rec.ribNom = ribNom;
         rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
 
+        // Émission neuve ou remplacement d'une facture jamais partie : il n'y a aucune
+        // correction à annoncer. Sans cette remise à zéro, le libellé gardait un
+        // « — corrigée(5) » réappliqué par Fusion depuis le compteur, alors que la
+        // nouvelle version est la seule que le locataire verra jamais.
+        // (Une vraie correction passe par MarquerCorrige, qui incrémente le compteur.)
+        rec.corrections = 0;
+
         // « Envoyé » veut dire envoyé. Le statut suit le FAIT, plus le calendrier :
         // une facture dont le PDF est généré mais que rien n'a fait partir reste « En
         // attente d'envoi », aussi longtemps qu'il le faut.
@@ -444,6 +451,27 @@ public static class FacturationSuivi
         int jour = loc != null && loc.jourDemandeLoyer > 0 ? loc.jourDemandeLoyer : 1;
         int mois = MoisEcheance(loc, periode);
         return new DateTime(year, mois, Mathf.Clamp(jour, 1, DateTime.DaysInMonth(year, mois)));
+    }
+
+    /// Date à laquelle une facture doit partir, ou null si son type n'en a pas.
+    ///
+    /// Seul le loyer est attendu à date fixe (échéance − 15 j) : une régularisation,
+    /// une refacturation ou une révision de dépôt s'envoient quand on les fait.
+    /// Sert au suivi, aux alertes, à l'envoi groupé du lancement — et au panneau
+    /// Loyer, qui refuse d'expédier avant cette date.
+    public static DateTime? DateEnvoi(string type, string echeanceISO)
+    {
+        if (type != "Loyer") return null;
+        if (!TryEcheance(echeanceISO, out var ech)) return null;
+        return ech.AddDays(-EnvoiAvantJours).Date;
+    }
+
+    /// Vrai si la facture peut partir aujourd'hui : soit son type n'a pas de date
+    /// d'envoi, soit cette date est atteinte (ou dépassée — un retard doit partir).
+    public static bool PeutPartir(string type, string echeanceISO, DateTime aujourdhui)
+    {
+        var d = DateEnvoi(type, echeanceISO);
+        return !d.HasValue || aujourdhui.Date >= d.Value;
     }
 
     /// Mois d'échéance d'une période, pour CE locataire : les mois qu'on a cochés

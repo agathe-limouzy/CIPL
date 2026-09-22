@@ -23,6 +23,84 @@ public class FactureEmissionTests
         return loc;
     }
 
+    /// Facture générée mais jamais expédiée (le cas normal quand on prépare en avance).
+    static Locataire AvecFacturePreparee(string echeance = null)
+    {
+        var loc = NouveauLocataire();
+        var d = FactureEmission.Preparer(loc, Key, "2026/09001");
+        FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
+            echeance ?? Iso(30), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1",
+            loc.factureRegul, "Régularisation", false);
+        return loc;
+    }
+
+    // ── Réécriture : une facture jamais partie se remplace ──────────────────
+    //
+    // Corriger une facture que personne n'a reçue produisait une « corrigée(1) » :
+    // une rectificative sans facture d'origine émise — un document faux — et un second
+    // PDF pour une seule facture. Elle doit simplement être remplacée.
+
+    [Test]
+    public void Refaire_une_facture_jamais_partie_la_remplace_au_lieu_de_la_corriger()
+    {
+        var loc = AvecFacturePreparee();
+        var d = FactureEmission.Preparer(loc, Key, "ignoré");
+
+        Assert.That(d.Reecriture, Is.True);
+        Assert.That(d.Correction, Is.False, "rien n'est parti : il n'y a rien à rectifier");
+        Assert.That(d.NumeroFacture, Is.EqualTo("2026/09001"), "le numéro acquis est conservé");
+        Assert.That(d.NumeroFacture, Does.Not.Contain("corrigée"));
+        Assert.That(d.SuffixeFichier, Is.Empty, "le PDF est réécrit, pas doublé");
+        Assert.That(d.NumeroCorrection, Is.Zero);
+    }
+
+    [Test]
+    public void Une_reecriture_ne_consomme_pas_un_second_numero()
+    {
+        var loc = AvecFacturePreparee();
+        int seqApresPremiere = loc.factureSeq;
+
+        var d = FactureEmission.Preparer(loc, Key, "ignoré");
+        FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
+            Iso(30), "Batiment/X/Dupont/Facture/regul.pdf", 1400f, "rib1",
+            loc.factureRegul, "Régularisation", false);
+
+        Assert.That(loc.factureSeq, Is.EqualTo(seqApresPremiere),
+            "avancer la séquence une seconde fois creuserait un trou dans la numérotation");
+    }
+
+    [Test]
+    public void La_version_remplacee_reste_en_attente_et_porte_les_nouvelles_valeurs()
+    {
+        var loc = AvecFacturePreparee();
+        var d = FactureEmission.Preparer(loc, Key, "ignoré");
+        FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
+            Iso(30), "Batiment/X/Dupont/Facture/regul-v2.pdf", 1400f, "rib1",
+            loc.factureRegul, "Régularisation", false);
+
+        var rec = loc.facturesEtat.Find(x => x.key == Key);
+        Assert.That(rec.statut, Is.EqualTo("AttenteEnvoi"),
+            "c'est la nouvelle version qui partira, à la date prévue");
+        Assert.That(rec.montant, Is.EqualTo(1400f), "le montant corrigé remplace l'ancien");
+        Assert.That(rec.pdfPath, Does.Contain("regul-v2"), "c'est le nouveau PDF qui sera joint");
+        Assert.That(rec.libelle, Does.Not.Contain("corrigée"));
+        Assert.That(rec.corrections, Is.Zero);
+    }
+
+    [Test]
+    public void Une_facture_reellement_partie_se_corrige_toujours()
+    {
+        // Non-régression : le comportement d'origine reste entier dès que la facture
+        // a été expédiée — là, une rectificative est légitime et nécessaire.
+        var loc = AvecFactureEmise();
+        var d = FactureEmission.Preparer(loc, Key, "ignoré");
+
+        Assert.That(d.Correction, Is.True);
+        Assert.That(d.Reecriture, Is.False);
+        Assert.That(d.NumeroFacture, Is.EqualTo("2026/09001 corrigée(1)"));
+        Assert.That(d.SuffixeFichier, Is.EqualTo("-corrigee1"));
+    }
+
     // ── Un envoi raté ne doit rien consommer ────────────────────────────────
 
     [Test]
@@ -195,6 +273,57 @@ public class FactureEmissionTests
             "Régularisation", true, "Régularisation enregistrée · charges passées en payé.");
 
         Assert.That(message, Is.EqualTo("Régularisation enregistrée · charges passées en payé."));
+    }
+
+    /// Le message doit dire ce qui s'est réellement passé.
+    ///
+    /// Constaté à l'usage : après un envoi réussi, le bandeau affichait « Rien n'a été
+    /// envoyé » suivi de « et envoyée à … » — la phrase se contredisait, alors que le
+    /// mail était bien parti et la ligne correctement marquée « Envoyé ». Le message
+    /// par défaut était renvoyé à l'identique dans les deux cas.
+    [Test]
+    public void Le_message_ne_dit_pas_qu_on_n_a_rien_envoye_quand_l_envoi_a_reussi()
+    {
+        var loc = NouveauLocataire();
+        var d = FactureEmission.Preparer(loc, Key, "2026/09001");
+
+        string message = FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
+            Iso(-2), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1", loc.factureRegul,
+            "Régularisation", true);
+
+        Assert.That(message, Does.Not.Contain("rien n'a été envoyé").IgnoreCase);
+        Assert.That(message, Does.Not.Contain("attente d'envoi").IgnoreCase);
+        // Le panneau y ajoute « et envoyée à … » : la phrase doit s'y prêter.
+        Assert.That(message, Does.Not.EndWith("."));
+    }
+
+    [Test]
+    public void Le_message_signale_qu_il_reste_a_envoyer_quand_rien_n_est_parti()
+    {
+        var loc = NouveauLocataire();
+        var d = FactureEmission.Preparer(loc, Key, "2026/09001");
+
+        string message = FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
+            Iso(-2), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1", loc.factureRegul,
+            "Régularisation", false);
+
+        Assert.That(message, Does.Contain("rien n'a été envoyé").IgnoreCase);
+    }
+
+    /// Même sans envoi, la formulation propre au panneau doit rester lisible : la
+    /// mention « rien n'a été envoyé » s'y ajoute, elle ne la remplace pas.
+    [Test]
+    public void La_formulation_du_panneau_survit_a_la_mention_de_non_envoi()
+    {
+        var loc = NouveauLocataire();
+        var d = FactureEmission.Preparer(loc, Key, "2026/09001");
+
+        string message = FactureEmission.Enregistrer(loc, Key, "Regul", d, "Régularisation 2026",
+            Iso(-2), "Batiment/X/Dupont/Facture/regul.pdf", 1200f, "rib1", loc.factureRegul,
+            "Régularisation", false, "Régularisation enregistrée · charges en attente de paiement");
+
+        Assert.That(message, Does.StartWith("Régularisation enregistrée · charges en attente de paiement"));
+        Assert.That(message, Does.Contain("rien n'a été envoyé").IgnoreCase);
     }
 
     // ── Sens de la somme : remboursement au locataire ───────────────────────

@@ -39,6 +39,7 @@ public class FactureRefacPanel : MonoBehaviour
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     TMP_Text _numeroPrefixe;
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _chargeDD;
+    FactureEtat _ligneCiblee;   // ligne du suivi cliquée : elle désigne la charge à ouvrir
     Toggle _tvaDebit, _retard, _pj;
     string _autoSomme;
 
@@ -58,7 +59,12 @@ public class FactureRefacPanel : MonoBehaviour
         gameObject.SetActive(false);
     }
 
-    public static void OpenRefac(LocatairePrefab fiche)
+    public static void OpenRefac(LocatairePrefab fiche) => OpenRefac(fiche, null);
+
+    // `ligneCiblee` : la ligne du suivi sur laquelle on a cliqué (clé « refac-<id> »).
+    // Elle impose la CHARGE refacturée — sans elle, le panneau retombait sur la charge
+    // mémorisée ou la première impayée, donc sur une autre charge que celle cliquée.
+    public static void OpenRefac(LocatairePrefab fiche, FactureEtat ligneCiblee)
     {
         if (fiche == null) return;
         if (Instance == null)
@@ -69,12 +75,13 @@ public class FactureRefacPanel : MonoBehaviour
             go.transform.SetParent(canvas.rootCanvas.transform, false);
             go.AddComponent<FactureRefacPanel>();
         }
-        Instance.OpenFor(fiche);
+        Instance.OpenFor(fiche, ligneCiblee);
     }
 
-    void OpenFor(LocatairePrefab fiche)
+    void OpenFor(LocatairePrefab fiche, FactureEtat ligneCiblee = null)
     {
         _fiche = fiche;
+        _ligneCiblee = ligneCiblee;
         _loc = fiche.GetLocataire();
         _bat = fiche.batimentPrefabOrigin != null ? fiche.batimentPrefabOrigin.getBatiment() : null;
         gameObject.SetActive(true);
@@ -288,8 +295,19 @@ public class FactureRefacPanel : MonoBehaviour
         var charges = ImpayeesCharges();
         var labels = charges.Select(ChargeLabel).ToList();
         var ids = charges.Select(c => c.id).ToList();
+        // Charge désignée par la ligne cliquée. On la REMET dans la liste si besoin :
+        // `ImpayeesCharges` ne garde que les charges impayées, donc celle d'une
+        // refacturation qu'on veut refaire en avait justement disparu.
+        string cible = ChargeCiblee();
+        if (!string.IsNullOrEmpty(cible) && !ids.Contains(cible))
+        {
+            var c = _bat?.charges?.FirstOrDefault(x => x != null && x.id == cible);
+            if (c != null) { labels.Insert(0, ChargeLabel(c)); ids.Insert(0, c.id); }
+            else cible = null;   // charge supprimée : on ne peut pas l'ouvrir
+        }
         if (labels.Count == 0) { labels.Add("Aucune charge impayée"); ids.Add(null); }
-        string selId = f != null && !string.IsNullOrEmpty(f.chargeId) && ids.Contains(f.chargeId) ? f.chargeId : ids[0];
+        string selId = !string.IsNullOrEmpty(cible) ? cible
+            : (f != null && !string.IsNullOrEmpty(f.chargeId) && ids.Contains(f.chargeId) ? f.chargeId : ids[0]);
         _chargeDD.SetOptions(labels, ids, selId);
 
         var sc = SelectedCharge();
@@ -322,6 +340,21 @@ public class FactureRefacPanel : MonoBehaviour
     {
         string dstr = DateTime.TryParse(c.dateISO, out var cd) ? cd.ToString("dd/MM/yyyy") : "";
         return string.IsNullOrEmpty(dstr) ? c.nom : $"{c.nom}  ·  {dstr}";
+    }
+
+    string ChargeCiblee() => ChargeDeCle(_ligneCiblee?.key);
+
+    /// Identifiant de charge porté par une clé de suivi de refacturation
+    /// (« refac-&lt;guid&gt; » → le guid), ou null.
+    ///
+    /// Découpage par préfixe, jamais par `Split('-')` : un identifiant de charge est
+    /// un GUID, il contient lui-même des tirets — un Split rendrait son premier
+    /// fragment, donc une charge introuvable.
+    public static string ChargeDeCle(string key)
+    {
+        const string prefixe = "refac-";
+        return !string.IsNullOrEmpty(key) && key.StartsWith(prefixe)
+            ? key.Substring(prefixe.Length) : null;
     }
 
     List<ChargeBatiment> ImpayeesCharges()
@@ -593,7 +626,7 @@ public class FactureRefacPanel : MonoBehaviour
         string message = FactureEmission.Enregistrer(_loc, key, "Refac", emission,
             d.subtitle, _loc.factureRefac?.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
             _loc.factureRefac, "Refacturation", envoye,
-            "Refacturation enregistrée (PDF) · charge en attente de paiement.");
+            "Refacturation enregistrée (PDF) · charge en attente de paiement");
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite

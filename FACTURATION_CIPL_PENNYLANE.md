@@ -343,6 +343,53 @@ La règle est désormais unique : `FacturationSuivi.EcheanceLoyer(loc, année, p
 
 Les trois autres panneaux (Régularisation, Refacturation, Dépôt) gardent le défaut à +30 jours : ils ne facturent pas une période récurrente, il n'y a pas de « jour de demande » à suivre.
 
+### La ligne cliquée dans le suivi ouvre la bonne période (2026-09-22)
+
+Constaté à l'usage : cliquer « Refaire » sur le loyer de **mars** ouvrait le panneau sur **avril**. Le paramètre transmis au panneau s'appelait `correctionTarget` et n'était passé que par « Corriger » — « Générer » et « Refaire » envoyaient `null`, laissant le panneau retomber sur la dernière période mémorisée (`FactureInfo.moisPeriode`). On croyait éditer une facture, on en éditait une autre.
+
+Le paramètre est renommé **`ligneCiblee`** : il désigne la ligne cliquée dans **tous** les cas, et sert uniquement à ouvrir la bonne période. Ce que devient la facture — nouvelle, remplacée ou corrigée — se décide ailleurs, dans `FactureEmission.Preparer`, d'après son statut réel. Le nom trompeur était la cause du bug : il décrivait un cas particulier, donc on remettait naturellement `null` pour les autres boutons.
+
+Aligné sur les trois types qui ont une cible :
+
+| Type | Clé de suivi | Ce que la ligne impose |
+|---|---|---|
+| **Loyer** | `loyer-{année}-P{n}` | la période **et** l'année ; l'échéance et la date d'envoi se recalculent |
+| **Régularisation** | `regul-{année}` | l'année régularisée |
+| **Refacturation** | `refac-{idCharge}` | la charge refacturée |
+| **Dépôt** | `depot-{année}` | rien : l'année vient de la date de révision de la fiche, le panneau n'a pas de sélecteur |
+
+**Piège traité** : les listes de choix **écartent ce qui est déjà facturé** — `YearsAvailable()` saute les charges `EstFacturee`, `ImpayeesCharges()` ne garde que les impayées. La cible d'une facture qu'on veut refaire en avait donc précisément disparu, et le panneau serait retombé sur une autre année ou une autre charge. Elle est réinsérée dans la liste quand elle manque ; si la charge a été supprimée, la cible est abandonnée plutôt que d'ouvrir la mauvaise.
+
+**Second piège** : l'identifiant d'une charge est un GUID, il contient des tirets. La clé se découpe donc par **préfixe**, jamais par `Split('-')` — qui n'aurait rendu que le premier fragment, donc une charge introuvable. Vérifié par mutation : le test échoue avec `Expected "3f2a1b4c-8d90-…", But was "3f2a1b4c"`.
+
+### Corriger une facture jamais partie la REMPLACE (2026-09-22)
+
+Corollaire du point précédent : puisqu'une facture peut désormais attendre son jour d'envoi, on peut vouloir la retoucher entre-temps. Or « Corriger » produisait une **rectificative** — numéro « 2026/09001 corrigée(1) », fichier `-corrigee1.pdf`, libellé suffixé — alors que **personne n'avait reçu la version d'origine**. Une facture rectificative sans facture émise est un document faux, et le suivi se retrouvait avec deux PDF pour une seule facture.
+
+Le protocole distingue maintenant **trois** cas au lieu de deux :
+
+| Cas | Numéro | Fichier | Séquence | Statut |
+|---|---|---|---|---|
+| **Neuve** | proposé | nom normal | +1 | selon envoi réel |
+| **Réécriture** — préparée, jamais partie | **le même** | **le même, écrasé** | **inchangée** | reste « en attente d'envoi » |
+| **Correction** — réellement partie | « … corrigée(X) » | `-corrigeeX.pdf` | inchangée | conservé |
+
+La réécriture remplace donc la version en attente : nouveau montant, nouveau PDF, même numéro — et c'est **elle** qui partira à la date prévue. La séquence n'avance pas : le numéro avait déjà été consommé à la première génération, l'avancer une seconde fois creuserait un trou dans la numérotation.
+
+La garde H2‑bis est intacte : une facture en attente d'envoi compte toujours comme **émise**, donc un second clic ne prend jamais un numéro neuf. Ce qui change n'est pas le numéro, c'est ce qu'on fait du document — remplacer au lieu de rectifier.
+
+*Vérifié par mutation* : en supprimant la détection de réécriture, deux tests tombent (« corrigée(1) » réapparaît) ; en laissant la séquence avancer, un troisième signale `Expected: 2, But was: 3`.
+
+### Le panneau Loyer n'envoie plus en avance (2026-09-22)
+
+Constaté à l'usage : une échéance au 8 octobre, un clic sur « Sauvegarder et envoyer » le 22 septembre — et la facture partait **sur-le-champ**, alors que sa date d'envoi était le 23. Le bouton expédiait sans consulter le calendrier : celui-ci n'alimentait que les rappels et l'envoi groupé. Préparer une facture un mois à l'avance l'envoyait donc un mois à l'avance, sans retour possible.
+
+**Le calendrier fait loi** (décision de l'utilisatrice, 22/09) : avant la date d'envoi, le bouton change de libellé — « **Enregistrer pour l'envoi du 23/09** » — et un panneau confirme le jour exact du départ avant d'enregistrer. La facture est générée, numérotée, et reste « en attente d'envoi » ; elle sera proposée au lancement le jour venu.
+
+Règle partagée : `FacturationSuivi.DateEnvoi(type, échéance)` — échéance − 15 j pour le **loyer seul**. Une régularisation, une refacturation ou une révision de dépôt s'envoient quand on les fait : elles n'ont pas de date d'envoi, donc rien ne les retient. `PeutPartir(type, échéance, jour)` en dérive, et une facture **en retard** part toujours.
+
+Pour envoyer malgré tout avant la date, il reste à avancer l'échéance, ou à passer par « Corriger » depuis le suivi le jour de l'envoi.
+
 ### Envoi groupé proposé au lancement (2026-09-22)
 
 Corollaire direct du point précédent : maintenant qu'une facture reste « en attente d'envoi » tant qu'elle n'est pas partie, l'application sait exactement ce qui doit partir. `FactureEnvoiAuto` le propose au démarrage, après le chargement des bâtiments (`BatimentManager.Start`).
@@ -377,6 +424,8 @@ Trois conséquences, toutes voulues :
 - **« En attente d'envoi » ne se périme plus.** L'état ne devient « Envoyé » que par un envoi réel ou un forçage manuel.
 - **Une facture jamais envoyée ne devient jamais « Impayée ».** On ne peut pas reprocher un impayé à qui n'a pas reçu sa facture.
 - **L'alerte reste allumée tant que la facture n'est pas partie** : `DejaTraite` ne compte plus « En attente d'envoi » comme traité — c'est même le moment où le rappel est le plus utile. À ne pas confondre avec `EstDejaEmise` (garde anti-double-numéro), pour qui « en attente d'envoi » compte toujours comme émise : le PDF existe et le numéro est consommé. Deux questions différentes, deux réponses différentes — H2‑bis reste couvert par ses tests.
+
+**Correctif du 22/09 au soir** — le message affiché se contredisait : après un envoi réussi, le bandeau annonçait « Rien n'a été envoyé » suivi de « et envoyée à … ». Le message par défaut de `Enregistrer` était renvoyé à l'identique dans les deux cas. Le comportement, lui, était correct — mail parti, ligne marquée « Envoyé » ; seul le texte mentait, ce qui est presque pire sur un envoi irréversible. Le message dépend désormais de `envoyeReellement`, et trois tests le verrouillent (dont « ne doit pas contenir *rien n'a été envoyé* quand l'envoi a réussi »).
 
 Au passage, le calendrier (15 j d'envoi, +1 semaine de préparation) était écrit **trois fois** : dans `FacturationSuivi`, dans `FacturationAlertes`, et une troisième fois en dur dans `Lead("Loyer") = 22`. Une seule source désormais : `EnvoiAvantJours` et `RappelAvantEnvoiJours`, dont `Lead` est la somme.
 
