@@ -78,7 +78,10 @@ public class CollapsibleSection : MonoBehaviour
         }
     }
 
-    // Rebuild immédiat de toute la hiérarchie jusqu'au ScrollRect
+    // Marque la hiérarchie jusqu'au ScrollRect pour reconstruction — voir
+    // InputAndText.ForceRebuildLayout, même motif et même mesure : forcer le rebuild
+    // sur place à chaque section coûtait 531 ms à la réouverture d'une fiche, pour un
+    // résultat identique à celui qu'Unity produit une fois en fin d'image.
     private void ForceRebuildLayout()
     {
         Transform t = transform;
@@ -86,7 +89,7 @@ public class CollapsibleSection : MonoBehaviour
         {
             var rt = t.GetComponent<RectTransform>();
             if (rt != null)
-                LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+                LayoutRebuilder.MarkLayoutForRebuild(rt);
 
             if (t.GetComponent<ScrollRect>() != null) break;
             t = t.parent;

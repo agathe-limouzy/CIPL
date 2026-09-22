@@ -60,14 +60,19 @@ public class LocatairePrefab : PrefabBatLoc
     public CollapsibleSection[] sections;
     private bool[] _sectionStateSnapshot;
 
-    private const string PappersStart = "-- PAPPERS --";
-    private const string PappersEnd = "-- FIN PAPPERS --";
 
     // ─────────────────────────────────────────────────────────────────────────
 
 
+    /// Le locataire de cette fiche, ou null si elle n'est rattachée à aucun bâtiment.
+    ///
+    /// Le cas existe pour de bon : `Resources.FindObjectsOfTypeAll` ramène aussi le
+    /// PREFAB d'asset, jamais instancié, dont `batimentPrefabOrigin` est nul. Exploser
+    /// ici faisait tomber l'appelant — vu sur la mise à jour des résumés d'entreprise.
     public Locataire GetLocataire()
-    => batimentPrefabOrigin.listLocataire.Find(b => b.id == id);
+        => batimentPrefabOrigin != null && batimentPrefabOrigin.listLocataire != null
+            ? batimentPrefabOrigin.listLocataire.Find(b => b.id == id)
+            : null;
 
     /// Appelé par le RevisionPanel après initialisation ou révision
 
@@ -191,8 +196,10 @@ public class LocatairePrefab : PrefabBatLoc
         objectivesManager.AddNeObjectif.AddListener(() => updateListObjectif());
         pappersBtn.onClick.RemoveAllListeners();
         pappersBtn.onClick.AddListener(OnPappersClick);
-        resumeSocieteBtn.onClick.RemoveAllListeners();
-        resumeSocieteBtn.onClick.AddListener(CreateResume);
+        // Le bouton « résumé société » a disparu : le résumé se met à jour seul au
+        // lancement, pour TOUS les locataires (PappersSync). Une information à jour
+        // uniquement là où l'on avait pensé à cliquer ne valait pas grand-chose.
+        if (resumeSocieteBtn != null) resumeSocieteBtn.gameObject.SetActive(false);
 
         if (!NeedToModify)
         {
@@ -393,6 +400,11 @@ public class LocatairePrefab : PrefabBatLoc
         RefreshRevisionAlert(locataire);
 
         InitializeLocataire(locataire, false);
+
+        // Le SIRET vient peut-être d'être saisi ou corrigé : on rafraîchit le résumé
+        // d'entreprise tout de suite, plutôt que d'attendre le prochain lancement.
+        // Même chemin que la mise à jour du démarrage, donc même règle.
+        StartCoroutine(PappersSync.Un(batimentPrefabOrigin, locataire));
         locataireScrollContent?.SetDirty();
     }
 
@@ -496,73 +508,18 @@ public class LocatairePrefab : PrefabBatLoc
             return;
         }
         papperService.FetchBySiret(s,
-            data => SetPappersSection(BuildResume(data)),
+            data => SetPappersSection(PappersResume.Construire(data)),
             err => { SetPappersSection($"Erreur : {err}"); Debug.LogWarning($"[Annuaire] {err}"); });
     }
 
+    // Remplace le bloc Pappers du commentaire, en gardant ce qui l'entoure.
+    // La règle vit dans PappersResume : la mise à jour au lancement s'en sert
+    // aussi, sans écran — deux copies auraient divergé.
     private void SetPappersSection(string pappersContent)
     {
-        string current = Commentaire.GetValue();
-        int start = current.IndexOf(PappersStart, StringComparison.Ordinal);
-        int end = current.IndexOf(PappersEnd, StringComparison.Ordinal);
-        string before = string.Empty, after = string.Empty;
-
-        if (start >= 0 && end > start)
-        {
-            before = current.Substring(0, start).TrimEnd('\n', '\r', ' ');
-            int afterIndex = end + PappersEnd.Length;
-            if (afterIndex < current.Length)
-                after = current.Substring(afterIndex).TrimStart('\n', '\r', ' ');
-        }
-        else
-        {
-            before = current.TrimEnd('\n', '\r', ' ');
-        }
-
-        string bloc = $"{PappersStart}\n{pappersContent}\n{PappersEnd}";
-        string newText;
-        if (!string.IsNullOrEmpty(before) && !string.IsNullOrEmpty(after)) newText = $"{before}\n\n{bloc}\n\n{after}";
-        else if (!string.IsNullOrEmpty(before)) newText = $"{before}\n\n{bloc}";
-        else if (!string.IsNullOrEmpty(after)) newText = $"{bloc}\n\n{after}";
-        else newText = bloc;
-
-        Commentaire.ApplyValue(newText);
+        Commentaire.ApplyValue(PappersResume.Fusionner(Commentaire.GetValue(), pappersContent));
         locataireScrollContent?.SetDirty();
     }
-
-    private string BuildResume(AnnuaireEntreprise data)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"<b>{data.nom_complet}</b>");
-        if (!string.IsNullOrEmpty(data.libelle_nature_juridique)) sb.AppendLine(data.libelle_nature_juridique);
-        if (!string.IsNullOrEmpty(data.siren)) sb.AppendLine($"SIREN : {FormatSiren(data.siren)}");
-        if (!string.IsNullOrEmpty(data.date_creation)) sb.AppendLine($"Créée le : {FormatDate(data.date_creation)}");
-        if (!string.IsNullOrEmpty(data.libelle_tranche_effectif)) sb.AppendLine($"Effectif : {data.libelle_tranche_effectif}");
-        sb.AppendLine();
-        sb.AppendLine("── Statut ──");
-        sb.AppendLine(data.etat_administratif == "A" ? "Actif" : "Cessé");
-        sb.AppendLine();
-        sb.AppendLine("── Activité ──");
-        if (!string.IsNullOrEmpty(data.activite_principale))
-            sb.AppendLine($"NAF {data.activite_principale} · {data.libelle_activite_principale}");
-        if (data.siege != null)
-        {
-            sb.AppendLine();
-            sb.AppendLine("── Siège ──");
-            sb.AppendLine(data.siege.adresse);
-            sb.AppendLine($"{data.siege.code_postal} {data.siege.commune}");
-        }
-        sb.AppendLine();
-        sb.AppendLine("── Finances ──");
-        sb.AppendLine("Consulter sur Pappers pour CA et résultat");
-        return sb.ToString().TrimEnd();
-    }
-
-    private static string FormatSiren(string s) =>
-        s?.Length == 9 ? $"{s.Substring(0, 3)} {s.Substring(3, 3)} {s.Substring(6, 3)}" : s;
-
-    private static string FormatDate(string iso) =>
-        DateTime.TryParse(iso, out var dt) ? dt.ToString("dd/MM/yyyy") : iso;
 
     // ── Objectifs ─────────────────────────────────────────────────────────────
 

@@ -184,7 +184,6 @@ public class MenuManager : MonoBehaviour
 
         // Affiche le prefab correspondant
         ShowBatimentPrefab(prefabSelected, needToModify);
-
     }
 
     private void ShowBatimentPrefab(PrefabBatLoc prefabBatLoc, bool needToModify)

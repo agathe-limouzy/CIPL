@@ -180,6 +180,84 @@ public class FacturationSuiviTests
         Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.Envoye));
     }
 
+    // ── Une ligne ambre sans PDF est un piège (22/09/2026) ──────────────────
+
+    [Test]
+    public void Une_ligne_en_attente_sans_PDF_retombe_dans_le_cycle_normal()
+    {
+        // Constaté sur une fiche réelle : « en attente d'envoi » sans PDF, donc rien
+        // à envoyer. Elle dormait en ambre, absente des récapitulatifs comme des
+        // alertes. Il y a bien une facture à produire : elle doit dire « À faire ».
+        var proche = new FactureEtat { key = Key, type = "Loyer", statut = "AttenteEnvoi",
+                                       echeanceISO = Iso(5), pdfPath = "" };
+        Assert.That(FacturationSuivi.EtatDe(proche), Is.EqualTo(FacturationSuivi.Etat.AFaire));
+
+        // Loin de l'échéance, elle n'est pas encore à faire : « À venir ».
+        var lointaine = new FactureEtat { key = Key, type = "Loyer", statut = "AttenteEnvoi",
+                                          echeanceISO = Iso(200), pdfPath = "" };
+        Assert.That(FacturationSuivi.EtatDe(lointaine), Is.EqualTo(FacturationSuivi.Etat.AVenir));
+    }
+
+    [Test]
+    public void Une_ligne_en_attente_avec_PDF_reste_en_attente()
+    {
+        // Non-régression : le cas normal ne doit pas changer.
+        var loc = LocataireAvecFactureEmise(Iso(5), envoye: false);
+        var rec = loc.facturesEtat.Find(x => x.key == Key);
+        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
+    }
+
+    // ── Échéance figée ≠ modalités actuelles (22/09/2026) ───────────────────
+    //
+    // Préparer le loyer d'octobre au 8, puis passer le jour de demande au 7 : la
+    // facture garde le 8, c'est ce que porte son PDF. Mais l'écart doit SE VOIR,
+    // sinon la date d'envoi calculée dessus paraît fausse.
+
+    [Test]
+    public void L_ecart_entre_l_echeance_figee_et_les_modalites_est_signale()
+    {
+        var loc = new Locataire { jourDemandeLoyer = 7, periodiciteLoyer = Periodicite.mensuel };
+        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2026-P10", type = "Loyer",
+            statut = "AttenteEnvoi", echeanceISO = "2026-10-08", pdfPath = "x.pdf" });
+
+        var attendue = FacturationSuivi.EcheanceAttendue(loc, loc.facturesEtat[0]);
+        Assert.That(attendue, Is.EqualTo(new DateTime(2026, 10, 7)));
+    }
+
+    [Test]
+    public void Aucun_ecart_signale_quand_l_echeance_correspond()
+    {
+        var loc = new Locataire { jourDemandeLoyer = 8, periodiciteLoyer = Periodicite.mensuel };
+        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2026-P10", type = "Loyer",
+            statut = "AttenteEnvoi", echeanceISO = "2026-10-08", pdfPath = "x.pdf" });
+
+        Assert.That(FacturationSuivi.EcheanceAttendue(loc, loc.facturesEtat[0]), Is.Null);
+    }
+
+    [Test]
+    public void Une_facture_partie_ne_signale_aucun_ecart()
+    {
+        // Sa date est gravée chez le locataire : la changer n'aurait aucun sens.
+        var loc = new Locataire { jourDemandeLoyer = 7, periodiciteLoyer = Periodicite.mensuel };
+        foreach (var statut in new[] { "Envoye", "Impaye", "Paye" })
+        {
+            var rec = new FactureEtat { key = "loyer-2026-P10", type = "Loyer",
+                statut = statut, echeanceISO = "2026-10-08", pdfPath = "x.pdf" };
+            Assert.That(FacturationSuivi.EcheanceAttendue(loc, rec), Is.Null, statut);
+        }
+    }
+
+    [Test]
+    public void Les_autres_types_ne_signalent_aucun_ecart()
+    {
+        // Seul le loyer a une échéance dérivée d'un jour de demande.
+        var loc = new Locataire { jourDemandeLoyer = 7, periodiciteLoyer = Periodicite.mensuel };
+        var rec = new FactureEtat { key = "regul-2025", type = "Regul",
+            statut = "AttenteEnvoi", echeanceISO = "2026-01-31", pdfPath = "x.pdf" };
+        Assert.That(FacturationSuivi.EcheanceAttendue(loc, rec), Is.Null);
+        Assert.That(FacturationSuivi.EcheanceAttendue(null, rec), Is.Null);
+    }
+
     // ── H3 : l'échéance décide de l'impayé ──────────────────────────────────
 
     [Test]

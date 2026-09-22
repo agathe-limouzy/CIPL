@@ -51,9 +51,38 @@ public class LocataireSuiviInline : MonoBehaviour
     // la coquille était perdue. Le locataire est donc relu à CHAQUE passage.
     public void Refresh()
     {
+        _aReconstruire = true;
+
+        // Un suivi masqué faute de locataire (fiche tout juste créée) doit pouvoir se
+        // rallumer : désactivé, il ne reçoit plus LateUpdate, donc il resterait vide
+        // pour toujours — le défaut corrigé plus tôt, qui reviendrait par la fenêtre.
+        if (!gameObject.activeSelf && _fiche != null && _fiche.GetLocataire() != null)
+            gameObject.SetActive(true);
+    }
+
+    bool _aReconstruire;
+
+    // La reconstruction est DIFFÉRÉE, pour deux raisons mesurées sur un simple
+    // « Modifier + Sauvegarder » (2,9 s au total) :
+    //
+    // • elle était faite pour les 8 suivis existants alors qu'UN SEUL est affiché —
+    //   356 ms dont sept huitièmes de travail que personne ne voit ;
+    // • elle était faite DEUX fois pour le suivi visible, une fois par l'enregistrement
+    //   du bâtiment, une fois par la réinitialisation de la fiche qui suit.
+    //
+    // Marquer puis reconstruire une seule fois en fin d'image règle les deux. Un suivi
+    // masqué garde sa marque et se reconstruit à sa réapparition.
+    void LateUpdate()
+    {
+        if (!_aReconstruire || !gameObject.activeInHierarchy) return;
+        _aReconstruire = false;
+        Reconstruire();
+    }
+
+    void Reconstruire()
+    {
         _loc = _fiche != null ? _fiche.GetLocataire() : null;
         if (_loc == null) { gameObject.SetActive(false); return; }
-        gameObject.SetActive(true);
         if (!_built) Build();
         RebuildYears();
         RebuildTable();
@@ -253,7 +282,7 @@ public class LocataireSuiviInline : MonoBehaviour
             i++;
             var lgn = l;
             var row = Ligne(prefab, cv.transform);
-            row.Setup(l.libelle, Ech(l.echeanceISO), Montant(l.montant), couleurs,
+            row.Setup(Libelle(l), Ech(l.echeanceISO), Montant(l.montant), couleurs,
                 FacturationSuivi.EtatLibelle(etat), EtatBg(etat), EtatFg(etat),
                 // Période clôturée (reprise) : pastille statique, et aucune action.
                 !clot, () => OpenStatutMenu(lgn, (RectTransform)row.pastille.transform),
@@ -374,6 +403,18 @@ public class LocataireSuiviInline : MonoBehaviour
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    /// Libellé de la ligne, augmenté de l'écart d'échéance quand il y en a un : une
+    /// facture préparée garde la date imprimée sur son PDF, même si les modalités ont
+    /// changé depuis. Sans cette mention, l'écart n'apparaissait nulle part et la date
+    /// d'envoi, calculée sur l'ancienne échéance, semblait fausse.
+    string Libelle(FactureEtat l)
+    {
+        var attendue = FacturationSuivi.EcheanceAttendue(_loc, l);
+        return attendue.HasValue
+            ? $"{l.libelle}  <color=#854F0B>(modalités : {attendue.Value:dd/MM} — refaire ?)</color>"
+            : l.libelle;
+    }
 
     static string Montant(float v) => v > 0f ? v.ToString("#,##0.00", Fr) + " €" : "—";
     static string Ech(string iso) => DateTime.TryParse(iso, out var d) ? d.ToString("dd/MM/yyyy") : "—";

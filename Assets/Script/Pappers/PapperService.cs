@@ -11,10 +11,13 @@ public class PapperService : MonoBehaviour
 public void FetchBySiret(string siret,
 Action<AnnuaireEntreprise> onSuccess, Action<string> onError)
 {
-    StartCoroutine(DoRequest(siret, onSuccess, onError));
+    StartCoroutine(Interroger(siret, onSuccess, onError));
 }
 
-private IEnumerator DoRequest(string siret,
+/// La requête elle-même, sans dépendre d'une fiche ouverte : la mise à jour au
+/// lancement (PappersSync) parcourt des locataires dont aucun écran n'existe.
+/// À lancer depuis n'importe quel MonoBehaviour.
+public static IEnumerator Interroger(string siret,
 Action<AnnuaireEntreprise> onSuccess, Action<string> onError)
 {
     string url =$"{ApiBaseUrl}?q={siret.Trim()}&page=1&per_page=1";

@@ -170,7 +170,7 @@ public class FacturationSuiviPanel : MonoBehaviour
             Color cSec = clot ? Hex("#B7B6B0") : UITheme.TexteSecondaire;
             var row = Row(cv.transform, clot ? Hex("#F0EEE8") : ((i % 2 == 0) ? UITheme.Carte : Hex("#F6F4EC")), 46);
             i++;
-            FactCell(row, l.libelle, cMain, false);
+            FactCell(row, Libelle(l), cMain, false);
             FixCell(row, Ech(l.echeanceISO), WEch, false, cSec, false);
             FixCell(row, Montant(l.montant), WMontant, true, cMain, false);
             PillCell(row, l, etat, WEtat);
@@ -335,6 +335,17 @@ public class FacturationSuiviPanel : MonoBehaviour
     // ── Helpers UI ──────────────────────────────────────────────────────────────
 
     static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+    /// Voir LocataireSuiviInline.Libelle : une facture préparée garde la date de son
+    /// PDF ; l'écart avec les modalités actuelles doit se voir, et se corrige en
+    /// refaisant la facture.
+    string Libelle(FactureEtat l)
+    {
+        var attendue = FacturationSuivi.EcheanceAttendue(_loc, l);
+        return attendue.HasValue
+            ? $"{l.libelle}  <color=#854F0B>(modalités : {attendue.Value:dd/MM} — refaire ?)</color>"
+            : l.libelle;
+    }
+
     static string Montant(float v) => v > 0f ? v.ToString("#,##0.00", Fr) + " €" : "—";
 
     void MiniBtn(Transform parent, string label, Action onClick)

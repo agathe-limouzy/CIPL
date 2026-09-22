@@ -70,7 +70,16 @@ public class InputAndText : MonoBehaviour
             sar.SetDirty();
     }
 
-    // Rebuild immédiat de toute la hiérarchie jusqu'au ScrollRect
+    // Marque la hiérarchie jusqu'au ScrollRect pour reconstruction.
+    //
+    // MarkLayoutForRebuild et non ForceRebuildLayoutImmediate : Unity regroupe les
+    // demandes et reconstruit UNE fois en fin d'image, au lieu de tout recalculer sur
+    // place à chaque appel. Le rendu final est le même — ce qui changeait, c'était le
+    // nombre de fois qu'on le calculait.
+    //
+    // Mesuré sur « Modifier + Sauvegarder » : la fiche réinitialise seize champs, et
+    // chacun forçait un rebuild complet par niveau de hiérarchie. Environ 1,5 s de
+    // layout pour un écran qui ne change qu'une fois.
     private void ForceRebuildLayout()
     {
         Transform t = transform;
@@ -78,7 +87,7 @@ public class InputAndText : MonoBehaviour
         {
             var rt = t.GetComponent<RectTransform>();
             if (rt != null)
-                LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+                LayoutRebuilder.MarkLayoutForRebuild(rt);
 
             if (t.GetComponent<ScrollRect>() != null) break;
             t = t.parent;

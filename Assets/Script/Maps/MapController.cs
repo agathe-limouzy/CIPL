@@ -70,19 +70,34 @@ public class MapController : MonoBehaviour
     }
 
 
+    // Adresse dont la carte est déjà à l'écran : la rouvrir ne doit rien retélécharger.
+    private string _adresseAffichee;
+
     public void SetAdress(string newAdress)
     {
-    
         addressInput.text = newAdress;
         adressOutput.text = newAdress;
         adressOutput.gameObject.SetActive(true);
         addressInput.gameObject.SetActive(false);
         searchButton.gameObject.SetActive(false);
+
+        // Carte déjà chargée pour cette adresse : rien à refaire. Chaque ouverture de
+        // fiche relançait sinon un géocodage ET un téléchargement de tuile Mapbox pour
+        // une adresse inchangée — le vrai coût de l'ouverture, mesuré en réseau et non
+        // en code (le basculement d'onglet, lui, prend 0 ms).
+        if (newAdress == _adresseAffichee)
+        {
+            statusText.gameObject.SetActive(false);
+            return;
+        }
+
         statusText.gameObject.SetActive(true); // visible pendant le chargement
+
+        // UNE seule demande : `Update` la lance dès que l'objet est actif. Poser la
+        // demande ET lancer la coroutine ici faisait partir la recherche deux fois —
+        // deux géocodages et deux tuiles pour la même adresse, visibles dans la console.
         _pendingAddress = newAdress;
-        StartCoroutine(SearchAddress(newAdress)); // passe l'adresse directement, pas de DelayedSearch
-   
-}
+    }
 
   
 
@@ -176,6 +191,7 @@ public class MapController : MonoBehaviour
             _centerLat = resultLat; _centerLon = resultLon;
             _currentZoom = _tileLoader.zoomLevel;
             yield return StartCoroutine(OnAddressFound()); // ← yield propre
+            _adresseAffichee = address;   // la carte correspond à cette adresse
         }
 
         if (searchButton.gameObject.activeSelf)

@@ -163,7 +163,14 @@ public static class FacturationSuivi
         // manuel, et surtout PAS « Impayé » : on ne peut pas reprocher un impayé à
         // qui n'a jamais reçu sa facture. L'oubli est rattrapé par l'alerte, qui
         // reste allumée tant que la facture n'est pas partie (voir DejaTraite).
-        if (s == "AttenteEnvoi") return Etat.AttenteEnvoi;
+        //
+        // SAUF sans PDF : « en attente d'envoi » n'aurait alors rien à envoyer. La
+        // ligne dormirait en ambre, absente des récapitulatifs comme des alertes — un
+        // piège silencieux, constaté sur une fiche réelle. Elle retombe donc dans le
+        // cycle normal (À faire / À venir) : il y a bien une facture à produire.
+        if (s == "AttenteEnvoi" && !string.IsNullOrEmpty(f.pdfPath)) return Etat.AttenteEnvoi;
+        if (s == "AttenteEnvoi")
+            return hasEch && today >= ech.AddDays(-Lead(f.type)) ? Etat.AFaire : Etat.AVenir;
 
         if (s == "Envoye")
         {
@@ -233,6 +240,13 @@ public static class FacturationSuivi
         // nouvelle version est la seule que le locataire verra jamais.
         // (Une vraie correction passe par MarquerCorrige, qui incrémente le compteur.)
         rec.corrections = 0;
+
+        // Une ligne « en attente d'envoi » sans PDF n'a rien à envoyer : elle serait
+        // ambre à l'écran, muette dans les récapitulatifs, et ne partirait jamais.
+        // On le signale plutôt que de l'écrire en silence.
+        if (string.IsNullOrEmpty(rec.pdfPath))
+            Debug.LogWarning($"[FacturationSuivi] Facture enregistrée sans PDF (key='{key}') : "
+                             + "la ligne ne pourra pas être envoyée.");
 
         // « Envoyé » veut dire envoyé. Le statut suit le FAIT, plus le calendrier :
         // une facture dont le PDF est généré mais que rien n'a fait partir reste « En
@@ -451,6 +465,31 @@ public static class FacturationSuivi
         int jour = loc != null && loc.jourDemandeLoyer > 0 ? loc.jourDemandeLoyer : 1;
         int mois = MoisEcheance(loc, periode);
         return new DateTime(year, mois, Mathf.Clamp(jour, 1, DateTime.DaysInMonth(year, mois)));
+    }
+
+    /// Échéance attendue par les modalités actuelles pour une ligne de loyer déjà
+    /// préparée, quand elle diffère de celle imprimée — sinon null.
+    ///
+    /// Le cas vécu : on prépare le loyer d'octobre à échéance du 8, puis on change le
+    /// jour de demande pour le 7. La facture garde le 8, et c'est volontaire : son PDF
+    /// porte cette date. Mais l'écart n'était visible nulle part, et la date d'envoi
+    /// calculée dessus paraissait fausse. On le signale donc, avec le geste qui le
+    /// corrige : refaire la facture.
+    ///
+    /// Sans objet pour une facture partie (sa date est gravée chez le locataire) ni
+    /// pour une ligne sans statut, que `Fusion` réaligne déjà toute seule.
+    public static DateTime? EcheanceAttendue(Locataire loc, FactureEtat f)
+    {
+        if (loc == null || f == null || f.type != "Loyer" || f.statut != "AttenteEnvoi") return null;
+        if (string.IsNullOrEmpty(f.key) || !TryEcheance(f.echeanceISO, out var actuelle)) return null;
+
+        // Clé « loyer-{année}-P{période} ».
+        var parts = f.key.Split('-');
+        if (parts.Length < 3 || !int.TryParse(parts[1], out int annee)) return null;
+        if (!int.TryParse(parts[2].TrimStart('P', 'p'), out int periode)) return null;
+
+        var attendue = EcheanceLoyer(loc, annee, periode);
+        return attendue.Date == actuelle.Date ? (DateTime?)null : attendue;
     }
 
     /// Date à laquelle une facture doit partir, ou null si son type n'en a pas.

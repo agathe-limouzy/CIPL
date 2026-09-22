@@ -60,6 +60,11 @@ public class BatimentManager : MonoBehaviour
         // rien à envoyer, si l'email n'est pas configuré, ou si c'est déjà reporté
         // pour aujourd'hui.
         FactureEnvoiAuto.ProposerAuDemarrage(BatimentPrefab);
+
+        // Résumés d'entreprise (annuaire de l'État) rafraîchis pour tous les
+        // locataires. En coroutine : les appels réseau s'enchaînent en arrière-plan,
+        // l'écran reste utilisable, et rien n'est sauvegardé si rien n'a changé.
+        StartCoroutine(PappersSync.Tout(BatimentPrefab));
     }
 
     // Racine utilisée par le dernier LoadAll. La sauvegarde de fermeture ne doit pas

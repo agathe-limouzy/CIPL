@@ -14,7 +14,7 @@ Chaque finding porte un statut :
 
 Ce document est le **suivi de la revue de code**. Tout ce qui suit a été écrit et compilé ; ce qui a été *réellement exécuté* est listé plus bas, et la distinction compte.
 
-### Où en est le chantier au 22/09 — **174 tests EditMode verts**
+### Où en est le chantier au 22/09 — **188 tests EditMode verts**
 
 Le détail de la facturation est dans `FACTURATION_CIPL_PENNYLANE.md` ; voici l'essentiel pour reprendre.
 
@@ -64,9 +64,57 @@ Correctif : attribut remis sur la classe, commentaire expliquant pourquoi il est
 
 *Même famille que C1/C2/C3 : une perte de données silencieuse. Elle rejoint aussi la leçon de `SaveAll` — compiler ne prouve rien, et ici même les 115 tests d'alors ne prouvaient rien, aucun ne relisant un modèle depuis le disque.*
 
+### Le résumé d'entreprise se met à jour tout seul (22/09/2026)
+
+Le bouton « résumé société » de la fiche locataire interrogeait l'annuaire des entreprises (`recherche-entreprises.api.gouv.fr` — pas Pappers, malgré le nom des champs ; le bouton « Pappers », lui, ouvre simplement le site et reste en place). L'information n'était donc à jour que là où quelqu'un avait pensé à cliquer : jamais sur les fiches qu'on ouvre rarement, précisément celles qu'on n'a pas en tête.
+
+Le bouton disparaît. La mise à jour se déclenche **au lancement pour tous les locataires**, et **à l'enregistrement d'une fiche** pour celui qu'on vient de modifier — le SIRET vient peut-être d'y être saisi ou corrigé, attendre le prochain démarrage pour en voir l'effet serait déroutant. Les deux chemins passent par le même appel (`PappersSync.Interroger`), donc par la même règle.
+
+L'écriture devenant massive et invisible, trois garde-fous :
+
+- **Les notes de l'utilisatrice survivent.** Seul le bloc délimité par `-- PAPPERS --` / `-- FIN PAPPERS --` est remplacé ; ce qui l'entoure est conservé, et le bloc ne se duplique pas à chaque lancement.
+- **Rien n'est écrit si rien n'a changé.** Un démarrage sans nouveauté chez l'annuaire ne réécrit aucun fichier de sauvegarde.
+- **Un échec n'arrête pas les autres.** SIRET inconnu, réseau coupé : avertissement nommant le locataire, et la boucle continue.
+
+Au démarrage, les appels s'enchaînent **en série, espacés de 0,4 s**, en coroutine : l'API publique n'est pas martelée et l'écran reste utilisable. Seuls les SIRET d'au moins 9 chiffres sont interrogés.
+
+La logique du résumé a quitté `LocatairePrefab` — elle y était **privée**, donc inutilisable sans fiche ouverte, ce qui interdisait toute mise à jour en masse. Elle vit dans `PappersResume`, et devient testable : 9 tests, dont celui qui compte, « un bloc existant est remplacé sans toucher aux notes qui l'entourent ».
+
+### Lenteurs d'interface : mesurées, puis corrigées (22/09/2026, soir)
+
+Deux lenteurs signalées à l'usage. Dans les deux cas, **ce qui paraissait lent ne l'était pas** — sans chronomètre, j'aurais optimisé le mauvais endroit.
+
+#### « Modifier » puis « Sauvegarder » : 2 866 ms → 128 ms
+
+| Poste | Avant | Après |
+|---|---|---|
+| `InitializeLocataire` | 1 604 ms | **10 ms** |
+| `sections.SetOpen` | 599 ms | **1 ms** |
+| `SaveAfterModify` | 659 ms | **117 ms** |
+| **Total** | **2 866 ms** | **128 ms** |
+
+**Le coupable principal : `LayoutRebuilder.ForceRebuildLayoutImmediate`.** `InputAndText` recalculait le layout *sur place, à chaque niveau de la hiérarchie*, pour **chacun des seize champs** que la fiche réinitialise. `CollapsibleSection` faisait de même, d'où les 599 ms des sections. Les deux passent par `MarkLayoutForRebuild` : Unity regroupe les demandes et reconstruit **une fois en fin d'image**. Le rendu est identique — ce qui changeait, c'était le nombre de fois qu'on le calculait.
+
+**Second coupable, le mien** : `LocataireSuiviInline.RefreshTous`, ajouté le matin même, reconstruisait les **8** tableaux de suivi alors qu'**un seul** est affiché (356 ms), et deux fois pour celui-là — une fois à l'enregistrement du bâtiment, une fois à la réinitialisation de la fiche. La reconstruction est désormais **différée** : `Refresh()` marque, `LateUpdate` reconstruit une seule fois, et seulement si le suivi est visible.
+
+*Garde posée au passage* : un suivi masqué ne reçoit plus `LateUpdate`, donc il ne se rallumerait jamais — exactement le défaut corrigé le matin, qui revenait par la fenêtre. `Refresh()` réactive l'objet dès que le locataire existe.
+
+Les 117 ms restantes sont l'écriture du JSON sur disque : incompressible et légitime.
+
+#### Ouvrir un bâtiment ou un locataire : c'était le réseau
+
+Mesures : basculement d'onglet **0 ms**, `ShowFiche` **19 ms**, `OnEnable` sous 2 ms. Le code n'était pas en cause. La console, elle, montrait quatre géocodages et trois téléchargements de tuile Mapbox **pour une seule adresse inchangée**.
+
+- **`MapController.SetAdress` lançait la recherche deux fois** : elle posait `_pendingAddress` — que `Update()` déclenche dès que l'objet devient actif — *et* démarrait la coroutine dans la foulée. Le commentaire « passe l'adresse directement, pas de DelayedSearch » raconte l'histoire : l'appel direct a été ajouté sans retirer le mécanisme existant.
+- **Aucune carte n'était réutilisée** : rouvrir une fiche relançait géocodage et téléchargement pour une adresse déjà affichée. La carte est conservée tant que l'adresse ne change pas (`_adresseAffichee`).
+
+**Reste possible** : les vignettes du menu d'accueil (`MapThumbnailService`) géocodent les quatre bâtiments à chaque retour à l'accueil — non signalé, même remède si besoin. Et **19 autres `ForceRebuildLayoutImmediate`** subsistent (Achat, Travaux, PLU, résumé de bâtiment, objectifs) : ils n'ont pas été touchés faute d'être sur un chemin mesuré.
+
+**À vérifier en Play** : ces `ForceRebuildLayoutImmediate` avaient probablement été posés pour résoudre un vrai problème d'affichage (les `ContentSizeFitter` imbriqués en produisent). Contrôler la hauteur des champs, le défilement des fiches et l'ouverture des sections repliables. En cas de souci, revenir à un rebuild forcé **une seule fois** en fin de série, et non par champ.
+
 ### Prochaines étapes (mise à jour 22/09/2026)
 
-Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **174 tests EditMode verts**. Ce qui reste se range en trois tas.
+Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **188 tests EditMode verts**. Ce qui reste se range en trois tas.
 
 #### A. À voir en Play — le seul vrai reste
 
@@ -80,7 +128,8 @@ Aucun de ces points n'est douteux dans le code ; ils demandent l'écran. Par ord
 6. **Le rendu du prefab `SuiviFactureRow`** (21/09) : alignement en-tête / lignes, libellé long tronqué, année sans facture, période clôturée sans action — comparer avec la vue plein écran, restée en code.
 7. **L'envoi email sur Régularisation, Refacturation et Dépôt** — seul le Loyer a été vu de bout en bout. Tester surtout **l'échec** (mot de passe faux) : PDF présent, ligne non marquée, charges non payées, second essai qui reprend le même numéro.
 8. **Le cycle de vie des charges** (21/09) : régularisées → « en attente de paiement » (ambre), hors du choix ; facture « Payé » → vert ; retour « Impayé » → attente **sans** redevenir sélectionnables.
-9. **Reliquat des sessions 17–21/09** : gardes d'avoir (régul/dépôt) · `FermetureGuard` · ordre des cartes dans les trois panneaux non encore vus · phrase de règlement au signe du solde dès l'ouverture · textes de facture réglables et menu « / » (aucun `{jeton}` ne doit ressortir sur le PDF) · phrases de l'explication du dépôt · héritage en chaîne des réglages (T1 → T2 → T3, puis nouveau bâtiment).
+9. **Après les optimisations du 22/09 au soir** : vérifier que l'affichage n'a pas souffert du passage à `MarkLayoutForRebuild` — hauteur des champs, défilement des fiches, sections repliables — et que rouvrir deux fois le même bâtiment ne relance plus ni géocodage ni téléchargement de carte (la console ne doit afficher `[GeoCoding]` et `[Mapbox]` qu'à la première ouverture).
+10. **Reliquat des sessions 17–21/09** : gardes d'avoir (régul/dépôt) · `FermetureGuard` · ordre des cartes dans les trois panneaux non encore vus · phrase de règlement au signe du solde dès l'ouverture · textes de facture réglables et menu « / » (aucun `{jeton}` ne doit ressortir sur le PDF) · phrases de l'explication du dépôt · héritage en chaîne des réglages (T1 → T2 → T3, puis nouveau bâtiment).
 
 #### B. À coder — court
 
@@ -324,7 +373,7 @@ La règle de sélection est **séparée de l'écran** et l'existence du PDF lui 
 
 #### Vérification
 
-**174 tests EditMode verts** (126 + 48). Les nouveaux (`SurfacesEtEcheanceTests`) couvrent la règle des surfaces avec le scénario exact rapporté et le calcul d'échéance (jour borné à la longueur du mois — « le 31 » en février tombe le 28, ou le 29 en année bissextile — périodicités trimestrielle, semestrielle, annuelle), plus le fait que les lignes du suivi passent bien par la règle extraite.
+**188 tests EditMode verts** (126 + 62). Les nouveaux (`SurfacesEtEcheanceTests`) couvrent la règle des surfaces avec le scénario exact rapporté et le calcul d'échéance (jour borné à la longueur du mois — « le 31 » en février tombe le 28, ou le 29 en année bissextile — périodicités trimestrielle, semestrielle, annuelle), plus le fait que les lignes du suivi passent bien par la règle extraite.
 
 **Les tests mordent** : vérifié par mutation. En remettant l'ancien calcul de surface, trois tests échouent avec le bon message (`Expected: 750, But was: 1250` — le bug rapporté, exactement), puis repassent au vert après restauration.
 

@@ -22,7 +22,10 @@
       "Bash(cd \"C:/Users/agath/Documents/CIPL/CIPL_Git/CIPL\" && cp /c/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/c979e0ff-abcf-4f07-af46-05c731c5a764/scratchpad/FactureEnvoiAuto.cs.bak Assets/Script/Facturation/FactureEnvoiAuto.cs && grep -c \"MUTATION\" Assets/Script/Facturation/FactureEnvoiAuto.cs)",
       "Bash(cd \"/c/Users/agath/AppData/LocalLow/DefaultCompany/CIPL_Test/DemoCIPL/CIPL_Saves/batiments\" 2>/dev/null && ls *.json | head && echo \"=== Sephora ===\" && grep -l \"Sephora\" *.json)",
       "Bash(sed -n '/List<int> YearsAvailable/,/^    }/p' Assets/Script/Facturation/FactureRegulPanel.cs)",
-      "Bash(sed -n '/ImpayeesCharges\\(\\)/,/^    }/p' Assets/Script/Facturation/FactureRefacPanel.cs)"
+      "Bash(sed -n '/ImpayeesCharges\\(\\)/,/^    }/p' Assets/Script/Facturation/FactureRefacPanel.cs)",
+      "Bash(xargs wc -l)",
+      "Bash(xargs -I{} sh -c 'echo \"--- {} ---\"; cat {}')",
+      "Bash(xargs grep -n \"ForceRebuildLayoutImmediate\\\\|public void SetOpen\" -A 12)"
     ]
   },
   "enableAllProjectMcpServers": true,
