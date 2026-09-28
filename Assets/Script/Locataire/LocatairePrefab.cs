@@ -55,6 +55,7 @@ public class LocatairePrefab : PrefabBatLoc
     public PapperService papperService;
     public InputAndText Commentaire;
     private LocataireFacturationFields facturationFields;
+    private LocataireBailFields bailFields;
 
     [Header("Sections repliables")]
     public CollapsibleSection[] sections;
@@ -166,11 +167,10 @@ public class LocatairePrefab : PrefabBatLoc
 
     public override void InitializeLocataire(Locataire newLocataire, bool NeedToModify)
     {
-        // Dropdowns — libellés lisibles (l'ordre suit l'enum : l'index reste valide).
-        typedeBailDropDown.ClearOptions();
-        typedeBailDropDown.AddOptions(
-            Enum.GetValues(typeof(BailType)).Cast<BailType>()
-                .Select(t => new TMP_Dropdown.OptionData(BailLabel(t))).ToList());
+        // Section Bail (liste des types, durée, années fermes, fin calculée).
+        if (bailFields == null) bailFields = gameObject.AddComponent<LocataireBailFields>();
+        bailFields.EnsureBuilt(this);
+        bailFields.Load(newLocataire);
 
 
         id = newLocataire.id;
@@ -211,8 +211,6 @@ public class LocatairePrefab : PrefabBatLoc
             mapController.ApplySave(newLocataire.adresseLocataire);
             lotBatimentTxt.ApplySave(newLocataire.lotBatiment.ToString());
             tailleLotTxt.ApplySave(batimentPrefabOrigin.TailleLotEffective(newLocataire).ToString());
-            typedeBailDropDown.value = (int)newLocataire.typeDeBail;
-            typedeBailDropDown.interactable = false;
 
             loyerSummary.Refresh(newLocataire);
             RefreshRevisionAlert(newLocataire);
@@ -324,6 +322,11 @@ public class LocatairePrefab : PrefabBatLoc
         var locataire = batimentPrefabOrigin.listLocataire.Find(b => b.id == id);
         var index = batimentPrefabOrigin.listLocataire.IndexOf(locataire);
 
+        // Le bail d'abord (années fermes au-delà de la durée…) : s'il ne tient pas
+        // debout, rien n'est enregistré et la fiche reste en modification.
+        string erreurBail = bailFields != null ? bailFields.Verifier() : null;
+        if (erreurBail != null) { UndoToast.Instance?.ShowInfo(erreurBail); return; }
+
         // ── Nom : unicité DANS CE BÂTIMENT + dossier déplacé si le nom change ─────
         // Le dossier du locataire vit à l'intérieur de celui de son bâtiment : deux
         // locataires homonymes dans DEUX bâtiments différents ne se gênent donc pas et
@@ -373,8 +376,7 @@ public class LocatairePrefab : PrefabBatLoc
         locataire.tailleLot = Mathf.Abs(saisie - propose) < 0.01f ? 0f : saisie;
         batimentPrefabOrigin.RefreshTailleBatiment();
 
-        locataire.typeDeBail = (BailType)typedeBailDropDown.value;
-        typedeBailDropDown.interactable = false;
+        bailFields?.Save(locataire);
         locataire.DateDebutBail = dateDebutBail.saveThedate();
         locataire.DateFinBail = dateFinBail.saveThedate();
 
@@ -420,7 +422,7 @@ public class LocatairePrefab : PrefabBatLoc
         // locataire était imposé, donc impossible à réduire quand un second arrivait.
         tailleLotTxt.ApplyValue(batimentPrefabOrigin.TailleLotEffective(GetLocataire()).ToString());
         tailleLotTxt.Modify();
-        typedeBailDropDown.interactable = true;
+        bailFields?.Modify();
         dateDebutBail.ModifyDate();
         dateFinBail.ModifyDate();
         depotDeGarantieTxt.Modify();
@@ -449,26 +451,6 @@ public class LocatairePrefab : PrefabBatLoc
     }
 
 
-
-    // Libellé lisible d'un type de bail (le dropdown garde l'ordre de l'enum).
-    private static string BailLabel(BailType t)
-    {
-        switch (t)
-        {
-            case BailType.BailAContruction:             return "Bail à construction";
-            case BailType.Bail9ans:                     return "Bail commercial (9 ans)";
-            case BailType.Bail10ans:                    return "Bail commercial (10 ans)";
-            case BailType.BailCommercial369:            return "Bail commercial (3/6/9)";
-            case BailType.BailCommercial9Ferme:         return "Bail commercial (9 ans ferme)";
-            case BailType.BailDerogatoire:              return "Bail dérogatoire (précaire)";
-            case BailType.BailProfessionnel:            return "Bail professionnel (6 ans)";
-            case BailType.BailEmphyteotique:            return "Bail emphytéotique";
-            case BailType.BailRehabilitation:           return "Bail à réhabilitation";
-            case BailType.ConventionOccupationPrecaire: return "Convention d'occupation précaire";
-            case BailType.BailCivil:                    return "Bail civil (droit commun)";
-            default:                                    return t.ToString();
-        }
-    }
 
     // Place le bouton Pappers en overlay à droite, DANS la boîte du champ Siret (une fois).
     private bool _siretRowBuilt;

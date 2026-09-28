@@ -90,6 +90,37 @@ public static class DossiersDonnees
     public static string DossierCharges(string nomBatiment)
         => Path.Combine(DossierBatiment(nomBatiment), "Charge");
 
+    /// Bail et avenants, rangés dans le dossier du locataire à côté de ses factures.
+    /// Seuls les NOMS de fichier sont enregistrés : un renommage déplace le dossier,
+    /// et les documents suivent sans lien cassé.
+    public static string DossierBail(string nomBatiment, string nomLocataire)
+        => Path.Combine(DossierLocataire(nomBatiment, nomLocataire), "Bail");
+
+    /// Chemin d'un document du bail tel qu'enregistré : un nom de fichier (rangé dans
+    /// DossierBail), ou un chemin complet hérité de l'ancien format.
+    public static string CheminDocumentBail(string nomBatiment, string nomLocataire, string stocke)
+    {
+        if (string.IsNullOrEmpty(stocke) || Path.IsPathRooted(stocke)) return stocke;
+        return Path.Combine(DossierBail(nomBatiment, nomLocataire), stocke);
+    }
+
+    /// Copie `source` dans `dossier` sans écraser un autre document : un « bail.pdf »
+    /// déjà présent fait nommer la copie « bail (2).pdf ». Un fichier choisi DANS le
+    /// dossier n'est pas recopié. Renvoie le nom de fichier retenu.
+    public static string CopierSansEcraser(string source, string dossier)
+    {
+        Directory.CreateDirectory(dossier);
+        string dejaIci = Path.GetFullPath(Path.Combine(dossier, Path.GetFileName(source)));
+        if (string.Equals(Path.GetFullPath(source), dejaIci, StringComparison.OrdinalIgnoreCase))
+            return Path.GetFileName(source);
+
+        string nom = Path.GetFileNameWithoutExtension(source), ext = Path.GetExtension(source);
+        string cible = Path.GetFileName(source);
+        for (int i = 2; File.Exists(Path.Combine(dossier, cible)); i++) cible = $"{nom} ({i}){ext}";
+        File.Copy(source, Path.Combine(dossier, cible));
+        return cible;
+    }
+
     // ── Renommage ──────────────────────────────────────────────────────────────
 
     /// Déplace le dossier d'un bâtiment quand son nom change.

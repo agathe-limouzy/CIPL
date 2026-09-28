@@ -14,7 +14,7 @@ Chaque finding porte un statut :
 
 Ce document est le **suivi de la revue de code**. Tout ce qui suit a été écrit et compilé ; ce qui a été *réellement exécuté* est listé plus bas, et la distinction compte.
 
-### Où en est le chantier au 24/09 — **216 tests EditMode verts**
+### Où en est le chantier au 24/09 — **228 tests EditMode verts**
 
 Le détail de la facturation est dans `FACTURATION_CIPL_PENNYLANE.md` ; voici l'essentiel pour reprendre.
 
@@ -485,9 +485,57 @@ jusqu'au haut de la section. Conséquence : `FacturationSuiviPanel` n'avait plus
 aucun prefab ni aucun script n'y faisait référence. C'était la dernière copie en code de la ligne de
 suivi : elle n'a plus qu'une construction, le prefab `SuiviFactureRow`.
 
+**Section Bail retravaillée (28/09).** Inventaire des données réelles d'abord (9 locataires) : 7 en
+3/6/9, 1 en « 9 ans ferme » (qui dure 10 ans), 1 en « Bail à construction » sans aucune date — la
+valeur 0 de l'enum, reçue par défaut sans que personne la choisisse.
+- **Rangée [type · durée · période ferme]** (précision de l'utilisatrice : « le type, à côté la
+  durée pré-remplie mais modifiable qui définit le temps total du bail ; la période ferme est un
+  temps à l'intérieur de cette durée »). La durée et la période ferme ne sont donc **pas des types**.
+- **Liste** : bail commercial · dérogatoire (3 ans max, ex-« précaire », qui prêtait à confusion avec
+  la convention d'occupation précaire) · professionnel · civil · convention d'occupation précaire ·
+  emphytéotique · à construction · à réhabilitation. « Commercial 9 ans », « 10 ans » et « 9 ans
+  ferme » ne sont plus proposés : ce sont des baux commerciaux (`Locataire.Normaliser`). Libellé
+  « Bail commercial » sans « (3/6/9) », faux dès qu'il y a une période ferme. L'ordre de l'enum est
+  intact (les fichiers stockent le numéro) ; `BailCommercial9Ferme` est seulement renommé
+  `BailCommercialFerme`. La liste déroulante ne suit plus l'enum : `Locataire.TypesProposes`.
+- **Durée** (`dureeBailAns`) et **période ferme** (`anneesFermes`, facultative, bail commercial
+  seulement) : champs clonés d'un champ natif (`LocataireFacturationFields.Clone`, désormais partagé).
+  Sur les fichiers existants, la durée se déduit des dates quand elles couvrent un nombre entier
+  d'années, sinon celle du type ; l'ancien « 9 ans ferme » garde 9 ans fermes. Enregistrement refusé
+  si la période ferme dépasse la durée.
+- **Date de fin automatique** : début + durée − 1 jour (01/06/2020 → 31/05/2029), recalculée quand
+  on change le début, la durée ou le type — jamais au simple affichage d'une fiche. Elle reste
+  modifiable.
+- **Nouveau locataire** : commercial 3/6/9 par défaut (initialiseur de champ ; un fichier existant
+  garde son type, testé). Le locataire « Nouveau » actuel reste en « Bail à construction » tant que
+  l'utilisatrice ne le change pas.
+- **Au passage** : la variable `{loc.bail}` des textes de facture insérait le nom interne
+  (« BailCommercial369 ») ; elle insère le libellé.
+- `LocataireBailFields` porte la logique ; `BailTests` (9 tests) couvre fin, période ferme, durée
+  déduite, anciens types, numéros stockés, défaut, lecture d'un fichier existant et clonage de champ.
+- **`Clone` ne trouvait le titre et l'unité qu'au premier niveau**, sous les noms « title » et
+  « quantité ». Cloné depuis « Taille Batiment » (titre au nom du champ, unité un niveau plus bas),
+  le champ gardait « Taille Batiment : … m² ». `Clone` cherche désormais l'unité dans toute la
+  profondeur et prend, à défaut de « title », le premier texte direct qui n'est ni la valeur ni l'unité.
+
+**Bail et avenants rangés dans le dossier du locataire (28/09).** Le bail joint était copié dans
+`Documents/<identifiant du locataire>/` à la racine des données, et son chemin **absolu** enregistré
+(cassé au premier changement d'emplacement des données). Désormais : copie dans
+`Batiment/<bâtiment>/<locataire>/Bail/` (`DossiersDonnees.DossierBail`, à côté de `Facture/`), et
+seul le **nom de fichier** est enregistré — un renommage déplace le dossier du locataire, les
+documents suivent. Un ancien chemin complet reste lisible (`CheminDocumentBail`). Copie **sans
+écraser** (`CopierSansEcraser` : « bail.pdf » pris → « bail (2).pdf » ; un fichier déjà rangé n'est
+pas recopié). **Avenants** : `Locataire.avenants` (noms de fichier), bouton « + Avenant » sur la
+ligne du bail, une ligne « Avenant n » par document (Ouvrir · Retirer). « Retirer » détache sans
+supprimer le fichier. Aucun locataire n'avait encore de bail joint : rien à migrer. 3 tests.
+Boutons selon l'état (demande de l'utilisatrice) : sans bail, seulement « Ajouter le bail » ; avec
+un bail, « Modifier » (remplace le fichier) · « Ouvrir » · ✕ · « + Avenant ». Le bouton dont le
+libellé change suit la largeur de son texte (`UIFactory.LargeurDuTexte`) ; « Bail : » et
+« Avenant n : » ont la même largeur, les noms de fichier s'alignent.
+
 ### Prochaines étapes (mise à jour 22/09/2026)
 
-Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **216 tests EditMode verts**. Ce qui reste se range en trois tas.
+Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **228 tests EditMode verts**. Ce qui reste se range en trois tas.
 
 #### A. À voir en Play — le seul vrai reste
 

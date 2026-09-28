@@ -15,7 +15,15 @@ public class Locataire : Data
     public string adresseLocataire;
     public int lotBatiment;
     public float tailleLot;
-    public BailType typeDeBail;
+    // Un nouveau locataire part en 3/6/9, le cas courant. Avant, il recevait la
+    // première valeur de l'enum, « Bail à construction », sans que personne l'ait choisi.
+    public BailType typeDeBail = BailType.BailCommercial369;
+    // Durée du bail lui-même, en années (0 : non saisie, voir DureeBail()). La date de
+    // fin en découle ; elle reste modifiable (bail repris, avenant).
+    public int dureeBailAns;
+    // Période ferme (bail commercial) : années, comprises dans la durée du bail,
+    // pendant lesquelles le preneur ne peut pas donner congé. 0 = aucune.
+    public int anneesFermes;
     public IndiceImmo indiceTypeImmo;
     public string indiceImmoAuDepart;
     public string indiceImmoActuel;
@@ -32,7 +40,10 @@ public class Locataire : Data
     public string moisDeRevisionISO;
     public string dernierRevision;
     public string commentaire;
-    public string cheminBail;   // chemin du fichier bail (PDF, scan…)
+    // Bail et avenants : NOMS de fichier, rangés dans DossiersDonnees.DossierBail (le
+    // dossier du locataire). Un ancien bail peut encore porter un chemin complet.
+    public string cheminBail;
+    public List<string> avenants = new List<string>();
     public Periodicite periodiciteLoyer;
 
     // ── Facturation ────────────────────────────────────────────────────────────
@@ -147,12 +158,97 @@ public class Locataire : Data
             case BailType.Bail9ans:
             case BailType.Bail10ans:
             case BailType.BailCommercial369:
-            case BailType.BailCommercial9Ferme:
+            case BailType.BailCommercialFerme:
             case BailType.BailDerogatoire:
                 return true;
             default:
                 return false;
         }
+    }
+
+    // ── Types, durées, années fermes ──────────────────────────────────────────
+
+    /// Les types proposés dans la liste, dans cet ordre. La durée et la période ferme
+    /// ne sont pas des types : « commercial 9 ans », « 10 ans » et « X ans ferme »
+    /// sont tous des baux commerciaux (voir Normaliser), la durée et la période ferme
+    /// se règlent à côté. Leurs anciennes valeurs restent lisibles dans les fichiers.
+    public static readonly BailType[] TypesProposes =
+    {
+        BailType.BailCommercial369, BailType.BailDerogatoire,
+        BailType.BailProfessionnel, BailType.BailCivil, BailType.ConventionOccupationPrecaire,
+        BailType.BailEmphyteotique, BailType.BailAContruction, BailType.BailRehabilitation,
+    };
+
+    /// Le type tel qu'on le propose aujourd'hui : 9 ans, 10 ans et « ferme » → commercial.
+    public static BailType Normaliser(BailType t)
+        => t == BailType.Bail9ans || t == BailType.Bail10ans || t == BailType.BailCommercialFerme
+            ? BailType.BailCommercial369 : t;
+
+    /// La période ferme (le preneur ne peut pas donner congé) n'existe que pour le bail commercial.
+    public static bool PeriodeFermePossible(BailType t) => Normaliser(t) == BailType.BailCommercial369;
+
+    public static string LibelleBail(BailType t)
+    {
+        switch (Normaliser(t))
+        {
+            case BailType.BailCommercial369:            return "Bail commercial";
+            case BailType.BailDerogatoire:              return "Bail dérogatoire (3 ans max)";
+            case BailType.BailProfessionnel:            return "Bail professionnel (6 ans)";
+            case BailType.BailCivil:                    return "Bail civil (droit commun)";
+            case BailType.ConventionOccupationPrecaire: return "Convention d'occupation précaire";
+            case BailType.BailEmphyteotique:            return "Bail emphytéotique";
+            case BailType.BailAContruction:             return "Bail à construction";
+            case BailType.BailRehabilitation:           return "Bail à réhabilitation";
+            default:                                    return t.ToString();
+        }
+    }
+
+    /// Durée par défaut, en années ; 0 = libre (civil, convention précaire).
+    public static int DureeParDefaut(BailType t)
+    {
+        switch (t)
+        {
+            case BailType.Bail10ans:                  return 10;
+            case BailType.Bail9ans:
+            case BailType.BailCommercial369:
+            case BailType.BailCommercialFerme:        return 9;
+            case BailType.BailDerogatoire:            return 3;
+            case BailType.BailProfessionnel:          return 6;
+            case BailType.BailEmphyteotique:
+            case BailType.BailAContruction:           return 18;
+            case BailType.BailRehabilitation:         return 12;
+            default:                                  return 0;
+        }
+    }
+
+    /// Fin d'un bail de `ans` années : la veille de l'anniversaire (01/06/2020 → 31/05/2029).
+    public static DateTime FinDeBail(DateTime debut, int ans) => debut.AddYears(ans).AddDays(-1);
+
+    /// Durée du bail : celle saisie ; sinon déduite des dates quand elles couvrent
+    /// un nombre entier d'années ; sinon celle du type. Un bail repris en cours
+    /// (5,3 ans entre ses dates) retombe ainsi sur sa vraie durée, pas sur 5.
+    public int DureeBail()
+    {
+        if (dureeBailAns > 0) return dureeBailAns;
+        if (DateTime.TryParse(dateDebutBailISO, out var d) && DateTime.TryParse(dateFinBailISO, out var f))
+            for (int n = 1; n <= 99; n++)
+                if (Math.Abs((FinDeBail(d, n) - f).TotalDays) <= 3) return n;
+        return DureeParDefaut(typeDeBail);
+    }
+
+    /// Années fermes : celles saisies ; l'ancien type « 9 ans ferme » en vaut 9.
+    public int AnneesFermes()
+        => anneesFermes > 0 ? anneesFermes : (typeDeBail == BailType.BailCommercialFerme ? 9 : 0);
+
+    /// Message d'erreur, ou null si le bail tient debout. La période ferme est
+    /// facultative (0 = aucune) ; c'est une portion de la durée, jamais plus.
+    public static string VerifierBail(int dureeAns, int fermes)
+    {
+        if (dureeAns < 0 || dureeAns > 99) return "La durée du bail doit être comprise entre 1 et 99 ans.";
+        if (fermes < 0) return "La période ferme ne peut pas être négative.";
+        if (fermes > 0 && dureeAns > 0 && fermes > dureeAns)
+            return $"Un bail de {dureeAns} ans ne peut pas avoir {fermes} ans fermes : la période ferme est comprise dans la durée du bail.";
+        return null;
     }
 
     [NonSerialized]
@@ -181,11 +277,12 @@ public class Locataire : Data
 public enum BailType
 {
     // Ordre figé : la valeur = l'index stocké. Ajouter les nouveaux À LA SUITE.
+    // Renommer est sans risque (les fichiers stockent le numéro), réordonner non.
     BailAContruction,
-    Bail9ans,
-    Bail10ans,
+    Bail9ans,            // n'est plus proposé : un 3/6/9 (voir Locataire.Normaliser)
+    Bail10ans,           // idem, durée 10 ans
     BailCommercial369,
-    BailCommercial9Ferme,
+    BailCommercialFerme, // n'est plus proposé : un commercial avec période ferme (autrefois « 9 ans ferme »)
     BailDerogatoire,
     BailProfessionnel,
     BailEmphyteotique,

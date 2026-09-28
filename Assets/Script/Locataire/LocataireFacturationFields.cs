@@ -617,18 +617,30 @@ public class LocataireFacturationFields : MonoBehaviour
     }
 
     // ── Clone d'un champ InputAndText (rendu natif) ─────────────────────────
+    // Partagé avec la section Bail (LocataireBailFields) : un seul moyen d'ajouter un
+    // champ à la fiche, donc un seul rendu.
 
-    InputAndText Clone(InputAndText src, Transform parent, string label, string placeholder, string unit)
+    public static InputAndText Clone(InputAndText src, Transform parent, string label, string placeholder, string unit)
     {
         var go = Instantiate(src.gameObject, parent);
         go.name = label;
         var iat = go.GetComponent<InputAndText>();
 
-        var titre = go.transform.Find("title")?.GetComponent<TMP_Text>();
+        // Les champs de la fiche ne sont pas tous rangés pareil : « Taille Batiment »
+        // nomme son titre comme lui et range son unité un niveau plus bas. Chercher
+        // seulement « title » et « quantité » au premier niveau laissait au clone le
+        // titre et l'unité de son modèle (« Taille Batiment : … m² » dans le bail).
+        TMP_Text titre = go.transform.Find("title")?.GetComponent<TMP_Text>();
+        if (titre == null)
+            foreach (Transform c in go.transform)
+            {
+                var t = c.GetComponent<TMP_Text>();
+                if (t != null && c.name != "Text afficher" && c.name != "quantité") { titre = t; break; }
+            }
         if (titre != null) titre.text = label;
 
-        var q = go.transform.Find("quantité")?.GetComponent<TMP_Text>();
-        if (q != null) q.text = unit;
+        foreach (var t in go.GetComponentsInChildren<TMP_Text>(true))
+            if (t.name == "quantité") { t.text = unit; break; }
 
         if (iat.inputModify != null && iat.inputModify.placeholder != null)
         {

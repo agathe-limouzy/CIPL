@@ -43,7 +43,7 @@ public static class FactureVarResolver
         m["{loc.tel}"]         = S(loc?.telephoneLocataire);
         m["{loc.lot}"]         = loc != null ? loc.lotBatiment.ToString() : "";
         m["{loc.taille}"]      = loc != null ? $"{loc.tailleLot:0.##} m²" : "";
-        m["{loc.bail}"]        = loc != null ? loc.typeDeBail.ToString() : "";
+        m["{loc.bail}"]        = loc != null ? Locataire.LibelleBail(loc.typeDeBail) : "";   // libellé, pas le nom interne
         m["{loc.debutBail}"]   = D(loc?.dateDebutBailISO);
         m["{loc.finBail}"]     = D(loc?.dateFinBailISO);
         m["{loc.premierBail}"] = D(loc?.dateDebutPremierBailISO);

@@ -101,6 +101,18 @@ public class DateInputController : MonoBehaviour
         }
     }
 
+    /// La date actuellement dans les champs, si elle est complète et valide — même
+    /// avant la fin de la saisie (SelectedDate n'est mis à jour qu'en quittant un champ).
+    public bool LireDate(out DateTime date)
+    {
+        date = default;
+        if (!int.TryParse(dayInput.text, out int j) || !int.TryParse(monthInput.text, out int m)
+            || !int.TryParse(yearInput.text, out int a) || a < 1900 || m < 1 || m > 12
+            || j < 1 || j > DateTime.DaysInMonth(a, m)) return false;
+        date = new DateTime(a, m, j);
+        return true;
+    }
+
     public bool  OnConfirm()
     {
         
