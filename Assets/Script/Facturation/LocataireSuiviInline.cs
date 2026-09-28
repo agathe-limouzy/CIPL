@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -7,9 +8,10 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// Suivi de facturation d'UN locataire, intégré en bandeau pleine largeur dans la
-/// fiche (option A). Reprend la logique de FacturationSuiviPanel (sélecteur d'année,
-/// tableau des factures avec état À venir/À faire/Envoyé/Impayé/Payé + actions) mais
-/// sans le décor plein écran : la GameObject devient une carte titrée.
+/// fiche (option A) : sélecteur d'année, tableau des factures avec état
+/// À venir/À faire/Envoyé/Impayé/Payé + actions ; la GameObject devient une carte titrée.
+/// Seule vue du suivi depuis le 28/09 (la vue plein écran a été supprimée) : un clic sur
+/// une créance du menu arrive ici, via MontrerPour.
 public class LocataireSuiviInline : MonoBehaviour
 {
     LocatairePrefab _fiche; Locataire _loc;
@@ -105,6 +107,50 @@ public class LocataireSuiviInline : MonoBehaviour
         if (fiche == null) return;
         foreach (var s in Resources.FindObjectsOfTypeAll<LocataireSuiviInline>())
             if (s != null && s._fiche == fiche) s.Refresh();
+    }
+
+    // ── Arrivée depuis « Créances » ─────────────────────────────────────────────
+
+    /// Amène la fiche sur son suivi, à l'année demandée (0 : garder l'année
+    /// affichée). Appelé au clic sur une facture de « Créances », juste après la
+    /// sélection de la fiche.
+    public static void MontrerPour(LocatairePrefab fiche, int annee)
+    {
+        if (fiche == null) return;
+        foreach (var s in Resources.FindObjectsOfTypeAll<LocataireSuiviInline>())
+            if (s != null && s._fiche == fiche) { s.Montrer(annee); return; }
+    }
+
+    void Montrer(int annee)
+    {
+        if (isActiveAndEnabled) { StartCoroutine(MontrerApres(annee)); return; }
+        if (annee > 0) { _year = annee; Refresh(); }   // masqué : au moins la bonne année à sa réapparition
+    }
+
+    IEnumerator MontrerApres(int annee)
+    {
+        // La fiche vient d'être sélectionnée : ses initialisations passent d'abord
+        // (Setup remet l'année courante, qui écraserait celle demandée).
+        yield return null;
+        if (annee > 0 && annee != _year) { _year = annee; Refresh(); }
+        yield return new WaitForEndOfFrame();   // tableau reconstruit (LateUpdate) et mis en page
+        Canvas.ForceUpdateCanvases();
+        AmenerEnHaut();
+    }
+
+    // Fait défiler la fiche pour que le haut du suivi arrive en haut de la vue.
+    void AmenerEnHaut()
+    {
+        var sr = GetComponentInParent<ScrollRect>();
+        if (sr == null || sr.content == null) return;
+        var contenu = sr.content;
+        var vue = sr.viewport != null ? sr.viewport : (RectTransform)sr.transform;
+        var coins = new Vector3[4];
+        ((RectTransform)transform).GetWorldCorners(coins);                   // [1] = coin haut gauche
+        float depuisLeHaut = contenu.rect.yMax - contenu.InverseTransformPoint(coins[1]).y;
+        float max = Mathf.Max(0f, contenu.rect.height - vue.rect.height);
+        sr.StopMovement();
+        contenu.anchoredPosition = new Vector2(contenu.anchoredPosition.x, Mathf.Clamp(depuisLeHaut - 12f, 0f, max));
     }
 
     // ── Construction (la GameObject devient la carte) ───────────────────────────

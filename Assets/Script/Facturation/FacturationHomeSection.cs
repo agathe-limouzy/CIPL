@@ -239,7 +239,10 @@ public class FacturationHomeSection : MonoBehaviour
         if (gm != null && gm.menuManager != null) { gm.Hide(); gm.menuManager.OnSelect(e.bp); }
         e.bp.ShowLocataireView();
         if (e.bp.menulocataire != null) e.bp.menulocataire.OnSelect(fiche);
-        FacturationSuiviPanel.Open(fiche);
+        // Directement sur le suivi de la fiche, à l'année de la facture (celle où le
+        // suivi la range) — plutôt que la vue plein écran ouverte par-dessus.
+        int annee = FacturationSuivi.TryEcheance(e.rec.echeanceISO, out var ech) ? ech.Year : 0;
+        LocataireSuiviInline.MontrerPour(fiche, annee);
     }
 
     // ── Helpers UI ──────────────────────────────────────────────────────────────

@@ -7,12 +7,12 @@ using UnityEngine.UI;
 /// Une ligne du tableau de suivi de facturation, portée par le prefab
 /// `Assets/Prefab/SuiviFactureRow.prefab`.
 ///
-/// Les deux vues du suivi (LocataireSuiviInline, FacturationSuiviPanel) construisaient
-/// la même ligne chacune de leur côté : c'est ce qui a permis au défaut d'alignement
-/// (`childForceExpandWidth`) d'exister en double. L'en-tête et la ligne « aucune
-/// facture » passent par le MÊME prefab (SetupEntete / SetupVide) — sinon l'alignement
-/// des colonnes redépendrait de deux constructions différentes, exactement le défaut
-/// qu'on cherche à supprimer.
+/// Il y avait deux vues du suivi, qui construisaient la même ligne chacune de leur
+/// côté : c'est ce qui a permis au défaut d'alignement (`childForceExpandWidth`) et à
+/// la garde « Quittance » manquante d'exister d'un seul côté. La vue plein écran a été
+/// supprimée le 28/09 ; il ne reste que LocataireSuiviInline, qui passe par ce prefab.
+/// L'en-tête et la ligne « aucune facture » passent par le MÊME prefab (SetupEntete /
+/// SetupVide) — sinon l'alignement des colonnes redépendrait de deux constructions.
 public class SuiviRowUI : MonoBehaviour
 {
     // Largeurs des colonnes : portées par le prefab (LayoutElement), reprises ici en

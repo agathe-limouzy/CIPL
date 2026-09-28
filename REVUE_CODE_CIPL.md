@@ -477,6 +477,14 @@ gardées, voulues pour cet écran : titre au-dessus des champs (groupe vertical 
 hauteur de ligne 44, pas de `ContentSizeFitter` sur `DateInput` (le groupe vertical fixe la largeur).
 `RevisionPanel` ne passe que par les références du composant : rien à changer côté code.
 
+**Clic sur une créance → suivi de la fiche (28/09).** `FacturationHomeSection.OpenDetail` n'ouvre plus
+la vue plein écran : `LocataireSuiviInline.MontrerPour(fiche, année)` attend une image (la sélection
+de la fiche remet l'année courante), pose l'année d'échéance de la facture, puis fait défiler la fiche
+jusqu'au haut de la section. Conséquence : `FacturationSuiviPanel` n'avait plus aucun appelant —
+**supprimé** (≈ 400 lignes, avec l'accord de l'utilisatrice), après vérification qu'aucune scène,
+aucun prefab ni aucun script n'y faisait référence. C'était la dernière copie en code de la ligne de
+suivi : elle n'a plus qu'une construction, le prefab `SuiviFactureRow`.
+
 ### Prochaines étapes (mise à jour 22/09/2026)
 
 Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **216 tests EditMode verts**. Ce qui reste se range en trois tas.
@@ -502,7 +510,7 @@ Aucun de ces points n'est douteux dans le code ; ils demandent l'écran. Par ord
 
 #### B. À coder — court
 
-1. **Convertir `FacturationSuiviPanel` au prefab `SuiviFactureRow`**, une fois les deux rendus comparés en Play (point A6). C'est ce qui supprimera la dernière copie de la ligne de tableau.
+1. ~~Convertir `FacturationSuiviPanel` au prefab `SuiviFactureRow`~~ — **sans objet** : la vue plein écran a été supprimée le 28/09 (plus aucun appelant depuis que le clic sur une créance mène au suivi de la fiche). La ligne de suivi n'a plus qu'une construction, le prefab.
 2. **Puis `FacturationHomeSection`** (48 appels `UIFactory`, écran d'accueil). Ne **pas** convertir `ReglagePanel` ni les 4 panneaux de facture : formulaires construits une seule fois, arbitrage inchangé.
 3. **Les 113 `ContentSizeFitter` imbriqués**, puis le réglage de taille de police lui-même. C'est la
    suite directe du 23/09 et la seule qui reste avant le réglage. **Une section à la fois, vérifiée à
