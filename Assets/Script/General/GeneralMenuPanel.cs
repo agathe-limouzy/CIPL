@@ -121,14 +121,27 @@ public class GeneralMenuPanel : MonoBehaviour
     // ── Réaménagement du menu (À traiter | Créances en colonnes, calcul rapide en bouton) ──
 
     private FacturationHomeSection _creancesSection;
+    private ColonnesAdaptatives _colonnes;
     private Transform _calculRapide, _calcHome;
     private GameObject _calcScrim;
     private bool _reorgDone;
 
+    /// Le panneau qui porte les sections de l'accueil.
+    ///
+    /// Il était enfant direct de l'écran ; depuis l'ajout du défilement (23/09) il
+    /// vit sous « ScrollArea/Viewport ». Le chercher ici, à un seul endroit, évite
+    /// que son chemin soit écrit cinq fois — c'est ce qui avait vidé l'écran quand
+    /// la structure a changé : les cinq `Find` renvoyaient null en silence.
+    private RectTransform PanelRoot()
+    {
+        return transform.Find("Panel") as RectTransform
+            ?? transform.Find("ScrollArea/Viewport/Panel") as RectTransform;
+    }
+
     private void EnsureHomeReorg()
     {
         if (_reorgDone) return;
-        var panel = (RectTransform)transform.Find("Panel");
+        var panel = PanelRoot();
         if (panel == null) return;
         _reorgDone = true;
 
@@ -148,7 +161,13 @@ public class GeneralMenuPanel : MonoBehaviour
             _creancesSection = go.AddComponent<FacturationHomeSection>();
             _creancesSection.Icon = creanceIcon;
             var cle = go.GetComponent<LayoutElement>() ?? go.AddComponent<LayoutElement>();
-            cle.flexibleWidth = 1; cle.minWidth = 300;
+            cle.flexibleWidth = 1; cle.minWidth = FacturationHomeSection.LargeurMin;
+
+            // « Créances » passe sous « À traiter » quand elles n'entrent plus côte à
+            // côte (zoom 150 % et au-delà). Ajouté ici, après le réaménagement : plus
+            // tôt, il aurait fait descendre le calcul rapide, encore dans la rangée.
+            _colonnes = row.GetComponent<ColonnesAdaptatives>() ?? row.gameObject.AddComponent<ColonnesAdaptatives>();
+            _colonnes.Change += LayoutHeights;
         }
 
         // 3) Répartition de la hauteur (le Panel a un ContentSizeFitter : il ne s'étire
@@ -186,7 +205,7 @@ public class GeneralMenuPanel : MonoBehaviour
     // même bande colorée + même taille de titre, couleurs par famille de fonction.
     private void NormalizeHeaders()
     {
-        var panel = transform.Find("Panel") as RectTransform;
+        var panel = PanelRoot();
         if (panel == null) return;
         Sprite rounded = null;
 
@@ -218,7 +237,7 @@ public class GeneralMenuPanel : MonoBehaviour
     }
 
     // Applique à un bandeau d'en-tête : fond = teinte claire, icône + titre = accent,
-    // hauteur 58 + titre 22 (uniforme avec la fiche locataire).
+    // hauteur 58 + titre au rôle Section (uniforme avec les fiches).
     private static void StyleHeader(Transform header, Color band, Color accent)
     {
         var img = header.GetComponent<Image>();
@@ -229,18 +248,29 @@ public class GeneralMenuPanel : MonoBehaviour
             if (ii != null) { ii.color = accent; break; }   // icône (1er enfant Image)
         }
         var t = header.GetComponentInChildren<TMP_Text>(true);
-        if (t != null) { t.enableAutoSizing = false; t.fontSize = 22; t.color = accent; }
+        if (t != null) { t.enableAutoSizing = false; t.fontSize = UITheme.Role.Section; t.color = accent; }
     }
 
-    // Mise en page statique (pas de mesure du parent : elle oscillait car le parent est
-    // lui-même dimensionné au contenu, ce qui créait une boucle de rétroaction).
-    private const float BatimentH = 380f;        // en-tête + barre + cartes (agrandi ×2)
-    private const float ScrollBatimentH = 300f;  // zone des cartes de bâtiment
-    private const float RowTraiterH = 455f;      // hauteur des deux colonnes = leur contenu (11 alertes)
+    // Hauteurs de référence, pensées pour un écran de 1080 à 100 %.
+    private const float ScrollBatimentH = 300f;     // zone des cartes de bâtiment
+    private const float ScrollBatimentHMin = 180f;  // une rangée de cartes (153) et ses marges
+    private const float RowTraiterH = 455f;         // hauteur des deux colonnes = leur contenu (11 alertes)
+
+    /// Hauteur réellement offerte au contenu, ou 0 si on ne peut pas la connaître.
+    ///
+    /// Le commentaire d'origine expliquait qu'on ne mesurait pas le parent : il se
+    /// dimensionnait sur son contenu, donc mesurer créait une boucle. Le viewport
+    /// ajouté le 23/09 tient sa hauteur de l'écran et non du contenu — la boucle
+    /// n'existe plus, et la mesure redevient possible.
+    private float HauteurOfferte()
+    {
+        var vue = transform.Find("ScrollArea/Viewport") as RectTransform;
+        return vue == null ? 0f : vue.rect.height;
+    }
 
     private void LayoutHeights()
     {
-        var panel = transform.Find("Panel") as RectTransform;
+        var panel = PanelRoot();
         if (panel == null) return;
 
         // Le bandeau KPI est ré-activé par UpdateStats() : on le remasque à chaque passage.
@@ -254,12 +284,22 @@ public class GeneralMenuPanel : MonoBehaviour
             le.minHeight = hh; le.preferredHeight = hh; le.flexibleHeight = 0;
         }
 
-        // Bâtiments : réduit son Scroll View à une rangée (il faisait 300 = 2 rangées).
+        // Bâtiments : seule la zone des cartes peut se serrer, jusqu'à une rangée ;
+        // l'en-tête et la barre de tri gardent leur hauteur. Avant, la section avait
+        // une hauteur fixe (380) plus petite que son contenu (410) : la barre de tri
+        // était écrasée à 4 px et passait sous les cartes, et au zoom la zone des
+        // cartes (300 fixes) sortait de la section.
         var sb = panel.Find("Section Batiment");
-        if (sb != null)
+        var sv = sb != null ? sb.Find("Scroll View") : null;
+        if (sv != null)
         {
-            var sv = sb.Find("Scroll View");
-            if (sv != null) Set(sv, ScrollBatimentH);
+            var le = sv.GetComponent<LayoutElement>() ?? sv.gameObject.AddComponent<LayoutElement>();
+            le.minHeight = ScrollBatimentHMin; le.preferredHeight = ScrollBatimentH; le.flexibleHeight = 0;
+            foreach (Transform c in sb)
+            {
+                var cle = c.GetComponent<LayoutElement>();
+                if (c != sv && cle != null && cle.preferredHeight > 0) cle.minHeight = cle.preferredHeight;
+            }
         }
 
         // « À traiter » : sa liste d'alertes remplit la colonne (texte jusqu'en bas).
@@ -271,7 +311,74 @@ public class GeneralMenuPanel : MonoBehaviour
         }
 
         Set(panel.Find("RowTraiterCalcul"), RowTraiterH);
-        Set(sb, BatimentH);
+        if (_creancesSection != null) Set(_creancesSection.transform, RowTraiterH);   // à côté ou en dessous
+
+        // À 100 %, tout doit tenir sans défilement. Le contenu dépassait de
+        // quelques pixels seulement : on rend ces pixels en serrant la zone des
+        // cartes, qui a son propre défilement et ne perd donc rien.
+        // Si même serrée la section ne tient pas (zoom), la page défile de toute
+        // façon : la section garde alors sa hauteur pleine.
+        float plein = HauteurContenu(sb);
+        float serree = plein - (ScrollBatimentH - ScrollBatimentHMin);
+        float offerte = HauteurOfferte();
+        float h = plein;
+        if (offerte > 0f)
+        {
+            var v = panel.GetComponent<VerticalLayoutGroup>();
+            float marges = v == null ? 0f : v.padding.top + v.padding.bottom;
+            float espacement = v == null ? 0f : v.spacing;
+
+            float autres = marges;
+            int n = 0;
+            foreach (Transform c in panel)
+            {
+                if (!c.gameObject.activeSelf) continue;
+                n++;
+                if (c == sb) continue;
+                autres += LayoutUtility.GetPreferredHeight((RectTransform)c);
+            }
+            if (n > 1) autres += espacement * (n - 1);
+
+            float reste = offerte - autres;
+            if (reste >= serree) h = Mathf.Min(reste, plein);
+        }
+        Set(sb, h);
+    }
+
+    /// Hauteur que demandent les enfants d'une section verticale (marges comprises).
+    /// Pas LayoutUtility.GetPreferredHeight de la section : son LayoutElement, posé
+    /// par Set, masquerait ce que le contenu demande vraiment.
+    private static float HauteurContenu(Transform section)
+    {
+        var v = section != null ? section.GetComponent<VerticalLayoutGroup>() : null;
+        if (v == null) return 0f;
+        float h = v.padding.top + v.padding.bottom;
+        int n = 0;
+        foreach (Transform c in section)
+        {
+            if (!c.gameObject.activeSelf) continue;
+            var le = c.GetComponent<LayoutElement>();
+            if (le != null && le.ignoreLayout) continue;
+            h += LayoutUtility.GetPreferredHeight((RectTransform)c);
+            n++;
+        }
+        return h + v.spacing * Mathf.Max(0, n - 1);
+    }
+
+    // La hauteur offerte change avec le zoom : on recalcule alors les hauteurs.
+    // (La disposition des colonnes, elle, est l'affaire de ColonnesAdaptatives, qui
+    // rappelle LayoutHeights quand elle change.)
+    private Vector2 _tailleVue;
+
+    private void LateUpdate()
+    {
+        if (!_reorgDone) return;
+        var panel = PanelRoot();
+        if (panel == null) return;
+        var taille = new Vector2(panel.rect.width, HauteurOfferte());
+        if (taille == _tailleVue) return;
+        _tailleVue = taille;
+        LayoutHeights();
     }
 
     // Affiche / masque le « Calcul rapide » en superposition centrée.
@@ -328,6 +435,7 @@ public class GeneralMenuPanel : MonoBehaviour
         BuildAlertes();
         RebuildBuildings();
         EnsureHomeReorg();
+        _colonnes?.Disposer();   // avant les hauteurs : « Créances » peut changer de place
         LayoutHeights();
         NormalizeHeaders();
         _creancesSection?.Setup(batimentManager.BatimentPrefab);
@@ -343,7 +451,7 @@ public class GeneralMenuPanel : MonoBehaviour
     // depuis le bas du menu vers la barre de titre (à droite), boutons compacts.
     private void AjusteOutilsDansHeader()
     {
-        var panel = transform.Find("Panel");
+        var panel = PanelRoot();
         if (panel == null) return;
         var header = panel.Find("MenuHeader");
         if (header == null) return;
@@ -390,7 +498,7 @@ public class GeneralMenuPanel : MonoBehaviour
     private void EnsureKpiGlobaux()
     {
         if (_kpiGlobaux != null) return;
-        var panel = transform.Find("Panel");
+        var panel = PanelRoot();
         if (panel == null) return;
         var row = UIFactory.HBox(panel, 10, false, "KpiGlobaux");
         row.childControlWidth = true; row.childForceExpandWidth = true;
@@ -594,7 +702,22 @@ public class GeneralMenuPanel : MonoBehaviour
                 go.GetComponent<BuildingCard>().Setup(bp, OnBuildingClicked);
                 _cards.Add(go);
             }
+            AjusterHauteurCartes(grid);
         }
+    }
+
+    /// La cellule de la grille prend la hauteur que la carte réclame.
+    ///
+    /// Elle était écrite en dur à 150 px : le jour où le texte de la carte a
+    /// grandi, il aurait été tronqué sans que rien ne le signale. La carte dit
+    /// désormais elle-même de quelle hauteur elle a besoin.
+    private void AjusterHauteurCartes(GridLayoutGroup grid)
+    {
+        if (grid == null || _cards.Count == 0) return;
+        var carte = (RectTransform)_cards[0].transform;
+        LayoutRebuilder.ForceRebuildLayoutImmediate(carte);
+        float h = LayoutUtility.GetPreferredHeight(carte);
+        if (h > 1f) grid.cellSize = new Vector2(grid.cellSize.x, h);
     }
 
     private List<BatimentPrefab> FiltrerTrier(IEnumerable<BatimentPrefab> source)

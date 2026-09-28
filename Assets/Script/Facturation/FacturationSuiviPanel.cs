@@ -67,14 +67,14 @@ public class FacturationSuiviPanel : MonoBehaviour
 
         var header = UIFactory.HBox(col.transform, 12, false, "Header");
         UIFactory.LE(header.gameObject, minH: 52);
-        var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, 18);
+        var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(back.gameObject); UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
         back.onClick.AddListener(Close);
-        UIFactory.Text(header.transform, "Suivi de facturation", 26, UITheme.TextePrincipal, true);
+        UIFactory.Text(header.transform, "Suivi de facturation", UITheme.Role.Page, UITheme.TextePrincipal, true);
 
         var yr = UIFactory.HBox(col.transform, 6, false, "Years");
         UIFactory.LE(yr.gameObject, minH: 40);
-        UIFactory.Text(yr.transform, "Année", 15, UITheme.TexteSecondaire);
+        UIFactory.Text(yr.transform, "Année", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _yearRow = yr.transform;
 
         var content = MakeScroll(col.transform);
@@ -91,7 +91,7 @@ public class FacturationSuiviPanel : MonoBehaviour
             int yy = y;
             bool on = y == _year;
             var b = UIFactory.Button(_yearRow, y.ToString(), on ? UITheme.Primaire : UITheme.Carte,
-                on ? Color.white : UITheme.TextePrincipal, 34, 15, false);
+                on ? Color.white : UITheme.TextePrincipal, 34, UITheme.Role.Action, false);
             UIFactory.Border(b.gameObject); UIFactory.LE(b.gameObject, prefW: 74, flexW: 0);
             b.onClick.AddListener(() => { _year = yy; RebuildYears(); RebuildTable(); });
             // Pastille si l'année contient une facturation à faire / en attente / impayée.
@@ -141,6 +141,10 @@ public class FacturationSuiviPanel : MonoBehaviour
         var card = UIFactory.Panel("Card", _tableBox, UITheme.Carte);
         UIFactory.Border(card.gameObject);
         var cv = card.gameObject.AddComponent<VerticalLayoutGroup>();
+        // Explicite : le defaut d'Unity est TRUE, et un groupe qui « veut s'etendre »
+        // propage un flexibleHeight jusqu'en haut de la hierarchie — c'est ce qui
+        // creusait 104 px de blanc dans la section Loyer.
+        cv.childForceExpandHeight = false;
         cv.spacing = 0; cv.padding = new RectOffset(0, 0, 0, 0);
         cv.childControlWidth = true; cv.childControlHeight = true; cv.childForceExpandWidth = true;
         card.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
@@ -156,7 +160,7 @@ public class FacturationSuiviPanel : MonoBehaviour
         if (lignes.Count == 0)
         {
             var empty = Row(cv.transform, UITheme.Carte, 44);
-            var t = UIFactory.Text(empty, "Aucune facture pour cette année.", 14, UITheme.TexteSecondaire);
+            var t = UIFactory.Text(empty, "Aucune facture pour cette année.", UITheme.Role.Donnee, UITheme.TexteSecondaire);
             UIFactory.LE(t.gameObject, flexW: 1);
             return;
         }
@@ -197,7 +201,7 @@ public class FacturationSuiviPanel : MonoBehaviour
     // Colonne « Facture » : flexible (prend le reste), minimum 200 px.
     void FactCell(Transform row, string text, Color color, bool bold)
     {
-        var t = UIFactory.Text(row, text, 14, color, bold, TextAlignmentOptions.Left);
+        var t = UIFactory.Text(row, text, UITheme.Role.Donnee, color, bold, TextAlignmentOptions.Left);
         t.enableWordWrapping = false; t.overflowMode = TextOverflowModes.Ellipsis;
         UIFactory.LE(t.gameObject, flexW: 1, minW: 200);
     }
@@ -205,7 +209,7 @@ public class FacturationSuiviPanel : MonoBehaviour
     // Colonne à largeur fixe (identique en-tête et lignes).
     void FixCell(Transform row, string text, float w, bool right, Color color, bool bold)
     {
-        var t = UIFactory.Text(row, text, 14, color, bold,
+        var t = UIFactory.Text(row, text, UITheme.Role.Donnee, color, bold,
             right ? TextAlignmentOptions.Right : TextAlignmentOptions.Left);
         UIFactory.LE(t.gameObject, prefW: w, minW: w, flexW: 0);
     }
@@ -215,7 +219,7 @@ public class FacturationSuiviPanel : MonoBehaviour
         var cell = UIFactory.HBox(row, 0, false, "EtatCell");
         UIFactory.LE(cell.gameObject, prefW: w, minW: w, flexW: 0);
         cell.childAlignment = TextAnchor.MiddleLeft; cell.childForceExpandWidth = false;
-        var pill = UIFactory.Button(cell.transform, FacturationSuivi.EtatLibelle(etat), EtatBg(etat), EtatFg(etat), 28, 13, false);
+        var pill = UIFactory.Button(cell.transform, FacturationSuivi.EtatLibelle(etat), EtatBg(etat), EtatFg(etat), 28, UITheme.Role.Pastille, false);
         UIFactory.Border(pill.gameObject, EtatFg(etat));
         UIFactory.LE(pill.gameObject, prefW: 96, flexW: 0, minH: 28);
         if (etat == FacturationSuivi.Etat.Cloture) { pill.interactable = false; return; }
@@ -284,6 +288,10 @@ public class FacturationSuiviPanel : MonoBehaviour
         var listBg = UIFactory.Panel("StatutList", scrim, UITheme.Carte);
         UIFactory.Border(listBg.gameObject);
         var vlg = listBg.gameObject.AddComponent<VerticalLayoutGroup>();
+        // Explicite : le defaut d'Unity est TRUE, et un groupe qui « veut s'etendre »
+        // propage un flexibleHeight jusqu'en haut de la hierarchie — c'est ce qui
+        // creusait 104 px de blanc dans la section Loyer.
+        vlg.childForceExpandHeight = false;
         vlg.spacing = 2; vlg.padding = new RectOffset(4, 4, 4, 4);
         vlg.childControlWidth = true; vlg.childControlHeight = true; vlg.childForceExpandWidth = true;
         listBg.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
@@ -314,7 +322,7 @@ public class FacturationSuiviPanel : MonoBehaviour
 
     void MenuItem(Transform parent, string label, Action onClick)
     {
-        var b = UIFactory.Button(parent, label, UITheme.Carte, UITheme.TextePrincipal, 34, 15, false);
+        var b = UIFactory.Button(parent, label, UITheme.Carte, UITheme.TextePrincipal, 34, UITheme.Role.Action, false);
         b.onClick.AddListener(() => onClick());
     }
 
@@ -350,8 +358,9 @@ public class FacturationSuiviPanel : MonoBehaviour
 
     void MiniBtn(Transform parent, string label, Action onClick)
     {
-        var b = UIFactory.Button(parent, label, UITheme.Carte, UITheme.TextePrincipal, 30, 13, false);
-        UIFactory.Border(b.gameObject); UIFactory.LE(b.gameObject, prefW: 74, flexW: 0, minH: 30);
+        var b = UIFactory.Button(parent, label, UITheme.Carte, UITheme.TextePrincipal, 30, UITheme.Role.Action, false);
+        UIFactory.Border(b.gameObject); UIFactory.LE(b.gameObject, flexW: 0, minH: 30);
+        UIFactory.LargeurDuTexte(b);
         b.onClick.AddListener(() => onClick());
     }
 

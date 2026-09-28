@@ -337,7 +337,7 @@ public class LocataireFacturationFields : MonoBehaviour
     // Bouton d'une grille : demi-largeur (flexible), hauteur fixe.
     Button GridBtn(Transform row, string label, Color bg, Action onClick)
     {
-        var b = UIFactory.Button(row, label, bg, Color.white, 46, 15);
+        var b = UIFactory.Button(row, label, bg, Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(b.gameObject, flexW: 1, minW: 0, minH: 46, prefH: 46);
         b.onClick.AddListener(() => onClick());
         return b;
@@ -349,7 +349,7 @@ public class LocataireFacturationFields : MonoBehaviour
         if (b == null) return null;
         var dot = UIFactory.Panel("Rappel", b.transform, UITheme.Alerte);
         var le = dot.gameObject.AddComponent<LayoutElement>(); le.ignoreLayout = true;
-        var t = UIFactory.Text(dot.transform, "!", 13, Color.white, true, TextAlignmentOptions.Center);
+        var t = UIFactory.Text(dot.transform, "!", UITheme.Role.Pastille, Color.white, true, TextAlignmentOptions.Center);
         var tr = (RectTransform)t.transform;
         tr.anchorMin = Vector2.zero; tr.anchorMax = Vector2.one; tr.offsetMin = Vector2.zero; tr.offsetMax = Vector2.zero;
         var rt = (RectTransform)dot.transform;
@@ -380,10 +380,14 @@ public class LocataireFacturationFields : MonoBehaviour
                 var panel = UIFactory.Panel("Alerte", _alertesBox, urgent ? HexC("#F6DED6") : HexC("#FBEFD6"));
                 UIFactory.Border(panel.gameObject, urgent ? HexC("#D85A30") : HexC("#C79A3E"));
                 var hl = panel.gameObject.AddComponent<HorizontalLayoutGroup>();
+                // Explicite : le defaut d'Unity est TRUE, et un groupe qui « veut s'etendre »
+                // propage un flexibleHeight jusqu'en haut de la hierarchie — c'est ce qui
+                // creusait 104 px de blanc dans la section Loyer.
+                hl.childForceExpandHeight = false;
                 hl.padding = new RectOffset(10, 10, 6, 6);
                 hl.childControlWidth = true; hl.childControlHeight = true; hl.childForceExpandWidth = true;
                 panel.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-                UIFactory.Text(panel.transform, a.message, 14, urgent ? HexC("#B23A12") : HexC("#8A6D1E"), true);
+                UIFactory.Text(panel.transform, a.message, UITheme.Role.Donnee, urgent ? HexC("#B23A12") : HexC("#8A6D1E"), true);
             }
 
         if (_pastilleLoyer != null) _pastilleLoyer.SetActive(loyerDue);
@@ -393,7 +397,7 @@ public class LocataireFacturationFields : MonoBehaviour
 
     void AddSoon(Transform parent, string label)
     {
-        var b = UIFactory.Button(parent, label + "  ·  à venir", UITheme.Carte, UITheme.TexteSecondaire, 40, 15);
+        var b = UIFactory.Button(parent, label + "  ·  à venir", UITheme.Carte, UITheme.TexteSecondaire, 40, UITheme.Role.Bouton);
         UIFactory.Border(b.gameObject);
         b.interactable = false;
     }
@@ -528,7 +532,7 @@ public class LocataireFacturationFields : MonoBehaviour
             var badge = UIFactory.Panel("BadgeDepotRevision", titre, HexC("#FBEFD6"));
             UIFactory.Border(badge.gameObject, HexC("#C79A3E"));
             var bl = badge.gameObject.AddComponent<LayoutElement>(); bl.ignoreLayout = true;
-            var bt = UIFactory.Text(badge.transform, "Révision à faire", 12, HexC("#8A6D1E"), true, TextAlignmentOptions.Center);
+            var bt = UIFactory.Text(badge.transform, "Révision à faire", UITheme.Role.Pastille, HexC("#8A6D1E"), true, TextAlignmentOptions.Center);
             var btr = (RectTransform)bt.transform;
             btr.anchorMin = Vector2.zero; btr.anchorMax = Vector2.one; btr.offsetMin = new Vector2(10, 0); btr.offsetMax = new Vector2(-10, 0);
             var br = (RectTransform)badge.transform;
@@ -556,9 +560,9 @@ public class LocataireFacturationFields : MonoBehaviour
     {
         var h = UIFactory.HBox(parent, 8, false, "Row");
         UIFactory.LE(h.gameObject, minH: 24);
-        var l = UIFactory.Text(h.transform, label, 17, UITheme.TexteSecondaire);
+        var l = UIFactory.Text(h.transform, label, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         UIFactory.LE(l.gameObject, flexW: 1);
-        return UIFactory.Text(h.transform, "—", 16, UITheme.TextePrincipal, true,
+        return UIFactory.Text(h.transform, "—", UITheme.Role.Donnee, UITheme.TextePrincipal, true,
             TextAlignmentOptions.Right);
     }
 
@@ -574,7 +578,7 @@ public class LocataireFacturationFields : MonoBehaviour
         v.childControlHeight = true; v.childForceExpandHeight = false;
         v.childAlignment = TextAnchor.MiddleLeft;
         UIFactory.LE(card.gameObject, flexW: 1, minW: 0);
-        UIFactory.Text(card.transform, label, 17, UITheme.TexteSecondaire);
+        UIFactory.Text(card.transform, label, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var val = UIFactory.Text(card.transform, "—", valSize, UITheme.TextePrincipal, true);
         val.enableWordWrapping = false; val.overflowMode = TextOverflowModes.Ellipsis;
         return val;
@@ -683,13 +687,13 @@ public class LocataireFacturationFields : MonoBehaviour
         if (hSprite != null) hImg.sprite = hSprite;
         hImg.color = Color.white; hImg.preserveAspect = true; hImg.raycastTarget = false;
         UIFactory.LE(hIcon.gameObject, prefW: 26, minW: 26, prefH: 26, minH: 26, flexW: 0);
-        var hTitle = UIFactory.Text(header.transform, "Révision du dépôt de garantie", 20, Color.white, true);
+        var hTitle = UIFactory.Text(header.transform, "Révision du dépôt de garantie", UITheme.Role.Section, Color.white, true);
         UIFactory.LE(hTitle.gameObject, flexW: 1);
 
         // Corps (formulaire) sur fond crème, encadré.
         var body = UIFactory.VBox(v.transform, 10, 18, 18, 14, 16, "Body");
 
-        UIFactory.Text(body.transform, "Date de révision", 15, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Date de révision", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         var dateInput = UIFactory.Input(body.transform, "JJ / MM / AAAA");
         dateInput.text = DateTime.TryParse(loc.dateRevisionDepotISO, out var drx)
             ? drx.ToString("dd/MM/yyyy") : DateTime.Today.ToString("dd/MM/yyyy");
@@ -697,33 +701,33 @@ public class LocataireFacturationFields : MonoBehaviour
         // Soumis à TVA → loyer TTC ; sinon → loyer HT (mémorisé sur le locataire).
         var ttcToggle = UIFactory.Toggle(body.transform, "Locataire soumis à la TVA (loyer TTC)", loc.depotSurTTC);
 
-        UIFactory.Text(body.transform, "Loyer par période hors charges (prérempli)", 15, UITheme.TexteSecondaire);
-        var loyerLine = UIFactory.Text(body.transform, "", 20, UITheme.TextePrincipal, true);
+        UIFactory.Text(body.transform, "Loyer par période hors charges (prérempli)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        var loyerLine = UIFactory.Text(body.transform, "", UITheme.Role.Valeur, UITheme.TextePrincipal, true);
         Func<float> currentPeriode = () => ttcToggle.isOn ? periodeHT * 1.2f : periodeHT;
         Action refreshLoyer = () =>
             loyerLine.text = $"{currentPeriode():0.00} € / période {(ttcToggle.isOn ? "TTC" : "HT")}";
         ttcToggle.onValueChanged.AddListener(_ => refreshLoyer());
         refreshLoyer();
 
-        UIFactory.Text(body.transform, "Nombre de périodes", 15, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Nombre de périodes", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         var moisInput = UIFactory.Input(body.transform, "ex. 3");
         moisInput.contentType = TMP_InputField.ContentType.IntegerNumber;
         if (currentPeriode() > 0f && loc.depotDeGarantie > 0f)
             moisInput.text = Mathf.RoundToInt(loc.depotDeGarantie / currentPeriode()).ToString();
 
         // Ancien dépôt (fixe) + nouveau dépôt possible (recalculé en direct).
-        UIFactory.Text(body.transform, $"Ancien dépôt : {loc.depotDeGarantie:0.00} €", 16, UITheme.TexteSecondaire);
-        var nouveauLine = UIFactory.Text(body.transform, "", 20, UITheme.Primaire, true);
-        var hintLine = UIFactory.Text(body.transform, "", 14, UITheme.Alerte);
+        UIFactory.Text(body.transform, $"Ancien dépôt : {loc.depotDeGarantie:0.00} €", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        var nouveauLine = UIFactory.Text(body.transform, "", UITheme.Role.Valeur, UITheme.Primaire, true);
+        var hintLine = UIFactory.Text(body.transform, "", UITheme.Role.Donnee, UITheme.Alerte);
 
         var actions = UIFactory.HBox(body.transform, 10);
         UIFactory.LE(actions.gameObject, minH: 46);
 
-        var cancel = UIFactory.Button(actions.transform, "Fermer", UITheme.Carte, UITheme.TextePrincipal, 44, 18);
+        var cancel = UIFactory.Button(actions.transform, "Fermer", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
         UIFactory.Border(cancel.gameObject); UIFactory.LE(cancel.gameObject, flexW: 1);
         cancel.onClick.AddListener(() => Destroy(scrim.gameObject));
 
-        var reviser = UIFactory.Button(actions.transform, "Réviser", UITheme.Primaire, Color.white, 44, 18);
+        var reviser = UIFactory.Button(actions.transform, "Réviser", UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
         UIFactory.LE(reviser.gameObject, flexW: 1);
 
         // Recalcul auto du nouveau dépôt + état du bouton : la révision n'est

@@ -37,6 +37,12 @@ public class BatimentSummaryView : MonoBehaviour
 
     private BatimentPrefab _bp;
 
+    /// Là où vivent les cartes de la vue. Depuis l'ajout du défilement (28/09),
+    /// c'est « Viewport/Content » et non plus la vue elle-même. Le chercher ici, à
+    /// un seul endroit : dans le menu général, cinq chemins écrits en dur avaient
+    /// vidé l'écran le jour où la structure a changé.
+    Transform Contenu => transform.Find("Viewport/Content") ?? transform;
+
     // Tableau de bord ajouté par code : carte « À traiter » (par bâtiment) + KPI agrandis.
     private Transform _aTraiterCard, _aTraiterRows;
     private TMP_Text _aTraiterTitre;
@@ -207,8 +213,8 @@ public class BatimentSummaryView : MonoBehaviour
         BigValue(txtLoyerAnnuel); BigValue(txtInvesti); BigValue(txtRendement);
 
         // Carte de présentation agrandie (nom + vignette + hauteur de carte).
-        if (txtNom != null && !txtNom.enableAutoSizing) txtNom.fontSize = 30;
-        if (txtAdresse != null && !txtAdresse.enableAutoSizing && txtAdresse.fontSize < 17) txtAdresse.fontSize = 17;
+        if (txtNom != null && !txtNom.enableAutoSizing) txtNom.fontSize = UITheme.Role.Page;
+        if (txtAdresse != null && !txtAdresse.enableAutoSizing && txtAdresse.fontSize < 17) txtAdresse.fontSize = UITheme.Role.SousTitre;
         if (vignetteCarte != null)
         {
             var vle = vignetteCarte.GetComponent<LayoutElement>();
@@ -224,7 +230,7 @@ public class BatimentSummaryView : MonoBehaviour
     static void BigValue(TMP_Text t)
     {
         if (t == null) return;
-        t.enableAutoSizing = true; t.fontSizeMin = 18; t.fontSizeMax = 30;
+        t.enableAutoSizing = true; t.fontSizeMin = UITheme.Role.Libelle; t.fontSizeMax = UITheme.Role.ChiffreCle;
     }
 
     // ── Tuiles KPI crème (remplacent la grille plate InfoGrid) ──────────────────
@@ -242,11 +248,11 @@ public class BatimentSummaryView : MonoBehaviour
         int idx = infoGrid != null ? infoGrid.GetSiblingIndex() : carte.childCount;
         if (infoGrid != null) infoGrid.gameObject.SetActive(false);
 
-        _secInfo = UIFactory.Text(carte, "", 13, UITheme.TexteSecondaire);
+        _secInfo = UIFactory.Text(carte, "", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _secInfo.transform.SetSiblingIndex(idx);
 
         // Rangée de tuiles KPI, insérée dans VueResume juste après la carte identité.
-        var row = UIFactory.HBox(transform, 10, false, "KpiRow");
+        var row = UIFactory.HBox(Contenu, 10, false, "KpiRow");
         row.childControlWidth = true; row.childForceExpandWidth = true;
         row.childControlHeight = true; row.childForceExpandHeight = true;
         row.childAlignment = TextAnchor.MiddleLeft;
@@ -260,7 +266,7 @@ public class BatimentSummaryView : MonoBehaviour
         row.transform.SetSiblingIndex(1);   // CarteBatiment(0) → KpiRow(1)
 
         // Bande financière du bas devenue redondante avec la tuile « Cash flow ».
-        transform.Find("BandeFinanciere")?.gameObject.SetActive(false);
+        Contenu.Find("BandeFinanciere")?.gameObject.SetActive(false);
     }
 
     public static TMP_Text KpiTile(Transform parent, string label)
@@ -281,13 +287,19 @@ public class BatimentSummaryView : MonoBehaviour
         bgrt.offsetMin = new Vector2(4, 0); bgrt.offsetMax = Vector2.zero;  // liseré 4 px à gauche
         bg.transform.SetSiblingIndex(0);
         var v = tile.gameObject.AddComponent<VerticalLayoutGroup>();
+        // Explicite : le defaut d'Unity est TRUE, et un groupe qui « veut s'etendre »
+        // propage un flexibleHeight jusqu'en haut de la hierarchie — c'est ce qui
+        // creusait 104 px de blanc dans la section Loyer.
+        v.childForceExpandHeight = false;
         v.padding = new RectOffset(14, 12, 8, 8); v.spacing = 3;
         v.childControlWidth = true; v.childControlHeight = true; v.childForceExpandWidth = true;
         v.childAlignment = TextAnchor.MiddleLeft;
-        var l = UIFactory.Text(v.transform, label, 13, Col("#8A5E14"));
+        var l = UIFactory.Text(v.transform, label, UITheme.Role.EnTete, Col("#8A5E14"));
         l.enableWordWrapping = false; l.overflowMode = TextOverflowModes.Ellipsis;
-        var val = UIFactory.Text(v.transform, "—", 25, UITheme.TextePrincipal, true);
-        val.enableAutoSizing = true; val.fontSizeMin = 18; val.fontSizeMax = 27;
+        var val = UIFactory.Text(v.transform, "—", UITheme.Role.ChiffreCle, UITheme.TextePrincipal, true);
+        // Autosize plafonné au rôle : il ne sert qu'à rétrécir un montant trop long
+        // pour sa tuile, jamais à grossir au-delà de l'échelle.
+        val.enableAutoSizing = true; val.fontSizeMin = UITheme.Role.Libelle; val.fontSizeMax = UITheme.Role.ChiffreCle;
         val.enableWordWrapping = false; val.overflowMode = TextOverflowModes.Ellipsis;
         return val;
     }
@@ -300,7 +312,7 @@ public class BatimentSummaryView : MonoBehaviour
 
         // Même visuel que la carte « À traiter » du menu : root = liseré gris-bleu
         // (RoundedRect) + « CardBg » crème inséré (liseré de 8 px à gauche).
-        var card = UIFactory.Panel("CarteATraiter", transform, NotesAccent);
+        var card = UIFactory.Panel("CarteATraiter", Contenu, NotesAccent);
         UIFactory.Border(card.gameObject);
         _aTraiterCard = card.transform;
         // Après la carte identité (0) et la rangée KPI (1).
@@ -311,7 +323,7 @@ public class BatimentSummaryView : MonoBehaviour
         vlg.padding = new RectOffset(28, 16, 10, 12); vlg.spacing = 4;
         vlg.childControlWidth = true; vlg.childControlHeight = true;
         vlg.childForceExpandWidth = true; vlg.childForceExpandHeight = false;
-        card.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        // Pas de ContentSizeFitter : la hauteur vient de la rangée qui la porte.
 
         // Fond crème inséré (comme « CardBg » du menu) : stretch, liseré de 8 px à
         // gauche, ignoré par le VLG. Premier enfant → rendu derrière bande + lignes.
@@ -340,7 +352,7 @@ public class BatimentSummaryView : MonoBehaviour
         ii.color = NotesAccent; ii.preserveAspect = true; ii.raycastTarget = false;
         UIFactory.LE(ic.gameObject, prefW: 22, minW: 22, prefH: 22, minH: 22, flexW: 0);
 
-        _aTraiterTitre = UIFactory.Text(band.transform, "À traiter", 22, NotesAccent, true);
+        _aTraiterTitre = UIFactory.Text(band.transform, "À traiter", UITheme.Role.Section, NotesAccent, true);
         UIFactory.LE(_aTraiterTitre.gameObject, flexW: 1);
 
         // Badge compteur rouge (pastille 26×20, exactement comme le « NbBadge » du menu).
@@ -350,7 +362,7 @@ public class BatimentSummaryView : MonoBehaviour
         cbh.childAlignment = TextAnchor.MiddleCenter;
         cbh.childControlWidth = true; cbh.childControlHeight = true;
         cbh.childForceExpandWidth = false; cbh.childForceExpandHeight = false;
-        _countTxt = UIFactory.Text(badge.transform, "", 13, Color.white, true);
+        _countTxt = UIFactory.Text(badge.transform, "", UITheme.Role.Pastille, Color.white, true);
         _countTxt.alignment = TextAlignmentOptions.Center;
         _countBadge = badge.gameObject;
 
@@ -363,15 +375,18 @@ public class BatimentSummaryView : MonoBehaviour
     void EnsureTwoColRow()
     {
         if (_twoColBuilt || _aTraiterCard == null) return;
-        var loc = transform.Find("CarteLocataires");
+        var loc = Contenu.Find("CarteLocataires");
         if (loc == null) return;
         _twoColBuilt = true;
 
-        var row = UIFactory.HBox(transform, 12, false, "RowTraiterLoc");
-        // childControlHeight=false : chaque colonne se dimensionne via SON ContentSizeFitter
-        // (sinon conflit CSF ↔ layout → cartes désalignées). UpperLeft = tops alignés.
+        var row = UIFactory.HBox(Contenu, 12, false, "RowTraiterLoc");
+        // La rangée donne sa hauteur aux deux cartes : même sommet, même hauteur (celle
+        // de la plus grande). Avant, chaque carte se dimensionnait seule par un
+        // ContentSizeFitter dans une rangée qui ne contrôlait pas les hauteurs : placées
+        // par leur sommet puis redimensionnées autour de leur centre, elles ne
+        // tombaient jamais au même endroit (« pas aligné à chaque fois »).
         row.childControlWidth = true; row.childForceExpandWidth = false;
-        row.childControlHeight = false; row.childForceExpandHeight = false;
+        row.childControlHeight = true; row.childForceExpandHeight = true;
         row.childAlignment = TextAnchor.UpperLeft;
         row.transform.SetSiblingIndex(2);   // après la carte identité (0) et les KPI (1)
 
@@ -380,10 +395,11 @@ public class BatimentSummaryView : MonoBehaviour
         leA.flexibleWidth = 1f; leA.minWidth = 280;
 
         loc.SetParent(row.transform, false);
-        var csfL = loc.GetComponent<ContentSizeFitter>() ?? loc.gameObject.AddComponent<ContentSizeFitter>();
-        csfL.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         var leL = loc.GetComponent<LayoutElement>() ?? loc.gameObject.AddComponent<LayoutElement>();
         leL.flexibleWidth = 1f; leL.minWidth = 280;
+        // La hauteur gagnée à côté d'« À traiter » va à la liste : plus de locataires visibles.
+        var liste = loc.Find("ScrollListe")?.GetComponent<LayoutElement>();
+        if (liste != null) liste.flexibleHeight = 1f;
     }
 
     void RefreshATraiter()
@@ -407,13 +423,8 @@ public class BatimentSummaryView : MonoBehaviour
             ATraiterHeader();
             foreach (var a in alertes) ATraiterRow(a);
         }
-        AjusteHauteurRangee();
     }
 
-    // Le HBox « RowTraiterLoc » a childControlHeight=false (pour ne pas casser le CSF
-    // des deux cartes) → il NE MESURE PAS leur hauteur et reste à ~100 px, si bien que
-    // la carte « À traiter » (plus haute) déborde et recouvre la rangée KPI au-dessus.
-    // Correctif : on force la hauteur de la rangée = la plus haute des cartes actives.
     // Donne au titre « Locataires » une bande de fond (comme « À traiter »), mais en
     // vert (famille identité = locataires) au lieu du gris-bleu (notes).
     void EnsureLocatairesBand()
@@ -442,26 +453,9 @@ public class BatimentSummaryView : MonoBehaviour
         if (icon != null) { var ii = icon.GetComponent<Image>(); if (ii != null) ii.color = IdentityAccent; }
     }
 
-    void AjusteHauteurRangee()
-    {
-        var rowRT = (_aTraiterCard != null ? _aTraiterCard.parent : null) as RectTransform;
-        if (rowRT == null || rowRT.name != "RowTraiterLoc") return;
-        float h = 0f;
-        foreach (Transform c in rowRT)
-        {
-            if (!c.gameObject.activeSelf) continue;
-            var crt = c as RectTransform;
-            LayoutRebuilder.ForceRebuildLayoutImmediate(crt);
-            h = Mathf.Max(h, LayoutUtility.GetPreferredHeight(crt));
-        }
-        if (h <= 0f) return;
-        var le = rowRT.GetComponent<LayoutElement>() ?? rowRT.gameObject.AddComponent<LayoutElement>();
-        le.minHeight = h; le.preferredHeight = h; le.flexibleHeight = 0f;
-    }
-
     // En-têtes de colonnes reproduits À L'IDENTIQUE du « ColHeader » du menu :
     // padding (4,8), spacing 10 ; spacer 4 · Type 170 gauche · Description flex ·
-    // Locataire 170 droite ; police 21 (colonne « Bâtiment » retirée : un seul bâtiment).
+    // Locataire 170 droite ; rôle En-tête (colonne « Bâtiment » retirée : un seul bâtiment).
     void ATraiterHeader()
     {
         var hb = UIFactory.HBox(_aTraiterRows, 10, false, "ColHeader");
@@ -480,7 +474,7 @@ public class BatimentSummaryView : MonoBehaviour
 
     void HeaderCol(Transform parent, string label, float w, TextAlignmentOptions align)
     {
-        var t = UIFactory.Text(parent, label, 21, UITheme.TexteSecondaire, false, align);
+        var t = UIFactory.Text(parent, label, UITheme.Role.EnTete, UITheme.TexteSecondaire, false, align);
         t.enableWordWrapping = false; t.overflowMode = TextOverflowModes.Ellipsis;
         if (w > 0) UIFactory.LE(t.gameObject, minW: w, prefW: w, flexW: 0);
         else UIFactory.LE(t.gameObject, flexW: 1, minW: 0);
@@ -522,19 +516,23 @@ public class BatimentSummaryView : MonoBehaviour
         // Pastille « Type » (fond pastel + texte foncé, comme dans « À traiter » du menu).
         var pill = UIFactory.Panel("Type", row.transform, a.typeBg);
         var ph = pill.gameObject.AddComponent<HorizontalLayoutGroup>();
+        // Explicite : le defaut d'Unity est TRUE, et un groupe qui « veut s'etendre »
+        // propage un flexibleHeight jusqu'en haut de la hierarchie — c'est ce qui
+        // creusait 104 px de blanc dans la section Loyer.
+        ph.childForceExpandHeight = false;
         ph.padding = new RectOffset(10, 10, 2, 2); ph.childAlignment = TextAnchor.MiddleCenter;
         ph.childControlWidth = true; ph.childControlHeight = true; ph.childForceExpandWidth = false;
         UIFactory.LE(pill.gameObject, minW: 92, prefW: 92, flexW: 0, minH: 26, prefH: 26);
-        var pt = UIFactory.Text(pill.transform, a.typeTodo ?? "", 13, a.typeTexte, true);
+        var pt = UIFactory.Text(pill.transform, a.typeTodo ?? "", UITheme.Role.Pastille, a.typeTexte, true);
         pt.enableWordWrapping = false; pt.overflowMode = TextOverflowModes.Ellipsis;
 
         // Rappel (détail) + locataire.
-        var rap = UIFactory.Text(row.transform, a.nomRappel ?? "", 15, UITheme.TextePrincipal);
+        var rap = UIFactory.Text(row.transform, a.nomRappel ?? "", UITheme.Role.Donnee, UITheme.TextePrincipal);
         rap.enableWordWrapping = false; rap.overflowMode = TextOverflowModes.Ellipsis;
         UIFactory.LE(rap.gameObject, flexW: 1, minW: 60);
         if (!string.IsNullOrEmpty(a.nomLocataire))
         {
-            var loc = UIFactory.Text(row.transform, a.nomLocataire, 14, UITheme.TexteSecondaire,
+            var loc = UIFactory.Text(row.transform, a.nomLocataire, UITheme.Role.Donnee, UITheme.TexteSecondaire,
                 false, TextAlignmentOptions.Right);
             loc.enableWordWrapping = false; loc.overflowMode = TextOverflowModes.Ellipsis;
             UIFactory.LE(loc.gameObject, prefW: 140, minW: 60, flexW: 0);

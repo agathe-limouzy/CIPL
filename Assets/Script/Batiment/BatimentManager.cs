@@ -32,6 +32,10 @@ public class BatimentManager : MonoBehaviour
 
     private void Start()
     {
+        // Taille d'affichage choisie dans les réglages. En tout premier : la poser
+        // après la construction des écrans les obligerait à se recalculer.
+        UIZoom.Appliquer();
+
         BackupService.RunStartupBackup();
         PhotoService.PurgerCorbeille();   // photos supprimées il y a plus de 7 jours
         LoadAll();

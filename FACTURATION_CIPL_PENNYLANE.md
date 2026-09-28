@@ -644,6 +644,8 @@ Machine à états cible fournie par l'utilisatrice (schéma). Depuis `Ouverture 
 
   **Garde ajoutée le 21/09** : le bouton n'apparaît que si la facture est **réellement émise** — numéro **et** PDF non vides. L'état « Payé » peut être forcé à la main sur une ligne jamais émise ; sans ce contrôle on éditait une quittance, donc un reçu de paiement, pour une facture qui n'existe pas. La garde existait dans `LocataireSuiviInline` et **manquait** dans `FacturationSuiviPanel` : les deux vues construisaient la ligne chacune de leur côté et avaient divergé. Trouvé en passant cette ligne en prefab commun (`SuiviFactureRow`), qui a mis les deux copies côte à côte.
 
+  **Affichage, 24/09** : les boutons d'action du suivi (PDF · Corriger/Refaire · Générer · Rappel · Quittance) avaient une largeur fixe de 74 px, calibrée pour du 13 pt ; passés au rôle Action (15 pt), « Générer » ou « Quittance » se coupaient sur deux lignes. Leur largeur suit désormais le libellé (`UIFactory.LargeurDuTexte`, dans les deux vues) ; le pire cas, PDF + Corriger + Quittance, occupe 221 px sur les 280 de la colonne. Les en-têtes « État » et « Actions » prennent la taille des autres en-têtes. Aucun changement de comportement.
+
 **Reste à faire pour coller au diagramme** :
 - *Corrigée(X)* : étendre Régul/Refac/Dépôt (helpers déjà prêts, aujourd'hui câblé loyer).
 - Quittance : affiner si besoin (mention TVA, montant en lettres, adresse du bien) ; ajuster la liste des baux « commerciaux » si nécessaire.

@@ -101,7 +101,7 @@ public class SlashAutocomplete : MonoBehaviour
         for (int i = 0; i < max; i++)
         {
             var v = filtered[i];
-            var b = UIFactory.Button(box, "", UITheme.Carte, UITheme.TextePrincipal, 30, 15, false);
+            var b = UIFactory.Button(box, "", UITheme.Carte, UITheme.TextePrincipal, 30, UITheme.Role.Donnee, false);
             var t = b.GetComponentInChildren<TMP_Text>();
             t.richText = true;
             t.text = v.label + "   <size=85%><color=#8A877E>" + v.token + "</color></size>";

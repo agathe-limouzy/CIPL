@@ -31,10 +31,10 @@ public class UIDropdown : MonoBehaviour
 
         var row = UIFactory.HBox(img.transform, 8, false, "Row");
         UIFactory.Stretch((RectTransform)row.transform, 12, 4, 12, 4);
-        dd._label = UIFactory.Text(row.transform, "", 18, UITheme.TextePrincipal);
+        dd._label = UIFactory.Text(row.transform, "", UITheme.Role.Libelle, UITheme.TextePrincipal);
         dd._label.enableWordWrapping = false; dd._label.overflowMode = TMPro.TextOverflowModes.Ellipsis;
         UIFactory.LE(dd._label.gameObject, flexW: 1);
-        UIFactory.Text(row.transform, "v", 16, UITheme.TexteSecondaire);   // indicateur (police-sûr)
+        UIFactory.Text(row.transform, "v", UITheme.Role.Donnee, UITheme.TexteSecondaire);   // indicateur (police-sûr)
 
         var btn = img.gameObject.AddComponent<Button>();
         btn.onClick.AddListener(dd.OpenPopup);
@@ -97,7 +97,7 @@ public class UIDropdown : MonoBehaviour
             int idx = i;
             bool on = idx == _index;
             var b = UIFactory.Button(vlg.transform, _labels[i], on ? UITheme.PrimaireClair : Color.white,
-                UITheme.TextePrincipal, 36, 16, false);
+                UITheme.TextePrincipal, 36, UITheme.Role.Donnee, false);
             b.onClick.AddListener(() => { SetIndex(idx, true); Destroy(scrim.gameObject); });
         }
     }

@@ -476,7 +476,7 @@ public class RevisionPanel : MonoBehaviour
         var t = go.AddComponent<TMPro.TextMeshProUGUI>();
         var refT = trimestreVoulu.GetComponentInChildren<TMP_Text>(true);
         if (refT != null) t.font = refT.font;
-        t.fontSize = 13;
+        t.fontSize = UITheme.Role.Aide;
         t.color = Hex("#A32D2D");                        // rouge lisible sur fond clair
         t.enableWordWrapping = true;
         t.raycastTarget = false;
@@ -589,14 +589,14 @@ public class RevisionPanel : MonoBehaviour
         var content = periodBlock.parent;
         int idx = periodBlock.GetSiblingIndex() + 1;
 
-        var l1 = UIFactory.Text(content, "Loyer demandé le … (jour du mois)", 15, UITheme.TexteSecondaire);
+        var l1 = UIFactory.Text(content, "Loyer demandé le … (jour du mois)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         l1.transform.SetSiblingIndex(idx++);
         _jourLabelGO = l1.gameObject;
         _jourDemande = UIFactory.Input(content, "1");
         _jourDemande.contentType = TMP_InputField.ContentType.IntegerNumber;
         _jourDemande.transform.SetSiblingIndex(idx++);
 
-        var l2 = UIFactory.Text(content, "Mois facturés (si trimestriel / bi-annuel)", 15, UITheme.TexteSecondaire);
+        var l2 = UIFactory.Text(content, "Mois facturés (si trimestriel / bi-annuel)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         l2.transform.SetSiblingIndex(idx++);
         _moisLabelGO = l2.gameObject;
         var wrap = BuildMoisChips(content);
@@ -622,7 +622,7 @@ public class RevisionPanel : MonoBehaviour
         _repriseBlockGO = rv.gameObject;
         UIFactory.Text(rv.transform,
             "Bail repris — dernière période déjà facturée (laisser « Aucune » si nouveau bail)",
-            15, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
         _repriseDD = UIDropdown.Create(rv.transform,
             new List<string> { "Aucune (nouveau bail)" }, new List<string> { "" }, 0, _ => { });
         rv.transform.SetSiblingIndex(regulGO.transform.GetSiblingIndex() + 1);
@@ -852,7 +852,7 @@ public class RevisionPanel : MonoBehaviour
         for (int i = 0; i < 12; i++)
         {
             int idx = i;
-            var b = UIFactory.Button(wrapGO, MoisCourts[i], UITheme.Carte, UITheme.TextePrincipal, 28, 15, false);
+            var b = UIFactory.Button(wrapGO, MoisCourts[i], UITheme.Carte, UITheme.TextePrincipal, 28, UITheme.Role.Action, false);
             UIFactory.Border(b.gameObject);
             b.onClick.AddListener(() =>
             {

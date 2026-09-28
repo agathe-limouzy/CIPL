@@ -316,7 +316,7 @@ public class InvestissementListPanel : MonoBehaviour
             bar.padding = new RectOffset(18, 14, 4, 4);
             _yearBarGO = bar.gameObject;
             UIFactory.LE(_yearBarGO, minH: 36);
-            var lbl = UIFactory.Text(bar.transform, "Année :", 15, UITheme.TexteSecondaire);
+            var lbl = UIFactory.Text(bar.transform, "Année :", UITheme.Role.Donnee, UITheme.TexteSecondaire);
             UIFactory.LE(lbl.gameObject, prefW: 64, flexW: 0);
             _yearChips = UIFactory.HBox(bar.transform, 6, false, "Chips").transform;
             UIFactory.LE(((Transform)_yearChips).gameObject, flexW: 1);
@@ -343,7 +343,7 @@ public class InvestissementListPanel : MonoBehaviour
     {
         bool on = _chargeYear == year;
         var b = UIFactory.Button(_yearChips, label, on ? ChargeAccent : UITheme.Carte,
-            on ? Color.white : UITheme.TextePrincipal, 30, 14, false);
+            on ? Color.white : UITheme.TextePrincipal, 30, UITheme.Role.Action, false);
         UIFactory.Border(b.gameObject);
         UIFactory.LE(b.gameObject, prefW: 80, flexW: 0);
         b.onClick.AddListener(() => { _chargeYear = year; RebuildYearChips(); RebuildCharges(); });

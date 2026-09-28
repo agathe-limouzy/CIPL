@@ -82,11 +82,12 @@ public class AppSectionColors : MonoBehaviour
     static bool ApproxEq(Color a, Color b) =>
         Mathf.Abs(a.r - b.r) < 0.01f && Mathf.Abs(a.g - b.g) < 0.01f && Mathf.Abs(a.b - b.b) < 0.01f;
 
-    // Bande de titre à la même hauteur (58) et titre à la même police (22) que la
-    // fiche locataire. Le ContentSizeFitter du « titre » lit le preferred → un
+    // Bande de titre à la même hauteur (58) et titre au rôle Section, comme tous les
+    // titres de section. Le ContentSizeFitter du « titre » lit le preferred → un
     // LayoutElement (priorité) le force. Idempotent (ne re-touche que si différent).
+    // (Était 22, hors échelle : ramenait toutes les 0,5 s les titres des fiches à 22.)
     const float BandH = 58f;
-    const float TitreFont = 22f;
+    const float TitreFont = UITheme.Role.Section;
     static void NormalizeTaille(Transform titre)
     {
         var le = titre.GetComponent<LayoutElement>() ?? titre.gameObject.AddComponent<LayoutElement>();

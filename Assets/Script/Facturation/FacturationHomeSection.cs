@@ -35,20 +35,20 @@ public class FacturationHomeSection : MonoBehaviour
     void Build()
     {
         // Fond accent bleu arrondi = liseré sur le côté GAUCHE (comme les autres sections).
+        // La hauteur et la largeur de la carte sont posées par GeneralMenuPanel,
+        // qui la place à côté ou en dessous de « À traiter » (voir LargeurMin).
         var frame = gameObject.AddComponent<Image>();
         frame.color = Hex("#A9741C"); frame.sprite = UIFactory.Rounded(); frame.type = Image.Type.Sliced; // ambre (argent)
         var outer = gameObject.AddComponent<VerticalLayoutGroup>();
-        outer.padding = new RectOffset(8, 0, 0, 0); outer.spacing = 0;   // bleu visible uniquement à gauche (comme À traiter)
+        outer.padding = new RectOffset(Lisere, 0, 0, 0); outer.spacing = 0;   // bleu visible uniquement à gauche (comme À traiter)
         outer.childControlWidth = true; outer.childControlHeight = true;
         outer.childForceExpandWidth = true; outer.childForceExpandHeight = true;
-        var le = gameObject.GetComponent<LayoutElement>() ?? gameObject.AddComponent<LayoutElement>();
-        le.minHeight = 300; le.preferredHeight = 300; le.flexibleHeight = 2f;
 
         // Corps crème arrondi (contient tout le contenu) — remplit le fond bleu.
         var cardBg = UIFactory.Panel("CardBg", transform, UITheme.Carte);
         UIFactory.LE(cardBg.gameObject, flexH: 1);
         var v = cardBg.gameObject.AddComponent<VerticalLayoutGroup>();
-        v.padding = new RectOffset(14, 14, 10, 12); v.spacing = 8;
+        v.padding = new RectOffset(MargeCorps, MargeCorps, 10, 12); v.spacing = 8;
         v.childControlWidth = true; v.childControlHeight = true;
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
         _body = cardBg.transform;
@@ -68,7 +68,7 @@ public class FacturationHomeSection : MonoBehaviour
             ii.sprite = Icon; ii.color = Hex("#A9741C"); ii.preserveAspect = true; ii.raycastTarget = false;
             UIFactory.LE(ic.gameObject, prefW: 22, minW: 22, prefH: 22, minH: 22, flexW: 0);
         }
-        var creTitle = UIFactory.Text(head.transform, "Créances", 22, Hex("#A9741C"), true);
+        var creTitle = UIFactory.Text(head.transform, "Créances", UITheme.Role.Section, Hex("#A9741C"), true);
         creTitle.enableAutoSizing = false;
 
         // KPIs (3 tuiles avec fond : petit libellé + grand montant).
@@ -85,7 +85,8 @@ public class FacturationHomeSection : MonoBehaviour
         UIFactory.LE(filt.gameObject, minH: 36, prefH: 36, flexH: 0);
         filt.childForceExpandWidth = false; filt.childControlWidth = true; filt.childControlHeight = true;
         filt.childAlignment = TextAnchor.MiddleLeft;
-        UIFactory.Text(filt.transform, "Filtrer :", 13, UITheme.TexteSecondaire);
+        // Sans retour à la ligne : serré, il s'empilait lettre par lettre.
+        UIFactory.Text(filt.transform, "Filtrer :", UITheme.Role.Mention, UITheme.TexteSecondaire).enableWordWrapping = false;
         _bankDD = UIDropdown.Create(filt.transform, new List<string> { "Toutes les banques" }, new List<string> { "" }, 0, _ => Rebuild(), 34);
         UIFactory.LE(_bankDD.gameObject, prefW: 210, minW: 210, flexW: 0, minH: 34, prefH: 34);
         _locDD = UIDropdown.Create(filt.transform, new List<string> { "Tous les locataires" }, new List<string> { "" }, 0, _ => Rebuild(), 34);
@@ -108,11 +109,15 @@ public class FacturationHomeSection : MonoBehaviour
         UIFactory.Border(t.gameObject, border);
         UIFactory.LE(t.gameObject, flexW: 1, minW: 120);
         var vv = t.gameObject.AddComponent<VerticalLayoutGroup>();
+        // Explicite : le defaut d'Unity est TRUE, et un groupe qui « veut s'etendre »
+        // propage un flexibleHeight jusqu'en haut de la hierarchie — c'est ce qui
+        // creusait 104 px de blanc dans la section Loyer.
+        vv.childForceExpandHeight = false;
         vv.padding = new RectOffset(14, 14, 8, 8); vv.spacing = 2;
         vv.childControlWidth = true; vv.childControlHeight = true;
         vv.childForceExpandWidth = true; vv.childAlignment = TextAnchor.UpperLeft;
-        UIFactory.Text(vv.transform, label, 12, txt);
-        return UIFactory.Text(vv.transform, "—", 24, txt, true);
+        UIFactory.Text(vv.transform, label, UITheme.Role.EnTete, txt);
+        return UIFactory.Text(vv.transform, "—", UITheme.Role.ChiffreCle, txt, true);
     }
 
     // ── Données ────────────────────────────────────────────────────────────────
@@ -166,7 +171,7 @@ public class FacturationHomeSection : MonoBehaviour
         if (entries.Count == 0)
         {
             var empty = Row(_tableBox, UITheme.Carte, 40, null);
-            var t = UIFactory.Text(empty, "Aucune facture due (rien en attente ni impayé).", 14, UITheme.TexteSecondaire);
+            var t = UIFactory.Text(empty, "Aucune facture due (rien en attente ni impayé).", UITheme.Role.Aide, UITheme.TexteSecondaire);
             UIFactory.LE(t.gameObject, flexW: 1);
             return;
         }
@@ -240,12 +245,23 @@ public class FacturationHomeSection : MonoBehaviour
     // ── Helpers UI ──────────────────────────────────────────────────────────────
 
     const float WCar = 22, WEch = 92, WMont = 108, WGap = 26, WBank = 150, WEtat = 84;
+    const float MinLibelle = 110;                        // colonne libre « Locataire / facture »
+    const int Lisere = 8, MargeCorps = 14, MargeLigne = 12, EspaceLigne = 10;
+
+    /// Largeur en dessous de laquelle le tableau sort de sa carte : colonnes fixes,
+    /// colonne libre à son minimum, espacements (7 cellules) et marges. Tirée des
+    /// mêmes constantes que les cellules, elle suit si une colonne change. La
+    /// carte l'annonçait à 300 alors qu'il en faut 712 : le menu la serrait donc à
+    /// côté de « À traiter » jusqu'à la faire sortir de l'écran (zoom 175 %).
+    public static float LargeurMin =>
+        Lisere + 2 * MargeCorps + 2 * MargeLigne + 6 * EspaceLigne
+        + WCar + MinLibelle + WEch + WMont + WGap + WBank + WEtat;
 
     Transform Row(Transform parent, Color bg, float minH, Action onClick)
     {
         var p = UIFactory.Panel("Row", parent, bg);
         var hl = p.gameObject.AddComponent<HorizontalLayoutGroup>();
-        hl.padding = new RectOffset(12, 12, 0, 0); hl.spacing = 10;
+        hl.padding = new RectOffset(MargeLigne, MargeLigne, 0, 0); hl.spacing = EspaceLigne;
         hl.childControlWidth = true; hl.childControlHeight = true;
         hl.childForceExpandWidth = false; hl.childForceExpandHeight = true;
         hl.childAlignment = TextAnchor.MiddleLeft;
@@ -254,18 +270,20 @@ public class FacturationHomeSection : MonoBehaviour
         return p.transform;
     }
 
+    // Les cellules portent des données (libellé de facture, échéance, montant) :
+    // rôle « secondaire ». La légende est réservée aux pastilles d'état.
     void Cell(Transform row, string text, float w, bool right, Color color, bool bold)
     {
-        var t = UIFactory.Text(row, text, 13, color, bold, right ? TextAlignmentOptions.Right : TextAlignmentOptions.Left);
+        var t = UIFactory.Text(row, text, UITheme.Role.Donnee, color, bold, right ? TextAlignmentOptions.Right : TextAlignmentOptions.Left);
         t.raycastTarget = false; t.enableWordWrapping = false; t.overflowMode = TextOverflowModes.Ellipsis;
         UIFactory.LE(t.gameObject, prefW: w, minW: w, flexW: 0);
     }
 
     void CellFlex(Transform row, string text, Color color, bool bold)
     {
-        var t = UIFactory.Text(row, text, 13, color, bold, TextAlignmentOptions.Left);
+        var t = UIFactory.Text(row, text, UITheme.Role.Donnee, color, bold, TextAlignmentOptions.Left);
         t.raycastTarget = false; t.enableWordWrapping = false; t.overflowMode = TextOverflowModes.Ellipsis;
-        UIFactory.LE(t.gameObject, flexW: 1, minW: 110);
+        UIFactory.LE(t.gameObject, flexW: 1, minW: MinLibelle);
     }
 
     // Caret triangle (sprite généré) : pointe à droite si replié, vers le bas si déplié.
@@ -312,7 +330,7 @@ public class FacturationHomeSection : MonoBehaviour
         bool none = string.IsNullOrWhiteSpace(bank);
         var dot = UIFactory.Panel("Dot", cell.transform, none ? UITheme.Bordure : BankColor(bank));
         UIFactory.LE(dot.gameObject, prefW: 9, minW: 9, prefH: 9, minH: 9, flexW: 0);
-        var t = UIFactory.Text(cell.transform, none ? "—" : bank, 13, UITheme.TexteSecondaire, false);
+        var t = UIFactory.Text(cell.transform, none ? "—" : bank, UITheme.Role.Donnee, UITheme.TexteSecondaire, false);
         t.raycastTarget = false; t.enableWordWrapping = false; t.overflowMode = TextOverflowModes.Ellipsis;
         UIFactory.LE(t.gameObject, flexW: 1, minW: 0);
     }
@@ -328,11 +346,15 @@ public class FacturationHomeSection : MonoBehaviour
         var pill = UIFactory.Panel("Pill", cell.transform, bg);
         var pimg = pill.GetComponent<Image>(); if (pimg != null) pimg.sprite = null;   // rectangle plat
         var ph = pill.gameObject.AddComponent<HorizontalLayoutGroup>();
+        // Explicite : le defaut d'Unity est TRUE, et un groupe qui « veut s'etendre »
+        // propage un flexibleHeight jusqu'en haut de la hierarchie — c'est ce qui
+        // creusait 104 px de blanc dans la section Loyer.
+        ph.childForceExpandHeight = false;
         ph.padding = new RectOffset(8, 8, 2, 2); ph.childControlWidth = true; ph.childControlHeight = true;
         ph.childAlignment = TextAnchor.MiddleCenter;
         var csf = pill.gameObject.AddComponent<ContentSizeFitter>();
         csf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize; csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        var t = UIFactory.Text(pill.transform, text, 11, fg, true);
+        var t = UIFactory.Text(pill.transform, text, UITheme.Role.Pastille, fg, true);
         t.raycastTarget = false;
     }
 

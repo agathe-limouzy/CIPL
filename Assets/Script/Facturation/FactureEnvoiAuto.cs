@@ -202,17 +202,17 @@ public class FactureEnvoiAuto : MonoBehaviour
 
         UIFactory.Text(carte.transform,
             liste.Count == 1 ? "Une facture est à envoyer" : $"{liste.Count} factures sont à envoyer",
-            24, UITheme.TextePrincipal, true);
+            UITheme.Role.Section, UITheme.TextePrincipal, true);
         UIFactory.Text(carte.transform,
             "Leur date d'envoi est atteinte et elles n'ont pas encore été expédiées. "
             + "Décochez celles que vous ne voulez pas envoyer maintenant.",
-            15, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         var scroll = Defilement(carte.transform);
         _cases = new List<Toggle>();
         foreach (var c in liste) _cases.Add(Ligne(scroll, c));
 
-        _etat = UIFactory.Text(carte.transform, "", 15, UITheme.TexteSecondaire);
+        _etat = UIFactory.Text(carte.transform, "", UITheme.Role.Donnee, UITheme.TexteSecondaire);
 
         var boutons = UIFactory.HBox(carte.transform, 10, false, "Boutons");
         UIFactory.LE(boutons.gameObject, minH: 46);
@@ -221,13 +221,13 @@ public class FactureEnvoiAuto : MonoBehaviour
         UIFactory.LE(spacer.gameObject, flexW: 1);
 
         _btnPlusTard = UIFactory.Button(boutons.transform, "Plus tard", UITheme.Carte,
-            UITheme.TextePrincipal, 44, 17, false);
+            UITheme.TextePrincipal, 44, UITheme.Role.Bouton, false);
         UIFactory.Border(_btnPlusTard.gameObject);
         UIFactory.LE(_btnPlusTard.gameObject, prefW: 150, flexW: 0);
         _btnPlusTard.onClick.AddListener(() => { MarquerReporte(); Destroy(gameObject); });
 
         _btnEnvoyer = UIFactory.Button(boutons.transform, "Tout envoyer", UITheme.Primaire,
-            Color.white, 44, 17, true);
+            Color.white, 44, UITheme.Role.Bouton, true);
         UIFactory.LE(_btnEnvoyer.gameObject, prefW: 200, flexW: 0);
         _btnEnvoyer.onClick.AddListener(Confirmer);
     }
@@ -245,12 +245,12 @@ public class FactureEnvoiAuto : MonoBehaviour
         string qui = string.IsNullOrEmpty(bat) ? c.loc.Name : $"{c.loc.Name} · {bat}";
         var txt = UIFactory.Text(row.transform,
             $"{qui}\n<size=13>{c.rec.libelle} — {c.destinataire}</size>",
-            15, UITheme.TextePrincipal);
+            UITheme.Role.Aide, UITheme.TextePrincipal);
         UIFactory.LE(txt.gameObject, flexW: 1, minW: 260);
 
         var montant = UIFactory.Text(row.transform,
             c.rec.montant > 0f ? c.rec.montant.ToString("#,##0.00", Fr) + " €" : "—",
-            15, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
+            UITheme.Role.Aide, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
         UIFactory.LE(montant.gameObject, prefW: 130, minW: 130, flexW: 0);
         return t;
     }

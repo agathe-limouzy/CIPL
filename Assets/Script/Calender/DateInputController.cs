@@ -45,8 +45,21 @@ public class DateInputController : MonoBehaviour
         monthInput.onEndEdit.AddListener(_ => ValidateDate());
         yearInput.onEndEdit.AddListener(_ => ValidateDate());
 
+        // Champ complet → le suivant : « 14 » passe au mois, « 05 » à l'année.
+        dayInput.onValueChanged.AddListener(v => Suivant(dayInput, v, monthInput));
+        monthInput.onValueChanged.AddListener(v => Suivant(monthInput, v, yearInput));
+
        // confirmButton.onClick.AddListener(OnConfirm);
       //  confirmButton.interactable = false;
+    }
+
+    // Seulement quand on tape (isFocused) : ApplyDate remplit les champs par code,
+    // et afficher une fiche ne doit pas déplacer le curseur.
+    private static void Suivant(TMP_InputField champ, string valeur, TMP_InputField suivant)
+    {
+        if (!champ.isFocused || valeur.Length < champ.characterLimit) return;
+        suivant.Select();
+        suivant.ActivateInputField();
     }
 
     private void SetPlaceholder(TMP_InputField field, string text)

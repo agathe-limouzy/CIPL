@@ -14,7 +14,7 @@ Chaque finding porte un statut :
 
 Ce document est le **suivi de la revue de code**. Tout ce qui suit a été écrit et compilé ; ce qui a été *réellement exécuté* est listé plus bas, et la distinction compte.
 
-### Où en est le chantier au 22/09 — **188 tests EditMode verts**
+### Où en est le chantier au 24/09 — **216 tests EditMode verts**
 
 Le détail de la facturation est dans `FACTURATION_CIPL_PENNYLANE.md` ; voici l'essentiel pour reprendre.
 
@@ -112,9 +112,374 @@ Mesures : basculement d'onglet **0 ms**, `ShowFiche` **19 ms**, `OnEnable` sous 
 
 **À vérifier en Play** : ces `ForceRebuildLayoutImmediate` avaient probablement été posés pour résoudre un vrai problème d'affichage (les `ContentSizeFitter` imbriqués en produisent). Contrôler la hauteur des champs, le défilement des fiches et l'ouverture des sections repliables. En cas de souci, revenir à un rebuild forcé **une seule fois** en fin de série, et non par champ.
 
+## Nettoyage des prefabs — préparer le réglage de taille de police (23/09/2026)
+
+**But demandé** : pouvoir un jour agrandir ou réduire la police depuis un réglage. Impossible tant que
+les prefabs ne laissent pas la hauteur remonter : si un maillon de la chaîne ne mesure pas ses enfants,
+un texte plus grand déborde au lieu de pousser son parent.
+
+**Ce qui bloquait, mesuré et non supposé** — trois causes distinctes, chacune trouvée en mesurant :
+
+1. `AddComponent<VerticalLayoutGroup>()` laisse `childForceExpandHeight` à **`true`** par défaut. Un
+   groupe dans cet état annonce `flexibleHeight = 1`, et cette réclamation **remonte toute la chaîne** :
+   un `Row` invisible au fond d'une section gonflait le panneau entier. C'est l'origine de la quasi-
+   totalité des blancs fantômes.
+2. `childControlHeight = false` : le groupe se fie à la taille *courante* de ses enfants, jamais à leur
+   taille *souhaitée*. Un texte agrandi ne pousse rien — c'est le blocage de fond pour le réglage de police.
+3. **120 textes** finissaient par `\n`. TMP implémente `ILayoutElement` : un retour à la ligne final
+   réclame une ligne de plus. Un `« General\n »` coûtait la hauteur d'une ligne, quatre-vingt-une fois.
+
+**La quatrième cause, trouvée en cassant l'écran deux fois de suite** : un `ScrollRect` n'a pas de
+hauteur préférée — il est dimensionné par son parent, jamais par son contenu. Le conteneur qui
+l'enveloppe annonce donc **0**, et le groupe au-dessus doit lui donner sa hauteur autrement. Deux
+mécanismes le permettent : `childForceExpandHeight`, ou un `LayoutElement` sur le maillon. En retirant
+l'expansion **partout**, j'ai supprimé le seul qui était en place à deux endroits :
+
+| Groupe | Effet | Correctif |
+|---|---|---|
+| `Content Prefab` → `Information Batiment` | tombé à 10 px (son seul padding), Viewport à −7 | `ctrlH=false` sur le maillon **et** `expH=true` restauré |
+| `VueLocataire` → `ContentLocataire` | tombé à **0** ; le panneau vide recouvrait toute la fiche | `expH=true` restauré |
+
+**Le second s'est caché au premier correctif** : son `ScrollRect` n'est pas l'enfant *direct* du groupe,
+et mon premier test ne regardait que les enfants directs. D'où la leçon la plus utile du lot —
+`childForceExpandHeight` n'est pas toujours un défaut. Il gonfle les panneaux quand il est posé par
+inadvertance (le défaut n° 1), mais il est parfois **le mécanisme voulu** qui remplit un conteneur de
+scroll. Les deux usages se ressemblent dans l'inspecteur ; seule la présence d'un `ScrollRect` en
+descendance les distingue.
+
+**Un prefab est resté volontairement hors de la migration** : `Investissement List Panel`, le panneau
+d'historique (achats, travaux, charges). Ses trois groupes `invest`, `Body`, `Content` sont revenus à
+`ctrlH=0, expH=1`, leur état d'origine, parce que la migration rendait les panneaux nettement plus
+petits à l'écran. La raison est structurelle : **son contenu est construit au runtime**, donc le prefab
+vide mesure 0 et aucune mesure hors Play ne renseigne sur le rendu réel. Le nettoyage des textes et des
+overrides y reste acquis ; seul le layout est en attente. À reprendre avec l'écran sous les yeux, en
+même temps que les `ContentSizeFitter` — il en empile trois (`invest`, `Body`, `Content`), ce qui est
+probablement la vraie cause.
+
+**Les trois règles sont désormais des tests** — `Assets/Editor/Tests/PrefabLayoutTests.cs`, exécutés
+sur les 26 prefabs : tout conteneur de scroll peut recevoir une hauteur (en remontant la chaîne de
+parents, `Template` de dropdown écartés car placés à la main) · aucun texte ne finit par un retour à
+la ligne · aucun override `m_text` ne répète sa source. Vérifiés par mutation : remettre le défaut fait
+échouer le premier test, avec le chemin complet du coupable dans le message.
+
+**Recette appliquée, dans cet ordre** (validée sur Général, Loyer, Révision Loyer) :
+
+1. `childControlHeight = true` — la chaîne mesure ;
+2. `childForceExpandHeight = false` sur les lignes — elles cessent de réclamer de la place ;
+3. retirer le `ContentSizeFitter` de la section — le parent fixe déjà la hauteur ;
+4. aligner le plancher `minHeight` sur le contenu réel.
+
+**L'ordre n'est pas négociable** : retirer les fitters en premier a écrasé toute la fiche Général
+(« bon c'est tout écrasé », annulé par `git checkout`). Mon hypothèse — « les LayoutGroups fourniront
+la hauteur » — était fausse, précisément parce qu'ils étaient encore en `childControlHeight = false`
+et ne mesuraient rien. **Rendre la chaîne mesurable d'abord, retirer les fitters ensuite.**
+
+**Overrides créés par la passe elle-même — le piège central de ce chantier.** Écrire sur une instance
+de prefab imbriqué y grave un override, même quand la valeur finit identique à la source. Le script de
+migration parcourait chaque prefab *y compris les instances qu'il contient*, et a donc gravé partout.
+
+- **Textes** : **65** overrides `m_text` accumulés — 51 posés par le nettoyage, 14 antérieurs. Tous
+  révoqués ; les 30 libellés réellement propres à leur instance (`Dépôt de garantie :`, `Mensualité`,
+  `Siret :`) conservés.
+- **Layout** : **27** overrides `m_Child*` posés dans `BatimentPrefab`, `LocatairePrefab` et
+  `Achat from panel`. Trois d'entre eux — `invest`, `Body`, `Content` du panneau d'historique —
+  **ont rendu la restauration du prefab source sans effet** : l'instance gardait sa propre copie.
+  Symptôme : les historiques restaient petits alors que le prefab source était revenu à l'identique.
+  Total des overrides de layout ramené de **58 à 51**, sous le niveau d'origine.
+
+  Trois **racines d'instance** portaient le même défaut : `Investissement List Panel`,
+  `Achat from panel` et `TravauxFromPanel`, toutes à `ctrlH=1` sur l'instance contre `0` sur leur
+  source. Les deux dernières ont été trouvées **par le test**, pas à l'œil — et avant que les panneaux
+  Achat et Travaux ne soient ouverts, donc avant que le défaut ne se voie.
+
+  **Reste deux overrides, laissés exprès** : une instance de `Text & Input` dans `LocatairePrefab`
+  (`ctrlH=1, expH=0`, divergents de leur source). Les appliquer au source toucherait **tous** les
+  champs de l'application ; les révoquer pourrait ramener un blanc dans une section déjà validée.
+  Aucune mesure ne tranche aujourd'hui — à reprendre avec le lot des `ContentSizeFitter`.
+
+**La leçon** : une valeur gravée à deux endroits finit par diverger, et c'est exactement le reproche
+central de cette revue. Corriger le prefab source ne suffit jamais tant que l'instance porte un
+override — et un script qui parcourt « tous les prefabs » en crée sans le dire.
+
+**État au 23/09** : audit des 26 prefabs, **plus aucun groupe à traiter**. Ne subsistent que les cas
+légitimes — la racine d'un prefab plein écran, et le `Content` direct d'un `Viewport` de `ScrollRect`.
+Un piège à noter pour la prochaine passe : ma garde « sous un Viewport » excluait le **sous-arbre
+entier**, donc le script avait d'abord corrigé **0 prefab** dans `BatimentPrefab`, où tout vit sous
+`Scroll view/Viewport/Content/…`. Elle n'exclut plus que l'enfant **direct** du Viewport.
+
+### Les `ContentSizeFitter` : 173 → 61 (23/09, après-midi)
+
+Le décompte de 113 était partiel : l'audit complet en trouve **173** au fit vertical actif, dont 137
+imbriqués sous un autre. La première tentative de les retirer avait écrasé la fiche Général ; celle-ci
+a tenu, grâce à une méthode et non à un raisonnement.
+
+**La méthode — simuler avant d'appliquer.** Pour chaque prefab : l'instancier sous le Canvas, mesurer
+la hauteur de *tous* ses nœuds, retirer les fitters sur cette copie jetable, remesurer, comparer. Le
+retrait n'est appliqué au prefab que si l'écart est **nul**. C'est exactement ce qui manquait la
+première fois, où j'avais déduit que « les LayoutGroups fourniront la hauteur » sans jamais le vérifier.
+
+| Prefab | Fitters retirés | Objets mesurés | Écart |
+|---|---|---|---|
+| `TravauxFromPanel` | 15 | 106 | 0 |
+| `Achat from panel` | 17 | 127 | 0 |
+| `Revision Loyer` | 14 | 177 | 0 |
+| `LocatairePrefab` | 22 | 336 | 0 |
+| `BatimentPrefab` | 12 | 580 | 14 → **3 fitters conservés** |
+
+**Trois fitters de `BatimentPrefab` font un vrai travail** et restent en place : `HeaderFiche/BoutonList`
+(36 → 32 px sans lui), `Objectif/titre` (48 → 38) et `Rentabilité/Content/Bouton` (34 → 48). La
+simulation les a isolés ; aucun coup d'œil ne les aurait distingués des autres.
+
+**Critère de retrait** : le parent contrôle déjà la hauteur (`childControlHeight`) *et* l'objet sait
+annoncer la sienne sans le fitter (un `LayoutGroup` interne, un texte, un `LayoutElement`). Sans la
+seconde condition, l'objet tombe à zéro — c'est ce qui avait écrasé Général.
+
+**Ne jamais toucher aux instances.** Les retraits n'ont porté que sur les **prefabs sources** ; les
+fitters appartenant à un sous-prefab sont ignorés (`IsPartOfPrefabInstance`). Vérifié après coup :
+les blocs `m_AddedComponents` / `m_RemovedComponents` de `BatimentPrefab` (8/8) et `LocatairePrefab`
+(10/10) sont **identiques à l'origine** — aucun override créé. C'est la leçon des trois pièges du matin.
+
+**Les 61 restants** sont pour l'essentiel légitimes : racines de prefab, enveloppes de `ScrollRect`
+(46 au départ, à ne pas toucher — un scroll n'a pas de hauteur de contenu), et les 3 actifs ci-dessus.
+
+### Ma prémisse était fausse — ce n'étaient pas les fitters
+
+Tout ce chantier partait d'une idée : les `ContentSizeFitter` empêchaient de régler la taille de police.
+Une fois les 112 retirés, la vérification — grossir tous les textes de 25 % et regarder qui suit :
+
+| Prefab | Conteneurs qui grandissent | Restés figés |
+|---|---|---|
+| `LocatairePrefab` | 167 | 144 |
+| `TravauxFromPanel` | **0** | 89 |
+| `Revision Loyer` | 25 | 147 |
+
+Ce qui fige la hauteur, ce sont **140 `LayoutElement` à hauteur écrite en dur** (29 dans Travaux,
+35 dans Révision, 76 dans Locataire) et une centaine d'éléments positionnés par ancrage plutôt que
+par layout. Les fitters n'y étaient pour rien.
+
+Le travail n'est pas perdu — blancs fantômes, 120 textes parasites, 65 overrides et trois régressions
+d'affichage corrigés — mais il ne débloquait pas ce qu'on croyait. **Leçon** : une idée de départ non
+mesurée survit à des heures de travail sans qu'aucune étape ne la remette en cause.
+
+### Largeur et défilement : ce que le zoom a révélé (23/09)
+
+Le zoom n'a rien cassé — il a montré des défauts qui attendaient. Sur un écran de 1920 px, un
+conteneur large de 1920 px tombe juste **par coïncidence**. Dès que le Canvas rétrécit (à 125 %, il
+passe à 1536), tout ce qui portait une largeur en dur déborde.
+
+**La cause était unique et à la racine** : `Batiment Manager`, le conteneur de tous les écrans, portait
+un `ContentSizeFitter` sur les **deux** axes. Sa taille venait donc de son contenu, jamais de l'écran —
+exactement à l'envers de ce qu'il faut. Trois corrections, toutes mesurées à zéro écart immédiat :
+
+| Objet | Changement | Effet |
+|---|---|---|
+| `Batiment Manager` | `horizontalFit → Unconstrained`, `childControlWidth → true` | 13 largeurs en dur (560, 524, 500, 496, 490…) remplacées par « la largeur que donne le parent » |
+| `TabBar` | `horizontalFit → Unconstrained` | gardait 1730 px sur un écran de 1536 |
+| `General Panel` | `ScrollArea` + `Viewport`, `Panel` devenu contenu défilant | 1211 px de contenu pour 1033 visibles à 125 % |
+
+**Un LayoutGroup écrase les ancres de ses enfants directs** : on ne peut pas étirer soi-même un enfant
+de groupe, c'est au groupe de lui donner sa largeur (`childControlWidth`). Une tentative d'étirement
+manuel a mis `ContentPanel` à **0 px** — le parent attendait la taille de l'enfant, l'enfant celle du
+parent.
+
+**La greffe du défilement a échoué une première fois**, toutes les sections superposées. La cause :
+`offsetMin`/`offsetMax` posés puis écrasés par `anchoredPosition = 0`, avec le pivot changé au passage.
+Les trois se contredisaient. La configuration correcte d'un contenu de `ScrollRect` est
+`anchorMin (0,1)` / `anchorMax (1,1)` / `pivot (0.5,1)`, puis **`sizeDelta` et `anchoredPosition`
+seulement** — jamais les offsets en plus.
+
+**Ce qui a fait la différence la seconde fois** : la simulation **en Play**. Les écrans se construisent
+au runtime et les deux panneaux sont actifs simultanément dans l'éditeur, donc aucune mesure hors Play
+n'est fiable. Monter la structure en mémoire pendant le Play, mesurer chaque section avant/après, puis
+n'appliquer qu'à zéro écart — et l'utilisatrice voit le résultat immédiatement, sans rien risquer
+puisque le Play ne persiste pas.
+
+**Pourquoi le zoom global et pas une taille de police seule** : la structure est indépendante du
+facteur. Le viewport prend toujours la hauteur de l'écran, le contenu toujours celle de ses sections ;
+le défilement est leur différence. À 200 % comme à 90 %, rien à régler.
+
+### Les tailles de texte : une échelle, des rôles (23–24/09)
+
+**Constat** : 20 tailles distinctes (11 à 30 pt) dans 833 textes de prefabs et 309 appels de code, et
+**745 surcharges de `fontSize`** sur des instances de prefab — un tiers de toutes les surcharges du
+projet. Une même taille servait à des choses sans rapport (20 pt : un titre de section, un bouton, le
+contenu d'un champ), et une même chose avait plusieurs tailles (titres de section à 20, 22 et 24).
+
+**La règle** — tout vit dans `UITheme` :
+
+- **Six tailles** : 12 · 15 · 18 · 20 · 24 · 26 (`TailleLegende` … `TaillePage`).
+- **Quinze rôles** (`UITheme.Role`), chacun pointant vers une taille : Pastille, Mention, Donnée,
+  En-tête, Sous-titre, Aide, Action, Libellé, Bouton, Nom, Valeur, Chiffre clé, Section, Page.
+- **Le code désigne un rôle, jamais une taille** : `UIFactory.Text(…, UITheme.Role.Donnee, …)`.
+  Changer la taille d'un rôle change tous ses textes, dans tous les écrans, en une ligne.
+- **Un texte se classe selon ce qu'il porte, pas selon sa place** : une donnée qu'on lit reste une
+  donnée, même dans une ligne de tableau ou sous une vignette. La légende est réservée à ce qu'on ne
+  lit pas vraiment — pastille d'état, mention accessoire. C'est faute de cette règle que les lignes du
+  tableau des créances avaient été rangées en légende (12 pt) et jugées trop petites. Même erreur,
+  refaite à la migration puis corrigée le 24/09 sur la fiche résumé : la ligne « Acquis · Terrain ·
+  Cadastre… » (→ Donnée), les libellés des tuiles de chiffres « Loyers / an » (→ En-tête, ici comme
+  dans les tuiles des créances), les pilules « 450 m² · 4 lots · Sans parking » (→ Donnée, largeur
+  libérée) et l'avertissement rouge du trimestre de révision (→ Aide). Les vraies pastilles (compteur,
+  type d'alerte, « ! », « Révision à faire ») ont quitté Mention pour Pastille, à taille égale.
+- **Un `Button` n'est pas toujours un bouton** : une pastille d'état cliquable, un élément de menu
+  déroulant, un petit bouton logé dans une ligne (≤ 36 px) ont chacun leur rôle — sinon une trentaine
+  de petits boutons seraient passés à 18 pt et auraient débordé.
+
+**Code migré** : 265 tailles en dur → 6 constantes, puis 267 références → rôles, dans 21 fichiers.
+34 textes ont changé de taille, tous listés et relus avant application.
+
+**Garde-fous** (`EchelleTypoTests`) : aucune taille littérale dans le code · aucune `UITheme.Taille…`
+hors de `UITheme` · chaque rôle pointe vers une taille de l'échelle · le détecteur lui-même est testé
+sur des extraits (il trouve une taille glissée, il ne confond pas la hauteur d'un bouton ni une
+composante de couleur avec une taille).
+
+**Prefabs (24/09, trois lots)** : les **665 textes des 26 prefabs** sont sur l'échelle, et plus
+aucune instance ne réécrit la taille de sa source (745 surcharges au départ). Chaque taille a été
+portée au prefab source, jamais sur l'instance. Lot 3 : historiques et formulaires achat/travaux,
+objectifs, PLU, révision de loyer, lignes (alertes, locataires, bâtiments, suivi de facturation,
+rentabilité). Au passage :
+
+- Des libellés avaient une **hauteur figée à 15 px** (révision de loyer, PLU, résumé achat/travaux) :
+  le texte débordait déjà de 3 à 4 px. Hauteurs libérées, le layout suit la taille du texte.
+- Le résumé achat/travaux tient en trois colonnes d'environ 130 px : libellés en En-tête, montants en
+  Valeur avec un autosize **plafonné à 20** (il ne sert qu'à rétrécir un montant trop long). C'est la
+  seule forme d'autosize admise dans les prefabs.
+- **`AppSectionColors` réimposait 22 pt** (hors échelle) à tous les titres de section, toutes les
+  0,5 s : les titres passés à 24 au lot 2 redescendaient à 22 en Play. Il applique désormais
+  `UITheme.Role.Section`. Le test du code ne l'avait pas vu : la taille passait par une constante
+  nommée, pas par un littéral.
+- Le tableau « À traiter » avait ses lignes à 19–20 pt, celui des créances, sur le même écran, à 15.
+  Les deux sont des données : même rôle. Leurs en-têtes (scène, et `HeaderCol` de la fiche résumé)
+  passent en En-tête.
+- Les petits boutons du suivi de facturation avaient une **largeur fixe (74 px) calibrée pour 13 pt** :
+  à 15, « Générer » se coupait en deux. Leur largeur suit désormais le libellé
+  (`UIFactory.LargeurDuTexte`, prefab et vue plein écran). Règle à retenir : un bouton ne reçoit pas de
+  largeur fixe, sinon changer la taille d'un rôle recasse l'écran.
+
+**Garde-fous prefabs** (`EchelleTypoTests`) : tout texte de prefab est sur l'échelle, autosize compris
+(son plafond aussi) · aucune instance ne surcharge `m_fontSize` · le contrôle est lui-même testé sur
+un texte à 13 pt et un autosize plafonné à 27.
+
+**Scène (lot 4, 24/09)** : 77 textes propres à `SampleScene` ramenés à leur rôle — calculatrice,
+sauvegarde, galerie photo, dialogue de confirmation, message d'annulation, barre d'onglets, menu
+général (titre « Menu général » en Page, tuiles, titres de section, calcul rapide). Six hauteurs figées
+libérées (libellés du calcul rapide, son titre, bandeau d'en-tête du menu — minimum 62 conservé).
+Une **surcharge d'instance à 72 pt** traînait sur le « Vide » des objectifs globaux : masquée tant que
+la source était en autosize, elle aurait affiché « Vide » en 72 une fois l'autosize retiré. Retirée.
+Les 168 textes de la scène sont sur l'échelle ; un test le vérifie en lisant le fichier `.unity`
+(l'ouvrir depuis un test remplacerait la scène ouverte dans l'éditeur).
+
+**La calculatrice `Canvas/Calcul` a été supprimée (24/09)**, avec son script
+`Prix/CalculPrixRentabilite.cs` : aucun bouton ne l'ouvrait (seul son propre bouton de fermeture la
+référençait), le calcul rapide du menu l'avait remplacée. Vérifié avant suppression : aucune référence
+depuis le reste de la scène, aucun prefab ni script n'utilisait sa classe ou ses méthodes. 147 objets
+de moins dans la scène.
+
+**Tuiles de chiffres de la fiche résumé** : leur autosize montait à 27 et 30, hors échelle. Plafonné
+au rôle Chiffre clé (24), plancher Libellé (18), sur décision de l'utilisatrice (« aligne-les, à la
+limite on grossira tout » — par le zoom ou par les rôles, pas au cas par cas). Le test du code
+attrape désormais aussi les bornes d'autosize écrites en dur (`fontSizeMin/Max = 30`).
+
+### Le réglage de taille : `UIZoom` (23/09)
+
+Plutôt que de rendre proportionnelles 140 hauteurs en dur — plusieurs heures, et un texte devenu plus
+grand que son champ déborde — le réglage agit sur **toute** l'interface d'un coup.
+
+`Assets/Script/Tools/UIZoom.cs`. Le `CanvasScaler` est en `ScaleWithScreenSize`, mode où `scaleFactor`
+est **ignoré** ; le levier est la résolution de référence : la diviser par 1,25 revient à dessiner
+l'interface comme si l'écran était plus petit, donc à tout grossir de 25 %. Paliers 90 / 100 / 110 /
+125 / 150 / 175 % (150 et 175 ajoutés le 25/09 à la demande de l'utilisatrice), bornés à [0,8 – 1,75] —
+à 175 %, un écran de 1920 px n'offre que 1097 unités de large —, persistés dans `PlayerPrefs` (`CIPL_ZoomUI`), appliqués dans
+`BatimentManager.Start()` avant la construction des écrans. Section « Taille de l'affichage » en tête
+du panneau Réglage.
+
+La référence d'origine est lue **une seule fois** (`_origineLue`) : la relire à chaque application la
+ferait dériver, puisqu'on écrit dessus. Cinq tests (`UIZoomTests`) verrouillent le sens du calcul —
+on divise pour agrandir, ce qui s'inverse sans rien casser d'autre — et le retour à 100 % sur une
+valeur absurde (0, négative, `NaN`). Vérifiés par mutation.
+
+**À 150 et 175 %, « Créances » sortait de l'écran (25/09).** La carte annonçait une largeur minimum
+de 300 alors que son tableau en exige 712 (mesuré en Play) : le menu la serrait à côté de « À traiter »
+(610) dans une rangée qui n'offre que 1065 unités à 175 %. Corrigé en deux temps :
+`FacturationHomeSection.LargeurMin` calcule le vrai minimum à partir des constantes de colonnes, et
+`GeneralMenuPanel.DisposerColonnes` place « Créances » **sous** « À traiter » quand les deux n'entrent
+plus côte à côte (1334 exigées : côte à côte jusqu'à 125 %, empilées à 150 et 175 %). La disposition
+est revue quand la largeur change (`LateUpdate`, pas `OnRectTransformDimensionsChange` : déplacer un
+enfant en plein calcul de layout déclenche des erreurs de reconstruction). Leçon générale : **un
+`minWidth` doit dire la vérité sur le contenu**, sinon un groupe de layout ne peut pas arbitrer.
+
+**Même défaut sur les fiches, même remède, un seul composant (25/09).** À 175 %, « Informations
+générales » débordait sous « Rentabilité » (colonne annoncée à 520, adresse + carte en exigent 642) et
+les tuiles de rentabilité se chevauchaient (annoncées à 80, leurs montants en demandent jusqu'à 208).
+La logique du menu est devenue un composant, **`Tools/ColonnesAdaptatives`**, posé sur toute rangée de
+colonnes : il empile les colonnes quand la somme de leurs minimums dépasse la largeur offerte, et les
+remet côte à côte quand la place revient. Posé sur la rangée du menu (par code, après le
+réaménagement), sur `TopRow` de la fiche bâtiment et sur `RowColonnes` de la fiche locataire.
+
+Les minimums menteurs ont été retirés (`minWidth` des colonnes à -1 : le contenu dit le sien), les
+tuiles de rentabilité portent 210 et leurs titres ne passent plus à la ligne (« … » plutôt que
+chevaucher le montant). Fiche bâtiment : côte à côte jusqu'à 125 % (tuiles de 211), empilée à 150 et
+175 %. **`ColonnesAdaptativesTests`** : au zoom maximal, aucune colonne ne contient de rangée plus large
+qu'elle ; à 100 %, rien n'est empilé. Le premier passage a trouvé 2 px de débordement dans la fiche
+locataire (colonnes annoncées à 400) — corrigé de la même façon. Limite : le test ne voit que ce que
+le prefab contient ; les sections construites en Play (facturation, suivi) restent à regarder à l'écran.
+
+**Défilement du résumé de la fiche bâtiment (28/09).** À 175 %, la vue résumé dépassait en bas sans
+pouvoir défiler. Même structure que le menu général : `VueResume` porte le `ScrollRect` (vertical,
+Clamped, sensibilité 30), ses cartes vivent sous `VueResume/Viewport/Content`, qui reprend le groupe
+vertical d'origine (marges 18, espacement 14) et se dimensionne sur son contenu. `VueResume` reste
+l'objet que `BatimentPrefab` active et désactive — rien ne change pour lui. Dans
+`BatimentSummaryView`, les cinq endroits qui créaient ou cherchaient une carte sous `transform` passent
+par une seule propriété, `Contenu` : c'est la leçon des créances disparues du menu (cinq chemins écrits
+en dur, vidés en silence le jour où la structure a changé).
+
+**Section « Bâtiments » du menu (28/09).** À 150 %, la zone des cartes sortait de la section. Cause :
+une hauteur de section **fixe** (380, bornée à 260 au zoom) plus petite que son contenu (410), avec une
+zone de cartes fixe (300) qui ne pouvait pas céder. Effet de bord ancien : même à 100 %, la barre de tri
+était écrasée à 4 px — le « Tri » qui « passait derrière les cartes » (contourné à l'époque par un
+Canvas trié, qui reste en place mais ne soigne plus rien). Désormais, `LayoutHeights` calcule la
+hauteur **pleine** d'après le contenu (`HauteurContenu`), seule la zone des cartes peut se serrer (jusqu'à
+une rangée, 180), et la section n'est serrée que si cela évite le défilement de la page à 100 % ; au
+zoom, la page défile de toute façon et la section garde sa hauteur pleine.
+
+**« À traiter » et « Locataires » désalignés dans le résumé (28/09).** La rangée qui les porte ne
+contrôlait pas les hauteurs ; chaque carte se dimensionnait par son propre `ContentSizeFitter`. Placées
+par leur sommet puis redimensionnées autour de leur centre (pivot 0,5), elles ne tombaient jamais au
+même endroit. `AjusteHauteurRangee` recalculait la hauteur de la rangée à la main (reconstruction
+forcée) pour compenser. Désormais la rangée contrôle et étire les hauteurs : même sommet, même hauteur
+(celle de la plus grande carte), et la liste des locataires prend la place gagnée. Les deux
+`ContentSizeFitter` et `AjusteHauteurRangee` sont supprimés.
+
+**Textes d'exemple des champs vides (28/09).** 42 « Enter text... » en anglais, et sept couleurs de
+placeholder différentes — dont certaines aussi foncées qu'une valeur saisie (« JJ / MM / AAAA » opaque) :
+rien ne signalait qu'un texte ne serait pas enregistré. Une seule couleur, `UITheme.TexteExemple`
+(`#A8A69E`), en italique, et « Saisir… » par défaut, appliqués aux prefabs sources et à la scène ; 29
+couleurs surchargées sur des instances retirées ; `UIFactory.Input` suit la même règle. 90 champs
+vérifiés, un seul style. `TexteExempleTests` le verrouille (prefabs : couleur, italique, pas
+d'« Enter text... » ; scène : pas d'« Enter text... »).
+
+**Saisie des dates (28/09).** `DateInputController` passe au champ suivant dès qu'un champ est complet
+(« 14 » → mois, « 05 » → année), seulement pendant la frappe (`isFocused`) : `ApplyDate` remplit les
+champs par code et ne doit pas déplacer le curseur. Non couvert par un test EditMode (le focus exige
+le Play). Dans la révision de loyer, les trois champs s'étalaient sur toute la largeur (143 px entre
+eux) : le groupe `DateInput` répartissait l'espace libre (`childForceExpandWidth`). Corrigé dans le
+prefab « Calendar » et dans la **copie non reliée** que porte « Revision Loyer ». Écart de 20 px
+partout désormais.
+
+**Date de la révision rattachée à « Calendar » (28/09).** L'instance de « Calendar » dans « Revision
+Loyer » avait son `DateInput` d'origine **retiré** et remplacé par une **copie ajoutée**, vers laquelle
+pointaient les quatre références du `DateInputController`. Désormais : copie supprimée, `DateInput`
+d'origine restauré, références revenues à la source. Restaurer l'objet a fait ressurgir 55 anciennes
+retouches qu'il portait en sommeil (tailles 20×35 au lieu de 52×44, tailles de texte, couleurs) —
+`EchelleTypoTests` les a signalées ; retirées, ainsi que 36 retouches de la scène sur le même objet et
+89 surcharges de scène sans cible (elles visaient la copie ou des objets disparus). Seules adaptations
+gardées, voulues pour cet écran : titre au-dessus des champs (groupe vertical au lieu d'horizontal),
+hauteur de ligne 44, pas de `ContentSizeFitter` sur `DateInput` (le groupe vertical fixe la largeur).
+`RevisionPanel` ne passe que par les références du composant : rien à changer côté code.
+
 ### Prochaines étapes (mise à jour 22/09/2026)
 
-Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **188 tests EditMode verts**. Ce qui reste se range en trois tas.
+Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **216 tests EditMode verts**. Ce qui reste se range en trois tas.
 
 #### A. À voir en Play — le seul vrai reste
 
@@ -129,12 +494,20 @@ Aucun de ces points n'est douteux dans le code ; ils demandent l'écran. Par ord
 7. **L'envoi email sur Régularisation, Refacturation et Dépôt** — seul le Loyer a été vu de bout en bout. Tester surtout **l'échec** (mot de passe faux) : PDF présent, ligne non marquée, charges non payées, second essai qui reprend le même numéro.
 8. **Le cycle de vie des charges** (21/09) : régularisées → « en attente de paiement » (ambre), hors du choix ; facture « Payé » → vert ; retour « Impayé » → attente **sans** redevenir sélectionnables.
 9. **Après les optimisations du 22/09 au soir** : vérifier que l'affichage n'a pas souffert du passage à `MarkLayoutForRebuild` — hauteur des champs, défilement des fiches, sections repliables — et que rouvrir deux fois le même bâtiment ne relance plus ni géocodage ni téléchargement de carte (la console ne doit afficher `[GeoCoding]` et `[Mapbox]` qu'à la première ouverture).
-10. **Reliquat des sessions 17–21/09** : gardes d'avoir (régul/dépôt) · `FermetureGuard` · ordre des cartes dans les trois panneaux non encore vus · phrase de règlement au signe du solde dès l'ouverture · textes de facture réglables et menu « / » (aucun `{jeton}` ne doit ressortir sur le PDF) · phrases de l'explication du dépôt · héritage en chaîne des réglages (T1 → T2 → T3, puis nouveau bâtiment).
+10. **Après le nettoyage des prefabs du 23/09** : fiche bâtiment **vue le 23/09, correcte**. Restent
+    les panneaux **Achat**, **Travaux**, **Objectifs** et le **Calendrier**. Chercher l'inverse du
+    défaut réparé : non plus des blancs, mais un contenu **tassé ou tronqué** — une ligne trop courte,
+    un texte coupé, un bouton écrasé.
+11. **Reliquat des sessions 17–21/09** : gardes d'avoir (régul/dépôt) · `FermetureGuard` · ordre des cartes dans les trois panneaux non encore vus · phrase de règlement au signe du solde dès l'ouverture · textes de facture réglables et menu « / » (aucun `{jeton}` ne doit ressortir sur le PDF) · phrases de l'explication du dépôt · héritage en chaîne des réglages (T1 → T2 → T3, puis nouveau bâtiment).
 
 #### B. À coder — court
 
 1. **Convertir `FacturationSuiviPanel` au prefab `SuiviFactureRow`**, une fois les deux rendus comparés en Play (point A6). C'est ce qui supprimera la dernière copie de la ligne de tableau.
 2. **Puis `FacturationHomeSection`** (48 appels `UIFactory`, écran d'accueil). Ne **pas** convertir `ReglagePanel` ni les 4 panneaux de facture : formulaires construits une seule fois, arbitrage inchangé.
+3. **Les 113 `ContentSizeFitter` imbriqués**, puis le réglage de taille de police lui-même. C'est la
+   suite directe du 23/09 et la seule qui reste avant le réglage. **Une section à la fois, vérifiée à
+   l'écran avant la suivante** — le lot a déjà échoué une fois. Chaque fitter retiré doit d'abord avoir
+   un parent qui mesure (`childControlHeight = true`), sinon la section s'effondre au lieu de s'ajuster.
 
 #### C. En attente d'une décision extérieure
 
@@ -373,7 +746,7 @@ La règle de sélection est **séparée de l'écran** et l'existence du PDF lui 
 
 #### Vérification
 
-**188 tests EditMode verts** (126 + 62). Les nouveaux (`SurfacesEtEcheanceTests`) couvrent la règle des surfaces avec le scénario exact rapporté et le calcul d'échéance (jour borné à la longueur du mois — « le 31 » en février tombe le 28, ou le 29 en année bissextile — périodicités trimestrielle, semestrielle, annuelle), plus le fait que les lignes du suivi passent bien par la règle extraite.
+**207 tests EditMode verts** (126 + 62 + 3 + 5 + 2 + 9). Les nouveaux (`SurfacesEtEcheanceTests`) couvrent la règle des surfaces avec le scénario exact rapporté et le calcul d'échéance (jour borné à la longueur du mois — « le 31 » en février tombe le 28, ou le 29 en année bissextile — périodicités trimestrielle, semestrielle, annuelle), plus le fait que les lignes du suivi passent bien par la règle extraite.
 
 **Les tests mordent** : vérifié par mutation. En remettant l'ancien calcul de surface, trois tests échouent avec le bon message (`Expected: 750, But was: 1250` — le bug rapporté, exactement), puis repassent au vert après restauration.
 

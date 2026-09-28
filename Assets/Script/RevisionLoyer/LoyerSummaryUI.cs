@@ -215,7 +215,7 @@ public class LoyerSummaryUI : MonoBehaviour
         // Filet de séparation + titre du bloc.
         var sep = UIFactory.Panel("Sep", v.transform, UITheme.Bordure, false);
         UIFactory.LE(sep.gameObject, minH: 1, prefH: 1);
-        UIFactory.Text(v.transform, "Modalités du loyer", 17, Col("#A9741C"), true);
+        UIFactory.Text(v.transform, "Modalités du loyer", UITheme.Role.Libelle, Col("#A9741C"), true);
 
         _valDemande  = Row(v.transform, "Loyer demandé le");
         _valMois     = Row(v.transform, "Mois facturés");
@@ -230,9 +230,9 @@ public class LoyerSummaryUI : MonoBehaviour
         var h = UIFactory.HBox(parent, 8, false, "Row");
         UIFactory.LE(h.gameObject, minH: 24);
         rowGO = h.gameObject;
-        var l = UIFactory.Text(h.transform, label, 17, UITheme.TexteSecondaire);
+        var l = UIFactory.Text(h.transform, label, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         UIFactory.LE(l.gameObject, flexW: 1);
-        return UIFactory.Text(h.transform, "—", 17, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
+        return UIFactory.Text(h.transform, "—", UITheme.Role.Libelle, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
     }
 
     private void UpdateRecap(Locataire loc)
@@ -303,7 +303,7 @@ public class LoyerSummaryUI : MonoBehaviour
         if (badgeRevision != null)
         {
             var bt = badgeRevision.GetComponentInChildren<TMP_Text>(true);
-            if (bt != null) { bt.text = "Révision à faire"; bt.enableWordWrapping = false; bt.overflowMode = TextOverflowModes.Overflow; bt.fontSize = 12; }
+            if (bt != null) { bt.text = "Révision à faire"; bt.enableWordWrapping = false; bt.overflowMode = TextOverflowModes.Overflow; bt.fontSize = UITheme.Role.Pastille; }
             var ble = badgeRevision.GetComponent<LayoutElement>() ?? badgeRevision.AddComponent<LayoutElement>();
             ble.minWidth = 130; ble.preferredWidth = 130;
         }
@@ -322,7 +322,7 @@ public class LoyerSummaryUI : MonoBehaviour
 
         // Loyer annuel : stats réparties sur la largeur ; HT/TTC en avant (gros/gras),
         // le tout dans une tuile à fond léger pour mettre en valeur.
-        UIFactory.Text(box.transform, "Loyer annuel", 17, Col("#A9741C"), true);
+        UIFactory.Text(box.transform, "Loyer annuel", UITheme.Role.Libelle, Col("#A9741C"), true);
         var annualCard = UIFactory.Panel("AnnualCard", box.transform, Col("#FBF5E8"));
         UIFactory.Border(annualCard.gameObject);
         var annual = annualCard.gameObject.AddComponent<HorizontalLayoutGroup>();
@@ -336,7 +336,7 @@ public class LoyerSummaryUI : MonoBehaviour
         _cM2   = Stat(annual.transform, "€ / m²", 17, UITheme.TexteSecondaire);
 
         // Provision.
-        _cProv = UIFactory.Text(box.transform, "—", 17, UITheme.TextePrincipal);
+        _cProv = UIFactory.Text(box.transform, "—", UITheme.Role.Libelle, UITheme.TextePrincipal);
 
         // Deux colonnes : mini-tableau par période (gauche, resserré) | Facturation du loyer (droite).
         var R = TextAlignmentOptions.Right;
@@ -349,7 +349,7 @@ public class LoyerSummaryUI : MonoBehaviour
         var leftCol = UIFactory.VBox(cols.transform, 4, 0, 0, 0, 0, "ColPeriode");
         leftCol.childControlWidth = true; leftCol.childForceExpandWidth = true;
         UIFactory.LE(leftCol.gameObject, flexW: 1, minW: 250);
-        _perLabel = UIFactory.Text(leftCol.transform, "Loyer par période", 17, Col("#A9741C"), true);
+        _perLabel = UIFactory.Text(leftCol.transform, "Loyer par période", UITheme.Role.Libelle, Col("#A9741C"), true);
         var card = MakeTable(leftCol.transform, "PerTable");
         var head = PerRow(card, Col("#FBF5E8"), 32);
         PerCell(head, "", 52, 17, false, L); PerCell(head, "Hors ch.", 0, 17, false, R); PerCell(head, "Ch. compr.", 0, 17, false, R);
@@ -375,7 +375,7 @@ public class LoyerSummaryUI : MonoBehaviour
         var col = UIFactory.VBox(parent, 1, 0, 0, 0, 0, "Stat");
         col.childForceExpandWidth = true; col.childAlignment = TextAnchor.LowerLeft;
         UIFactory.LE(col.gameObject, flexW: 1, minW: 0);
-        UIFactory.Text(col.transform, label, 17, UITheme.TexteSecondaire);
+        UIFactory.Text(col.transform, label, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         return UIFactory.Text(col.transform, "—", size, valColor, true);
     }
 
@@ -386,6 +386,10 @@ public class LoyerSummaryUI : MonoBehaviour
         UIFactory.Border(card.gameObject);
         var cv = card.gameObject.AddComponent<VerticalLayoutGroup>();
         cv.spacing = 0; cv.childControlWidth = true; cv.childControlHeight = true; cv.childForceExpandWidth = true;
+        // Explicite, car le défaut d'Unity est TRUE : le tableau annonçait alors un
+        // `flexibleHeight`, qui remontait jusqu'à la section « Loyer » et l'étirait de
+        // 104 px. Un tableau se dimensionne à ses lignes, il ne réclame pas d'espace.
+        cv.childForceExpandHeight = false;
         card.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         return card.transform;
     }
@@ -396,7 +400,12 @@ public class LoyerSummaryUI : MonoBehaviour
         var hl = p.gameObject.AddComponent<HorizontalLayoutGroup>();
         hl.padding = new RectOffset(12, 12, 0, 0); hl.spacing = 8;
         hl.childControlWidth = true; hl.childControlHeight = true;
-        hl.childForceExpandWidth = false; hl.childForceExpandHeight = true;
+        // childForceExpandHeight DOIT rester false : activé, la ligne annonce un
+        // `flexibleHeight` de 1, et ce signal remonte toute la chaîne — trois lignes
+        // de tableau étiraient la section « Loyer » de 104 px, répartis en blanc
+        // au-dessus et au-dessous du contenu. Le centrage vertical des cellules est
+        // déjà assuré par childAlignment.
+        hl.childForceExpandWidth = false; hl.childForceExpandHeight = false;
         hl.childAlignment = TextAnchor.MiddleLeft;
         p.gameObject.AddComponent<LayoutElement>().minHeight = h;
         return p.transform;

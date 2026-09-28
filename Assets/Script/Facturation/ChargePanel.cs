@@ -92,7 +92,7 @@ public class ChargePanel : MonoBehaviour
         cv.childControlWidth = true; cv.childControlHeight = true;
         cv.childForceExpandWidth = true; cv.childForceExpandHeight = false;
 
-        UIFactory.Text(cv.transform, _isNew ? "Nouvelle charge" : "Modifier la charge", 22, UITheme.TextePrincipal, true);
+        UIFactory.Text(cv.transform, _isNew ? "Nouvelle charge" : "Modifier la charge", UITheme.Role.Valeur, UITheme.TextePrincipal, true);
 
         var body = MakeScroll(cv.transform);   // corps défilable
         UIFactory.LE(((Transform)body.parent.parent).gameObject, flexH: 1);
@@ -104,7 +104,7 @@ public class ChargePanel : MonoBehaviour
             DateTime.TryParse(_edit.dateISO, out var de) ? de.ToString("dd/MM/yyyy") : "");
 
         // Locataires concernés
-        UIFactory.Text(body, "Locataire(s) concerné(s)", 17, UITheme.TexteSecondaire);
+        UIFactory.Text(body, "Locataire(s) concerné(s)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _fTous = UIFactory.Toggle(body, "Tous les locataires", _edit.tousLocataires);
         _fTous.onValueChanged.AddListener(_ => { RefreshLocBox(); RebuildRatio(); });
 
@@ -116,14 +116,14 @@ public class ChargePanel : MonoBehaviour
         _ratioBox = ratioWrap.transform;
 
         // PDF
-        UIFactory.Text(body, "PDF de la facture", 17, UITheme.TexteSecondaire);
+        UIFactory.Text(body, "PDF de la facture", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var pdfRow = UIFactory.HBox(body, 8, false, "PdfRow");
-        var pick = UIFactory.Button(pdfRow.transform, "Choisir un PDF…", AccentClair, Accent, 38, 15);
+        var pick = UIFactory.Button(pdfRow.transform, "Choisir un PDF…", AccentClair, Accent, 38, UITheme.Role.Bouton);
         UIFactory.LE(pick.gameObject, prefW: 180, flexW: 0);
         pick.onClick.AddListener(ChoisirPdf);
-        _fPdfLabel = UIFactory.Text(pdfRow.transform, PdfLabel(), 15, UITheme.TexteSecondaire);
+        _fPdfLabel = UIFactory.Text(pdfRow.transform, PdfLabel(), UITheme.Role.Donnee, UITheme.TexteSecondaire);
         UIFactory.LE(_fPdfLabel.gameObject, flexW: 1);
-        var clearPdf = UIFactory.Button(pdfRow.transform, "Retirer", UITheme.Carte, UITheme.TexteSecondaire, 34, 14);
+        var clearPdf = UIFactory.Button(pdfRow.transform, "Retirer", UITheme.Carte, UITheme.TexteSecondaire, 34, UITheme.Role.Action);
         UIFactory.Border(clearPdf.gameObject); UIFactory.LE(clearPdf.gameObject, prefW: 90, flexW: 0);
         clearPdf.onClick.AddListener(() => { _fPdf = null; if (_fPdfLabel != null) _fPdfLabel.text = PdfLabel(); });
 
@@ -136,10 +136,10 @@ public class ChargePanel : MonoBehaviour
         // Actions
         var actions = UIFactory.HBox(cv.transform, 10, false, "Actions");
         UIFactory.LE(actions.gameObject, minH: 46, prefH: 46);
-        var cancel = UIFactory.Button(actions.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, 18);
+        var cancel = UIFactory.Button(actions.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
         UIFactory.Border(cancel.gameObject); UIFactory.LE(cancel.gameObject, flexW: 1);
         cancel.onClick.AddListener(() => Destroy(scrim.gameObject));
-        var ok = UIFactory.Button(actions.transform, "Enregistrer", Accent, Color.white, 44, 18);
+        var ok = UIFactory.Button(actions.transform, "Enregistrer", Accent, Color.white, 44, UITheme.Role.Bouton);
         UIFactory.LE(ok.gameObject, flexW: 1);
         ok.onClick.AddListener(() =>
         {
@@ -186,7 +186,7 @@ public class ChargePanel : MonoBehaviour
         _ratioBox.gameObject.SetActive(show);
         if (!show) return;
 
-        UIFactory.Text(_ratioBox, "Répartition entre locataires", 17, UITheme.TexteSecondaire);
+        UIFactory.Text(_ratioBox, "Répartition entre locataires", UITheme.Role.Libelle, UITheme.TexteSecondaire);
 
         var chips = UIFactory.HBox(_ratioBox, 6, false, "TypeChips");
         _chipSurface = TypeChip(chips.transform, "Surface");
@@ -203,7 +203,7 @@ public class ChargePanel : MonoBehaviour
             var row = UIFactory.HBox(_ratioBox, 8, false, "RatioRow");
             UIFactory.LE(row.gameObject, minH: 40);
             var nom = UIFactory.Text(row.transform,
-                string.IsNullOrEmpty(l.Name) ? $"Lot {l.lotBatiment}" : l.Name, 16, UITheme.TextePrincipal);
+                string.IsNullOrEmpty(l.Name) ? $"Lot {l.lotBatiment}" : l.Name, UITheme.Role.Donnee, UITheme.TextePrincipal);
             UIFactory.LE(nom.gameObject, flexW: 1);
 
             if (_fType == "Manuel")
@@ -223,7 +223,7 @@ public class ChargePanel : MonoBehaviour
                 string txt = _fType == "Surface"
                     ? $"{(l.tailleLot > 0f ? l.tailleLot : 0f):0.##} m²"
                     : $"1/{n}";
-                var val = UIFactory.Text(row.transform, txt, 16, UITheme.TextePrincipal, true,
+                var val = UIFactory.Text(row.transform, txt, UITheme.Role.Donnee, UITheme.TextePrincipal, true,
                     TextAlignmentOptions.Right);
                 UIFactory.LE(val.gameObject, prefW: 120, flexW: 0);
             }
@@ -262,7 +262,7 @@ public class ChargePanel : MonoBehaviour
 
     Button TypeChip(Transform parent, string type)
     {
-        var b = UIFactory.Button(parent, type, UITheme.Carte, UITheme.TextePrincipal, 34, 15, false);
+        var b = UIFactory.Button(parent, type, UITheme.Carte, UITheme.TextePrincipal, 34, UITheme.Role.Action, false);
         UIFactory.Border(b.gameObject); UIFactory.LE(b.gameObject, prefW: 120, flexW: 0);
         b.onClick.AddListener(() => { _fType = type; RebuildRatio(); });
         return b;
@@ -383,7 +383,7 @@ public class ChargePanel : MonoBehaviour
 
     TMP_InputField LabeledInput(Transform parent, string label, string placeholder, string value)
     {
-        UIFactory.Text(parent, label, 17, UITheme.TexteSecondaire);
+        UIFactory.Text(parent, label, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var f = UIFactory.Input(parent, placeholder);
         f.text = value ?? "";
         return f;

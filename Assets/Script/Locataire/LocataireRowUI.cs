@@ -26,15 +26,18 @@ public class LocataireRowUI : MonoBehaviour
         if (txtNom != null)
         {
             txtNom.text = nom;
-            // Nom mis en avant (l'utilisatrice : « les noms des locataires en plus gros »).
-            txtNom.enableAutoSizing = false; txtNom.fontSize = 23;
+            // Rôle « Nom », comme le nom d'un bâtiment sur sa carte (23/09). Il était
+            // à 24 pt parce que l'utilisatrice voulait « les noms des locataires en
+            // plus gros » : s'il le faut de nouveau, c'est un rôle distinct à créer
+            // dans UITheme, pas une taille à réécrire ici.
+            txtNom.enableAutoSizing = false; txtNom.fontSize = UITheme.Role.Nom;
         }
         // Section locataires agrandie : sous-titre + loyer + avatar + hauteur de ligne.
-        if (txtSousTitre != null) { txtSousTitre.enableAutoSizing = false; txtSousTitre.fontSize = 13; }
+        if (txtSousTitre != null) { txtSousTitre.enableAutoSizing = false; txtSousTitre.fontSize = UITheme.Role.SousTitre; }
         if (txtLoyer != null)
         {
             // Assez large pour « 180 000 €/an » à fs 16 (avant : tronqué en « …/... »).
-            txtLoyer.enableAutoSizing = false; txtLoyer.fontSize = 16;
+            txtLoyer.enableAutoSizing = false; txtLoyer.fontSize = UITheme.Role.Donnee;
             txtLoyer.enableWordWrapping = false; txtLoyer.overflowMode = TMPro.TextOverflowModes.Overflow;
             var lle = txtLoyer.GetComponent<LayoutElement>() ?? txtLoyer.gameObject.AddComponent<LayoutElement>();
             lle.minWidth = 128; lle.preferredWidth = 128;
@@ -47,7 +50,7 @@ public class LocataireRowUI : MonoBehaviour
         // Lignes plus hautes pour laisser respirer le nom agrandi.
         var le = GetComponent<LayoutElement>() ?? gameObject.AddComponent<LayoutElement>();
         le.minHeight = 64; le.preferredHeight = 64;
-        if (txtInitiales != null) { txtInitiales.enableAutoSizing = false; txtInitiales.fontSize = 16; txtInitiales.text = Initiales(nom); }
+        if (txtInitiales != null) { txtInitiales.enableAutoSizing = false; txtInitiales.fontSize = UITheme.Role.Donnee; txtInitiales.text = Initiales(nom); }
         if (txtSousTitre != null)
             txtSousTitre.text = $"Lot {loc.lotBatiment} · {loc.tailleLot:F0} m²";
         if (txtLoyer != null)

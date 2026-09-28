@@ -53,10 +53,10 @@ public class EntreprisePanel : MonoBehaviour
 
         var header = UIFactory.HBox(col.transform, 12, false, "Header");
         UIFactory.LE(header.gameObject, minH: 52);
-        var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, 18);
+        var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(back.gameObject); UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
         back.onClick.AddListener(Close);
-        var title = UIFactory.Text(header.transform, "Entreprises", 26, UITheme.TextePrincipal, true);
+        var title = UIFactory.Text(header.transform, "Entreprises", UITheme.Role.Page, UITheme.TextePrincipal, true);
         UIFactory.LE(title.gameObject, flexW: 1);
 
         _content = MakeScroll(col.transform);
@@ -97,11 +97,11 @@ public class EntreprisePanel : MonoBehaviour
         var actif = EntrepriseService.All().Find(EntrepriseService.EstActive);
         UIFactory.Text(body.transform,
             "Chaque entreprise a sa propre sauvegarde. Ouvrez-en une pour basculer dessus.",
-            15, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         var liste = EntrepriseService.All();
         if (liste.Count == 0)
-            UIFactory.Text(body.transform, "Aucune entreprise. Créez-en une ci-dessous.", 16, UITheme.TexteSecondaire);
+            UIFactory.Text(body.transform, "Aucune entreprise. Créez-en une ci-dessous.", UITheme.Role.Donnee, UITheme.TexteSecondaire);
 
         foreach (var e in liste)
         {
@@ -113,19 +113,19 @@ public class EntreprisePanel : MonoBehaviour
             var pad = UIFactory.VBox(row.transform, 1, 12, 10, 6, 6, "info");
             UIFactory.LE(pad.gameObject, flexW: 1);
             string nom = string.IsNullOrWhiteSpace(e.nom) ? "(sans nom)" : e.nom;
-            UIFactory.Text(pad.transform, nom + (active ? "   • active" : ""), 18, UITheme.TextePrincipal, true);
-            UIFactory.Text(pad.transform, e.racine ?? "—", 13, UITheme.TexteSecondaire);
+            UIFactory.Text(pad.transform, nom + (active ? "   • active" : ""), UITheme.Role.Libelle, UITheme.TextePrincipal, true);
+            UIFactory.Text(pad.transform, e.racine ?? "—", UITheme.Role.Mention, UITheme.TexteSecondaire);
 
             var e2 = e;
             if (!active)
             {
-                var open = UIFactory.Button(row.transform, "Ouvrir", Vert, Color.white, 36, 16);
+                var open = UIFactory.Button(row.transform, "Ouvrir", Vert, Color.white, 36, UITheme.Role.Action);
                 UIFactory.LE(open.gameObject, prefW: 110, flexW: 0);
                 // Bascule d'entreprise : ReloadFromDisk détruit les fiches ouvertes.
                 open.onClick.AddListener(() => FermetureGuard.ConfirmerPerteSaisies(
                     "Changer d'entreprise", () => { EntrepriseService.Activer(e2.racine); Close(); }));
             }
-            var oub = UIFactory.Button(row.transform, "Retirer", UITheme.Carte, UITheme.TexteSecondaire, 36, 15);
+            var oub = UIFactory.Button(row.transform, "Retirer", UITheme.Carte, UITheme.TexteSecondaire, 36, UITheme.Role.Action);
             UIFactory.Border(oub.gameObject); UIFactory.LE(oub.gameObject, prefW: 100, flexW: 0);
             oub.onClick.AddListener(() => ConfirmDialog.Instance?.Show(
                 "Retirer de la liste ?",
@@ -135,9 +135,9 @@ public class EntreprisePanel : MonoBehaviour
 
         // Actions
         var act = UIFactory.Section(_content, "Ajouter une entreprise", Ambre, AmbreL);
-        var creer = UIFactory.Button(act.transform, "+  Créer une entreprise", AmbreL, Ambre, 44, 18);
+        var creer = UIFactory.Button(act.transform, "+  Créer une entreprise", AmbreL, Ambre, 44, UITheme.Role.Bouton);
         creer.onClick.AddListener(CreerFlux);
-        var ouvrir = UIFactory.Button(act.transform, "Ouvrir un dossier existant", UITheme.Carte, UITheme.TextePrincipal, 42, 17);
+        var ouvrir = UIFactory.Button(act.transform, "Ouvrir un dossier existant", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(ouvrir.gameObject);
         ouvrir.onClick.AddListener(() =>
         {
@@ -154,7 +154,7 @@ public class EntreprisePanel : MonoBehaviour
     {
         Modal("Nouvelle entreprise", body =>
         {
-            UIFactory.Text(body.transform, "Nom de l'entreprise", 17, UITheme.TexteSecondaire);
+            UIFactory.Text(body.transform, "Nom de l'entreprise", UITheme.Role.Libelle, UITheme.TexteSecondaire);
             var f = UIFactory.Input(body.transform, "GROUPE CIPL");
             return () =>
             {
@@ -191,15 +191,15 @@ public class EntreprisePanel : MonoBehaviour
         vcsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         vcsf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
 
-        UIFactory.Text(v.transform, titre, 22, UITheme.TextePrincipal, true);
+        UIFactory.Text(v.transform, titre, UITheme.Role.Section, UITheme.TextePrincipal, true);
         var onValidate = builder(v);
 
         var actions = UIFactory.HBox(v.transform, 10, false, "Actions");
         UIFactory.LE(actions.gameObject, minH: 46, prefH: 46);
-        var cancel = UIFactory.Button(actions.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, 18);
+        var cancel = UIFactory.Button(actions.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
         UIFactory.Border(cancel.gameObject); UIFactory.LE(cancel.gameObject, flexW: 1);
         cancel.onClick.AddListener(() => Destroy(scrim.gameObject));
-        var ok = UIFactory.Button(actions.transform, "Choisir le dossier…", UITheme.Primaire, Color.white, 44, 18);
+        var ok = UIFactory.Button(actions.transform, "Choisir le dossier…", UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
         UIFactory.LE(ok.gameObject, flexW: 1);
         ok.onClick.AddListener(() => { Destroy(scrim.gameObject); onValidate?.Invoke(); });
     }

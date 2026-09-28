@@ -127,7 +127,7 @@ public class LocataireSuiviInline : MonoBehaviour
                 if (hlg != null) { hlg.childForceExpandHeight = false; hlg.childControlHeight = true; hlg.childAlignment = TextAnchor.MiddleLeft; }
                 var sp = UIFactory.Rect("Spacer", _extTitre);
                 UIFactory.LE(sp.gameObject, flexW: 1);
-                UIFactory.Text(_extTitre, "Année", 14, UITheme.TexteSecondaire);
+                UIFactory.Text(_extTitre, "Année", UITheme.Role.Donnee, UITheme.TexteSecondaire);
                 _yearRow = _extTitre;
             }
             var rows0 = UIFactory.VBox(_extBody, 6, 14, 14, 12, 14, "Rows");
@@ -151,10 +151,10 @@ public class LocataireSuiviInline : MonoBehaviour
         bh.childControlWidth = true; bh.childControlHeight = true;
         bh.childForceExpandWidth = false; bh.childForceExpandHeight = true;
         bh.childAlignment = TextAnchor.MiddleLeft;
-        UIFactory.Text(bh.transform, "Suivi de facturation", 26, Accent, true);
+        UIFactory.Text(bh.transform, "Suivi de facturation", UITheme.Role.Page, Accent, true);
         var spacer = UIFactory.Rect("Spacer", bh.transform);
         UIFactory.LE(spacer.gameObject, flexW: 1);
-        UIFactory.Text(bh.transform, "Année", 14, UITheme.TexteSecondaire);
+        UIFactory.Text(bh.transform, "Année", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _yearRow = bh.transform;   // les boutons année sont ajoutés à la suite (à droite)
 
         // Corps : le tableau.
@@ -194,7 +194,7 @@ public class LocataireSuiviInline : MonoBehaviour
             else
             {
                 b = UIFactory.Button(_yearRow, y.ToString(), on ? Hex("#A9741C") : Hex("#E6E3DA"),
-                    on ? Color.white : Hex("#2C2C2A"), 34, 16, false);
+                    on ? Color.white : Hex("#2C2C2A"), 34, UITheme.Role.Action, false);
                 UIFactory.LE(b.gameObject, prefW: 62, minW: 62, flexW: 0, minH: 34, prefH: 34, flexH: 0);
                 chip = b.gameObject;
             }
@@ -256,6 +256,10 @@ public class LocataireSuiviInline : MonoBehaviour
         var card = UIFactory.Panel("Card", _tableBox, UITheme.Carte);
         UIFactory.Border(card.gameObject);
         var cv = card.gameObject.AddComponent<VerticalLayoutGroup>();
+        // Explicite : le defaut d'Unity est TRUE, et un groupe qui « veut s'etendre »
+        // propage un flexibleHeight jusqu'en haut de la hierarchie — c'est ce qui
+        // creusait 104 px de blanc dans la section Loyer.
+        cv.childForceExpandHeight = false;
         cv.spacing = 0; cv.padding = new RectOffset(0, 0, 0, 0);
         cv.childControlWidth = true; cv.childControlHeight = true; cv.childForceExpandWidth = true;
         card.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
@@ -355,6 +359,10 @@ public class LocataireSuiviInline : MonoBehaviour
         var listBg = UIFactory.Panel("StatutList", scrim, UITheme.Carte);
         UIFactory.Border(listBg.gameObject);
         var vlg = listBg.gameObject.AddComponent<VerticalLayoutGroup>();
+        // Explicite : le defaut d'Unity est TRUE, et un groupe qui « veut s'etendre »
+        // propage un flexibleHeight jusqu'en haut de la hierarchie — c'est ce qui
+        // creusait 104 px de blanc dans la section Loyer.
+        vlg.childForceExpandHeight = false;
         vlg.spacing = 2; vlg.padding = new RectOffset(4, 4, 4, 4);
         vlg.childControlWidth = true; vlg.childControlHeight = true; vlg.childForceExpandWidth = true;
         listBg.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
@@ -385,7 +393,7 @@ public class LocataireSuiviInline : MonoBehaviour
 
     void MenuItem(Transform parent, string label, Action onClick)
     {
-        var b = UIFactory.Button(parent, label, UITheme.Carte, UITheme.TextePrincipal, 34, 15, false);
+        var b = UIFactory.Button(parent, label, UITheme.Carte, UITheme.TextePrincipal, 34, UITheme.Role.Action, false);
         b.onClick.AddListener(() => onClick());
     }
 

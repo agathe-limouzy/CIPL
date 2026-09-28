@@ -142,6 +142,8 @@ public class SuiviRowUI : MonoBehaviour
     }
 
     // Bouton ramené à un simple libellé de colonne : ni fond, ni bordure, ni clic.
+    // Il prend la taille des autres en-têtes — sinon « État » garderait celle de la
+    // pastille (12) et « Actions » se couperait comme un petit bouton.
     static void TexteNu(Button b, string label, Color fg)
     {
         var img = b.GetComponent<Image>();
@@ -149,7 +151,11 @@ public class SuiviRowUI : MonoBehaviour
         var o = b.GetComponent<Outline>();
         if (o != null) o.enabled = false;
         var t = b.GetComponentInChildren<TMP_Text>(true);
-        if (t != null) { t.text = label; t.color = fg; t.fontStyle = FontStyles.Bold; t.alignment = TextAlignmentOptions.Left; }
+        if (t != null)
+        {
+            t.text = label; t.color = fg; t.fontStyle = FontStyles.Bold; t.alignment = TextAlignmentOptions.Left;
+            t.fontSize = UITheme.Role.EnTete; t.enableWordWrapping = false;
+        }
         b.interactable = false;
         b.onClick.RemoveAllListeners();
     }

@@ -155,10 +155,10 @@ public class FactureLoyerPanel : MonoBehaviour
 
         var header = UIFactory.HBox(col.transform, 12, false, "Header");
         UIFactory.LE(header.gameObject, minH: 52);
-        var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, 18);
+        var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(back.gameObject); UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
         back.onClick.AddListener(Close);
-        _titre = UIFactory.Text(header.transform, "Information Facture — Loyer", 26, UITheme.TextePrincipal, true);
+        _titre = UIFactory.Text(header.transform, "Information Facture — Loyer", UITheme.Role.Page, UITheme.TextePrincipal, true);
         UIFactory.LE(_titre.gameObject, flexW: 1);
 
         // Corps : deux colonnes — formulaire à gauche, aperçu de la facture à droite.
@@ -175,7 +175,7 @@ public class FactureLoyerPanel : MonoBehaviour
         // ── Destinataire ──
         var d = UIFactory.Section(content, "Destinataire", CoVert, CoVertL);
         _nom = Labeled(d, "Nom");
-        UIFactory.Text(d.transform, "Adresse", 16, UITheme.TexteSecondaire);
+        UIFactory.Text(d.transform, "Adresse", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _adresse = UIFactory.Input(d.transform, "Adresse (plusieurs lignes possibles)", 88, true);
         _siret = Labeled(d, "SIRET");
 
@@ -191,28 +191,32 @@ public class FactureLoyerPanel : MonoBehaviour
         // Texte libre affiché en rouge avec le n° (ex. « N° Interne Magasin 001048 »).
         _refInterne = Labeled(e, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
         _refInterne.onValueChanged.AddListener(_ => RefreshEntetePreview());
-        UIFactory.Text(e.transform, "Format du n° de facture", 16, UITheme.TexteSecondaire);
+        UIFactory.Text(e.transform, "Format du n° de facture", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _numeroFormatDD = UIDropdown.Create(e.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
         BuildNumeroRow(e);
 
         // ── 2. Contenu ──
         var c = UIFactory.Section(content, "Contenu", CoContenu, CoContenuL);
-        UIFactory.Text(c.transform, "Texte de présentation (entête / paragraphe)", 16, UITheme.TexteSecondaire);
+        UIFactory.Text(c.transform, "Texte de présentation (entête / paragraphe)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _enteteDD = BuildEnteteDropdown(c.transform);
-        UIFactory.Text(c.transform, "Aperçu (variables remplacées) :", 14, UITheme.TexteSecondaire);
+        UIFactory.Text(c.transform, "Aperçu (variables remplacées) :", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         var pv = UIFactory.Panel("Preview", c.transform, Color.white);
         UIFactory.Border(pv.gameObject);
         var pvv = pv.gameObject.AddComponent<VerticalLayoutGroup>();
+        // Explicite : le defaut d'Unity est TRUE, et un groupe qui « veut s'etendre »
+        // propage un flexibleHeight jusqu'en haut de la hierarchie — c'est ce qui
+        // creusait 104 px de blanc dans la section Loyer.
+        pvv.childForceExpandHeight = false;
         pvv.padding = new RectOffset(12, 12, 10, 10); pvv.childControlWidth = true; pvv.childControlHeight = true; pvv.childForceExpandWidth = true;
         pv.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        _entetePreview = UIFactory.Text(pvv.transform, "—", 15, UITheme.TextePrincipal);
+        _entetePreview = UIFactory.Text(pvv.transform, "—", UITheme.Role.Donnee, UITheme.TextePrincipal);
 
         // ── Loyer facturé (contenu propre au type) ──
         // La période rejoint les montants : elle s'imprime dans le corps du document,
         // pas dans l'en-tête, et c'est elle qui détermine le loyer de la ligne.
         var mo = UIFactory.Section(content, "Loyer facturé", CoLoyer, CoLoyerL);
         // Période facturée : mois / trimestre / semestre / année selon la périodicité.
-        UIFactory.Text(mo.transform, "Période facturée", 16, UITheme.TexteSecondaire);
+        UIFactory.Text(mo.transform, "Période facturée", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         var perRow = UIFactory.HBox(mo.transform, 8, false, "PeriodeRow");
         UIFactory.LE(perRow.gameObject, minH: 46);
         _periodeDD = UIDropdown.Create(perRow.transform, new List<string>(MoisNoms),
@@ -249,7 +253,7 @@ public class FactureLoyerPanel : MonoBehaviour
         SlashAutocomplete.Attach(_texteMensuel);
         UIFactory.Text(mo.transform,
             "Dans cette phrase, {montant} porte le montant mensuel calculé. « / » ouvre la liste des variables.",
-            14, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         // ── 3. Règlement (pied du document) ──
         // L'échéance, la phrase qu'elle alimente et le RIB sont voisins : le lien se
@@ -260,38 +264,38 @@ public class FactureLoyerPanel : MonoBehaviour
         _echeance.onValueChanged.AddListener(_ => { RefreshSommeDefault(); RefreshBoutonSauver(); });
         _sommePhrase = Labeled(p, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
         SlashAutocomplete.Attach(_sommePhrase);
-        UIFactory.Text(p.transform, "RIB CIPL", 16, UITheme.TexteSecondaire);
+        UIFactory.Text(p.transform, "RIB CIPL", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _ribDD = BuildRibDropdown(p.transform);
 
         _retard = UIFactory.Toggle(p.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
         UIFactory.Text(p.transform,
             "Le texte de la phrase de retard et le bas de page se modifient dans Réglages — "
             + "ils sont imprimés à l'identique sur tous les documents.",
-            14, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         // ── Options / envoi ──
         // Ne reste ici que ce qui concerne l'ENVOI. Tout ce qui commande une ligne
         // imprimée vit dans la carte où cette ligne apparaît.
         var o = UIFactory.Section(content, "Options & envoi", CoVert, CoVertL);
-        _modeInfo = UIFactory.Text(o.transform, "", 15, UITheme.TexteSecondaire);
+        _modeInfo = UIFactory.Text(o.transform, "", UITheme.Role.Donnee, UITheme.TexteSecondaire);
 
         // Message d'accompagnement. Il appartient bien à l'envoi, donc à cette carte.
-        UIFactory.Text(o.transform, "Objet du message", 16, UITheme.TexteSecondaire);
+        UIFactory.Text(o.transform, "Objet du message", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _emailObjet = UIFactory.Input(o.transform, EmailService.ObjetDefaut);
         SlashAutocomplete.Attach(_emailObjet);
-        UIFactory.Text(o.transform, "Corps du message", 16, UITheme.TexteSecondaire);
+        UIFactory.Text(o.transform, "Corps du message", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _emailCorps = UIFactory.Input(o.transform, EmailService.CorpsDefaut, 110, true);
         SlashAutocomplete.Attach(_emailCorps);
         UIFactory.Text(o.transform,
             "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement.",
-            14, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
         _emailEnvoi = Labeled(o, "Email d'envoi");
         UIFactory.Text(o.transform,
             "Note : l'envoi réel (Pennylane / email) sera activé après validation — rien n'est émis pour l'instant.",
-            14, UITheme.Alerte);
+            UITheme.Role.Aide, UITheme.Alerte);
 
         // Bouton « Générer facture » sous le formulaire (rend l'aperçu à droite).
-        var gen = UIFactory.Button(left.transform, "Générer facture", UITheme.Primaire, Color.white, 46, 20);
+        var gen = UIFactory.Button(left.transform, "Générer facture", UITheme.Primaire, Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(gen.gameObject, minH: 56, flexH: 0);
         gen.onClick.AddListener(GenererApercu);
 
@@ -300,7 +304,7 @@ public class FactureLoyerPanel : MonoBehaviour
         UIFactory.LE(right.gameObject, flexW: 58);
         right.childForceExpandHeight = false;
 
-        UIFactory.Text(right.transform, "Facture générée", 22, UITheme.TextePrincipal, true);
+        UIFactory.Text(right.transform, "Facture générée", UITheme.Role.Section, UITheme.TextePrincipal, true);
 
         // Fond gris (type visionneuse PDF) qui occupe la hauteur restante ; la feuille
         // (image A4) est centrée dedans, avec zoom (molette / boutons) et déplacement.
@@ -312,7 +316,7 @@ public class FactureLoyerPanel : MonoBehaviour
         backdrop.gameObject.AddComponent<RectMask2D>();     // masque l'image qui déborde
 
         _previewHint = UIFactory.Text(backdrop.transform,
-            "Clique sur « Générer facture »\npour afficher l'aperçu ici.", 16, UITheme.TexteSecondaire, false,
+            "Clique sur « Générer facture »\npour afficher l'aperçu ici.", UITheme.Role.Aide, UITheme.TexteSecondaire, false,
             TextAlignmentOptions.Center);
         _previewHint.raycastTarget = false;
         var hintRT = (RectTransform)_previewHint.transform;
@@ -340,7 +344,7 @@ public class FactureLoyerPanel : MonoBehaviour
 
         // Bouton principal. Son libellé suit la date d'échéance : avant la date
         // d'envoi, il annonce le jour du départ au lieu de promettre un envoi immédiat.
-        _btnSauver = UIFactory.Button(right.transform, "Sauvegarder et envoyer", Hex("#854F0B"), Color.white, 46, 20);
+        _btnSauver = UIFactory.Button(right.transform, "Sauvegarder et envoyer", Hex("#854F0B"), Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(_btnSauver.gameObject, minH: 56, flexH: 0);
         _btnSauver.onClick.AddListener(SauvegarderEtEnvoyer);
     }
@@ -620,7 +624,7 @@ public class FactureLoyerPanel : MonoBehaviour
     // le numéro de facturation propre au locataire, que l'utilisatrice remplit librement.
     void BuildNumeroRow(VerticalLayoutGroup body)
     {
-        UIFactory.Text(body.transform, "N° de facture  =  format  +  ID locataire", 16, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "N° de facture  =  format  +  ID locataire", UITheme.Role.Aide, UITheme.TexteSecondaire);
         var row = UIFactory.HBox(body.transform, 8, false, "NumRow");
         UIFactory.LE(row.gameObject, minH: 46);
 
@@ -633,7 +637,7 @@ public class FactureLoyerPanel : MonoBehaviour
         pl.childForceExpandWidth = false; pl.childForceExpandHeight = true;
         pl.childAlignment = TextAnchor.MiddleCenter;
         UIFactory.LE(pfx.gameObject, minH: 46, minW: 96, flexW: 0);
-        _numeroPrefixe = UIFactory.Text(pfx.transform, "—", 19, UITheme.TextePrincipal, true);
+        _numeroPrefixe = UIFactory.Text(pfx.transform, "—", UITheme.Role.Libelle, UITheme.TextePrincipal, true);
 
         // ID locataire — champ de saisie (numéro de facturation du locataire).
         _numeroId = UIFactory.Input(row.transform, "ID locataire (ex. 001)");
@@ -1008,12 +1012,12 @@ public class FactureLoyerPanel : MonoBehaviour
         v.childControlWidth = true; v.childControlHeight = true;
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
 
-        UIFactory.Text(v.transform, titre, 22, UITheme.TextePrincipal, true);
+        UIFactory.Text(v.transform, titre, UITheme.Role.Section, UITheme.TextePrincipal, true);
         var body = MakeScroll(v.transform);
         UIFactory.LE(((Transform)body.parent.parent).gameObject, flexH: 1);
-        UIFactory.Text(body, texte, 15, UITheme.TextePrincipal);
+        UIFactory.Text(body, texte, UITheme.Role.Donnee, UITheme.TextePrincipal);
 
-        var close = UIFactory.Button(v.transform, "Fermer", UITheme.Primaire, Color.white, 44, 18);
+        var close = UIFactory.Button(v.transform, "Fermer", UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
         close.onClick.AddListener(() => Destroy(scrim.gameObject));
     }
 
@@ -1061,13 +1065,13 @@ public class FactureLoyerPanel : MonoBehaviour
 
     TMP_InputField Labeled(VerticalLayoutGroup body, string label)
     {
-        UIFactory.Text(body.transform, label, 16, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, label, UITheme.Role.Donnee, UITheme.TexteSecondaire);
         return UIFactory.Input(body.transform, label);
     }
 
     void ZoomBtn(Transform parent, string label, UnityEngine.Events.UnityAction onClick, float w = 44)
     {
-        var b = UIFactory.Button(parent, label, UITheme.Carte, UITheme.TextePrincipal, 36, 18, false);
+        var b = UIFactory.Button(parent, label, UITheme.Carte, UITheme.TextePrincipal, 36, UITheme.Role.Action, false);
         UIFactory.Border(b.gameObject);
         UIFactory.LE(b.gameObject, prefW: w, flexW: 0, minH: 36);
         b.onClick.AddListener(onClick);
@@ -1077,9 +1081,9 @@ public class FactureLoyerPanel : MonoBehaviour
     {
         var h = UIFactory.HBox(body.transform, 8, false, "Row");
         UIFactory.LE(h.gameObject, minH: 24);
-        var l = UIFactory.Text(h.transform, label, 16, UITheme.TexteSecondaire);
+        var l = UIFactory.Text(h.transform, label, UITheme.Role.Donnee, UITheme.TexteSecondaire);
         UIFactory.LE(l.gameObject, flexW: 1);
-        return UIFactory.Text(h.transform, "—", 16, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
+        return UIFactory.Text(h.transform, "—", UITheme.Role.Donnee, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
     }
 
     // Passe par SaisieNumerique : « . » et « , » y sont interchangeables et les

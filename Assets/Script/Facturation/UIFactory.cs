@@ -142,7 +142,7 @@ public static class UIFactory
     // ── Bouton ─────────────────────────────────────────────────────────────────
 
     public static Button Button(Transform parent, string label, Color bg, Color fg,
-        float height = 40, float fontSize = 18, bool bold = true)
+        float height = 40, float fontSize = UITheme.Role.Bouton, bool bold = true)
     {
         var img = Panel("Button", parent, bg);
         var btn = img.gameObject.AddComponent<Button>();
@@ -156,10 +156,26 @@ public static class UIFactory
         return btn;
     }
 
+    /// Bouton dont la largeur suit son libellé (marges de 10 px) : il ne coupe
+    /// jamais un mot, quelle que soit la taille de son rôle. Une largeur fixe
+    /// calibrée pour 13 pt faisait passer « Générer » sur deux lignes à 15.
+    public static void LargeurDuTexte(Button b)
+    {
+        var h = b.GetComponent<HorizontalLayoutGroup>() ?? b.gameObject.AddComponent<HorizontalLayoutGroup>();
+        h.padding = new RectOffset(10, 10, 0, 0);
+        h.childAlignment = TextAnchor.MiddleCenter;
+        h.childControlWidth = true; h.childControlHeight = true;
+        h.childForceExpandWidth = false; h.childForceExpandHeight = false;
+        var le = b.GetComponent<LayoutElement>();
+        if (le != null) { le.minWidth = -1; le.preferredWidth = -1; }
+        var t = b.GetComponentInChildren<TMP_Text>(true);
+        if (t != null) t.enableWordWrapping = false;
+    }
+
     // ── Champ de saisie (TMP_InputField) ───────────────────────────────────────
 
     public static TMP_InputField Input(Transform parent, string placeholder,
-        float height = 40, bool multiline = false, float fontSize = 20)
+        float height = 40, bool multiline = false, float fontSize = UITheme.Role.Valeur)
     {
         var img = Panel("Input", parent, Color.white);
         Border(img.gameObject, UITheme.Bordure);
@@ -170,8 +186,9 @@ public static class UIFactory
         area.gameObject.AddComponent<RectMask2D>();
         Stretch(area, 12, 7, 12, 7);
 
-        var ph = Text(area, placeholder, fontSize, UITheme.TexteSecondaire, false,
+        var ph = Text(area, placeholder, fontSize, UITheme.TexteExemple, false,
             multiline ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.Left);
+        ph.fontStyle = FontStyles.Italic;
         Stretch((RectTransform)ph.transform);
         var txt = Text(area, "", fontSize, UITheme.TextePrincipal, false,
             multiline ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.Left);

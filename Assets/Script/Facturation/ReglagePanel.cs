@@ -85,16 +85,17 @@ public class ReglagePanel : MonoBehaviour
         // Header
         var header = UIFactory.HBox(col.transform, 12, false, "Header");
         UIFactory.LE(header.gameObject, minH: 52);
-        var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, 18);
+        var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(back.gameObject);
         UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
         back.onClick.AddListener(Close);
-        var title = UIFactory.Text(header.transform, "Réglage", 26, UITheme.TextePrincipal, true);
+        var title = UIFactory.Text(header.transform, "Réglage", UITheme.Role.Page, UITheme.TextePrincipal, true);
         UIFactory.LE(title.gameObject, flexW: 1);
 
         // Scroll
         var content = MakeScroll(col.transform);
 
+        BuildAffichage(content);
         BuildConnexion(content);
         BuildLogo(content);
         BuildRibs(content);
@@ -105,7 +106,7 @@ public class ReglagePanel : MonoBehaviour
         // Footer
         var footer = UIFactory.HBox(col.transform, 12, false, "Footer");
         UIFactory.LE(footer.gameObject, minH: 56);
-        var save = UIFactory.Button(footer.transform, "Enregistrer", UITheme.Primaire, Color.white, 46, 20);
+        var save = UIFactory.Button(footer.transform, "Enregistrer", UITheme.Primaire, Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(save.gameObject, flexW: 1);
         save.onClick.AddListener(SaveFromUI);
     }
@@ -140,16 +141,16 @@ public class ReglagePanel : MonoBehaviour
     {
         var body = UIFactory.Section(parent, "Connexion & envoi", CoVert, CoVertL);
 
-        UIFactory.Text(body.transform, "Nom de l'entreprise", 17, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Nom de l'entreprise", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _entrepriseNom = UIFactory.Input(body.transform, "GROUPE CIPL");
 
-        UIFactory.Text(body.transform, "Clé API Pennylane", 17, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Clé API Pennylane", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _apiKey = UIFactory.Input(body.transform, "Collez votre clé API…");
         _apiKey.contentType = TMP_InputField.ContentType.Password;
 
         // Token Mapbox : saisi ici plutôt que dans le champ public de TileLoader, qui
         // était sérialisé en clair dans Maps.prefab et donc commité dans le dépôt.
-        UIFactory.Text(body.transform, "Token Mapbox (cartes)", 17, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Token Mapbox (cartes)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _mapboxToken = UIFactory.Input(body.transform, "Collez votre token Mapbox…");
         _mapboxToken.contentType = TMP_InputField.ContentType.Password;
 
@@ -162,25 +163,25 @@ public class ReglagePanel : MonoBehaviour
             "Cette case choisit comment partent les FACTURES. Les relances d'impayé passent "
             + "par email dans tous les cas : les réglages SMTP ci-dessous servent donc toujours. "
             + "(L'envoi Pennylane n'est pas encore implémenté.)",
-            14, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         // Sous-carte SMTP (mode Email)
         var smtpBody = UIFactory.Card(body.transform);
         _smtpCard = smtpBody.gameObject; // la carte SMTP (le VLG est porté par la carte)
-        UIFactory.Text(smtpBody.transform, "Envoi par email (SMTP)", 19, UITheme.TextePrincipal, true);
+        UIFactory.Text(smtpBody.transform, "Envoi par email (SMTP)", UITheme.Role.Libelle, UITheme.TextePrincipal, true);
         UIFactory.Text(smtpBody.transform,
             "Sert aux relances d'impayé dans tous les cas, et à l'envoi des factures si le mode "
             + "email est choisi ci-dessus. N'importe quelle messagerie convient, avec le port 587 :",
-            15, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
         UIFactory.Text(smtpBody.transform,
             "Gmail : smtp.gmail.com  ·  Outlook / Microsoft 365 : smtp.office365.com  ·  "
             + "OVH : ssl0.ovh.net  ·  Free : smtp.free.fr  ·  Orange : smtp.orange.fr",
-            14, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
         UIFactory.Text(smtpBody.transform,
             "⚠ Gmail et Outlook exigent un mot de passe d'application (créé dans les réglages de "
             + "sécurité du compte), pas le mot de passe habituel. Sur Microsoft 365, SMTP AUTH est "
             + "souvent à activer côté administrateur. Le port 465 n'est pas géré : utilise 587.",
-            14, UITheme.Alerte);
+            UITheme.Role.Aide, UITheme.Alerte);
 
         _smtpHost = LabeledInput(smtpBody.transform, "Serveur SMTP", "smtp.office365.com");
         _smtpPort = LabeledInput(smtpBody.transform, "Port", "587");
@@ -196,13 +197,13 @@ public class ReglagePanel : MonoBehaviour
         // c'est le seul moyen de valider serveur, port, mot de passe et STARTTLS
         // sans qu'un vrai destinataire puisse recevoir quoi que ce soit.
         _testEmail = UIFactory.Button(smtpBody.transform, "Envoyer un email de test",
-                                      UITheme.Carte, UITheme.TextePrincipal, 42, 17);
+                                      UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(_testEmail.gameObject);
         _testEmail.onClick.AddListener(TesterEnvoi);
 
         _testInfo = UIFactory.Text(smtpBody.transform,
             "Le test part vers l'adresse d'expédition ci-dessus. Enregistre les réglages avant.",
-            14, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
     }
 
     // ── Test d'envoi SMTP ──────────────────────────────────────────────────────
@@ -247,7 +248,7 @@ public class ReglagePanel : MonoBehaviour
 
     TMP_InputField LabeledInput(Transform parent, string label, string placeholder)
     {
-        UIFactory.Text(parent, label, 17, UITheme.TexteSecondaire);
+        UIFactory.Text(parent, label, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         return UIFactory.Input(parent, placeholder);
     }
 
@@ -258,7 +259,7 @@ public class ReglagePanel : MonoBehaviour
         var body = UIFactory.Section(parent, "Logo de la facture", CoPetrole, CoPetroleL);
         UIFactory.Text(body.transform,
             "Le logo apparaît en haut de la facture (remplace le logo CIPL par défaut).",
-            15, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         var previewBg = UIFactory.Panel("LogoPreview", body.transform, Color.white);
         UIFactory.Border(previewBg.gameObject);
@@ -272,13 +273,13 @@ public class ReglagePanel : MonoBehaviour
         _logoAspect = imgGO.AddComponent<AspectRatioFitter>();
         _logoAspect.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
 
-        _logoInfo = UIFactory.Text(body.transform, "", 14, UITheme.TexteSecondaire);
+        _logoInfo = UIFactory.Text(body.transform, "", UITheme.Role.Donnee, UITheme.TexteSecondaire);
 
         var row = UIFactory.HBox(body.transform, 8, false, "LogoBtns");
-        var pick = UIFactory.Button(row.transform, "Choisir un logo…", CoPetroleL, CoPetrole, 40, 16);
+        var pick = UIFactory.Button(row.transform, "Choisir un logo…", CoPetroleL, CoPetrole, 40, UITheme.Role.Bouton);
         UIFactory.LE(pick.gameObject, flexW: 1);
         pick.onClick.AddListener(ChoisirLogo);
-        var reset = UIFactory.Button(row.transform, "Logo CIPL par défaut", UITheme.Carte, UITheme.TexteSecondaire, 40, 15);
+        var reset = UIFactory.Button(row.transform, "Logo CIPL par défaut", UITheme.Carte, UITheme.TexteSecondaire, 40, UITheme.Role.Action);
         UIFactory.Border(reset.gameObject); UIFactory.LE(reset.gameObject, prefW: 240, flexW: 0);
         reset.onClick.AddListener(() => { R.logoPath = ""; ReglageService.Save(); RefreshLogo(); });
 
@@ -333,7 +334,7 @@ public class ReglagePanel : MonoBehaviour
         var body = UIFactory.Section(parent, "RIB (comptes émetteurs)", CoBleu, CoBleuL);
         var listGO = UIFactory.VBox(body.transform, 8, 0, 0, 0, 0, "RibList");
         _ribList = listGO.transform;
-        var add = UIFactory.Button(body.transform, "+  Ajouter un RIB", CoBleuL, CoBleu, 40, 18);
+        var add = UIFactory.Button(body.transform, "+  Ajouter un RIB", CoBleuL, CoBleu, 40, UITheme.Role.Bouton);
         add.onClick.AddListener(() => OpenRibForm(null));
         RebuildRibList();
     }
@@ -342,7 +343,7 @@ public class ReglagePanel : MonoBehaviour
     {
         foreach (Transform c in _ribList) Destroy(c.gameObject);
         if (R.ribs.Count == 0)
-            UIFactory.Text(_ribList, "Aucun RIB. Cliquez sur « Ajouter un RIB ».", 16, UITheme.TexteSecondaire);
+            UIFactory.Text(_ribList, "Aucun RIB. Cliquez sur « Ajouter un RIB ».", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         foreach (var rib in R.ribs)
         {
             var row = UIFactory.HBox(_ribList, 8, false, "RibRow");
@@ -352,13 +353,13 @@ public class ReglagePanel : MonoBehaviour
             var pad = UIFactory.VBox(row.transform, 1, 10, 10, 6, 6, "info");
             UIFactory.LE(pad.gameObject, flexW: 1);
             string ribNom = string.IsNullOrWhiteSpace(rib.name) ? "(RIB sans nom)" : rib.name;
-            UIFactory.Text(pad.transform, ribNom, 18, UITheme.TextePrincipal, true);
-            UIFactory.Text(pad.transform, string.IsNullOrEmpty(rib.iban) ? "—" : rib.iban, 15, UITheme.TexteSecondaire);
+            UIFactory.Text(pad.transform, ribNom, UITheme.Role.Libelle, UITheme.TextePrincipal, true);
+            UIFactory.Text(pad.transform, string.IsNullOrEmpty(rib.iban) ? "—" : rib.iban, UITheme.Role.Donnee, UITheme.TexteSecondaire);
             var rib2 = rib;
-            var edit = UIFactory.Button(row.transform, "Modifier", UITheme.Carte, UITheme.TextePrincipal, 34, 15);
+            var edit = UIFactory.Button(row.transform, "Modifier", UITheme.Carte, UITheme.TextePrincipal, 34, UITheme.Role.Action);
             UIFactory.Border(edit.gameObject); UIFactory.LE(edit.gameObject, prefW: 90, flexW: 0);
             edit.onClick.AddListener(() => OpenRibForm(rib2));
-            var del = UIFactory.Button(row.transform, "Supprimer", UITheme.AlerteClair, UITheme.AlerteTexte, 34, 15);
+            var del = UIFactory.Button(row.transform, "Supprimer", UITheme.AlerteClair, UITheme.AlerteTexte, 34, UITheme.Role.Action);
             UIFactory.LE(del.gameObject, prefW: 100, flexW: 0);
             del.onClick.AddListener(() => ConfirmDialog.Instance?.Show(
                 "Voulez-vous supprimer ce RIB ?", rib2.name,
@@ -394,7 +395,7 @@ public class ReglagePanel : MonoBehaviour
         var body = UIFactory.Section(parent, "Entêtes (modèles de texte)", CoAmbre, CoAmbreL);
         var listGO = UIFactory.VBox(body.transform, 8, 0, 0, 0, 0, "EnteteList");
         _enteteList = listGO.transform;
-        var add = UIFactory.Button(body.transform, "+  Ajouter un entête", CoAmbreL, CoAmbre, 40, 18);
+        var add = UIFactory.Button(body.transform, "+  Ajouter un entête", CoAmbreL, CoAmbre, 40, UITheme.Role.Bouton);
         add.onClick.AddListener(() => OpenEnteteForm(null));
         RebuildEnteteList();
     }
@@ -403,7 +404,7 @@ public class ReglagePanel : MonoBehaviour
     {
         foreach (Transform c in _enteteList) Destroy(c.gameObject);
         if (R.entetes.Count == 0)
-            UIFactory.Text(_enteteList, "Aucun entête. Cliquez sur « Ajouter un entête ».", 16, UITheme.TexteSecondaire);
+            UIFactory.Text(_enteteList, "Aucun entête. Cliquez sur « Ajouter un entête ».", UITheme.Role.Aide, UITheme.TexteSecondaire);
         foreach (var ent in R.entetes)
         {
             var row = UIFactory.HBox(_enteteList, 8, false, "EnteteRow");
@@ -413,15 +414,15 @@ public class ReglagePanel : MonoBehaviour
             var pad = UIFactory.VBox(row.transform, 1, 10, 10, 6, 6, "info");
             UIFactory.LE(pad.gameObject, flexW: 1);
             string entNom = string.IsNullOrWhiteSpace(ent.nom) ? "(entête sans nom)" : ent.nom;
-            UIFactory.Text(pad.transform, entNom, 18, UITheme.TextePrincipal, true);
+            UIFactory.Text(pad.transform, entNom, UITheme.Role.Libelle, UITheme.TextePrincipal, true);
             var preview = (ent.texte ?? "").Replace("\n", " ");
             if (preview.Length > 70) preview = preview.Substring(0, 70) + "…";
-            UIFactory.Text(pad.transform, preview, 15, UITheme.TexteSecondaire);
+            UIFactory.Text(pad.transform, preview, UITheme.Role.Donnee, UITheme.TexteSecondaire);
             var ent2 = ent;
-            var edit = UIFactory.Button(row.transform, "Modifier", UITheme.Carte, UITheme.TextePrincipal, 34, 15);
+            var edit = UIFactory.Button(row.transform, "Modifier", UITheme.Carte, UITheme.TextePrincipal, 34, UITheme.Role.Action);
             UIFactory.Border(edit.gameObject); UIFactory.LE(edit.gameObject, prefW: 90, flexW: 0);
             edit.onClick.AddListener(() => OpenEnteteForm(ent2));
-            var del = UIFactory.Button(row.transform, "Supprimer", UITheme.AlerteClair, UITheme.AlerteTexte, 34, 15);
+            var del = UIFactory.Button(row.transform, "Supprimer", UITheme.AlerteClair, UITheme.AlerteTexte, 34, UITheme.Role.Action);
             UIFactory.LE(del.gameObject, prefW: 100, flexW: 0);
             del.onClick.AddListener(() => ConfirmDialog.Instance?.Show(
                 "Voulez-vous supprimer cet entête ?", ent2.nom,
@@ -435,7 +436,7 @@ public class ReglagePanel : MonoBehaviour
         Modal(existing == null ? "Nouvel entête" : "Modifier l'entête", body =>
         {
             var fNom = ModalField(body, "Nom du modèle", ent.nom, "Bail trimestriel…");
-            UIFactory.Text(body.transform, "Texte  —  tape « / » pour insérer une variable", 17, UITheme.TexteSecondaire);
+            UIFactory.Text(body.transform, "Texte  —  tape « / » pour insérer une variable", UITheme.Role.Libelle, UITheme.TexteSecondaire);
             var fTexte = UIFactory.Input(body.transform, "Conformément au bail…  (tape / pour une variable)", 120, true);
             fTexte.text = ent.texte ?? "";
             SlashAutocomplete.Attach(fTexte);
@@ -453,9 +454,9 @@ public class ReglagePanel : MonoBehaviour
     void BuildTextes(Transform parent)
     {
         var body = UIFactory.Section(parent, "Textes fixes", CoTaupe, CoTaupeL);
-        UIFactory.Text(body.transform, "Phrase de retard / pénalités", 17, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Phrase de retard / pénalités", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _phraseRetard = UIFactory.Input(body.transform, "En cas de retard…", 90, true);
-        UIFactory.Text(body.transform, "Bas de page (mentions société)", 17, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Bas de page (mentions société)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _basDePage = UIFactory.Input(body.transform, "SAS au capital…", 90, true);
 
         // Ces deux textes-là sont bien des textes d'ENTREPRISE : ils s'impriment à
@@ -465,7 +466,46 @@ public class ReglagePanel : MonoBehaviour
         UIFactory.Text(body.transform,
             "Les textes propres à un type de facture (explication du dépôt de garantie…) "
             + "se modifient dans le panneau de la facture concernée.",
-            14, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+    }
+
+    // ── Section Affichage ──────────────────────────────────────────────────────
+
+    // Les boutons de taille sont reconstruits à chaque changement pour que le
+    // palier courant reste visible : c'est le seul retour que l'écran donne.
+    Transform _taillesRow;
+
+    void BuildAffichage(Transform parent)
+    {
+        var body = UIFactory.Section(parent, "Taille de l'affichage", CoPetrole, CoPetroleL);
+        UIFactory.Text(body.transform,
+            "Agrandit ou réduit toute l'interface : texte, champs et boutons ensemble.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+
+        _taillesRow = UIFactory.HBox(body.transform, 8, false, "Tailles").transform;
+        RefreshTailles();
+    }
+
+    void RefreshTailles()
+    {
+        if (_taillesRow == null) return;
+        foreach (Transform t in _taillesRow) Destroy(t.gameObject);
+
+        float courant = UIZoom.Facteur;
+        foreach (float p in UIZoom.Paliers)
+        {
+            bool actif = Mathf.Abs(p - courant) < 0.01f;
+            var b = UIFactory.Button(_taillesRow,
+                Mathf.RoundToInt(p * 100f) + " %",
+                actif ? CoPetrole : UITheme.Carte,
+                actif ? Color.white : UITheme.TextePrincipal,
+                40, UITheme.Role.Bouton);
+            if (!actif) UIFactory.Border(b.gameObject);
+            UIFactory.LE(b.gameObject, flexW: 1);
+
+            float valeur = p;   // capture par copie, sinon tous les boutons posent le dernier palier
+            b.onClick.AddListener(() => { UIZoom.Facteur = valeur; RefreshTailles(); });
+        }
     }
 
     // ── Section Sauvegarde ─────────────────────────────────────────────────────
@@ -473,19 +513,19 @@ public class ReglagePanel : MonoBehaviour
     void BuildSauvegarde(Transform parent)
     {
         var body = UIFactory.Section(parent, "Emplacement de sauvegarde", CoPetrole, CoPetroleL);
-        _savePath = UIFactory.Text(body.transform, "", 16, UITheme.TexteSecondaire);
+        _savePath = UIFactory.Text(body.transform, "", UITheme.Role.Donnee, UITheme.TexteSecondaire);
 
         var row = UIFactory.HBox(body.transform, 8, false, "SaveBtns");
-        var change = UIFactory.Button(row.transform, "Changer l'emplacement", CoPetroleL, CoPetrole, 40, 16);
+        var change = UIFactory.Button(row.transform, "Changer l'emplacement", CoPetroleL, CoPetrole, 40, UITheme.Role.Bouton);
         UIFactory.LE(change.gameObject, flexW: 1);
         change.onClick.AddListener(() => FermetureGuard.ConfirmerPerteSaisies(
             "Changer d'emplacement", () => { if (SaveIO.ChangeLocation()) LoadIntoUI(); }));
 
-        var open = UIFactory.Button(row.transform, "Ouvrir le dossier", UITheme.Carte, UITheme.TextePrincipal, 40, 16);
+        var open = UIFactory.Button(row.transform, "Ouvrir le dossier", UITheme.Carte, UITheme.TextePrincipal, 40, UITheme.Role.Action);
         UIFactory.Border(open.gameObject); UIFactory.LE(open.gameObject, prefW: 160, flexW: 0);
         open.onClick.AddListener(SaveIO.OpenFolder);
 
-        var reset = UIFactory.Button(body.transform, "Réinitialiser (emplacement par défaut)", UITheme.Carte, UITheme.TexteSecondaire, 36, 15);
+        var reset = UIFactory.Button(body.transform, "Réinitialiser (emplacement par défaut)", UITheme.Carte, UITheme.TexteSecondaire, 36, UITheme.Role.Action);
         UIFactory.Border(reset.gameObject);
         reset.onClick.AddListener(() => FermetureGuard.ConfirmerPerteSaisies(
             "Revenir à l'emplacement par défaut", () => { SaveIO.ResetToDefault(); LoadIntoUI(); }));
@@ -567,22 +607,22 @@ public class ReglagePanel : MonoBehaviour
         vcsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         vcsf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
 
-        UIFactory.Text(v.transform, titre, 22, UITheme.TextePrincipal, true);
+        UIFactory.Text(v.transform, titre, UITheme.Role.Section, UITheme.TextePrincipal, true);
         var onValidate = builder(v);
 
         var actions = UIFactory.HBox(v.transform, 10, false, "Actions");
         UIFactory.LE(actions.gameObject, minH: 46, prefH: 46);
-        var cancel = UIFactory.Button(actions.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, 18);
+        var cancel = UIFactory.Button(actions.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
         UIFactory.Border(cancel.gameObject); UIFactory.LE(cancel.gameObject, flexW: 1);
         cancel.onClick.AddListener(() => Destroy(scrim.gameObject));
-        var ok = UIFactory.Button(actions.transform, "Valider", UITheme.Primaire, Color.white, 44, 18);
+        var ok = UIFactory.Button(actions.transform, "Valider", UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
         UIFactory.LE(ok.gameObject, flexW: 1);
         ok.onClick.AddListener(() => { onValidate?.Invoke(); Destroy(scrim.gameObject); });
     }
 
     TMP_InputField ModalField(VerticalLayoutGroup body, string label, string value, string placeholder)
     {
-        UIFactory.Text(body.transform, label, 17, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, label, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var f = UIFactory.Input(body.transform, placeholder);
         f.text = value ?? "";
         return f;
