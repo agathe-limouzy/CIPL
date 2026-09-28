@@ -14,7 +14,7 @@ Chaque finding porte un statut :
 
 Ce document est le **suivi de la revue de code**. Tout ce qui suit a été écrit et compilé ; ce qui a été *réellement exécuté* est listé plus bas, et la distinction compte.
 
-### Où en est le chantier au 24/09 — **228 tests EditMode verts**
+### Où en est le chantier au 24/09 — **234 tests EditMode verts**
 
 Le détail de la facturation est dans `FACTURATION_CIPL_PENNYLANE.md` ; voici l'essentiel pour reprendre.
 
@@ -533,9 +533,32 @@ un bail, « Modifier » (remplace le fichier) · « Ouvrir » · ✕ · « + Ave
 libellé change suit la largeur de son texte (`UIFactory.LargeurDuTexte`) ; « Bail : » et
 « Avenant n : » ont la même largeur, les noms de fichier s'alignent.
 
+**Alerte de résiliation triennale (28/09).** À côté de « Fin de bail » : le preneur d'un bail
+commercial peut donner congé à chaque fin de période triennale (3, 6, 9… ans après le début),
+préavis de 6 mois, jamais pendant la période ferme ; la fin du bail reste au renouvellement
+(`Locataire.EcheancesTriennales`, `ResiliationProche`). L'alerte s'ouvre 3 mois avant la date limite
+du congé et se ferme à cette date (après, le preneur ne peut plus partir à cette échéance). Affichée
+dans « À traiter » (menu et résumé : type « Résiliation », « Congé possible jusqu'au … (sortie le …) »),
+par le point rouge d'onglet, et par la pastille de la section Bail (le renouvellement, plus urgent,
+garde la priorité). 2 tests, dates figées. La pastille porte la date limite : « Résiliation possible —
+congé jusqu'au … (sortie le …) » ; elle avait une largeur fixe de 140 px qui coupait déjà « Résiliation
+possible » — libérée, elle suit son texte (le bandeau contrôle les largeurs).
+
+**Fin de bail : congé et tacite prolongation (28/09).** Question de l'utilisatrice : « au moment du
+renouvellement, peut-on avoir la résiliation en même temps ? » — oui (art. L145-9 C. com., à faire
+valider par son conseil) : pour un bail commercial, le preneur peut donner congé pour la **fin** du bail
+avec 6 mois de préavis ; et une fois le bail expiré sans action, en **tacite prolongation**, il peut
+partir à tout moment, préavis de 6 mois, pour le dernier jour d'un trimestre civil. L'alerte de
+renouvellement s'ouvrait **6 mois** avant la fin — le jour même où il était trop tard pour ce congé ;
+elle s'ouvre désormais **9 mois** avant (même règle que les échéances triennales). Un seul texte,
+`Locataire.TexteFinDeBail`, pour la pastille et « À traiter » : « À renouveler — fin le …, congé
+jusqu'au … », puis « À renouveler — fin le … » une fois le délai passé, puis « Bail expiré — congé
+possible à tout moment, sortie au plus tôt le … » (`SortieTaciteAuPlusTot`). Hors bail commercial,
+textes inchangés dans leur principe. 4 tests, dates figées.
+
 ### Prochaines étapes (mise à jour 22/09/2026)
 
-Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **228 tests EditMode verts**. Ce qui reste se range en trois tas.
+Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **234 tests EditMode verts**. Ce qui reste se range en trois tas.
 
 #### A. À voir en Play — le seul vrai reste
 

@@ -133,21 +133,102 @@ public class Locataire : Data
     }
 
     // ── Renouvellement de bail ────────────────────────────────────────────────
-    // Seuil d'alerte : 6 mois avant la fin du bail.
-    public const int SEUIL_FIN_BAIL_JOURS = 182;
+    // L'alerte s'ouvre 9 mois avant la fin : 3 mois avant la limite du congé (6 mois
+    // avant la fin), comme pour les échéances triennales. Elle s'ouvrait à 6 mois,
+    // le jour même où il était trop tard pour que le preneur donne congé.
 
-    /// Vrai si le bail se termine dans moins de 6 mois (ou est déjà expiré).
+    /// Vrai si le bail se termine dans moins de 9 mois (ou est déjà expiré).
     /// `jours` = nombre de jours avant la fin (négatif si le bail est expiré).
     /// Ne se déclenche que pour un locataire nommé avec une date de fin valide,
     /// afin de ne pas alerter sur les fiches vides (DateFinBail vaut Today par défaut).
-    public static bool RenouvellementProche(Locataire loc, out int jours)
+    public static bool RenouvellementProche(Locataire loc, DateTime aujourdhui, out int jours)
     {
         jours = 0;
         if (loc == null || string.IsNullOrEmpty(loc.Name)) return false;
         if (!DateTime.TryParse(loc.dateFinBailISO, out var fin)) return false;
-        jours = (fin - DateTime.Today).Days;
-        return jours <= SEUIL_FIN_BAIL_JOURS;
+        jours = (fin - aujourdhui).Days;
+        return aujourdhui >= fin.AddMonths(-(PREAVIS_CONGE_MOIS + ALERTE_AVANT_LIMITE_MOIS));
     }
+
+    public static bool RenouvellementProche(Locataire loc, out int jours)
+        => RenouvellementProche(loc, DateTime.Today, out jours);
+
+    /// Bail commercial : le preneur peut encore donner congé pour la FIN du bail
+    /// (préavis de 6 mois). `limite` = dernier jour pour le faire. Faux si le délai
+    /// est passé ou si le bail n'est pas commercial.
+    public static bool CongeFinDeBailPossible(Locataire loc, DateTime aujourdhui, out DateTime fin, out DateTime limite)
+    {
+        fin = limite = default;
+        if (loc == null || !PeriodeFermePossible(loc.typeDeBail)) return false;
+        if (!DateTime.TryParse(loc.dateFinBailISO, out fin)) return false;
+        limite = fin.AddMonths(-PREAVIS_CONGE_MOIS);
+        return aujourdhui <= limite;
+    }
+
+    /// Bail commercial expiré, en tacite prolongation : le preneur peut partir à tout
+    /// moment, avec 6 mois de préavis, pour le dernier jour d'un trimestre civil
+    /// (art. L145-9 du Code de commerce). Renvoie la sortie la plus proche possible.
+    public static DateTime SortieTaciteAuPlusTot(DateTime aujourdhui)
+    {
+        var d = aujourdhui.AddMonths(PREAVIS_CONGE_MOIS);
+        int mois = ((d.Month - 1) / 3 + 1) * 3;
+        return new DateTime(d.Year, mois, DateTime.DaysInMonth(d.Year, mois));
+    }
+
+    /// Le texte de l'alerte de fin de bail, commun à la pastille de la fiche et à
+    /// « À traiter » : les dates qui comptent, pas seulement « À renouveler ».
+    public static string TexteFinDeBail(Locataire loc, DateTime aujourdhui)
+    {
+        RenouvellementProche(loc, aujourdhui, out int jours);
+        bool commercial = PeriodeFermePossible(loc.typeDeBail);
+        if (jours < 0)
+            return commercial
+                ? $"Bail expiré — congé possible à tout moment, sortie au plus tôt le {SortieTaciteAuPlusTot(aujourdhui):dd/MM/yyyy}"
+                : "Bail expiré — à renouveler";
+        if (CongeFinDeBailPossible(loc, aujourdhui, out var fin, out var limite))
+            return $"À renouveler — fin le {fin:dd/MM/yyyy}, congé jusqu'au {limite:dd/MM/yyyy}";
+        return DateTime.TryParse(loc.dateFinBailISO, out fin) ? $"À renouveler — fin le {fin:dd/MM/yyyy}" : "À renouveler";
+    }
+
+    // ── Résiliation triennale (bail commercial) ───────────────────────────────
+    // Le preneur peut donner congé à chaque fin de période triennale (3, 6, 9… ans
+    // après le début), avec un préavis de 6 mois — mais pas pendant la période ferme.
+    // La fin du bail elle-même relève du renouvellement (RenouvellementProche).
+    public const int PREAVIS_CONGE_MOIS = 6;
+    // L'alerte s'ouvre 3 mois avant la date limite du congé et se ferme à cette date :
+    // passé ce délai, le preneur ne peut plus partir à cette échéance.
+    public const int ALERTE_AVANT_LIMITE_MOIS = 3;
+
+    /// Dates où le preneur peut quitter les lieux : fins de périodes triennales,
+    /// hors période ferme, avant la fin du bail (01/06/2020, 9 ans → 31/05/2023, 31/05/2026).
+    public static List<DateTime> EcheancesTriennales(DateTime debut, int dureeAns, int fermes)
+    {
+        var echeances = new List<DateTime>();
+        for (int k = 3; k < dureeAns; k += 3)
+            if (k >= fermes) echeances.Add(FinDeBail(debut, k));
+        return echeances;
+    }
+
+    /// Vrai si le preneur peut encore donner congé pour une échéance proche :
+    /// `echeance` = date de sortie possible, `limite` = dernier jour pour donner congé.
+    public static bool ResiliationProche(Locataire loc, DateTime aujourdhui, out DateTime echeance, out DateTime limite)
+    {
+        echeance = limite = default;
+        if (loc == null || string.IsNullOrEmpty(loc.Name) || !PeriodeFermePossible(loc.typeDeBail)) return false;
+        if (!DateTime.TryParse(loc.dateDebutBailISO, out var debut)) return false;
+        foreach (var e in EcheancesTriennales(debut, loc.DureeBail(), loc.AnneesFermes()))
+        {
+            var l = e.AddMonths(-PREAVIS_CONGE_MOIS);
+            if (aujourdhui > l) continue;                                          // délai passé
+            if (aujourdhui < l.AddMonths(-ALERTE_AVANT_LIMITE_MOIS)) return false;   // trop tôt
+            echeance = e; limite = l;
+            return true;
+        }
+        return false;
+    }
+
+    public static bool ResiliationProche(Locataire loc, out DateTime echeance, out DateTime limite)
+        => ResiliationProche(loc, DateTime.Today, out echeance, out limite);
 
     // Bail commercial (facture avec TVA) vs non commercial (loyer civil / professionnel /
     // autre → quittance de loyer possible quand le loyer est payé). Cf. diagramme facturation.

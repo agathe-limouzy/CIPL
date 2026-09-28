@@ -6,7 +6,7 @@ using UnityEngine;
 /// révisions de loyer à faire + objectifs actifs, triés par urgence.
 public class HomeAlert
 {
-    public enum Kind { RevisionRetard, RevisionProche, BailRenouvellement, Objectif, Facturation }
+    public enum Kind { RevisionRetard, RevisionProche, BailRenouvellement, Objectif, Facturation, BailResiliation }
 
     public Kind kind;
     public string typeTodo;      // colonne « Type » : Révision de loyer / Fin de bail / Objectif obligatoire / Rappel / En cours / À faire
@@ -43,9 +43,25 @@ public static class HomeAlertCollector
             string nomBat = bp.getName();
             if (string.IsNullOrEmpty(nomBat)) nomBat = "Bâtiment";
 
-            // ── Fin de bail / renouvellement ──────────────────────────────────
+            // ── Fin de bail / renouvellement, et résiliation triennale ─────────
             foreach (var loc in bp.listLocataire)
             {
+                if (Locataire.ResiliationProche(loc, out var echeanceRes, out var limiteRes))
+                    alertes.Add(new HomeAlert
+                    {
+                        kind = HomeAlert.Kind.BailResiliation,
+                        typeTodo = "Résiliation",
+                        nomRappel = $"Congé possible jusqu'au {limiteRes:dd/MM/yyyy} (sortie le {echeanceRes:dd/MM/yyyy})",
+                        nomLocataire = string.IsNullOrEmpty(loc.Name) ? "Locataire" : loc.Name,
+                        nomBatiment = nomBat,
+                        priorite = 2,
+                        pastille = UITheme.Attention,
+                        typeBg = BgBail,
+                        typeTexte = TxBail,
+                        batiment = bp,
+                        locataire = loc
+                    });
+
                 if (!Locataire.RenouvellementProche(loc, out int joursBail)) continue;
 
                 string nomLocBail = string.IsNullOrEmpty(loc.Name) ? "Locataire" : loc.Name;
@@ -54,11 +70,7 @@ public static class HomeAlertCollector
                 {
                     kind = HomeAlert.Kind.BailRenouvellement,
                     typeTodo = "Fin de bail",
-                    nomRappel = expire
-                        ? "Bail expiré — à renouveler"
-                        : (joursBail <= 31
-                            ? $"Dans {joursBail} j"
-                            : $"Dans {Mathf.CeilToInt(joursBail / 30f)} mois"),
+                    nomRappel = Locataire.TexteFinDeBail(loc, today),   // même texte que la pastille de la fiche
                     nomLocataire = nomLocBail,
                     nomBatiment = nomBat,
                     priorite = expire ? 0 : 1,

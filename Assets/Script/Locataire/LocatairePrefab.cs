@@ -83,6 +83,7 @@ public class LocatairePrefab : PrefabBatLoc
         // Le point rouge d'onglet couvre révision de loyer ET renouvellement de bail.
         bool due = LoyerSummaryUI.EstRevisionDue(loc)
                    || Locataire.RenouvellementProche(loc, out _)
+                   || Locataire.ResiliationProche(loc, out _, out _)
                    || FacturationAlertes.AUrgent(loc);
         batimentPrefabOrigin.menulocataire.SetTabAlert(this, due);
         batimentPrefabOrigin.RefreshBatimentTabAlert();
@@ -90,12 +91,28 @@ public class LocatairePrefab : PrefabBatLoc
     }
 
     /// Badge de la section Bail : visible quand le bail se termine dans moins de
-    /// 6 mois (ambre) ou est déjà expiré (terracotta).
+    /// 9 mois (ambre) ou est déjà expiré (terracotta) ; sinon, quand le preneur peut
+    /// donner congé pour une échéance triennale proche (ambre). Toujours avec les
+    /// dates qui comptent (voir Locataire.TexteFinDeBail).
     public void RefreshBailAlert(Locataire loc)
     {
         if (badgeBail == null) return;
         bool proche = Locataire.RenouvellementProche(loc, out int jours);
-        badgeBail.SetActive(proche);
+        DateTime sortie = default, limite = default;
+        bool resiliation = !proche && Locataire.ResiliationProche(loc, out sortie, out limite);
+        badgeBail.SetActive(proche || resiliation);
+        if (resiliation)
+        {
+            ColorUtility.TryParseHtmlString("#B26A0C", out var ambre);
+            if (badgeBailTxt != null)
+            {
+                // La date limite d'abord : c'est elle qui compte (après, le preneur ne peut plus partir).
+                badgeBailTxt.text = $"Résiliation possible — congé jusqu'au {limite:dd/MM/yyyy} (sortie le {sortie:dd/MM/yyyy})";
+                badgeBailTxt.color = Color.white;
+            }
+            if (badgeBailBg != null) badgeBailBg.color = ambre;
+            return;
+        }
         if (!proche) return;
 
         bool expire = jours < 0;
@@ -105,7 +122,7 @@ public class LocatairePrefab : PrefabBatLoc
         ColorUtility.TryParseHtmlString(expire ? "#A32D2D" : "#B26A0C", out bgc);
         if (badgeBailTxt != null)
         {
-            badgeBailTxt.text = expire ? "Bail expiré" : "À renouveler";
+            badgeBailTxt.text = Locataire.TexteFinDeBail(loc, DateTime.Today);
             badgeBailTxt.color = Color.white;
         }
         if (badgeBailBg != null)

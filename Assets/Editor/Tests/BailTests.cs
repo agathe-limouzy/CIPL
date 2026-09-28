@@ -101,6 +101,92 @@ public class BailTests
         finally { UnityEngine.Object.DestroyImmediate(fiche); }
     }
 
+    // ── Résiliation triennale ────────────────────────────────────────────────────
+
+    [Test]
+    public void Les_echeances_triennales_respectent_la_periode_ferme()
+    {
+        var debut = new DateTime(2020, 6, 1);
+        Assert.That(Locataire.EcheancesTriennales(debut, 9, 0),
+            Is.EqualTo(new[] { new DateTime(2023, 5, 31), new DateTime(2026, 5, 31) }), "3/6/9 : la fin (9 ans) relève du renouvellement");
+        Assert.That(Locataire.EcheancesTriennales(debut, 9, 6), Is.EqualTo(new[] { new DateTime(2026, 5, 31) }), "6 ans fermes");
+        Assert.That(Locataire.EcheancesTriennales(debut, 9, 9), Is.Empty, "9 ans fermes : aucune sortie avant la fin");
+        Assert.That(Locataire.EcheancesTriennales(debut, 10, 9), Is.EqualTo(new[] { new DateTime(2029, 5, 31) }), "10 ans dont 9 fermes");
+    }
+
+    /// L'alerte s'ouvre 3 mois avant la date limite du congé (6 mois avant l'échéance)
+    /// et se ferme à cette date.
+    [Test]
+    public void L_alerte_de_resiliation_couvre_le_delai_de_conge()
+    {
+        var loc = new Locataire { Name = "Sephora", typeDeBail = BailType.BailCommercial369,
+                                  dateDebutBailISO = "2020-06-01", dateFinBailISO = "2029-05-31" };
+        Assert.That(Locataire.ResiliationProche(loc, new DateTime(2022, 8, 1), out _, out _), Is.False, "trop tôt");
+        Assert.That(Locataire.ResiliationProche(loc, new DateTime(2022, 9, 15), out var echeance, out var limite), Is.True);
+        Assert.That(echeance, Is.EqualTo(new DateTime(2023, 5, 31)));
+        Assert.That(limite, Is.EqualTo(new DateTime(2022, 11, 30)), "congé 6 mois avant");
+        Assert.That(Locataire.ResiliationProche(loc, new DateTime(2022, 11, 30), out _, out _), Is.True, "dernier jour");
+        Assert.That(Locataire.ResiliationProche(loc, new DateTime(2022, 12, 1), out _, out _), Is.False, "délai passé");
+
+        loc.anneesFermes = 6;
+        Assert.That(Locataire.ResiliationProche(loc, new DateTime(2022, 9, 15), out _, out _), Is.False, "période ferme");
+        loc.typeDeBail = BailType.BailProfessionnel;
+        loc.anneesFermes = 0;
+        Assert.That(Locataire.ResiliationProche(loc, new DateTime(2022, 9, 15), out _, out _), Is.False, "pas un bail commercial");
+    }
+
+    // ── Fin de bail : renouvellement, congé, tacite prolongation ────────────────
+
+    static Locataire BailQuiFinitLe(string finISO, BailType type = BailType.BailCommercial369)
+        => new Locataire { Name = "Sephora", typeDeBail = type, dateDebutBailISO = "2024-05-01", dateFinBailISO = finISO };
+
+    /// 9 mois avant la fin : 3 mois avant la limite du congé (6 mois avant la fin).
+    [Test]
+    public void Le_renouvellement_s_annonce_neuf_mois_avant_la_fin()
+    {
+        var loc = BailQuiFinitLe("2027-06-30");
+        Assert.That(Locataire.RenouvellementProche(loc, new DateTime(2026, 9, 29), out _), Is.False, "9 mois et 1 jour avant");
+        Assert.That(Locataire.RenouvellementProche(loc, new DateTime(2026, 9, 30), out _), Is.True, "9 mois avant");
+        Assert.That(Locataire.RenouvellementProche(loc, new DateTime(2027, 7, 5), out int jours), Is.True, "expiré");
+        Assert.That(jours, Is.LessThan(0));
+    }
+
+    [Test]
+    public void Le_conge_pour_la_fin_du_bail_se_donne_six_mois_avant()
+    {
+        var loc = BailQuiFinitLe("2027-06-30");
+        Assert.That(Locataire.CongeFinDeBailPossible(loc, new DateTime(2026, 10, 15), out var fin, out var limite), Is.True);
+        Assert.That(fin, Is.EqualTo(new DateTime(2027, 6, 30)));
+        Assert.That(limite, Is.EqualTo(new DateTime(2026, 12, 30)));
+        Assert.That(Locataire.CongeFinDeBailPossible(loc, new DateTime(2026, 12, 31), out _, out _), Is.False, "délai passé");
+        Assert.That(Locataire.CongeFinDeBailPossible(BailQuiFinitLe("2027-06-30", BailType.BailProfessionnel),
+            new DateTime(2026, 10, 15), out _, out _), Is.False, "pas un bail commercial");
+    }
+
+    /// Tacite prolongation : 6 mois de préavis, pour le dernier jour d'un trimestre civil.
+    [Test]
+    public void En_tacite_prolongation_la_sortie_tombe_en_fin_de_trimestre()
+    {
+        Assert.That(Locataire.SortieTaciteAuPlusTot(new DateTime(2026, 9, 28)), Is.EqualTo(new DateTime(2027, 3, 31)));
+        Assert.That(Locataire.SortieTaciteAuPlusTot(new DateTime(2026, 10, 1)), Is.EqualTo(new DateTime(2027, 6, 30)));
+        Assert.That(Locataire.SortieTaciteAuPlusTot(new DateTime(2026, 12, 31)), Is.EqualTo(new DateTime(2027, 6, 30)),
+            "30/06 tombe pile à 6 mois");
+    }
+
+    [Test]
+    public void Le_texte_de_fin_de_bail_donne_les_dates_qui_comptent()
+    {
+        var loc = BailQuiFinitLe("2027-06-30");
+        Assert.That(Locataire.TexteFinDeBail(loc, new DateTime(2026, 10, 15)),
+            Is.EqualTo("À renouveler — fin le 30/06/2027, congé jusqu'au 30/12/2026"));
+        Assert.That(Locataire.TexteFinDeBail(loc, new DateTime(2027, 2, 1)), Is.EqualTo("À renouveler — fin le 30/06/2027"),
+            "délai de congé passé");
+        Assert.That(Locataire.TexteFinDeBail(loc, new DateTime(2027, 7, 5)), Does.StartWith("Bail expiré — congé possible à tout moment")
+            .And.EndsWith("31/03/2028"));
+        Assert.That(Locataire.TexteFinDeBail(BailQuiFinitLe("2027-06-30", BailType.BailCivil), new DateTime(2027, 7, 5)),
+            Is.EqualTo("Bail expiré — à renouveler"), "hors bail commercial : pas de règle de congé");
+    }
+
     // ── Documents du bail (bail et avenants) ────────────────────────────────────
 
     [Test]
