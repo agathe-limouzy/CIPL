@@ -457,6 +457,8 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
                             BatimentManager.Instance.RestoreBatiment(backup);
                         });
                 }));
+
+        TransfertEntrepriseUI.AjouterBouton(Delete, () => TransfertEntrepriseUI.OuvrirBatiment(this));
     }
 
 

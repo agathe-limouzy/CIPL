@@ -41,7 +41,8 @@ public class FactureRegulPanel : MonoBehaviour
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _anneeDD;
     FactureEtat _ligneCiblee;   // ligne du suivi cliquée : elle désigne l'année à ouvrir
-    Toggle _tvaDebit, _retard;
+    Toggle _retard;
+    UIDropdown _mentionTva;
     Transform _chargesBox;
 
     RawImage _previewImg;
@@ -190,9 +191,7 @@ public class FactureRegulPanel : MonoBehaviour
         // La ligne « la TVA est payée sur les débits » s'imprime juste sous ces
         // totaux : sa case vit donc ici, pas dans la carte d'envoi où on ne pensait
         // pas à la chercher. Même règle que sur le panneau Loyer.
-        _tvaDebit = UIFactory.Toggle(g.transform, "Ajouter la mention « TVA payée sur les débits »", true);
-        _texteTvaDebit = UIFactory.Input(g.transform, FacturePdfService.TvaDebitDefaut, 46, true);
-        SlashAutocomplete.Attach(_texteTvaDebit);
+        _mentionTva = MentionTva.Creer(g.transform, out _texteTvaDebit);
 
         // ── 3. Règlement (pied du document) ──
         // L'échéance, la phrase qu'elle alimente et le RIB sont voisins : le lien se
@@ -329,10 +328,7 @@ public class FactureRegulPanel : MonoBehaviour
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
         RefreshNumero();
 
-        _tvaDebit.isOn = f?.tvaDebit ?? true;
-        // Pré-remplie avec le texte d'usine : la phrase réellement imprimée doit être
-        // visible, pas à deviner derrière un champ vide.
-        _texteTvaDebit.text = FacturePdfService.Texte(f?.texteTvaDebit, FacturePdfService.TvaDebitDefaut);
+        MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
         _retard.isOn = f?.ajouterRetard ?? true;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
         _emailObjet.text = FacturePdfService.Texte(f?.emailObjet, EmailService.ObjetDefaut);
@@ -578,7 +574,7 @@ public class FactureRegulPanel : MonoBehaviour
             locataireNom = _nom.text,
             surfaceImmeuble = _bat != null ? _bat.tailleBatiment : 0f,
             totalARepartir = totalARepartir,
-            tvaDebit = _tvaDebit.isOn,
+            tvaDebit = MentionTva.Imprimee(_mentionTva),
             retard = _retard.isOn,
             // « SOMME À NOUS RÉGLER » devient « SOMME QUI VOUS SERA REMBOURSÉE »
             // quand le solde est négatif. Libellé du total inversé de même.
@@ -586,7 +582,7 @@ public class FactureRegulPanel : MonoBehaviour
             // selon le signe du solde, et cette phrase-là doit être résolue aussi.
             sommePhrase = FactureVarResolver.Resolve(
                 FactureEmission.PhraseSomme(_sommePhrase.text, solde), _loc, _bat, ctx),
-            texteTvaDebit = FactureVarResolver.Resolve(_texteTvaDebit.text, _loc, _bat, ctx),
+            texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
             labelSolde = FactureEmission.LibelleSolde(solde, "Solde H.T."),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
@@ -797,8 +793,7 @@ public class FactureRegulPanel : MonoBehaviour
         f.numeroFormat = _numeroFormatDD?.SelectedId ?? "AMN";
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();
-        f.tvaDebit = _tvaDebit.isOn;
-        f.texteTvaDebit = _texteTvaDebit.text;
+        MentionTva.Enregistrer(_mentionTva, _texteTvaDebit, f);
         f.ajouterRetard = _retard.isOn;
         f.emailDest = _emailEnvoi.text;
         f.emailObjet = _emailObjet.text;

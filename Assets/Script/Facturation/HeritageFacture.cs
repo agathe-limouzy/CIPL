@@ -29,6 +29,7 @@ public static class HeritageFacture
             enteteId       = src.enteteId,
             numeroFormat   = src.numeroFormat,
             tvaDebit       = src.tvaDebit,
+            tvaEncaissements = src.tvaEncaissements,
             ajouterRetard  = src.ajouterRetard,
             ajouterMensuel = src.ajouterMensuel,
             joindrePj      = src.joindrePj,

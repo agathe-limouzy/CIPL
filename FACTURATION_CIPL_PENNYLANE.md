@@ -78,9 +78,15 @@ CIPL garde ce que Pennylane ne sait pas faire : **calcul régularisation** (pror
   - `draft:true` = **brouillon** (rien émis) ; omettre / `false` = **finalise** (émet).
 - **Paragraphe bail** : `pdf_invoice_free_text` = **JSON stringifié** (❗ pas un array brut → 400) :
   `"[{\"type\":\"paragraph\",\"children\":[{\"text\":\"...\"}]}]"` — se met bien via `PUT /customer_invoices/:id`.
+- **⚠️ Garder le visuel CIPL (relevé 2026-09-29, rien d'implémenté)** : `POST /customer_invoices` ci-dessus fait générer le PDF **par Pennylane, à son modèle** — pas le nôtre. Pour que le locataire reçoive le PDF CIPL : `POST /file_attachments` (notre PDF) puis `POST /customer_invoices/import` (`file_attachment_id`, `customer_id`, `date`, `deadline`, montants, `invoice_lines` ; somme des lignes = total, sinon 422). L'aide Pennylane mentionne une option `convert_to_e_invoice` : Pennylane génère le XML Factur-X et l'intègre au PDF importé. **Sans les données, un PDF importé reste un PDF simple, pas une facture électronique.** À confirmer avec Pennylane : transmission effective via la plateforme agréée, exigence PDF/A-3, e-reporting des paiements.
 - **Mettre à jour** : `PUT /customer_invoices/:id`.
 - **Récupérer le PDF** : champ **`public_file_url`** dans la réponse (lien PDF public).
-- **Finaliser (émettre)** : endpoint exact **à confirmer** (probable `.../finalize` ou `draft:false`) → génère PDF + Factur-X + PDP.
+- **Finaliser (émettre)** : `PUT /customer_invoices/:id/finalize` (brouillon → finalisée, plus modifiable). Non testé sur une facture **importée** `incomplete`.
+- **Transmettre à la plateforme (PA)** — relevé doc 2026-09-29 : `POST /customer_invoices/:id/send_to_pa` (scope `customer_invoices:all`). Facture **finalisée** + « éligible e-invoicing » requises. 204 = soumise (asynchrone), 422 si déjà envoyée. Suivi : objet `e_invoicing` {`status`, `reason`} sur la facture (depuis le 09/03/2026) ou webhook `customer_invoice.e_invoicing_status_updated`. Pennylane est lui-même plateforme agréée.
+  - Facture test import+Factur-X `28999504625664` relue le 2026-09-29 : toujours `incomplete`, `schematron_validation_status: pending` → normal : elle n'est jamais allée au bout (ni finalisée, ni envoyée). Pennylane ne documente pas si la validation se déclenche à la finalisation ou à l'envoi ; « pending » n'indique pas un problème de données.
+  - **À confirmer avec Pennylane avant de coder** : une facture importée (`convert_to_e_invoice`) est-elle « éligible » à `send_to_pa` ?
+- **IMPLÉMENTÉ 2026-09-29 — dépôt (sans émission), panneau Loyer uniquement** : `PennylaneClient.Deposer` (Assets/Script/Facturation/PennylaneClient.cs). En mode Pennylane, « Sauvegarder et envoyer » : client retrouvé par SIREN (`reg_no`) puis **remis à jour** (`PUT /company_customers/:id` : nom, adresse, email si renseigné — CIPL fait foi, rien à saisir dans Pennylane), sinon créé → `POST /file_attachments` (notre PDF) → `POST /customer_invoices/import` avec `import_as_incomplete:true` + `convert_to_e_invoice:true`. Le suivi n'est écrit qu'après un dépôt réussi et la ligne reste « en attente d'envoi » : **rien n'est émis**, finalisation et transmission se font à la main dans Pennylane. Refusé avant tout appel si : pas de clé, pas de SIRET (particulier → email), numéro invalide (ex. « corrigée(1) »), adresse sans code postal. TVA calculée sur le total HT comme sur le PDF ; la ligne de provision absorbe l'écart d'arrondi (tests : `PennylaneClientTests`).
+  - Pas encore faits : finalize + `send_to_pa` (en attente de la réponse Pennylane), panneaux Régul / Refac / Dépôt, lecture du statut `e_invoicing`.
 - **Envoyer par email** : `POST /customer_invoices/:id/send_by_email`.
 - **GoCardless** : mandats par client (`mandates`), prélèvement pilotable par API.
 
@@ -136,6 +142,8 @@ CIPL garde ce que Pennylane ne sait pas faire : **calcul régularisation** (pror
 - **Tests IMPORT (Voie 2) — 2026-09-05, réussis, NON émis** :
   - facture id `28999279636480` (import simple, statut `incomplete`, doc = `facture_volteo_test.pdf`) + `file_attachment` `81008558080` ;
   - facture id `28999504625664` (import **+ Factur-X**, statut `incomplete`, `factur_x:true`, `e_invoicing:null`) + `file_attachment` `81014890496`.
+- **Locataire CIPL de test (2026-09-29)** : « TEST Pennylane — Volteo » dans l'entreprise **DemoCIPL**, bâtiment **Le Hangar** (SIRET Volteo → réutilise le client Pennylane TEST ci-dessus, trouvé par SIREN). À supprimer de CIPL après l'essai, avec la facture incomplète qu'il aura déposée.
+- ✅ **Test de bout en bout depuis CIPL — 2026-09-29, RÉUSSI, non émis** : facture id `30794986868736`, n° `2026/2909001`, statut `incomplete`, `factur_x:true`, `e_invoicing:null`. Lignes et totaux exacts (HT 1 100 / TVA 220 / TTC 1 320), client TEST Volteo mis à jour (nom + adresse, email conservé). PDF = mise en page CIPL avec `factur-x.xml` embarqué, profil **EN 16931** ; vendeur = réglages société Pennylane, acheteur = fiche CIPL (SIREN inclus). ⚠️ NE PAS finaliser (SIREN du vrai Volteo). Échéance 01/09 < date 29/09 : normal ici (période de septembre déjà commencée).
 - 👉 **À supprimer dans Pennylane** quand terminé : les 2 clients TEST + leurs brouillons + les 2 factures import ci-dessus + les 2 file_attachments.
 
 ## 13. État en cours / à décider
@@ -261,11 +269,11 @@ Le token Mapbox vit à part, au niveau application : `<persistentDataPath>/cipl_
 
 ### Textes de facture : réglables dans le panneau, et avec variables (2026-09-21)
 
-**Ce qui se règle où.** La frontière, posée par l'utilisatrice : **restent dans Réglages** les textes imprimés à l'identique sur tous les documents — phrase de retard, bas de page — ainsi que les RIB et les entêtes ; **vivent sur la facture** les textes propres à un document.
+**Ce qui se règle où.** La frontière, posée par l'utilisatrice : **restent dans Réglages** les textes imprimés à l'identique sur tous les documents — phrase de retard, bas de page — ainsi que les RIB et les entêtes ; **vivent sur la facture** les textes propres à un document. Cas intermédiaire depuis le 2026-09-29 : les **mentions TVA** ont leur phrase de base dans Réglages et peuvent être remplacées facture par facture.
 
 | Texte | Où on le modifie | Case pour le mettre ou non |
 |---|---|---|
-| « la TVA est payée sur les débits » | **les 4 panneaux**, carte du type | oui |
+| Mention TVA (débits / encaissements) | **base** : Réglages → *Textes fixes* ; **remplacement** pour une facture : les 4 panneaux, carte du type | menu : *Aucune mention* / débits / encaissements (2026-09-29) |
 | « Suite à votre demande, le montant mensuel… » | panneau Loyer, carte *Loyer facturé* | oui, existante |
 | Phrase de règlement | les 4 panneaux, carte *Règlement* | — (toujours imprimée) |
 | Les 4 phrases de l'explication du dépôt | panneau Dépôt, carte *Dépôt de garantie* | choix par le signe du solde |
@@ -275,6 +283,17 @@ Le token Mapbox vit à part, au niveau application : `<persistentDataPath>/cipl_
 **Sa formulation aussi est modifiable, sur les quatre** (2026-09-21). Elle était codée en dur à deux endroits : `BuildHtml` (Loyer, Refacturation) et `TotauxBlock` (Régularisation, Dépôt). `RegulData` porte maintenant `texteTvaDebit` comme `Data`, et les deux passent par `FacturePdfService.Texte(...)` — donc un champ vide retombe sur le texte d'usine et un document antérieur sort inchangé. Les quatre panneaux ont le même câblage : case, texte pré-rempli, menu « / », variables résolues, valeur sauvegardée sur le locataire et relue à l'ouverture.
 
 **Pourquoi la mention ne dépend pas du calcul** : « la TVA est payée sur les débits » est une **mention souvent obligatoire sur la facture**, indépendante du fait qu'une TVA soit calculée ou affichée. La lier à la présence des lignes TVA était donc une erreur de raisonnement, pas seulement une gêne. Sur le dépôt, elle est **cochée par défaut** et c'est voulu : le document peut la porter sans qu'aucune TVA n'y figure.
+
+**Mention TVA : un choix, une base dans les Réglages, un remplacement par facture** (2026-09-29). La case « Ajouter la mention « TVA payée sur les débits » » est remplacée, dans les quatre panneaux, par un menu *Mention TVA* : **Aucune mention** · **TVA payée sur les débits** · **TVA payée sur les encaissements**. Le taux (20 %) n'en dépend pas — seule la phrase change.
+- **Base** : Réglages → *Textes fixes* porte une phrase par mention (`ReglageData.mentionTvaDebits`, `mentionTvaEncaissements` ; d'usine « la TVA est payée sur les débits / encaissements »). Un `reglage.json` antérieur n'a pas ces clés → texte d'usine ; une base vidée y retombe aussi.
+- **Remplacement** : sous le menu, la phrase est pré-remplie avec la base et reste modifiable. **Seul un vrai remplacement est gardé sur la facture** (`FactureInfo.texteTvaDebit`, vide = base) : une facture non retouchée suit donc toute modification ultérieure de la base.
+- **Changer de mention** remet la base de la nouvelle mention : garder « …sur les débits » sous « encaissements » imprimerait le contraire du choix. *Aucune mention* masque la phrase.
+- **Stockage du choix** : `tvaDebit` garde son sens historique « mention imprimée » ; nouveau `tvaEncaissements` dit laquelle. Une facture antérieure (sans cette clé) sort à l'identique : case cochée → débits, décochée → aucune.
+- **Factures existantes** : l'ancien panneau enregistrait la phrase pré-remplie telle quelle, donc toutes portent le texte d'usine. Ce texte n'est **jamais** traité comme un remplacement — sans quoi elles resteraient figées sur l'ancienne formulation, sourdes aux Réglages. Limite connue : une facture ne peut pas imposer le texte d'usine quand la base a changé (un drapeau « remplacée » le permettrait si le besoin vient).
+- **Pennylane** (rien d'émis) : `special_mention` recevra la phrase effectivement imprimée (`MentionTva.PhraseFacture`), vide pour *Aucune mention*.
+- Code : `MentionTva` (choix, base, remplacement, construction du menu commune aux quatre panneaux). Couvert par `MentionTvaTests` (10 tests : factures et réglages antérieurs, aller-retour JSON des trois choix, base vidée, base suivie / remplacement conservé, texte d'usine non compté comme remplacement, héritage du type).
+
+**Autres mentions TVA, non proposées** : exonération (« Exonération de TVA, art. 261 D du CGI » — location nue sans option), franchise (« TVA non applicable, art. 293 B du CGI »), autoliquidation. Toutes vont avec une facture **sans TVA** ; or le taux est figé à 20 % : les proposer imprimerait une exonération sous une ligne « TVA 20 % ». À ajouter avec un taux par locataire, pas avant. Seule la mention **débits** est légalement exigée quand l'option est prise (CGI, art. 242 nonies A) ; « encaissements » est le régime par défaut d'un loyer, la mentionner est permis mais pas requis.
 
 **Les cases ont rejoint la ligne qu'elles commandent.** « TVA sur les débits » et « montant mensuel » étaient rangées dans *Options & envoi*, à l'autre bout du formulaire : on ne pouvait pas deviner où décocher « Suite à votre demande… ». *Options & envoi* ne garde que l'envoi. Règle qui vaut pour la suite : **ce qui commande une ligne du document vit dans la carte où cette ligne s'imprime.**
 
@@ -481,7 +500,7 @@ Une question qu'on se pose légitimement en lisant ce code : `BatimentManager.Ba
 
 **`Locataire.creationISO`** (nouveau champ, `yyyy-MM-dd HH:mm:ss`) porte la chronologie. L'ordre des listes ne suffisait pas : les locataires sont répartis entre plusieurs bâtiments, donc leur chronologie réelle n'est pas reconstituable par simple parcours. Une fiche antérieure sans date compte comme la plus ancienne mais **reste éligible** comme source — sinon une sauvegarde existante repartirait d'usine à chaque nouveau locataire.
 
-**Ce qui se duplique** : `ribId` · `enteteId` · `numeroFormat` · `tvaDebit` · `ajouterRetard` · `ajouterMensuel` · `envoiEmail` · `joindrePj`.
+**Ce qui se duplique** : `ribId` · `enteteId` · `numeroFormat` · `tvaDebit` · `tvaEncaissements` · `ajouterRetard` · `ajouterMensuel` · `envoiEmail` · `joindrePj`.
 
 **Ce qui ne se duplique jamais** — le point à tenir : dates, numéro et `numeroId`, montants, destinataire (nom/adresse/SIRET), email, objet, période, `chargeId`, `refInterne`, `sommePhrase`. Et `saved` reste **faux**, sans quoi les montants ne seraient pas recalculés depuis la fiche du nouveau locataire. Dupliquer un réglage reprend une décision déjà prise ; dupliquer une donnée produirait un **document faux** — une facture datée du locataire d'à côté, ou un numéro en doublon.
 

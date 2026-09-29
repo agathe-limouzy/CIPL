@@ -27,6 +27,7 @@ public static class FacturePdfService
     // retombe, donc une facture déjà émise sort exactement comme avant.
 
     public const string TvaDebitDefaut = "la TVA est payée sur les débits";
+    public const string TvaEncaissementsDefaut = "la TVA est payée sur les encaissements";
 
     // NB : les libellés du tableau (Total H.T., TVA 20%, Total T.T.C.) et le bloc RIB
     // restent figés dans le gabarit, volontairement. Ce sont des étiquettes
@@ -36,6 +37,12 @@ public static class FacturePdfService
     /// `{montant}` est remplacé par le montant mensuel, en gras.
     public const string MensuelDefaut =
         "Suite à votre demande, le montant mensuel à régler est de: {montant}";
+
+    /// Lieu d'émission (« {lieu}, le {date} »). Réglage d'entreprise, sans remplacement
+    /// par facture ; vide = cette valeur d'usine.
+    public const string LieuDefaut = "St Marcel Paulel";
+
+    static string Lieu() => H(Texte(ReglageService.Current?.lieuEmission, LieuDefaut));
 
     /// Texte retenu : celui de la facture s'il est renseigné, sinon celui d'usine.
     /// Même règle que `ExplicationDepot.Ou`, pour les lignes du corps de facture.
@@ -72,6 +79,7 @@ public static class FacturePdfService
             .Replace("{{CLIENT_SIRET}}", H(d.clientSiret))
             .Replace("{{REF_INTERNE}}", string.IsNullOrWhiteSpace(d.refInterne)
                 ? "" : $"<div class=\"refint\">{H(d.refInterne)}</div>")
+            .Replace("{{LIEU}}", Lieu())
             .Replace("{{DATE}}", H(d.dateStr))
             .Replace("{{NUMERO}}", H(d.numero))
             .Replace("{{BODY}}", d.bodyHtml ?? "")                       // déjà en HTML (<p>)
@@ -123,6 +131,7 @@ public static class FacturePdfService
             .Replace("{{LOGO_SRC}}", LogoDataUri())
             .Replace("{{CLIENT_NOM}}", H(d.clientNom))
             .Replace("{{CLIENT_ADRESSE}}", d.clientAdresseHtml ?? "")
+            .Replace("{{LIEU}}", Lieu())
             .Replace("{{DATE}}", H(d.dateStr))
             .Replace("{{PERIODE}}", H(d.periode))
             .Replace("{{DESIGNATION}}", string.IsNullOrWhiteSpace(d.designation)
@@ -260,6 +269,7 @@ public static class FacturePdfService
             .Replace("{{CLIENT_SIRET}}", H(d.clientSiret))
             .Replace("{{REF_INTERNE}}", string.IsNullOrWhiteSpace(d.refInterne)
                 ? "" : $"<div class=\"refint\">{H(d.refInterne)}</div>")
+            .Replace("{{LIEU}}", Lieu())
             .Replace("{{DATE}}", H(d.dateStr))
             .Replace("{{NUMERO}}", H(d.numero))
             .Replace("{{BODY}}", d.bodyHtml ?? "")

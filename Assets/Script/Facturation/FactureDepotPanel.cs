@@ -38,7 +38,8 @@ public class FactureDepotPanel : MonoBehaviour
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     TMP_Text _numeroPrefixe;
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD;
-    Toggle _ttcToggle, _tvaDebit, _retard;
+    Toggle _ttcToggle, _retard;
+    UIDropdown _mentionTva;
     string _autoSomme;
 
     RawImage _previewImg;
@@ -176,9 +177,7 @@ public class FactureDepotPanel : MonoBehaviour
         // La mention s'imprime sous ces totaux, donc sa case vit ici — même règle que
         // sur les trois autres panneaux. Le tableau du dépôt reste sans ligne TVA ni
         // T.T.C. (`masquerTva`) : c'est la mention qui devient disponible, pas la TVA.
-        _tvaDebit = UIFactory.Toggle(g.transform, "Ajouter la mention « TVA payée sur les débits »", true);
-        _texteTvaDebit = UIFactory.Input(g.transform, FacturePdfService.TvaDebitDefaut, 46, true);
-        SlashAutocomplete.Attach(_texteTvaDebit);
+        _mentionTva = MentionTva.Creer(g.transform, out _texteTvaDebit);
 
         // Phrases du bloc explicatif imprimé sous le titre du document. Elles
         // appartiennent à CETTE facture, pas à l'entreprise — d'où leur place ici
@@ -334,10 +333,7 @@ public class FactureDepotPanel : MonoBehaviour
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
         RefreshNumero();
 
-        _tvaDebit.isOn = f?.tvaDebit ?? true;
-        // Pré-remplie avec le texte d'usine : la phrase réellement imprimée doit être
-        // visible, pas à deviner derrière un champ vide.
-        _texteTvaDebit.text = FacturePdfService.Texte(f?.texteTvaDebit, FacturePdfService.TvaDebitDefaut);
+        MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
         _retard.isOn = f?.ajouterRetard ?? true;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
         _emailObjet.text = FacturePdfService.Texte(f?.emailObjet, EmailService.ObjetDefaut);
@@ -481,8 +477,8 @@ public class FactureDepotPanel : MonoBehaviour
             // « Complément à régler » serait faux quand c'est nous qui remboursons.
             labelSolde = FactureEmission.LibelleSolde(complement, "Complément à régler"),
             masquerTva = true,
-            tvaDebit = _tvaDebit.isOn, retard = _retard.isOn,
-            texteTvaDebit = FactureVarResolver.Resolve(_texteTvaDebit.text, _loc, _bat, ctx),
+            tvaDebit = MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
+            texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
             // Résolue APRÈS PhraseSomme : celle-ci peut substituer sa propre phrase
             // selon le signe du complément, et cette phrase-là doit être résolue aussi.
             sommePhrase = FactureVarResolver.Resolve(
@@ -688,8 +684,7 @@ public class FactureDepotPanel : MonoBehaviour
         f.numeroFormat = _numeroFormatDD?.SelectedId ?? "AMN";
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();
-        f.tvaDebit = _tvaDebit.isOn;
-        f.texteTvaDebit = _texteTvaDebit.text;
+        MentionTva.Enregistrer(_mentionTva, _texteTvaDebit, f);
         f.ajouterRetard = _retard.isOn;
         f.emailDest = _emailEnvoi.text;
         f.emailObjet = _emailObjet.text;

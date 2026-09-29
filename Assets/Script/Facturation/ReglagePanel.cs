@@ -22,7 +22,8 @@ public class ReglagePanel : MonoBehaviour
     // Références UI
     TMP_InputField _apiKey, _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd, _smtpUser;
     TMP_InputField _mapboxToken;
-    TMP_InputField _phraseRetard, _basDePage, _entrepriseNom;
+    TMP_InputField _phraseRetard, _basDePage, _entrepriseNom, _lieuEmission;
+    TMP_InputField _tvaDebits, _tvaEncaissements;
     Toggle _modePennylane;
     GameObject _smtpCard;
     Button _testEmail;
@@ -162,7 +163,7 @@ public class ReglagePanel : MonoBehaviour
         UIFactory.Text(body.transform,
             "Cette case choisit comment partent les FACTURES. Les relances d'impayé passent "
             + "par email dans tous les cas : les réglages SMTP ci-dessous servent donc toujours. "
-            + "(L'envoi Pennylane n'est pas encore implémenté.)",
+            + "(Pennylane : loyers seulement pour l'instant, déposés sans être émis.)",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         // Sous-carte SMTP (mode Email)
@@ -454,18 +455,31 @@ public class ReglagePanel : MonoBehaviour
     void BuildTextes(Transform parent)
     {
         var body = UIFactory.Section(parent, "Textes fixes", CoTaupe, CoTaupeL);
+        UIFactory.Text(body.transform, "Lieu d'émission (imprimé « …, le 29 septembre 2026 » sur tous les documents)",
+            UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _lieuEmission = UIFactory.Input(body.transform, FacturePdfService.LieuDefaut);
         UIFactory.Text(body.transform, "Phrase de retard / pénalités", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _phraseRetard = UIFactory.Input(body.transform, "En cas de retard…", 90, true);
         UIFactory.Text(body.transform, "Bas de page (mentions société)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _basDePage = UIFactory.Input(body.transform, "SAS au capital…", 90, true);
 
-        // Ces deux textes-là sont bien des textes d'ENTREPRISE : ils s'impriment à
-        // l'identique sur les quatre types de facture. Les phrases de l'explication
-        // du dépôt, elles, se règlent dans le panneau de la facture de dépôt —
-        // elles appartiennent au document, pas à l'entreprise.
+        // Phrases de BASE : une facture peut les remplacer pour elle seule, dans son
+        // panneau. Changer la base ici touche toutes celles qui ne l'ont pas fait.
+        UIFactory.Text(body.transform, "Mention « TVA payée sur les débits »", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _tvaDebits = UIFactory.Input(body.transform, FacturePdfService.TvaDebitDefaut, 46, true);
+        SlashAutocomplete.Attach(_tvaDebits);
+        UIFactory.Text(body.transform, "Mention « TVA payée sur les encaissements »", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _tvaEncaissements = UIFactory.Input(body.transform, FacturePdfService.TvaEncaissementsDefaut, 46, true);
+        SlashAutocomplete.Attach(_tvaEncaissements);
+
+        // La phrase de retard et le bas de page s'impriment à l'identique sur les
+        // quatre types de facture. Les phrases de l'explication du dépôt, elles, se
+        // règlent dans le panneau de la facture de dépôt — elles appartiennent au
+        // document, pas à l'entreprise.
         UIFactory.Text(body.transform,
-            "Les textes propres à un type de facture (explication du dépôt de garantie…) "
-            + "se modifient dans le panneau de la facture concernée.",
+            "Les mentions TVA sont les phrases de base : chaque facture choisit la sienne "
+            + "et peut la reformuler pour elle seule. Les textes propres à un type de facture "
+            + "(explication du dépôt de garantie…) se modifient dans le panneau de la facture concernée.",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
     }
 
@@ -547,8 +561,11 @@ public class ReglagePanel : MonoBehaviour
         _smtpFromName.text = R.smtp.fromName;
         _smtpUser.text = R.smtp.username;
         _smtpPwd.text = ReglageService.GetSmtpPassword();
+        _lieuEmission.text = FacturePdfService.Texte(R.lieuEmission, FacturePdfService.LieuDefaut);
         _phraseRetard.text = R.phraseRetard;
         _basDePage.text = R.basDePage;
+        _tvaDebits.text = MentionTva.Base(R, MentionTva.Debits);
+        _tvaEncaissements.text = MentionTva.Base(R, MentionTva.Encaissements);
         if (_logoPreview != null) RefreshLogo();
         RebuildRibList();
         RebuildEnteteList();
@@ -573,8 +590,11 @@ public class ReglagePanel : MonoBehaviour
         R.smtp.fromName = _smtpFromName.text.Trim();
         R.smtp.username = _smtpUser.text.Trim();
         ReglageService.SetSmtpPassword(_smtpPwd.text);
+        R.lieuEmission = _lieuEmission.text.Trim();
         R.phraseRetard = _phraseRetard.text;
         R.basDePage = _basDePage.text;
+        R.mentionTvaDebits = _tvaDebits.text;
+        R.mentionTvaEncaissements = _tvaEncaissements.text;
         ReglageService.Save();
         UndoToast.Instance?.ShowInfo("Réglages enregistrés");
     }

@@ -270,6 +270,7 @@ public class LocatairePrefab : PrefabBatLoc
                         () => bp.RestoreLocataire(backup));
                 });
         });
+        TransfertEntrepriseUI.AjouterBouton(Delete, () => TransfertEntrepriseUI.OuvrirLocataire(this));
         EnsureScrollable();
         locataireScrollContent?.SetDirty();
     }

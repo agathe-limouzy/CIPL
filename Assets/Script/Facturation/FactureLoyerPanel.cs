@@ -44,7 +44,8 @@ public class FactureLoyerPanel : MonoBehaviour
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _periodeDD;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     string _autoEcheance;// dernière échéance proposée (suivie tant qu'elle n'est pas saisie à la main)
-    Toggle _tvaDebit, _retard, _mensuel;
+    Toggle _retard, _mensuel;
+    UIDropdown _mentionTva;
     Button _btnSauver;   // libellé variable : « … et envoyer » ou « … pour l'envoi du JJ/MM »
 
     // Aperçu de la facture rendue (image à droite du formulaire).
@@ -242,9 +243,7 @@ public class FactureLoyerPanel : MonoBehaviour
         // étaient rangées dans « Options & envoi », donc loin de ce qu'elles
         // commandent — impossible de deviner où décocher « Suite à votre demande… ».
         // La case et sa formulation vont ensemble, là où la ligne apparaît.
-        _tvaDebit = UIFactory.Toggle(mo.transform, "Ajouter la mention « TVA payée sur les débits »", true);
-        _texteTvaDebit = UIFactory.Input(mo.transform, FacturePdfService.TvaDebitDefaut, 46, true);
-        SlashAutocomplete.Attach(_texteTvaDebit);
+        _mentionTva = MentionTva.Creer(mo.transform, out _texteTvaDebit);
 
         // Ligne « montant mensuel » : seulement pour un loyer non mensuel.
         _mensuel = UIFactory.Toggle(mo.transform, "Ajouter « le montant mensuel à régler » (loyer de la période ÷ nb de mois)", true);
@@ -291,7 +290,7 @@ public class FactureLoyerPanel : MonoBehaviour
             UITheme.Role.Aide, UITheme.TexteSecondaire);
         _emailEnvoi = Labeled(o, "Email d'envoi");
         UIFactory.Text(o.transform,
-            "Note : l'envoi réel (Pennylane / email) sera activé après validation — rien n'est émis pour l'instant.",
+            "Mode Pennylane : la facture est déposée sur Pennylane SANS être émise — à finaliser et transmettre depuis Pennylane.",
             UITheme.Role.Aide, UITheme.Alerte);
 
         // Bouton « Générer facture » sous le formulaire (rend l'aperçu à droite).
@@ -375,12 +374,12 @@ public class FactureLoyerPanel : MonoBehaviour
             subtitle = $"Loyer {ctx.periode}",
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             totalPeriode = loyer, provision = prov, totalHT = totalHT, tva = tva, ttc = ttc,
-            tvaDebit = _tvaDebit.isOn, retard = _retard.isOn,
+            tvaDebit = MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
             afficherMensuel = afficheMensuel, montantMensuel = afficheMensuel ? ttc / moisParPeriode : 0f,
             // Les textes libres passent par le même résolveur que l'entête : sans ça,
             // le menu « / » proposerait d'insérer {loc.nom}… qui s'imprimerait tel quel
             // sur un document envoyé au client.
-            texteTvaDebit = FactureVarResolver.Resolve(_texteTvaDebit.text, _loc, _bat, ctx),
+            texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
             texteMensuel = FactureVarResolver.Resolve(_texteMensuel.text, _loc, _bat, ctx),
             sommePhrase = FactureVarResolver.Resolve(_sommePhrase.text, _loc, _bat, ctx),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
@@ -449,13 +448,10 @@ public class FactureLoyerPanel : MonoBehaviour
             return;
         }
 
-        // Pas d'envoi demandé : on enregistre comme avant, rien ne part. Le bouton
-        // s'appelant « Sauvegarder et envoyer », il faut le DIRE — sinon on croit
-        // légitimement qu'un mail est parti et on attend sa réception.
-        if (R.modeEnvoi != ModeEnvoi.Email)
+        // Mode Pennylane : dépôt de notre PDF, NON émis (voir PennylaneClient).
+        if (R.modeEnvoi == ModeEnvoi.Pennylane)
         {
-            Finaliser(d, key, emission, correction, pdf, false,
-                "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
+            StartCoroutine(DeposerPuisFinaliser(d, key, emission, correction, pdf));
             return;
         }
 
@@ -551,6 +547,29 @@ public class FactureLoyerPanel : MonoBehaviour
         }
 
         Finaliser(d, key, emission, correction, pdf, true, $" et envoyée à {dest}");
+    }
+
+    /// Même ordre que l'email : le suivi n'est écrit (et le numéro consommé) qu'après
+    /// un dépôt réussi. La ligne reste « en attente d'envoi » : rien n'est émis.
+    System.Collections.IEnumerator DeposerPuisFinaliser(
+        FacturePdfService.Data d, string key, FactureEmission.Decision emission, bool correction, string pdf)
+    {
+        _envoiEnCours = true;
+        UndoToast.Instance?.ShowInfo("Dépôt sur Pennylane en cours…");
+
+        var depot = new PennylaneClient.Depot();
+        yield return PennylaneClient.Deposer(_loc.factureLoyer, d, pdf, depot);
+        _envoiEnCours = false;
+
+        if (!depot.Succes)
+        {
+            UndoToast.Instance?.ShowInfo(depot.Erreur + " Le PDF est enregistré, rien n'est consommé : tu peux réessayer.");
+            yield break;
+        }
+
+        Finaliser(d, key, emission, correction, pdf, false,
+            $"  Déposée sur Pennylane{(depot.FacturX ? " en Factur-X" : "")}, NON émise : "
+            + "à finaliser et transmettre depuis Pennylane.");
     }
 
     /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après un
@@ -739,7 +758,7 @@ public class FactureLoyerPanel : MonoBehaviour
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
         RefreshNumero();
 
-        _tvaDebit.isOn = f?.tvaDebit ?? true;
+        MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
         _retard.isOn = f?.ajouterRetard ?? true;
         // Ligne « montant mensuel » : seulement pour un loyer non mensuel (trim / semestre / an).
         _mensuel.isOn = f?.ajouterMensuel ?? true;
@@ -747,7 +766,6 @@ public class FactureLoyerPanel : MonoBehaviour
 
         // Pré-remplis avec le texte d'usine : l'utilisatrice doit voir la phrase
         // réellement imprimée, pas un champ vide dont il faut deviner l'effet.
-        _texteTvaDebit.text = FacturePdfService.Texte(f?.texteTvaDebit, FacturePdfService.TvaDebitDefaut);
         _texteMensuel.text  = FacturePdfService.Texte(f?.texteMensuel,  FacturePdfService.MensuelDefaut);
         // La phrase suit sa case : inutile de la montrer si la ligne ne s'imprime pas.
         _texteMensuel.gameObject.SetActive(_loc.periodiciteLoyer != Periodicite.mensuel);
@@ -978,10 +996,9 @@ public class FactureLoyerPanel : MonoBehaviour
         sb.AppendLine($"Total HT : {totalHT:N2} €");
         sb.AppendLine($"TVA 20 % : {tva:N2} €");
         sb.AppendLine($"<b>Total TTC : {ttc:N2} €</b>");
-        if (_tvaDebit.isOn)
+        if (MentionTva.Imprimee(_mentionTva))
             sb.AppendLine("« " + FactureVarResolver.Resolve(
-                FacturePdfService.Texte(_texteTvaDebit.text, FacturePdfService.TvaDebitDefaut),
-                _loc, _bat, BuildContext()) + " »");
+                MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, BuildContext()) + " »");
         sb.AppendLine();
         if (rib != null)
         {
@@ -1039,10 +1056,9 @@ public class FactureLoyerPanel : MonoBehaviour
         f.numeroFormat = _numeroFormatDD?.SelectedId ?? "AMN";
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();
-        f.tvaDebit = _tvaDebit.isOn;
+        MentionTva.Enregistrer(_mentionTva, _texteTvaDebit, f);
         f.ajouterRetard = _retard.isOn;
         f.ajouterMensuel = _mensuel.isOn;
-        f.texteTvaDebit = _texteTvaDebit.text;
         f.texteMensuel = _texteMensuel.text;
         f.emailDest = _emailEnvoi.text;
         f.emailObjet = _emailObjet.text;

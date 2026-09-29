@@ -14,7 +14,9 @@ Chaque finding porte un statut :
 
 Ce document est le **suivi de la revue de code**. Tout ce qui suit a été écrit et compilé ; ce qui a été *réellement exécuté* est listé plus bas, et la distinction compte.
 
-### Où en est le chantier au 24/09 — **234 tests EditMode verts**
+### Où en est le chantier au 29/09 — **244 tests EditMode verts**
+
+**Mention TVA (29/09)** : la case « TVA payée sur les débits » des 4 panneaux devient un menu *Aucune mention / débits / encaissements*. Les phrases de base sont dans Réglages → *Textes fixes*, et une facture peut les remplacer pour elle seule ; seul le remplacement est gardé sur la facture. Code commun : `MentionTva` ; 10 tests (`MentionTvaTests`). Détail et limite connue dans `FACTURATION_CIPL_PENNYLANE.md`. **Validé en Play.**
 
 Le détail de la facturation est dans `FACTURATION_CIPL_PENNYLANE.md` ; voici l'essentiel pour reprendre.
 
@@ -558,7 +560,7 @@ textes inchangés dans leur principe. 4 tests, dates figées.
 
 ### Prochaines étapes (mise à jour 22/09/2026)
 
-Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **234 tests EditMode verts**. Ce qui reste se range en trois tas.
+Rien ne bloque : tout ce qui suit est écrit, compilé et couvert par **244 tests EditMode verts**. Ce qui reste se range en trois tas.
 
 #### A. À voir en Play — le seul vrai reste
 

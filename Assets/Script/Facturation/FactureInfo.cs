@@ -52,7 +52,8 @@ public class FactureInfo
     public string numeroFormat = "AMN"; // AN=Année/Numéro · AMN=Année/MoisNuméro · AJMN=Année/JourMoisNuméro
     public string numeroId;         // partie « ID locataire » saisie (le préfixe format est recalculé)
     public string numero;           // n° complet = préfixe format + numeroId (mémorisé pour référence)
-    public bool tvaDebit = true;    // mention « TVA payée sur les débits »
+    public bool tvaDebit = true;    // mention TVA imprimée (nom historique : c'était « sur les débits » seulement)
+    public bool tvaEncaissements;   // … et laquelle : faux = sur les débits, vrai = sur les encaissements (voir MentionTva)
     public bool ajouterRetard = true; // ajoute la phrase de retard/pénalités
     public bool ajouterMensuel = true; // ligne « montant mensuel à régler » (loyer période ÷ nb mois ; hors mensuel)
     // NB : pas de champ « envoyer par email » ici. Le mode d'envoi est un réglage
@@ -73,7 +74,7 @@ public class FactureInfo
     // (`ExplicationDepot.*Defaut`), ce qui laisse les factures antérieures inchangées.
     // Formulation des deux lignes optionnelles du corps de facture, commandées par
     // les cases du même nom. Vide = texte d'usine (`FacturePdfService.*Defaut`).
-    public string texteTvaDebit;    // « la TVA est payée sur les débits »
+    public string texteTvaDebit;    // phrase de la mention TVA (vide = texte d'usine de la mention choisie)
     public string texteMensuel;     // « Suite à votre demande… » — {montant} = le montant mensuel
 
     public string depotRappel;      // rappel du montant requis
