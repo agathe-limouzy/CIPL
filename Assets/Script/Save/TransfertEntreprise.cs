@@ -73,6 +73,7 @@ public static class TransfertEntreprise
             // Copie de travail : l'origine n'est jamais modifiée ici.
             var copie = Cloner(src);
             Relativiser(copie, racineOrigine, src.Name);
+            var reglageDest = ReconcilierListes(copie, racineOrigine, racineDest);
             var transferes = seul == null
                 ? copie.locataireDuBatiment
                 : copie.locataireDuBatiment.Where(l => l.id == seul.id).ToList();
@@ -124,7 +125,12 @@ public static class TransfertEntreprise
                            Dossier(racineOrigine, src.Name), Dossier(racineDest, resultat.Name),
                            avecBatiment: seul == null || entree == null);
 
-            // Le JSON en dernier : c'est lui qui fait apparaître le bâtiment.
+            // Listes de charges créées dans la destination, puis le JSON en dernier :
+            // c'est lui qui fait apparaître le bâtiment.
+            if (reglageDest != null
+                && !AtomicFile.WriteAllText(Path.Combine(racineDest, "reglage.json"),
+                                            JsonUtility.ToJson(reglageDest, prettyPrint: true), out string errR))
+                throw new IOException(errR);
             Directory.CreateDirectory(Path.GetDirectoryName(fichier));
             if (!AtomicFile.WriteAllText(fichier, JsonUtility.ToJson(resultat, prettyPrint: true), out string err))
                 throw new IOException(err);
@@ -192,6 +198,9 @@ public static class TransfertEntreprise
             if (c.ratios != null)
                 foreach (var ratio in c.ratios)
                     if (ratio.locataireId != null && remap.TryGetValue(ratio.locataireId, out var n)) ratio.locataireId = n;
+            if (c.facturations != null)
+                foreach (var f in c.facturations)
+                    if (f.locataireId != null && remap.TryGetValue(f.locataireId, out var n)) f.locataireId = n;
 
             int i = res.FindIndex(x => x.id == c.id);
             if (i >= 0) res[i] = c; else res.Add(c);
@@ -252,6 +261,96 @@ public static class TransfertEntreprise
             if (exclus != null && exclus.Contains(nom)) continue;
             CopierDossier(d, Path.Combine(dst, nom), null);
         }
+    }
+
+    // ── Listes de charges ───────────────────────────────────────────────────────
+
+    /// Les listes de charges vivent dans les Réglages de CHAQUE entreprise. Celles
+    /// qu'utilise la copie sont retrouvées dans la destination par leur NOM, ou y sont
+    /// créées ; charges, dates/provisions des locataires et clés de suivi sont réécrites
+    /// avec les ids de destination. Renvoie les réglages de destination à enregistrer
+    /// (null si rien à ajouter).
+    static ReglageData ReconcilierListes(Batiment copie, string racineOrigine, string racineDest)
+    {
+        // Tout ce qui désigne une liste : charges, dates/provisions et choix des listes
+        // du locataire, et ce que ses factures mémorisent (provisions, listes régularisées).
+        var utilises = copie.charges.Select(c => c.listeId)
+            .Concat(copie.locataireDuBatiment.SelectMany(IdsDeListes))
+            .Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+        if (utilises.Count == 0) return null;
+
+        var origine = LireReglage(racineOrigine)?.listesCharges ?? new List<ListeCharges>();
+        var dest = LireReglage(racineDest) ?? new ReglageData();
+        dest.listesCharges ??= new List<ListeCharges>();
+
+        var map = new Dictionary<string, string>();
+        bool ajout = false;
+        foreach (var id in utilises)
+        {
+            var src = origine.Find(l => l.id == id);
+            if (src == null) { map[id] = ""; continue; }   // liste supprimée à l'origine : générale
+            var meme = dest.listesCharges.Find(l =>
+                string.Equals((l.nom ?? "").Trim(), (src.nom ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+            if (meme == null)
+            {
+                meme = new ListeCharges { nom = src.nom };
+                if (!dest.listesCharges.Exists(l => l.id == id)) meme.id = id;
+                dest.listesCharges.Add(meme);
+                ajout = true;
+            }
+            map[id] = meme.id;
+        }
+
+        foreach (var c in copie.charges)
+            if (!string.IsNullOrEmpty(c.listeId)) c.listeId = map[c.listeId];
+        foreach (var l in copie.locataireDuBatiment)
+        {
+            if (l.regulListes != null)
+            {
+                foreach (var r in l.regulListes)
+                    if (!string.IsNullOrEmpty(r.listeId) && map.TryGetValue(r.listeId, out var n)) r.listeId = n;
+                l.regulListes.RemoveAll(r => string.IsNullOrEmpty(r.listeId));
+            }
+            string Remap(string id) => !string.IsNullOrEmpty(id) && map.TryGetValue(id, out var n3) ? n3 : id;
+            if (l.listesConcernees != null) l.listesConcernees = l.listesConcernees.Select(Remap).Distinct().ToList();
+            foreach (var info in new[] { l.factureLoyer, l.factureRegul, l.factureRefac, l.factureDepot })
+            {
+                if (info?.listesRegul != null) info.listesRegul = info.listesRegul.Select(Remap).Distinct().ToList();
+                if (info?.provisionsListes != null) foreach (var m in info.provisionsListes) m.listeId = Remap(m.listeId);
+            }
+            if (l.facturesEtat != null)
+                foreach (var f in l.facturesEtat)
+                    if (ListesCharges.LireCle(f.key, out int annee, out string lid)
+                        && !string.IsNullOrEmpty(lid) && map.TryGetValue(lid, out var n2))
+                        f.key = ListesCharges.Cle(n2, annee);
+        }
+        return ajout ? dest : null;
+    }
+
+    static IEnumerable<string> IdsDeListes(Locataire l)
+    {
+        foreach (var r in l.regulListes ?? new List<RegulListe>()) yield return r.listeId;
+        foreach (var id in l.listesConcernees ?? new List<string>()) yield return id;
+        foreach (var info in new[] { l.factureLoyer, l.factureRegul, l.factureRefac, l.factureDepot })
+        {
+            if (info?.listesRegul != null) foreach (var id in info.listesRegul) yield return id;
+            if (info?.provisionsListes != null) foreach (var m in info.provisionsListes) yield return m.listeId;
+        }
+    }
+
+    /// Réglages d'une entreprise lus sur le disque. Un fichier présent mais illisible
+    /// fait échouer le transfert : le réécrire effacerait les réglages de l'entreprise.
+    static ReglageData LireReglage(string racine)
+    {
+        string f = Path.Combine(racine, "reglage.json");
+        if (!File.Exists(f)) return null;
+        try
+        {
+            var r = JsonUtility.FromJson<ReglageData>(File.ReadAllText(f));
+            if (r != null) return r;
+        }
+        catch { /* signalé ci-dessous */ }
+        throw new IOException("réglages illisibles : " + f);
     }
 
     // ── Données ─────────────────────────────────────────────────────────────────

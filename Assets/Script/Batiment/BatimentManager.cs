@@ -324,7 +324,11 @@ public class BatimentManager : MonoBehaviour
 
                 if (data != null)
                 {
+                    // Charges au format « facturée pour tous » → par locataire, d'après
+                    // le suivi. Avant la création de la fiche : elle travaille sur une copie.
+                    bool reconstitue = ChargeBatiment.Reconstituer(data);
                     _batiments.Add(data);
+                    if (reconstitue) SaveBatiment(data);
                     var prefab = SpawnPrefabInPanel(data, batimentsContainerPanel, false);
                     BatimentPrefab.Add(prefab);
                     menuManager.CreateTab(prefab);

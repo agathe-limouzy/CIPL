@@ -51,7 +51,7 @@ public static class FactureVarResolver
         m["{loc.loyer}"]       = loc != null ? $"{loc.loyerAnnuel:N2} €" : "";
         m["{loc.periodicite}"] = periodicite;
         m["{loc.provision}"]   = loc != null && loc.provisionPourCharges
-                                 ? $"{loc.provisionPourChargeValue:N2} €" : "—";
+                                 ? $"{ListesCharges.ProvisionTotale(loc):N2} €" : "—";   // toutes listes
         m["{loc.taux}"]        = loc != null ? $"{loc.tauxDeRentabilité:0.##} %" : "";
 
         // ── Bâtiment ──

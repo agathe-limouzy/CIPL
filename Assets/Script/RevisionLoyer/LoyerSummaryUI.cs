@@ -70,7 +70,8 @@ public class LoyerSummaryUI : MonoBehaviour
 
         float annuel = loc.loyerAnnuel;
         float taille = loc.tailleLot;
-        float provision = loc.provisionPourCharges ? loc.provisionPourChargeValue : 0f;
+        // Total de toutes les listes de charges : c'est ce qui est appelé avec le loyer.
+        float provision = ListesCharges.ProvisionTotale(loc);
 
         int n = NbPeriodes(loc.periodiciteLoyer);
         float perHT = annuel / n;                  // loyer par période, hors charges
@@ -221,6 +222,8 @@ public class LoyerSummaryUI : MonoBehaviour
         _valMois     = Row(v.transform, "Mois facturés");
         _valRevision = Row(v.transform, "Prochaine révision");
         _valRegul    = Row(v.transform, "Régularisation charges", out _rowRegul);
+        // Une liste de charges par ligne : le libellé reste en face de la première.
+        _rowRegul.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.UpperLeft;
     }
 
     private TMP_Text Row(Transform parent, string label) => Row(parent, label, out _);
@@ -258,8 +261,14 @@ public class LoyerSummaryUI : MonoBehaviour
         // Régularisation : uniquement en cas de provision pour charges.
         _rowRegul.SetActive(loc.provisionPourCharges);
         if (loc.provisionPourCharges)
-            _valRegul.text = System.DateTime.TryParse(loc.dateRegularisationChargeISO, out var dr)
-                ? dr.ToString("dd/MM/yyyy") : "—";
+            // Une date par liste de charges, une par ligne (sur une seule ligne, elles
+            // élargissaient toute la colonne) ; le nom n'apparaît que s'il y a des listes.
+            _valRegul.text = string.Join("\n", ListesCharges.DuLocataire(loc).Select(id =>
+            {
+                string d = System.DateTime.TryParse(ListesCharges.DateRegul(loc, id), out var dr)
+                    ? dr.ToString("dd/MM/yyyy") : "—";
+                return ListesCharges.Specifiques().Count == 0 ? d : $"{ListesCharges.Nom(id)} : {d}";
+            }));
     }
 
     private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }

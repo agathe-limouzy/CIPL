@@ -363,9 +363,8 @@ public class FactureRefacPanel : MonoBehaviour
         if (_bat?.charges == null) return res;
         foreach (var c in _bat.charges)
         {
-            if (c.paye || c.EstFacturee) continue;   // déjà facturée = plus proposée, même impayée
-            bool concerne = c.tousLocataires || (c.locatairesConcernes != null && c.locatairesConcernes.Contains(_loc.id));
-            if (concerne) res.Add(c);
+            if (!c.AFacturerPour(_loc.id)) continue;   // déjà facturée À CE LOCATAIRE (ou réglée) : plus proposée
+            if (ListesCharges.Concerne(c, _loc)) res.Add(c);   // désigné ET concerné par la liste de la charge
         }
         return res;
     }
@@ -377,14 +376,7 @@ public class FactureRefacPanel : MonoBehaviour
         return _bat.charges.FirstOrDefault(c => c.id == id);
     }
 
-    float QuotePart(ChargeBatiment c)
-    {
-        if (c.ratios == null || c.ratios.Count == 0) return c.cout;
-        float sum = 0f; foreach (var r in c.ratios) sum += r.part;
-        var mine = c.ratios.FirstOrDefault(r => r.locataireId == _loc.id);
-        if (mine == null || sum <= 0f) return 0f;
-        return c.cout * mine.part / sum;
-    }
+    float QuotePart(ChargeBatiment c) => ListesCharges.QuotePart(c, _loc, _bat);
 
     void OnChargeSelected()
     {
@@ -618,10 +610,10 @@ public class FactureRefacPanel : MonoBehaviour
                    FactureEmission.Decision emission, bool correction, string pdf, bool envoye,
                    string suffixeMessage = "")
     {
-        // La charge refacturée passe « en attente de paiement », PAS « payé » : la
-        // facture vient de partir, le virement n'est pas arrivé. Elle sort du choix
-        // (pour ne pas être refacturée deux fois) sans prétendre être encaissée.
-        charge.factureeISO = DateTime.Today.ToString("yyyy-MM-dd");
+        // La charge refacturée passe « en attente de paiement » POUR CE LOCATAIRE, pas
+        // « payé » : le virement n'est pas arrivé. Elle sort de son choix — et donc de
+        // sa régularisation — sans toucher la part des autres locataires.
+        charge.MarquerFacturee(_loc.id, DateTime.Today.ToString("yyyy-MM-dd"));
 
         string message = FactureEmission.Enregistrer(_loc, key, "Refac", emission,
             d.subtitle, _loc.factureRefac?.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,

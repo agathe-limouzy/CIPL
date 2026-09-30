@@ -14,7 +14,20 @@ Chaque finding porte un statut :
 
 Ce document est le **suivi de la revue de code**. Tout ce qui suit a été écrit et compilé ; ce qui a été *réellement exécuté* est listé plus bas, et la distinction compte.
 
-### Où en est le chantier au 29/09 — **244 tests EditMode verts**
+### Où en est le chantier au 29/09 (soir) — **310 tests EditMode verts**
+
+**Session du 29/09 (après la mention TVA)** — détail des règles dans `FACTURATION_CIPL_PENNYLANE.md` (§5, §13 « Charges : état par locataire… », §16) :
+- **Pennylane, dépôt (Voie 2)** : `PennylaneClient` — client retrouvé par SIREN puis mis à jour (sinon créé), notre PDF, import incomplet + Factur-X. Branché sur le Loyer en mode Pennylane. **Testé de bout en bout** (facture incomplète, Factur-X EN 16931, rien de transmis). Finalisation / `send_to_pa` **non écrits** (attente Pennylane).
+- **Transfert entre entreprises** (`TransfertEntreprise` + bouton « Transférer » des fiches bâtiment / locataire) : fusion par nom, dossiers copiés, origine en corbeille, listes de charges retrouvées par nom. **Validé en Play** (aller-retour DemoCIPL ↔ Test transfert).
+- **Lieu d'émission** réglable (Textes fixes).
+- **Défaut majeur corrigé — l'état facturée/payée d'une charge était commun à tous les locataires** : régulariser ou refacturer une charge partagée pour un locataire la retirait de la régularisation des autres (quote-part perdue ; constaté sur la taxe foncière 2025 de rivoli). Désormais par locataire (`ChargeBatiment.facturations`), ancien format reconstitué au chargement d'après le suivi.
+- **Correction d'une régularisation** : reprend les charges qu'elle couvre (sortait à 0 €).
+- **Listes de charges** (Réglages) : date + provision par liste et par locataire, choix des listes par locataire (au moins une), provisions par liste sur le loyer, régularisation d'une / plusieurs / toutes les listes en **une seule facture**.
+- **Revue de fin de session — 4 défauts trouvés et corrigés** : régul regroupée pouvant refacturer des charges déjà facturées (garde `FactureRegulPanel.Regroupement`) · régul émise disparaissant du suivi si sa liste n'est plus datée · choix de listes perdu au transfert · régul vide possible sans liste datée.
+- **Case « Provisions » à 0 px** (régression du commit « add zoom ») : corrigée dans le prefab ; nouveau test sur toutes les cases à cocher de tous les prefabs.
+- **Titres des 9 tuiles Rentabilité disparus** (même famille) : tuiles fixées à 54 px pour 55,5 px de contenu → les titres, en « … », étaient masqués **en entier** par TMP. Tuiles passées en hauteur minimale 54 px (`BatimentPrefab`) ; test `Un_groupe_de_hauteur_fixe_contient_ses_textes_a_points_de_suspension` sur tous les prefabs. Piège noté : sur un prefab non instancié, TMP annonce une hauteur préférée de 0 — le test mesure donc avec `GetPreferredValues`.
+
+**Vu en Play le 29/09** : dépôt Pennylane · transfert · case Provisions + listes dans « Gestion du loyer » (en cours). **Pas encore vu** : panneau Loyer avec plusieurs provisions · régularisation à cases · fiche charge avec choix de liste · section Réglages « Listes de charges ».
 
 **Mention TVA (29/09)** : la case « TVA payée sur les débits » des 4 panneaux devient un menu *Aucune mention / débits / encaissements*. Les phrases de base sont dans Réglages → *Textes fixes*, et une facture peut les remplacer pour elle seule ; seul le remplacement est gardé sur la facture. Code commun : `MentionTva` ; 10 tests (`MentionTvaTests`). Détail et limite connue dans `FACTURATION_CIPL_PENNYLANE.md`. **Validé en Play.**
 
@@ -593,7 +606,7 @@ Aucun de ces points n'est douteux dans le code ; ils demandent l'écran. Par ord
 #### C. En attente d'une décision extérieure
 
 1. **H1 — numérotation des factures**, en attente de l'expert-comptable. Deux locataires facturés le même mois peuvent obtenir le même numéro ; le choix entre séquence globale et identifiant stable par locataire engage la conformité (art. 242 nonies A du CGI). Ne pas trancher seul.
-2. **Pennylane** : aucun appel à l'API n'existe dans le code. Tout ce qui est « envoi » passe aujourd'hui par l'email.
+2. **Pennylane** : le **dépôt** existe (Loyer, facture incomplète + Factur-X, 29/09). La **finalisation et la transmission** attendent la réponse de Pennylane (une facture importée est-elle éligible à `send_to_pa` ?). Tout ce qui est « envoi » réel passe encore par l'email.
 3. **Adresse `@cipl.fr`** : bloquée côté Microsoft 365 (pas de mot de passe d'application, SMTP AUTH désactivé, compte non administrateur). Il faut l'administrateur du locataire, ou un compte OVH — le SPF de `cipl.fr` l'autorise déjà.
 
 #### Traité et clos
@@ -602,7 +615,7 @@ Aucun de ces points n'est douteux dans le code ; ils demandent l'écran. Par ord
 
 ### Garde-fous permanents
 
-Travailler dans `CIPL_Git\CIPL` (jamais `CIPL_Test`, copie obsolète) · **ne jamais commiter** (l'utilisatrice s'en charge) · secrets hors dépôt · toute modification de facturation répercutée dans `FACTURATION_CIPL_PENNYLANE.md` · aucune émission Pennylane réelle sans accord explicite (aujourd'hui aucun appel à l'API n'existe dans le code).
+Travailler dans `CIPL_Git\CIPL` (jamais `CIPL_Test`, copie obsolète) · **ne jamais commiter** (l'utilisatrice s'en charge) · secrets hors dépôt · toute modification de facturation répercutée dans `FACTURATION_CIPL_PENNYLANE.md` · aucune émission Pennylane réelle sans accord explicite (le code ne fait que **déposer** des factures incomplètes ; finaliser / transmettre n'existe pas) · **ne jamais finaliser une facture de test** portant un vrai SIREN (ex. Volteo) : elle partirait chez la vraie société.
 
 ---
 

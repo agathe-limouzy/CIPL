@@ -56,6 +56,12 @@ public class Locataire : Data
     public int jourDemandeLoyer;                    // jour du mois où le loyer est demandé (ex. 1 = le 1er)
     public List<int> moisFacturationLoyer = new List<int>(); // mois facturés (si trimestriel/bi-annuel), 1-12
     public string dateRegularisationChargeISO;      // date de régularisation des charges (événement annuel)
+    // Une date et une provision par liste de charges SPÉCIFIQUE (Réglages). La liste
+    // générale garde les deux champs historiques ci-dessus. Voir ListesCharges.
+    public List<RegulListe> regulListes = new List<RegulListe>();
+    // Listes de charges qui le concernent. Vide = toutes. Sinon ses ids ("" = la
+    // générale) : une charge d'une autre liste ne lui est ni proposée, ni répartie.
+    public List<string> listesConcernees = new List<string>();
     // provisionPourCharges (bool) + provisionPourChargeValue (float) existent déjà plus haut.
 
     // Reprise de facturation (bail repris / passif) : échéance de la DERNIÈRE période

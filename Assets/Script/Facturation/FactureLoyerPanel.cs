@@ -39,6 +39,9 @@ public class FactureLoyerPanel : MonoBehaviour
     TMP_Text _titre, _entetePreview, _modeInfo, _mTotalHT, _mTVA, _mTTC, _numeroPrefixe;
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _annee, _refInterne, _sommePhrase, _loyer, _provision, _emailEnvoi;
     TMP_InputField _texteTvaDebit, _texteMensuel;
+    TMP_Text _provisionLabel;                              // provision générale
+    Transform _provListesBox;                              // une provision par liste spécifique
+    readonly List<(string id, TMP_InputField inp)> _provListes = new List<(string, TMP_InputField)>();
     TMP_InputField _emailObjet, _emailCorps;
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _periodeDD;
@@ -232,9 +235,13 @@ public class FactureLoyerPanel : MonoBehaviour
         _loyer = Labeled(mo, "Loyer HT (période)");
         _loyer.contentType = TMP_InputField.ContentType.DecimalNumber;
         _loyer.onValueChanged.AddListener(_ => { RefreshMontants(); RefreshEntetePreview(); });
-        _provision = Labeled(mo, "Provision pour charges");
+        // Provision des charges générales ; les listes spécifiques ont chacune leur
+        // ligne juste en dessous (ProvListes), imprimée sous son nom.
+        _provisionLabel = UIFactory.Text(mo.transform, "Provision pour charges", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        _provision = UIFactory.Input(mo.transform, "Provision pour charges");
         _provision.contentType = TMP_InputField.ContentType.DecimalNumber;
         _provision.onValueChanged.AddListener(_ => { RefreshMontants(); RefreshEntetePreview(); });
+        _provListesBox = UIFactory.VBox(mo.transform, 6, 0, 0, 0, 0, "ProvListes").transform;
         _mTotalHT = MontRow(mo, "Total HT");
         _mTVA     = MontRow(mo, "TVA 20 %");
         _mTTC     = MontRow(mo, "Total TTC");
@@ -354,7 +361,7 @@ public class FactureLoyerPanel : MonoBehaviour
         var ctx = BuildContext();
         var rib = ReglageService.GetRib(_ribDD?.SelectedId);
         var ent = ReglageService.GetEntete(_enteteDD?.SelectedId);
-        float loyer = ParseF(_loyer.text), prov = ParseF(_provision.text);
+        float loyer = ParseF(_loyer.text), prov = ProvisionSaisie();
         float totalHT = loyer + prov, tva = totalHT * .2f, ttc = totalHT * 1.2f;
         // Montant mensuel = TTC de la période ÷ nombre de mois de la période (hors mensuel).
         int moisParPeriode = Mathf.Max(1, 12 / LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer));
@@ -374,6 +381,7 @@ public class FactureLoyerPanel : MonoBehaviour
             subtitle = $"Loyer {ctx.periode}",
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             totalPeriode = loyer, provision = prov, totalHT = totalHT, tva = tva, ttc = ttc,
+            lignesProvision = LignesProvision(),
             tvaDebit = MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
             afficherMensuel = afficheMensuel, montantMensuel = afficheMensuel ? ttc / moisParPeriode : 0f,
             // Les textes libres passent par le même résolveur que l'entête : sans ça,
@@ -749,9 +757,10 @@ public class FactureLoyerPanel : MonoBehaviour
         // Montants pré-remplis (ou repris s'ils ont été saisis/mémorisés).
         int n = LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer);
         float loyerCalc = _loc.loyerAnnuel / n;
-        float provCalc = _loc.provisionPourCharges ? _loc.provisionPourChargeValue : 0f;
+        float provCalc = ListesCharges.Provision(_loc, "");   // charges générales ; les listes suivent
         _loyer.text = (f != null && f.saved ? f.loyerMontant : loyerCalc).ToString("0.00", CultureInfo.InvariantCulture);
         _provision.text = (f != null && f.saved ? f.provisionMontant : provCalc).ToString("0.00", CultureInfo.InvariantCulture);
+        ChargerProvisionsListes(f);
 
         // N° de facture : l'ID locataire mémorisé est repris ; le préfixe format est
         // toujours recalculé. RefreshNumero() remplit l'ID avec la séquence s'il est vide.
@@ -780,9 +789,57 @@ public class FactureLoyerPanel : MonoBehaviour
         RefreshEntetePreview();
     }
 
+    /// Provisions par liste de charges : la générale dans `_provision` (masquée si le
+    /// locataire n'en relève pas), puis une ligne par liste spécifique provisionnée.
+    /// Mémorisées si la facture a été enregistrée, sinon reprises de la fiche.
+    void ChargerProvisionsListes(FactureInfo f)
+    {
+        bool avecListes = ListesCharges.Specifiques().Count > 0;
+        bool generale = ListesCharges.ConcerneParListe(_loc, "");
+        _provisionLabel.text = ListesCharges.LibelleProvision("");
+        _provisionLabel.gameObject.SetActive(generale);
+        _provision.gameObject.SetActive(generale);
+        if (!generale) _provision.text = "0.00";
+
+        _provListes.Clear();
+        foreach (Transform c in _provListesBox) Destroy(c.gameObject);
+        if (!avecListes) return;
+
+        var ids = ListesCharges.Provisionnees(_loc);
+        if (f != null && f.saved && f.provisionsListes != null)
+            foreach (var m in f.provisionsListes)
+                if (m.montant > 0f && !ids.Contains(m.listeId) && ListesCharges.Effective(m.listeId) != "") ids.Add(m.listeId);
+
+        foreach (var id in ids)
+        {
+            var memo = f != null && f.saved ? f.provisionsListes?.Find(m => m.listeId == id) : null;
+            UIFactory.Text(_provListesBox, ListesCharges.LibelleProvision(id), UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            var inp = UIFactory.Input(_provListesBox, ListesCharges.LibelleProvision(id));
+            inp.contentType = TMP_InputField.ContentType.DecimalNumber;
+            inp.text = (memo != null ? memo.montant : ListesCharges.Provision(_loc, id)).ToString("0.00", CultureInfo.InvariantCulture);
+            inp.onValueChanged.AddListener(_ => { RefreshMontants(); RefreshEntetePreview(); });
+            _provListes.Add((id, inp));
+        }
+    }
+
+    /// Total des provisions saisies (générale + listes) : ce qui entre dans le HT.
+    float ProvisionSaisie() => ParseF(_provision.text) + _provListes.Sum(x => ParseF(x.inp.text));
+
+    /// Lignes imprimées : une par liste. Null tant qu'aucune liste spécifique
+    /// n'existe — la facture garde alors sa ligne unique « Provision pour charges ».
+    List<KeyValuePair<string, float>> LignesProvision()
+    {
+        if (ListesCharges.Specifiques().Count == 0) return null;
+        var res = new List<KeyValuePair<string, float>>
+            { new KeyValuePair<string, float>(ListesCharges.LibelleProvision(""), ParseF(_provision.text)) };
+        foreach (var (id, inp) in _provListes)
+            res.Add(new KeyValuePair<string, float>(ListesCharges.LibelleProvision(id), ParseF(inp.text)));
+        return res;
+    }
+
     void RefreshMontants()
     {
-        float loyer = ParseF(_loyer.text), prov = ParseF(_provision.text);
+        float loyer = ParseF(_loyer.text), prov = ProvisionSaisie();
         float totalHT = loyer + prov, tva = totalHT * .2f, ttc = totalHT * 1.2f;
         _mTotalHT.text = $"{totalHT:N2} €";
         _mTVA.text     = $"{tva:N2} €";
@@ -798,7 +855,7 @@ public class FactureLoyerPanel : MonoBehaviour
 
     FactureContext BuildContext()
     {
-        float loyer = ParseF(_loyer.text), prov = ParseF(_provision.text);
+        float loyer = ParseF(_loyer.text), prov = ProvisionSaisie();
         float totalHT = loyer + prov;
         DateTime d = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
         return new FactureContext
@@ -974,7 +1031,7 @@ public class FactureLoyerPanel : MonoBehaviour
         var ctx = BuildContext();
         var rib = ReglageService.GetRib(_ribDD?.SelectedId);
         var ent = ReglageService.GetEntete(_enteteDD?.SelectedId);
-        float loyer = ParseF(_loyer.text), prov = ParseF(_provision.text);
+        float loyer = ParseF(_loyer.text), prov = ProvisionSaisie();
         float totalHT = loyer + prov, tva = totalHT * .2f, ttc = totalHT * 1.2f;
 
         var sb = new System.Text.StringBuilder();
@@ -1065,6 +1122,7 @@ public class FactureLoyerPanel : MonoBehaviour
         f.emailCorps = _emailCorps.text;
         f.loyerMontant = ParseF(_loyer.text);
         f.provisionMontant = ParseF(_provision.text);
+        f.provisionsListes = _provListes.Select(x => new MontantListe { listeId = x.id, montant = ParseF(x.inp.text) }).ToList();
         f.refInterne = _refInterne.text;
         int.TryParse(_periodeDD?.SelectedId, out int pidx);
         f.moisPeriode = pidx > 0 ? pidx : 1;

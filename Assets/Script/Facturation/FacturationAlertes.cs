@@ -53,23 +53,27 @@ public static class FacturationAlertes
         // DÉJÀ ARRIVÉE (peut être passée) → en retard si non traitée ; sinon la
         // prochaine → à préparer si elle approche. (Corrige le cas d'une régul en
         // retard qui n'était jamais signalée car on ne regardait que le futur.)
-        if (loc.provisionPourCharges && DateTime.TryParse(loc.dateRegularisationChargeISO, out var rd))
-        {
-            DateTime echue = DerniereOccurrence(rd.Month, rd.Day, today);          // <= aujourd'hui
-            DateTime prochaine = SafeDate(echue.Year + 1, rd.Month, rd.Day);       // > aujourd'hui
+        // Une alerte par liste de charges : chacune a sa date (voir ListesCharges).
+        if (loc.provisionPourCharges)
+            foreach (var listeId in ListesCharges.DuLocataire(loc))
+            {
+                if (!DateTime.TryParse(ListesCharges.DateRegul(loc, listeId), out var rd)) continue;
+                DateTime echue = DerniereOccurrence(rd.Month, rd.Day, today);          // <= aujourd'hui
+                DateTime prochaine = SafeDate(echue.Year + 1, rd.Month, rd.Day);       // > aujourd'hui
+                string quoi = string.IsNullOrEmpty(listeId) ? "" : $" ({ListesCharges.Nom(listeId)})";
 
-            // Échéance déjà arrivée : en retard, sauf si reprise (historique) ou déjà traitée.
-            bool echueOk = !AvantReprise(loc, echue)
-                           && !FacturationSuivi.DejaTraite(loc, $"regul-{echue.Year - 1}");
-            if (echueOk)
-                res.Add(new Alerte { niveau = Niveau.Urgent, type = AlerteType.Regul,
-                    message = $"URGENT — Régularisation des charges à faire (échue le {echue:dd/MM/yyyy})." });
-            else if (today >= prochaine.AddDays(-RegulAttentionLead)
-                     && !AvantReprise(loc, prochaine)
-                     && !FacturationSuivi.DejaTraite(loc, $"regul-{prochaine.Year - 1}"))
-                res.Add(new Alerte { niveau = Niveau.Attention, type = AlerteType.Regul,
-                    message = $"Régularisation des charges à préparer (le {prochaine:dd/MM/yyyy})." });
-        }
+                // Échéance déjà arrivée : en retard, sauf si reprise (historique) ou déjà traitée.
+                bool echueOk = !AvantReprise(loc, echue)
+                               && !FacturationSuivi.DejaTraite(loc, ListesCharges.Cle(listeId, echue.Year - 1));
+                if (echueOk)
+                    res.Add(new Alerte { niveau = Niveau.Urgent, type = AlerteType.Regul,
+                        message = $"URGENT — Régularisation des charges{quoi} à faire (échue le {echue:dd/MM/yyyy})." });
+                else if (today >= prochaine.AddDays(-RegulAttentionLead)
+                         && !AvantReprise(loc, prochaine)
+                         && !FacturationSuivi.DejaTraite(loc, ListesCharges.Cle(listeId, prochaine.Year - 1)))
+                    res.Add(new Alerte { niveau = Niveau.Attention, type = AlerteType.Regul,
+                        message = $"Régularisation des charges{quoi} à préparer (le {prochaine:dd/MM/yyyy})." });
+            }
 
         // ── Révision du dépôt de garantie ──
         if (loc.depotDeGarantie > 0f && DateTime.TryParse(loc.dateRevisionDepotISO, out var D)

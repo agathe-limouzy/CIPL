@@ -1,6 +1,8 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -101,6 +103,7 @@ public class ReglagePanel : MonoBehaviour
         BuildLogo(content);
         BuildRibs(content);
         BuildEntetes(content);
+        BuildListesCharges(content);
         BuildTextes(content);
         BuildSauvegarde(content);
 
@@ -450,6 +453,130 @@ public class ReglagePanel : MonoBehaviour
         });
     }
 
+    // ── Section Listes de charges ──────────────────────────────────────────────
+
+    Transform _listesList;
+
+    void BuildListesCharges(Transform parent)
+    {
+        var body = UIFactory.Section(parent, "Listes de charges", CoTaupe, CoTaupeL);
+        UIFactory.Text(body.transform,
+            "Par défaut, toutes les charges forment une seule liste, régularisée à une date. "
+            + "Une liste ajoutée ici (ex. « Taxe foncière ») est régularisée à part : on la choisit "
+            + "en créant la charge, et chaque locataire à provision a pour elle sa propre date et sa propre provision.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+        var listGO = UIFactory.VBox(body.transform, 8, 0, 0, 0, 0, "ListesChargesList");
+        _listesList = listGO.transform;
+        var add = UIFactory.Button(body.transform, "+  Ajouter une liste de charges", CoTaupeL, CoTaupe, 40, UITheme.Role.Bouton);
+        add.onClick.AddListener(() => OpenListeForm(null));
+        RebuildListesCharges();
+    }
+
+    void RebuildListesCharges()
+    {
+        foreach (Transform c in _listesList) Destroy(c.gameObject);
+
+        // Liste générale : toujours présente — renommable, jamais supprimable.
+        LigneListe(ListesCharges.NomGenerale + "  (liste par défaut)",
+            () => Modal("Renommer la liste par défaut", body =>
+            {
+                var fNom = ModalField(body, "Nom de la liste", ListesCharges.NomGenerale, ListesCharges.NomGeneraleDefaut);
+                return () =>
+                {
+                    R.nomListeGenerale = string.IsNullOrWhiteSpace(fNom.text) ? ListesCharges.NomGeneraleDefaut : fNom.text.Trim();
+                    ReglageService.Save(); RebuildListesCharges();
+                };
+            }),
+            null);
+
+        foreach (var l in R.listesCharges)
+        {
+            var l2 = l;
+            LigneListe(string.IsNullOrWhiteSpace(l.nom) ? "(sans nom)" : l.nom,
+                () => OpenListeForm(l2),
+                () => SupprimerListe(l2));
+        }
+    }
+
+    /// Refusée tant qu'un locataire à provision doit une charge de cette liste ; sinon
+    /// avertissement, puis ses charges basculent dans la générale (l'historique reste).
+    void SupprimerListe(ListeCharges liste)
+    {
+        if (ConfirmDialog.Instance == null) return;
+        var bps = (BatimentManager.Instance?.BatimentPrefab ?? new List<BatimentPrefab>()).Where(bp => bp != null).ToList();
+        var bats = bps.Select(bp => bp.getBatiment()).Where(b => b != null).ToList();
+
+        var debiteurs = ListesCharges.Debiteurs(bats, liste.id);
+        if (debiteurs.Count > 0)
+        {
+            ConfirmDialog.Instance.Show($"Impossible de supprimer « {liste.nom} »",
+                "Ces locataires doivent encore des charges de cette liste :\n"
+                + string.Join("\n", debiteurs.Take(8).Select(d => $"• {d.loc.Name} ({d.bat.Name}) : {string.Join(", ", d.dues.Select(c => c.nom))}"))
+                + (debiteurs.Count > 8 ? "\n• …" : "")
+                + "\n\nFaites la régularisation de cette liste et attendez son paiement avant de la supprimer.",
+                () => { }, "Compris");
+            return;
+        }
+
+        int nb = bats.Sum(b => b.charges?.Count(c => c != null && c.listeId == liste.id) ?? 0);
+        ConfirmDialog.Instance.Show($"Supprimer la liste « {liste.nom} » ?",
+            (nb > 0 ? $"Ses {nb} charge(s) passent dans « {ListesCharges.NomGenerale} » : elles restent dans l'historique des charges.\n\n"
+                    : "Aucune charge n'est rangée dans cette liste.\n\n")
+            + "Les dates et provisions saisies pour elle chez les locataires sont retirées.",
+            () =>
+            {
+                foreach (var b in bats)
+                {
+                    ListesCharges.BasculerVersGenerale(b, liste.id);
+                    BatimentManager.Instance.SaveBatiment(b);
+                }
+                R.listesCharges.Remove(liste);
+                ReglageService.Save();
+                RebuildListesCharges();
+            }, "Supprimer");
+    }
+
+    /// Une ligne de la liste : nom, « Renommer », et « Supprimer » si `supprimer`
+    /// n'est pas null. Marges intérieures, et boutons à la largeur de leur libellé :
+    /// à largeur fixe, « Renommer » passait sur deux lignes à cette taille de texte.
+    void LigneListe(string nom, Action renommer, Action supprimer)
+    {
+        var row = UIFactory.HBox(_listesList, 8, false, "ListeRow");
+        row.padding = new RectOffset(14, 8, 6, 6);
+        var bg = row.gameObject.AddComponent<Image>();
+        bg.color = UITheme.Fond; bg.sprite = UIFactory.Rounded(); bg.type = Image.Type.Sliced;
+        UIFactory.LE(row.gameObject, minH: 46);
+
+        var t = UIFactory.Text(row.transform, nom, UITheme.Role.Libelle, UITheme.TextePrincipal, true);
+        UIFactory.LE(t.gameObject, flexW: 1);
+
+        var edit = UIFactory.Button(row.transform, "Renommer", UITheme.Carte, UITheme.TextePrincipal, 34, UITheme.Role.Action);
+        UIFactory.Border(edit.gameObject);
+        UIFactory.LargeurDuTexte(edit);
+        edit.onClick.AddListener(() => renommer());
+
+        if (supprimer == null) return;
+        var del = UIFactory.Button(row.transform, "Supprimer", UITheme.AlerteClair, UITheme.AlerteTexte, 34, UITheme.Role.Action);
+        UIFactory.LargeurDuTexte(del);
+        del.onClick.AddListener(() => supprimer());
+    }
+
+    void OpenListeForm(ListeCharges existing)
+    {
+        var liste = existing ?? new ListeCharges();
+        Modal(existing == null ? "Nouvelle liste de charges" : "Renommer la liste", body =>
+        {
+            var fNom = ModalField(body, "Nom de la liste", liste.nom, "Taxe foncière…");
+            return () =>
+            {
+                if (string.IsNullOrWhiteSpace(fNom.text)) return;
+                liste.nom = fNom.text.Trim();
+                if (existing == null) R.listesCharges.Add(liste);
+                ReglageService.Save(); RebuildListesCharges();
+            };
+        });
+    }
+
     // ── Section Textes fixes ───────────────────────────────────────────────────
 
     void BuildTextes(Transform parent)
@@ -569,6 +696,7 @@ public class ReglagePanel : MonoBehaviour
         if (_logoPreview != null) RefreshLogo();
         RebuildRibList();
         RebuildEnteteList();
+        RebuildListesCharges();
         if (_savePath != null)
         {
             int nb = SaveIO.CountBatiments();

@@ -67,6 +67,15 @@ public class RevisionPanel : MonoBehaviour
     readonly bool[] _moisState = new bool[12];
     bool _extraBuilt;
 
+    // Listes de charges spécifiques (Réglages) : une date de régularisation et une
+    // provision par liste. La générale garde les champs du prefab au-dessus.
+    GameObject _listesBlockGO;
+    Transform _lignesListes;                    // lignes date + provision (si provision)
+    // Une case par liste (la générale = id "") : celles qui concernent ce locataire.
+    readonly List<(string id, Toggle t)> _choixListes = new List<(string, Toggle)>();
+    readonly List<(string id, DateInputController date, TMP_InputField prov)> _listesChamps
+        = new List<(string, DateInputController, TMP_InputField)>();
+
     // Avertissement inline placé SOUS le « Trimestre de révision » (au lieu du bas
     // de la modale) + désactivation du bouton « Réviser » quand le trimestre est mauvais.
     TMP_Text _trimWarn;
@@ -113,6 +122,7 @@ public class RevisionPanel : MonoBehaviour
             _dateRegulCtrl.ApplyDate(drDate);
         else { _dateRegulCtrl.dayInput.text = ""; _dateRegulCtrl.monthInput.text = ""; _dateRegulCtrl.yearInput.text = ""; }
         _dateRegulCtrl.ModifyDate();
+        RebuildListes(loc);
         for (int i = 0; i < 12; i++) _moisState[i] = false;
         if (loc.moisFacturationLoyer != null)
             foreach (int m in loc.moisFacturationLoyer)
@@ -574,6 +584,7 @@ public class RevisionPanel : MonoBehaviour
             }
             else _loc.dateRegularisationChargeISO = "";
         }
+        AppliquerListes();
         _loc.moisFacturationLoyer = new List<int>();
         for (int i = 0; i < 12; i++) if (_moisState[i]) _loc.moisFacturationLoyer.Add(i + 1);
     }
@@ -627,6 +638,11 @@ public class RevisionPanel : MonoBehaviour
             new List<string> { "Aucune (nouveau bail)" }, new List<string> { "" }, 0, _ => { });
         rv.transform.SetSiblingIndex(regulGO.transform.GetSiblingIndex() + 1);
 
+        // Listes de charges spécifiques : juste sous la date de régularisation générale.
+        var lb = UIFactory.VBox(content, 6, 0, 0, 4, 4, "ListesChargesBlock");
+        _listesBlockGO = lb.gameObject;
+        lb.transform.SetSiblingIndex(regulGO.transform.GetSiblingIndex() + 1);
+
         // Bouton « Enregistrer » (volet Modalités) — clone du bouton Réviser, même
         // visuel, glissé dans la rangée de boutons juste après lui.
         if (btnReviser != null)
@@ -655,7 +671,179 @@ public class RevisionPanel : MonoBehaviour
     void RefreshRegulVisibility()
     {
         bool show = _volet == Volet.Modalites && toggleProvisions.isOn;
-        if (_regulBlockGO != null) _regulBlockGO.SetActive(show);
+        // Avec des listes spécifiques, la générale a sa ligne en bas comme les autres :
+        // le montant à côté de la case et la date du prefab feraient doublon.
+        bool avecListes = ListesCharges.Specifiques().Count > 0;
+        if (_regulBlockGO != null) _regulBlockGO.SetActive(show && !avecListes);
+        ProvContainer().SetActive(toggleProvisions.isOn && !avecListes);
+        // Les listes n'existent qu'avec une provision : sans elle, le locataire relève de
+        // toutes les charges, comme avant les listes (voir ListesCharges.ConcerneParListe).
+        if (_listesBlockGO != null) _listesBlockGO.SetActive(show && avecListes);
+    }
+
+    // Champ montant + « € » à côté de la case Provisions.
+    GameObject ProvContainer() => provisionValue.transform.parent != null
+        ? provisionValue.transform.parent.gameObject : provisionValue.gameObject;
+
+    // Choix des listes qui concernent le locataire (une case par liste, toutes cochées =
+    // toutes), puis une ligne « date + provision » par liste cochée.
+    void RebuildListes(Locataire loc)
+    {
+        _listesChamps.Clear();
+        _choixListes.Clear(); _lignesListes = null;
+        if (_listesBlockGO == null) return;
+        foreach (Transform c in _listesBlockGO.transform) Destroy(c.gameObject);
+
+        var specs = ListesCharges.Specifiques();
+        if (specs.Count == 0) return;
+
+        UIFactory.Text(_listesBlockGO.transform, "Listes de charges concernées", UITheme.Role.Libelle, UITheme.TextePrincipal, true);
+        var ids = new List<string> { "" };
+        ids.AddRange(specs.Select(l => l.id));
+        foreach (var id in ids)
+        {
+            var t = UIFactory.Toggle(_listesBlockGO.transform, ListesCharges.Nom(id), ListesCharges.ConcerneParListe(loc, id));
+            t.onValueChanged.AddListener(on =>
+            {
+                // Au moins une liste : aucune case cochée voudrait dire « aucune charge ».
+                if (!on && _choixListes.All(x => !x.t.isOn)) { t.SetIsOnWithoutNotify(true); return; }
+                if (!on && !RetraitImmediat(loc, id, t)) return;   // décision dans la boîte de dialogue
+                RebuildLignesListes(loc);
+            });
+            _choixListes.Add((id, t));
+        }
+        UIFactory.Text(_listesBlockGO.transform,
+            "Une charge d'une liste décochée ne lui est ni proposée, ni répartie.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+
+        _lignesListes = UIFactory.VBox(_listesBlockGO.transform, 6, 0, 0, 0, 0, "LignesListes").transform;
+        RebuildLignesListes(loc);
+    }
+
+    /// Retirer une liste à un locataire qui y a des charges. Il en doit encore une
+    /// (non régularisée, ou non encaissée) → refusé : on la lui ferait perdre de vue
+    /// avant de l'avoir fait payer. Toutes payées → avertissement, retrait possible.
+    /// Aucune charge → retrait direct. Renvoie vrai si la case peut rester décochée
+    /// tout de suite ; sinon elle est recochée et la boîte de dialogue décide.
+    bool RetraitImmediat(Locataire loc, string listeId, Toggle caseListe)
+    {
+        // Liste qu'il n'avait pas encore (cochée puis décochée) : rien à protéger.
+        if (!ListesCharges.ConcerneParListe(loc, listeId)) return true;
+
+        var bat = BatimentManager.Instance?.BatimentPrefab?
+            .Find(bp => bp != null && bp.listLocataire.Contains(loc))?.getBatiment();
+        var toutes = ListesCharges.ChargesDeListe(bat, loc, listeId, false);
+        if (toutes.Count == 0) return true;
+
+        string nom = ListesCharges.Nom(listeId);
+        var dues = ListesCharges.ChargesDeListe(bat, loc, listeId, true);
+        caseListe.SetIsOnWithoutNotify(true);   // en attendant la décision
+
+        if (dues.Count > 0)
+        {
+            string detail = $"{loc.Name} a encore {dues.Count} charge(s) « {nom} » non payée(s) : "
+                + string.Join(", ", dues.Take(5).Select(c => c.nom)) + (dues.Count > 5 ? "…" : "")
+                + ".\n\nFaites la régularisation de toutes les charges de cette liste et attendez son "
+                + "paiement avant de la lui retirer.";
+            if (ConfirmDialog.Instance != null)
+                ConfirmDialog.Instance.Show($"Impossible de retirer « {nom} »", detail, () => { }, "Compris");
+            else UndoToast.Instance?.ShowInfo(detail);
+            return false;
+        }
+
+        string avert = $"{loc.Name} a {toutes.Count} charge(s) « {nom} », toutes payées.\n\n"
+            + "Les prochaines charges de cette liste ne lui seront plus proposées ni réparties. Retirer quand même ?";
+        if (ConfirmDialog.Instance == null) { UndoToast.Instance?.ShowInfo(avert); return false; }
+        ConfirmDialog.Instance.Show($"Retirer « {nom} » ?", avert, () =>
+        {
+            caseListe.SetIsOnWithoutNotify(false);
+            RebuildLignesListes(loc);
+        }, "Retirer");
+        return false;
+    }
+
+    /// Listes cochées ; toutes si aucune case (pas de liste spécifique).
+    List<string> ListesChoisies()
+        => _choixListes.Count == 0 ? new List<string> { "" }
+         : _choixListes.Where(x => x.t != null && x.t.isOn).Select(x => x.id).ToList();
+
+    void RebuildLignesListes(Locataire loc)
+    {
+        if (_lignesListes == null) return;
+        // Ce qui a déjà été tapé survit au changement de choix.
+        var saisi = _listesChamps.ToDictionary(x => x.id,
+            x => (x.date.LireDate(out var dd) ? dd.ToString("yyyy-MM-dd") : null, x.prov.text));
+        _listesChamps.Clear();
+        foreach (Transform c in _lignesListes) Destroy(c.gameObject);
+
+        // Une ligne par liste retenue, la générale en tête (id "") : toutes sur le même
+        // modèle — nom, date de régularisation, provision par période.
+        var choisies = ListesChoisies();
+        var retenues = new List<(string id, string nom, string dateISO, float prov)>();
+        if (choisies.Contains(""))
+            retenues.Add(("", ListesCharges.NomGenerale, loc?.dateRegularisationChargeISO, loc != null ? loc.provisionPourChargeValue : 0f));
+        foreach (var l in ListesCharges.Specifiques().Where(l => choisies.Contains(l.id)))
+        {
+            var rl = ListesCharges.De(loc, l.id);
+            retenues.Add((l.id, l.nom, rl?.dateISO, rl?.provision ?? 0f));
+        }
+
+        UIFactory.Text(_lignesListes,
+            "Pour chaque liste : date de régularisation (vide = pas de régularisation) et provision par période.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+        foreach (var (id, nom, dateISO, provision) in retenues)
+        {
+            saisi.TryGetValue(id, out var deja);
+
+            // Même saisie de date que partout dans l'app : clone du bloc « Date de
+            // révision » (cases JJ / MM / AAAA), comme la date de régularisation générale.
+            var bloc = Instantiate(dateDeRevision.gameObject, _lignesListes);
+            bloc.name = "DateRegul_" + nom;
+            bloc.SetActive(true);
+            var date = bloc.GetComponent<DateInputController>();
+            date.OnModify.RemoveAllListeners();
+            var titre = bloc.transform.Find("Titre")?.GetComponent<TMP_Text>();
+            if (titre != null) titre.text = $"{nom} — date de régularisation";
+            if (DateTime.TryParse(deja.Item1 ?? dateISO, out var d)) date.ApplyDate(d);
+            else { date.dayInput.text = ""; date.monthInput.text = ""; date.yearInput.text = ""; }
+            date.ModifyDate();
+
+            UIFactory.Text(_lignesListes, $"{nom} — provision par période (€)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            var prov = UIFactory.Input(_lignesListes, "0");
+            prov.contentType = TMP_InputField.ContentType.DecimalNumber;
+            prov.text = deja.Item2 ?? (provision > 0f ? provision.ToString("0.##", CultureInfo.InvariantCulture) : "");
+            UIFactory.LE(prov.gameObject, minH: 40);
+            _listesChamps.Add((id, date, prov));
+        }
+    }
+
+    void AppliquerListes()
+    {
+        if (_loc == null) return;
+        if (_choixListes.Count > 0)
+        {
+            // Toutes cochées = aucune restriction (liste vide) : une liste créée plus
+            // tard dans les Réglages le concernera d'office, comme aujourd'hui.
+            var choisies = ListesChoisies();
+            _loc.listesConcernees = choisies.Count == _choixListes.Count ? new List<string>() : choisies;
+        }
+        _loc.regulListes ??= new List<RegulListe>();
+        foreach (var (id, date, prov) in _listesChamps)
+        {
+            // Charges générales : ses champs historiques (ceux du prefab sont masqués
+            // quand des listes existent, et écrits avant cet appel).
+            string iso = date.LireDate(out var d) ? d.ToString("yyyy-MM-dd") : "";
+            if (id == "")
+            {
+                _loc.dateRegularisationChargeISO = iso;
+                _loc.provisionPourChargeValue = toggleProvisions.isOn ? SaisieNumerique.Parse(prov.text) : 0f;
+                continue;
+            }
+            var rl = ListesCharges.De(_loc, id);
+            if (rl == null) { rl = new RegulListe { listeId = id }; _loc.regulListes.Add(rl); }
+            rl.dateISO = iso;
+            rl.provision = toggleProvisions.isOn ? SaisieNumerique.Parse(prov.text) : 0f;
+        }
     }
 
     // Options du sélecteur de reprise : « Aucune » + périodes récentes (4 ans),
@@ -789,6 +977,7 @@ public class RevisionPanel : MonoBehaviour
             }
             else _loc.dateRegularisationChargeISO = "";
         }
+        AppliquerListes();
 
         _loc.moisFacturationLoyer = new List<int>();
         for (int i = 0; i < 12; i++) if (_moisState[i]) _loc.moisFacturationLoyer.Add(i + 1);

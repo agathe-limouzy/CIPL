@@ -57,6 +57,9 @@ public static class FacturePdfService
         public string ligneLabel;   // libellé de la 1re ligne du tableau (« Total de la période », nom de charge…)
         public string dateStr, numero, subtitle, bodyHtml, sommePhrase;
         public float totalPeriode, provision, totalHT, tva, ttc;
+        // Une ligne par liste de charges (libellé, montant). Null = une seule ligne
+        // « Provision pour charges » de `provision`, comme avant les listes.
+        public System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, float>> lignesProvision;
         public bool tvaDebit, retard;
         public bool afficherMensuel;   // ligne « montant mensuel à régler »
         public float montantMensuel;   // TTC de la période ÷ nombre de mois de la période
@@ -86,8 +89,7 @@ public static class FacturePdfService
             .Replace("{{SUBTITLE}}", H(d.subtitle))
             .Replace("{{LIGNE_LABEL}}", H(string.IsNullOrEmpty(d.ligneLabel) ? "Total de la période" : d.ligneLabel))
             .Replace("{{TOTAL_PERIODE}}", Euro(d.totalPeriode))
-            .Replace("{{PROVISION_ROW}}", d.provision > 0f
-                ? $"<tr><td>Provision pour charges</td><td class=\"r\">{Euro(d.provision)}</td></tr>" : "")
+            .Replace("{{PROVISION_ROW}}", LignesProvision(d))
             .Replace("{{TOTAL_HT}}", Euro(d.totalHT))
             .Replace("{{TVA}}", Euro(d.tva))
             .Replace("{{TTC}}", Euro(d.ttc))
@@ -105,6 +107,17 @@ public static class FacturePdfService
             .Replace("{{LEGAL}}", d.retard ? H(d.legal) : "")
             .Replace("{{FOOT1}}", H(d.foot1))
             .Replace("{{FOOT2}}", H(d.foot2));
+    }
+
+    /// Lignes de provision du tableau : une par liste de charges (montant nul omis).
+    static string LignesProvision(Data d)
+    {
+        var lignes = d.lignesProvision ?? new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, float>>
+            { new System.Collections.Generic.KeyValuePair<string, float>("Provision pour charges", d.provision) };
+        var sb = new System.Text.StringBuilder();
+        foreach (var l in lignes)
+            if (l.Value > 0f) sb.Append($"<tr><td>{H(l.Key)}</td><td class=\"r\">{Euro(l.Value)}</td></tr>");
+        return sb.ToString();
     }
 
     /// Écrit le PDF à `pdfPath`. Renvoie true si OK. Lance Edge en headless.

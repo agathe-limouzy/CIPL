@@ -70,6 +70,12 @@ public class ReglageData
     public List<RibData> ribs = new List<RibData>();
     public List<EnteteData> entetes = new List<EnteteData>();
 
+    // Listes de charges régularisées À PART (ex. « Taxe foncière »). Vide = une seule
+    // liste, la générale, comme avant. Voir ListesCharges.
+    public List<ListeCharges> listesCharges = new List<ListeCharges>();
+    // Nom affiché de la liste générale (toujours présente, renommable, non supprimable).
+    public string nomListeGenerale = ListesCharges.NomGeneraleDefaut;
+
     // Logo affiché sur les factures (chemin d'image copiée dans le dossier de
     // sauvegarde). Vide = logo CIPL par défaut (StreamingAssets/logo_cipl.png).
     public string logoPath;

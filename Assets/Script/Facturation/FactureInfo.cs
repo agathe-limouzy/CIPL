@@ -66,6 +66,11 @@ public class FactureInfo
     public string objet;            // objet/titre (ex « Loyer avril 2026 »), éditable
     public string refInterne;       // texte libre affiché avec le n° (ex « N° Interne Magasin 001048 »)
     public string chargeId;         // refacturation : id de la charge refacturée
+    // Régularisation : listes de charges régularisées ensemble ("" = générale). Une
+    // seule facture couvre toutes celles cochées.
+    public System.Collections.Generic.List<string> listesRegul = new System.Collections.Generic.List<string>();
+    // Loyer : provision par liste SPÉCIFIQUE (la générale reste `provisionMontant`).
+    public System.Collections.Generic.List<MontantListe> provisionsListes = new System.Collections.Generic.List<MontantListe>();
     public bool joindrePj;          // refacturation : joindre le justificatif de la charge
 
     // Dépôt : phrases du bloc explicatif imprimé sous le titre. Propres à CETTE

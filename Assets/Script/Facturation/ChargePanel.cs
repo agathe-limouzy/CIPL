@@ -26,6 +26,7 @@ public class ChargePanel : MonoBehaviour
     ChargeBatiment _edit;
     bool _isNew;
     Toggle _fTous;
+    UIDropdown _fListe;   // liste de charges ; null s'il n'y a que la générale
     readonly Dictionary<string, Toggle> _fLoc = new Dictionary<string, Toggle>();
     readonly Dictionary<string, TMP_InputField> _fRatio = new Dictionary<string, TMP_InputField>();
     readonly List<TMP_InputField> _manualEditable = new List<TMP_InputField>();
@@ -103,6 +104,20 @@ public class ChargePanel : MonoBehaviour
         var fDate = LabeledInput(body, "Date", "JJ/MM/AAAA",
             DateTime.TryParse(_edit.dateISO, out var de) ? de.ToString("dd/MM/yyyy") : "");
 
+        // Liste de charges : proposée seulement si des listes spécifiques existent
+        // (Réglages). Chaque liste est régularisée à sa propre date.
+        _fListe = null;
+        if (ListesCharges.Specifiques().Count > 0)
+        {
+            UIFactory.Text(body, "Liste de charges (régularisée à sa propre date)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+            var ids = new List<string> { "" };
+            ids.AddRange(ListesCharges.Specifiques().Select(l => l.id));
+            // Changer de liste change les locataires qui peuvent la porter.
+            _fListe = UIDropdown.Create(body, ids.Select(ListesCharges.Nom).ToList(), ids,
+                Mathf.Max(0, ids.IndexOf(ListesCharges.Effective(_edit.listeId))),
+                _ => { if (_locBox != null) { RefreshLocBox(); RebuildRatio(); } });
+        }
+
         // Locataires concernés
         UIFactory.Text(body, "Locataire(s) concerné(s)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _fTous = UIFactory.Toggle(body, "Tous les locataires", _edit.tousLocataires);
@@ -127,8 +142,11 @@ public class ChargePanel : MonoBehaviour
         UIFactory.Border(clearPdf.gameObject); UIFactory.LE(clearPdf.gameObject, prefW: 90, flexW: 0);
         clearPdf.onClick.AddListener(() => { _fPdf = null; if (_fPdfLabel != null) _fPdfLabel.text = PdfLabel(); });
 
-        // Statut
-        var fPaye = UIFactory.Toggle(body, "Payé (sinon : impayé)", _edit.paye);
+        // Statut. Le paiement d'une facture se suit par locataire, dans son suivi ;
+        // cette case retire la charge du choix de TOUS (réglée hors facturation).
+        var fPaye = UIFactory.Toggle(body, "Réglée pour tous (plus proposée à la refacturation ni à la régularisation)", _edit.paye);
+        if (_edit.EstFacturee)
+            UIFactory.Text(body, $"État par locataire : {_edit.Etat}.", UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         RefreshLocBox();
         RebuildRatio();
@@ -157,7 +175,7 @@ public class ChargePanel : MonoBehaviour
         _locBox.gameObject.SetActive(show);
         if (!show) return;
 
-        foreach (var l in _bp.listLocataire)
+        foreach (var l in Attribuables())
         {
             string nom = string.IsNullOrEmpty(l.Name) ? $"Lot {l.lotBatiment}" : l.Name;
             bool on = _edit.locatairesConcernes != null && _edit.locatairesConcernes.Contains(l.id);
@@ -169,8 +187,16 @@ public class ChargePanel : MonoBehaviour
 
     List<Locataire> Concerned()
     {
-        if (_fTous.isOn) return _bp.listLocataire.ToList();
-        return _bp.listLocataire.Where(l => _fLoc.TryGetValue(l.id, out var t) && t.isOn).ToList();
+        if (_fTous.isOn) return Attribuables();
+        return Attribuables().Where(l => _fLoc.TryGetValue(l.id, out var t) && t.isOn).ToList();
+    }
+
+    /// Locataires qui peuvent porter la charge : ceux concernés par sa liste. Un
+    /// locataire limité à une autre liste n'est ni proposé, ni compté dans « Tous ».
+    List<Locataire> Attribuables()
+    {
+        string liste = _fListe != null ? _fListe.SelectedId : _edit.listeId;
+        return _bp.listLocataire.Where(l => ListesCharges.ConcerneParListe(l, liste)).ToList();
     }
 
     // Section « répartition » : visible seulement si > 1 locataire concerné.
@@ -308,6 +334,7 @@ public class ChargePanel : MonoBehaviour
         _edit.cout = ParseFloat(coutTxt);
         _edit.dateISO = TryParseFr(dateTxt, out var dt) ? dt.ToString("yyyy-MM-dd") : _edit.dateISO;
         _edit.paye = paye;
+        if (_fListe != null) _edit.listeId = ListesCharges.Effective(_fListe.SelectedId);
 
         _edit.tousLocataires = _fTous.isOn;
         var concerned = Concerned();

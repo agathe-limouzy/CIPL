@@ -72,15 +72,17 @@ public static class FacturationSuivi
                 $"Loyer {PeriodeLibelle(loc.periodiciteLoyer, p, year)}", ech, 0f));
         }
 
-        // Régularisation des charges de l'année (si provision) — faite en janvier N+1.
+        // Régularisation des charges de l'année (si provision) — faite en N+1, à la
+        // date de chaque liste : la générale, puis chaque liste spécifique datée.
         if (loc.provisionPourCharges)
-        {
-            DateTime ech = TryEcheance(loc.dateRegularisationChargeISO, out var dr)
-                ? new DateTime(year + 1, dr.Month, Mathf.Min(dr.Day, DateTime.DaysInMonth(year + 1, dr.Month)))
-                : new DateTime(year + 1, 1, 31);
-            res.Add(Fusion(stored, $"regul-{year}", "Regul",
-                $"Régularisation des charges {year}", ech, 0f));
-        }
+            foreach (var listeId in ListesCharges.DuLocataire(loc))
+            {
+                DateTime ech = TryEcheance(ListesCharges.DateRegul(loc, listeId), out var dr)
+                    ? new DateTime(year + 1, dr.Month, Mathf.Min(dr.Day, DateTime.DaysInMonth(year + 1, dr.Month)))
+                    : new DateTime(year + 1, 1, 31);
+                res.Add(Fusion(stored, ListesCharges.Cle(listeId, year), "Regul",
+                    ListesCharges.Libelle(listeId, year), ech, 0f));
+            }
 
         // Révision du dépôt de garantie (si la date limite tombe cette année).
         if (loc.depotDeGarantie > 0f && TryEcheance(loc.dateRevisionDepotISO, out var dd) && dd.Year == year)
@@ -93,6 +95,18 @@ public static class FacturationSuivi
             if (r.type != "Refac") continue;
             int ry = TryEcheance(r.echeanceISO, out var re) ? re.Year : year;
             if (ry == year && !res.Any(x => x.key == r.key)) res.Add(CopieDe(r));
+        }
+
+        // Régularisations DÉJÀ ÉMISES de l'année qui ne sont plus planifiées (liste
+        // supprimée, date ou provision retirée, locataire limité à une autre liste) :
+        // une facture partie ne disparaît pas du suivi pour autant.
+        foreach (var r in stored)
+        {
+            if (r.type != "Regul" || res.Any(x => x.key == r.key)) continue;
+            if (!ListesCharges.LireCle(r.key, out int annee, out _) || annee != year) continue;
+            var e = EtatDe(r);
+            if (e == Etat.AttenteEnvoi || e == Etat.Envoye || e == Etat.Impaye || e == Etat.Paye)
+                res.Add(CopieDe(r));
         }
 
         // Reprise de passif : toute période d'échéance ≤ date de reprise et sans
@@ -344,11 +358,24 @@ public static class FacturationSuivi
                 echeanceISO = ligne.echeanceISO, montant = ligne.montant };
             loc.facturesEtat.Add(rec);
         }
-        rec.statut = statut ?? "";
-        if (statut == "Envoye" && string.IsNullOrEmpty(rec.dateEnvoiISO))
-            rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
+        // Une régularisation regroupant plusieurs listes est UNE facture portée par
+        // plusieurs lignes : elles changent d'état ensemble.
+        foreach (var r in MemeFacture(loc, rec.key).DefaultIfEmpty(rec))
+        {
+            r.statut = statut ?? "";
+            if (statut == "Envoye" && string.IsNullOrEmpty(r.dateEnvoiISO))
+                r.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
+            RepercuterSurCharges(loc, bat, r, EtatDe(r));
+        }
+    }
 
-        RepercuterSurCharges(loc, bat, rec, EtatDe(rec));
+    /// Lignes portant la même facture que la ligne `key` (même PDF) — plusieurs pour
+    /// une régularisation regroupée, une seule sinon. Vide si la ligne n'a pas de PDF.
+    public static List<FactureEtat> MemeFacture(Locataire loc, string key)
+    {
+        var rec = loc?.facturesEtat?.FirstOrDefault(x => x.key == key);
+        if (rec == null || string.IsNullOrEmpty(rec.pdfPath)) return new List<FactureEtat>();
+        return loc.facturesEtat.Where(x => x.pdfPath == rec.pdfPath).ToList();
     }
 
     /// Les charges couvertes par cette facture suivent son sort.
@@ -357,11 +384,12 @@ public static class FacturationSuivi
     /// facture est partie mais pas réglée : elles repassent « en attente », ce qui
     /// permet de corriger une validation faite par erreur sans rien perdre.
     ///
-    /// Leur date de mise sur facture (`factureeISO`) n'est jamais effacée : elles ne
-    /// doivent pas redevenir sélectionnables, la facture ayant bien été émise.
+    /// Seule la part de CE locataire change : les autres locataires d'une charge
+    /// partagée ont leur propre facture et leur propre paiement. Sa mise sur facture
+    /// n'est jamais effacée : la charge ne redevient pas sélectionnable pour lui.
     static void RepercuterSurCharges(Locataire loc, Batiment bat, FactureEtat ligne, Etat etat)
     {
-        if (bat?.charges == null || ligne == null || string.IsNullOrEmpty(ligne.key)) return;
+        if (bat?.charges == null || loc == null || ligne == null || string.IsNullOrEmpty(ligne.key)) return;
 
         bool payee = etat == Etat.Paye;
 
@@ -369,24 +397,20 @@ public static class FacturationSuivi
         if (ligne.key.StartsWith("refac-"))
         {
             string chargeId = ligne.key.Substring("refac-".Length);
-            var c = bat.charges.FirstOrDefault(x => x != null && x.id == chargeId);
-            if (c != null && c.EstFacturee) c.paye = payee;
+            bat.charges.FirstOrDefault(x => x != null && x.id == chargeId)?.MarquerPayee(loc.id, payee);
             return;
         }
 
         // Régularisation : la clé porte l'année. On ne touche qu'aux charges déjà
-        // portées sur une facture — les autres n'ont rien à voir avec celle-ci.
-        if (ligne.key.StartsWith("regul-")
-            && int.TryParse(ligne.key.Substring("regul-".Length), out int annee))
+        // portées sur une facture de ce locataire — une charge qu'il s'est vu
+        // refacturer à part a sa propre ligne, et n'est pas concernée ici.
+        if (ListesCharges.LireCle(ligne.key, out int annee, out string listeId))
         {
             foreach (var c in bat.charges)
             {
-                if (c == null || !c.EstFacturee) continue;
-                if (TryYear(c.dateISO) != annee) continue;
-
-                bool concerne = c.tousLocataires
-                    || (c.locatairesConcernes != null && c.locatairesConcernes.Contains(loc.id));
-                if (concerne) c.paye = payee;
+                if (c == null || TryYear(c.dateISO) != annee || !ListesCharges.DeLaListe(c, listeId)) continue;
+                if (loc.facturesEtat?.Any(x => x.key == "refac-" + c.id) == true) continue;
+                c.MarquerPayee(loc.id, payee);
             }
         }
     }

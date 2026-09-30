@@ -253,7 +253,7 @@ public class InvestissementListPanel : MonoBehaviour
                 // Trois états, pas deux : une charge facturée n'est pas payée, mais
                 // l'afficher « impayé » laisserait croire qu'elle reste à refacturer.
                 ui.txtMensualite.text = ch.Etat;
-                ui.txtMensualite.color = ch.paye ? Col("#0F6E56")
+                ui.txtMensualite.color = ch.EstPayee ? Col("#0F6E56")
                                        : ch.EstFacturee ? Col("#EF9F27")   // ambre : en attente
                                        : Col("#D85A30");
             }

@@ -83,7 +83,9 @@ public class FactureEnvoiAuto : MonoBehaviour
             {
                 if (loc?.facturesEtat == null) continue;
                 foreach (var rec in loc.facturesEtat)
-                    if (DoitPartir(loc, rec, aujourdhui, File.Exists, out string dest, out string pdf))
+                    if (DoitPartir(loc, rec, aujourdhui, File.Exists, out string dest, out string pdf)
+                        // Régularisation regroupée : plusieurs lignes, UN document — il ne part qu'une fois.
+                        && !res.Exists(x => x.loc == loc && x.pdfAbsolu == pdf))
                         res.Add(new Candidate { bp = bp, loc = loc, rec = rec,
                                                 destinataire = dest, pdfAbsolu = pdf });
             }
@@ -248,8 +250,9 @@ public class FactureEnvoiAuto : MonoBehaviour
             UITheme.Role.Aide, UITheme.TextePrincipal);
         UIFactory.LE(txt.gameObject, flexW: 1, minW: 260);
 
+        float total = Contexte(c.loc, c.rec).ttc;   // tout le document, même regroupé
         var montant = UIFactory.Text(row.transform,
-            c.rec.montant > 0f ? c.rec.montant.ToString("#,##0.00", Fr) + " €" : "—",
+            total > 0f ? total.ToString("#,##0.00", Fr) + " €" : "—",
             UITheme.Role.Aide, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
         UIFactory.LE(montant.gameObject, prefW: 130, minW: 130, flexW: 0);
         return t;
@@ -320,7 +323,7 @@ public class FactureEnvoiAuto : MonoBehaviour
             _etat.text = $"Envoi {ok + echecs + 1}/{choisies.Count} — {c.loc.Name}…";
 
             var info = c.loc.FactureInfoDe(c.rec.type);
-            var ctx = Contexte(c.rec);
+            var ctx = Contexte(c.loc, c.rec);
             var bat = c.bp != null ? c.bp.getBatiment() : null;
             string objet = FactureVarResolver.Resolve(
                 FacturePdfService.Texte(info?.emailObjet, EmailService.ObjetDefaut), c.loc, bat, ctx);
@@ -335,8 +338,11 @@ public class FactureEnvoiAuto : MonoBehaviour
                 // Le PDF et le numéro existent déjà : on ne réémet rien, on constate le
                 // départ. D'où la mise à jour du statut seul, sans passer par
                 // FactureEmission — qui consommerait une nouvelle séquence.
-                c.rec.statut = "Envoye";
-                c.rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
+                foreach (var r in FacturationSuivi.MemeFacture(c.loc, c.rec.key).DefaultIfEmpty(c.rec))
+                {
+                    r.statut = "Envoye";
+                    r.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
+                }
                 if (c.bp != null) c.bp.SaveAfterModifyToDoListLocataire();
                 ok++;
             }
@@ -356,9 +362,10 @@ public class FactureEnvoiAuto : MonoBehaviour
     /// Contexte de résolution des variables du message. La facture étant déjà générée,
     /// ses valeurs se lisent sur la ligne de suivi — inutile de refaire les calculs du
     /// panneau. La TVA est déduite du TTC au taux normal, comme à l'émission.
-    static FactureContext Contexte(FactureEtat rec)
+    static FactureContext Contexte(Locataire loc, FactureEtat rec)
     {
-        float ttc = rec.montant;
+        // Montant du DOCUMENT : une régularisation regroupée le répartit sur ses lignes.
+        float ttc = FacturationSuivi.MemeFacture(loc, rec.key).DefaultIfEmpty(rec).Sum(r => r.montant);
         float ht = ttc / 1.2f;
         return new FactureContext
         {

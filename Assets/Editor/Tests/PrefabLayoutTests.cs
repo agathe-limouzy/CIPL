@@ -81,6 +81,79 @@ public class PrefabLayoutTests
             + string.Join("\n  ", fautifs));
     }
 
+    /// Même défaut que ci-dessus, sur une case à cocher : la case « Provisions » de la
+    /// révision du loyer (le 29/09) était à 0 px depuis que ses groupes n'étirent plus
+    /// leurs enfants — la provision était devenue impossible à activer, sans erreur.
+    /// Une case n'annonce pas de hauteur d'elle-même : un groupe qui la dimensionne
+    /// sans l'étirer doit la recevoir avec un `LayoutElement`.
+    [Test]
+    public void Toute_case_a_cocher_dimensionnee_par_un_groupe_a_une_hauteur()
+    {
+        var fautifs = new List<string>();
+
+        foreach (var prefab in Prefabs())
+        foreach (var t in prefab.GetComponentsInChildren<Toggle>(true))
+        {
+            if (!t.gameObject.activeSelf) continue;   // désactivée : hors mise en page
+            var lg = t.transform.parent != null ? t.transform.parent.GetComponent<HorizontalOrVerticalLayoutGroup>() : null;
+            if (lg == null || !lg.childControlHeight || lg.childForceExpandHeight) continue;
+            if (LayoutUtility.GetPreferredHeight((RectTransform)t.transform) > 0f) continue;
+            var le = t.GetComponent<LayoutElement>();
+            if (le != null && (le.preferredHeight > 0f || le.minHeight > 0f)) continue;
+            fautifs.Add($"{prefab.name} : {Chemin(t.transform)}");
+        }
+
+        Assert.That(fautifs, Is.Empty,
+            "case à cocher sans hauteur dans un groupe qui ne l'étire pas — elle tombera à 0 px :\n  "
+            + string.Join("\n  ", fautifs));
+    }
+
+    /// Un texte en « … » (Ellipsis/Truncate) rogné sous la hauteur de sa ligne n'est pas
+    /// raccourci : TMP le masque EN ENTIER. Les 9 tuiles de Rentabilité (29/09), fixées
+    /// à 54 px, ne contenaient plus titre + valeur une fois les tailles de texte relevées
+    /// — les titres avaient disparu, les valeurs (en débordement libre) restaient.
+    [Test]
+    public void Un_groupe_de_hauteur_fixe_contient_ses_textes_a_points_de_suspension()
+    {
+        var fautifs = new List<string>();
+
+        foreach (var prefab in Prefabs())
+        foreach (var vlg in prefab.GetComponentsInChildren<VerticalLayoutGroup>(true))
+        {
+            if (!vlg.gameObject.activeSelf || !vlg.childControlHeight) continue;
+            var le = vlg.GetComponent<LayoutElement>();
+            if (le == null || le.preferredHeight <= 0f) continue;
+
+            var enfants = vlg.transform.Cast<Transform>()
+                .Where(c => c.gameObject.activeSelf)
+                .Where(c => c.GetComponent<LayoutElement>() == null || !c.GetComponent<LayoutElement>().ignoreLayout)
+                .ToList();
+            bool fragile = enfants.Any(c => c.GetComponent<TMP_Text>() is TMP_Text tx
+                && (tx.overflowMode == TextOverflowModes.Ellipsis || tx.overflowMode == TextOverflowModes.Truncate));
+            if (!fragile || enfants.Count == 0) continue;
+
+            float besoin = vlg.padding.vertical + vlg.spacing * (enfants.Count - 1) + enfants.Sum(Hauteur);
+            if (besoin > le.preferredHeight + 0.5f)
+                fautifs.Add($"{prefab.name} : {Chemin(vlg.transform)} ({le.preferredHeight} px pour {besoin:0.#} px)");
+        }
+
+        Assert.That(fautifs, Is.Empty,
+            "groupe de hauteur fixe trop petit : ses textes en « … » seront masqués entièrement :\n  "
+            + string.Join("\n  ", fautifs));
+    }
+
+    /// Hauteur demandée par un enfant. Sur un prefab non instancié, TMP annonce 0 à
+    /// `LayoutUtility` : on le mesure directement (une ligne, comme ses titres).
+    static float Hauteur(Transform c)
+    {
+        float h = LayoutUtility.GetPreferredHeight((RectTransform)c);
+        var le = c.GetComponent<LayoutElement>();
+        if (le != null) h = Mathf.Max(h, le.preferredHeight, le.minHeight);
+        if (c.GetComponent<TMP_Text>() is TMP_Text tx)
+            h = Mathf.Max(h, tx.GetPreferredValues(string.IsNullOrEmpty(tx.text) ? "0" : tx.text).y);
+        return h;
+    }
+
     /// TMP implémente `ILayoutElement` : un retour à la ligne final réclame une ligne
     /// de plus. Cent vingt textes en portaient un — d'où les blancs entre un titre et
     /// son contenu, cherchés trois fois avant d'être mesurés.

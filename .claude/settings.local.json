@@ -69,7 +69,8 @@
       "Bash(python -c \"import json,sys;d=json.load\\(sys.stdin\\);print\\([\\(i.get\\('id'\\),i.get\\('name'\\),i.get\\('reg_no'\\),\\(i.get\\('billing_address'\\) or {}\\).get\\('city'\\)\\) for i in d.get\\('items',[]\\)]\\)\")",
       "Bash(curl -s -H 'Authorization: Bearer __CMDSUB_OUTPUT__' https://app.pennylane.com/api/external/v2/customers/1457548754944)",
       "Bash(python -c \"import json,sys;d=json.load\\(sys.stdin\\);print\\('emails=',d.get\\('emails'\\),'| recipient=',d.get\\('recipient'\\)\\)\")",
-      "Bash(curl -s -G -H 'Authorization: Bearer __CMDSUB_OUTPUT__' --data-urlencode 'filter=[{\"field\":\"customer_id\",\"operator\":\"eq\",\"value\":\"1457548754944\"}]' --data-urlencode sort=-id https://app.pennylane.com/api/external/v2/customer_invoices)"
+      "Bash(curl -s -G -H 'Authorization: Bearer __CMDSUB_OUTPUT__' --data-urlencode 'filter=[{\"field\":\"customer_id\",\"operator\":\"eq\",\"value\":\"1457548754944\"}]' --data-urlencode sort=-id https://app.pennylane.com/api/external/v2/customer_invoices)",
+      "Bash(grep -v -i -E \"license|third|readme\\\\.txt$|/Samples\")"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -63,17 +63,34 @@ public static class PennylaneClient
     /// n'égale pas le total. La TVA est calculée sur le TOTAL HT, comme sur le PDF,
     /// et la ligne de provision absorbe l'écart d'arrondi entre les deux lignes.
     public static Import Montants(string libelleLoyer, float loyerHT, float provisionHT, bool avecTva)
+        => Montants(libelleLoyer, loyerHT,
+                    new List<KeyValuePair<string, float>> { new KeyValuePair<string, float>("Provision pour charges", provisionHT) },
+                    avecTva);
+
+    /// Une ligne de loyer, puis une ligne par provision (une par liste de charges).
+    /// La dernière ligne absorbe l'écart d'arrondi de TVA.
+    public static Import Montants(string libelleLoyer, float loyerHT,
+                                  IList<KeyValuePair<string, float>> provisions, bool avecTva)
     {
-        decimal l = R2(loyerHT), p = R2(provisionHT), ht = l + p;
+        var lignes = new List<KeyValuePair<string, decimal>> { new KeyValuePair<string, decimal>(libelleLoyer, R2(loyerHT)) };
+        if (provisions != null)
+            foreach (var p in provisions)
+                if (R2(p.Value) > 0) lignes.Add(new KeyValuePair<string, decimal>(p.Key, R2(p.Value)));
+
+        decimal ht = 0m; foreach (var l in lignes) ht += l.Value;
         decimal tva = avecTva ? R2(ht * 0.2m) : 0m;
-        decimal tvaLoyer = p > 0 && avecTva ? R2(l * 0.2m) : tva;
 
         var imp = new Import
         {
             currency_amount_before_tax = S(ht), currency_tax = S(tva), currency_amount = S(ht + tva),
         };
-        imp.invoice_lines.Add(NouvelleLigne(libelleLoyer, l, tvaLoyer, avecTva));
-        if (p > 0) imp.invoice_lines.Add(NouvelleLigne("Provision pour charges", p, tva - tvaLoyer, avecTva));
+        decimal reste = tva;
+        for (int i = 0; i < lignes.Count; i++)
+        {
+            decimal t = i == lignes.Count - 1 ? reste : (avecTva ? R2(lignes[i].Value * 0.2m) : 0m);
+            reste -= t;
+            imp.invoice_lines.Add(NouvelleLigne(lignes[i].Key, lignes[i].Value, t, avecTva));
+        }
         return imp;
     }
 
@@ -195,7 +212,9 @@ public static class PennylaneClient
 
         // 3. Import incomplet + Factur-X. 409 = fichier pas encore prêt côté Pennylane :
         // on réessaie un peu (ou doublon, que le motif final dira).
-        var corps = Montants(d.subtitle, d.totalPeriode, d.provision, d.tva > 0.005f);
+        var corps = d.lignesProvision != null
+            ? Montants(d.subtitle, d.totalPeriode, d.lignesProvision, d.tva > 0.005f)   // une ligne par liste
+            : Montants(d.subtitle, d.totalPeriode, d.provision, d.tva > 0.005f);
         corps.file_attachment_id = fichierId;
         corps.customer_id = clientId;
         corps.date = f.dateISO;

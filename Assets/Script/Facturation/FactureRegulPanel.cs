@@ -40,6 +40,11 @@ public class FactureRegulPanel : MonoBehaviour
     TMP_Text _numeroPrefixe;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _anneeDD;
+    // Listes de charges régularisées ensemble (une case par liste du locataire) : une
+    // seule facture couvre toutes celles cochées.
+    GameObject _listeLabel;
+    Transform _listesBox;
+    readonly List<(string id, Toggle t)> _listesCases = new List<(string, Toggle)>();
     FactureEtat _ligneCiblee;   // ligne du suivi cliquée : elle désigne l'année à ouvrir
     Toggle _retard;
     UIDropdown _mentionTva;
@@ -174,6 +179,11 @@ public class FactureRegulPanel : MonoBehaviour
 
         // ── Régularisation (contenu propre au type) ──
         var g = UIFactory.Section(content, "Régularisation des charges", CoViolet, CoVioletL);
+        // Liste de charges : visible seulement si des listes spécifiques existent
+        // (Réglages) — sinon tout se passe comme avant, sur la liste générale.
+        _listeLabel = UIFactory.Text(g.transform, "Listes de charges à régulariser (une seule facture pour toutes celles cochées)",
+            UITheme.Role.Donnee, UITheme.TexteSecondaire).gameObject;
+        _listesBox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "ListesBox").transform;
         UIFactory.Text(g.transform, "Année à régulariser (charges impayées)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _anneeDD = UIDropdown.Create(g.transform, new List<string> { "—" }, new List<string> { DateTime.Today.Year.ToString() }, 0, _ => RefreshCharges());
         UIFactory.Text(g.transform, "Charges concernées (quote-part du locataire) :", UITheme.Role.Aide, UITheme.TexteSecondaire);
@@ -307,23 +317,8 @@ public class FactureRegulPanel : MonoBehaviour
 
         _refInterne.text = f?.refInterne ?? "";
 
-        // Années disponibles (charges impayées concernant ce locataire).
-        var years = YearsAvailable();
-        if (years.Count == 0) years.Add(DateTime.Today.Year - 1);
-
-        // Année désignée par la ligne cliquée. On la REMET dans la liste si besoin :
-        // `YearsAvailable` écarte les charges déjà facturées, donc l'année d'une régul
-        // qu'on veut refaire en avait justement disparu.
-        int cible = AnneeCiblee();
-        if (cible > 0 && !years.Contains(cible)) { years.Add(cible); years.Sort(); years.Reverse(); }
-
-        string selYear = cible > 0 ? cible.ToString()
-            : (f != null && f.anneePeriode > 0 ? f.anneePeriode.ToString() : years[0].ToString());
-        _anneeDD.SetOptions(years.Select(y => y.ToString()).ToList(), years.Select(y => y.ToString()).ToList(), selYear);
-
-        // Provisions : mémorisées si saisies, sinon provision × nb de périodes.
-        _provisions.text = (f != null && f.saved ? f.provisionMontant : ProvisionsAuto())
-            .ToString("0.00", CultureInfo.InvariantCulture);
+        ChargerListes(f);
+        ChargerAnnees(f);
 
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
         RefreshNumero();
@@ -349,32 +344,147 @@ public class FactureRegulPanel : MonoBehaviour
         return y > 0 ? y : DateTime.Today.Year - 1;
     }
 
-    // Charges IMPAYÉES de l'année `year` concernant ce locataire.
+    /// Années proposées pour la liste choisie, et provisions correspondantes.
+    /// `f` = réglage mémorisé (au chargement) ; null quand on change de liste.
+    void ChargerAnnees(FactureInfo f)
+    {
+        // Années disponibles (charges impayées de cette liste concernant ce locataire).
+        var years = YearsAvailable();
+        if (years.Count == 0) years.Add(DateTime.Today.Year - 1);
+
+        // Année désignée par la ligne cliquée. On la REMET dans la liste si besoin :
+        // `YearsAvailable` écarte les charges déjà facturées, donc l'année d'une régul
+        // qu'on veut refaire en avait justement disparu.
+        int cible = AnneeCiblee();
+        if (cible > 0 && !years.Contains(cible)) { years.Add(cible); years.Sort(); years.Reverse(); }
+
+        string selYear = cible > 0 ? cible.ToString()
+            : (f != null && f.anneePeriode > 0 && years.Contains(f.anneePeriode) ? f.anneePeriode.ToString() : years[0].ToString());
+        _anneeDD.SetOptions(years.Select(y => y.ToString()).ToList(), years.Select(y => y.ToString()).ToList(), selYear);
+
+        // Provisions : mémorisées si saisies POUR CES MÊMES LISTES, sinon somme des
+        // provisions des listes × nb de périodes.
+        var sel = ListesSel();
+        bool memo = f != null && f.saved && f.listesRegul != null
+                    && f.listesRegul.Select(ListesCharges.Effective).OrderBy(x => x).SequenceEqual(sel.OrderBy(x => x));
+        _provisions.text = (memo ? f.provisionMontant : ProvisionsAuto()).ToString("0.00", CultureInfo.InvariantCulture);
+    }
+
+    /// Une case par liste du locataire. Cochées : celles de la facture cliquée dans le
+    /// suivi (toutes ses listes si elle en regroupait plusieurs), sinon la dernière
+    /// sélection, sinon la première liste.
+    void ChargerListes(FactureInfo f)
+    {
+        var listes = ListesCharges.DuLocataire(_loc);
+        List<string> sel;
+        if (_ligneCiblee != null) sel = ListesDeLaFacture(_ligneCiblee);
+        else if (f != null && f.listesRegul != null && f.listesRegul.Count > 0)
+            sel = f.listesRegul.Select(ListesCharges.Effective).Where(listes.Contains).Distinct().ToList();
+        else sel = new List<string>();
+        if (sel.Count == 0 && listes.Count > 0) sel.Add(listes[0]);
+        foreach (var id in sel) if (!listes.Contains(id)) listes.Add(id);   // la facture cliquée fait foi
+
+        _listesCases.Clear();
+        foreach (Transform c in _listesBox) Destroy(c.gameObject);
+        foreach (var id in listes)
+        {
+            var t = UIFactory.Toggle(_listesBox, ListesCharges.Nom(id), sel.Contains(id));
+            t.onValueChanged.AddListener(_ => { ChargerAnnees(null); RefreshCharges(); RefreshEntetePreview(); });
+            _listesCases.Add((id, t));
+        }
+        bool avecListes = ListesCharges.Specifiques().Count > 0;
+        if (avecListes && listes.Count == 0)
+            UIFactory.Text(_listesBox, "Aucune liste à régulariser pour ce locataire : renseigne ses dates "
+                + "de régularisation dans « Gestion du loyer ».", UITheme.Role.Aide, UITheme.Alerte);
+        _listeLabel.SetActive(avecListes);
+        _listesBox.gameObject.SetActive(avecListes);
+    }
+
+    /// Listes cochées, dans l'ordre (générale d'abord). Sans liste spécifique : la générale.
+    List<string> ListesSel()
+    {
+        // Aucune case : sans liste spécifique, c'est la générale ; avec, c'est que le
+        // locataire n'a aucune liste à régulariser — surtout pas la générale par défaut.
+        if (_listesCases.Count == 0)
+            return ListesCharges.Specifiques().Count == 0 ? new List<string> { "" } : new List<string>();
+        return _listesCases.Where(x => x.t != null && x.t.isOn).Select(x => x.id).ToList();
+    }
+
+    /// Une facture regroupée couvre des listes SANS facture pour cette année, ou
+    /// toutes celles d'UNE facture existante (sa correction, éventuellement élargie).
+    /// Mélanger deux factures existantes referait payer des charges déjà facturées ;
+    /// en corriger une en décochant une de ses listes laisserait cette liste pointer
+    /// sur l'ancien document. Renvoie null si c'est possible — `cle` est alors la
+    /// ligne sous laquelle ranger la facture — sinon la raison du refus.
+    public static string Regroupement(Locataire loc, IList<string> listes, int year, out string cle)
+    {
+        cle = null;
+        if (listes == null || listes.Count == 0) return "Coche au moins une liste de charges à régulariser.";
+        cle = ListesCharges.Cle(listes[0], year);
+
+        var emises = new List<FactureEtat>();
+        foreach (var id in listes)
+            if (FacturationSuivi.EstDejaEmise(loc, ListesCharges.Cle(id, year), out var r)) emises.Add(r);
+        if (emises.Count == 0) return null;   // facture neuve
+
+        if (emises.Select(r => r.pdfPath).Distinct().Count() > 1)
+            return $"Ces listes ont déjà des factures différentes pour {year} : corrige chacune depuis le suivi, "
+                 + "ou décoche celles déjà facturées.";
+
+        cle = emises[0].key;   // la facture existante : c'est une correction
+        var cles = listes.Select(id => ListesCharges.Cle(id, year)).ToList();
+        var oubliees = FacturationSuivi.MemeFacture(loc, cle).Where(r => !cles.Contains(r.key)).ToList();
+        if (oubliees.Count > 0)
+            return "Cette facture couvre aussi : " + string.Join(", ", oubliees.Select(r => r.libelle))
+                 + ". Garde ces listes cochées pour la corriger.";
+        return null;
+    }
+
+    /// Listes couvertes par la facture d'une ligne du suivi : une régularisation
+    /// regroupée porte le même PDF sur la ligne de chacune de ses listes.
+    List<string> ListesDeLaFacture(FactureEtat ligne)
+    {
+        var res = new List<string>();
+        foreach (var rec in FacturationSuivi.MemeFacture(_loc, ligne.key))
+            if (ListesCharges.LireCle(rec.key, out _, out string id)) res.Add(ListesCharges.Effective(id));
+        if (res.Count == 0 && ListesCharges.LireCle(ligne.key, out _, out string seul)) res.Add(ListesCharges.Effective(seul));
+        return res.Distinct().ToList();
+    }
+
+    /// Charges de toutes les listes cochées (chaque liste avec sa propre règle).
     List<ChargeBatiment> ChargesFor(int year)
+        => ListesSel().SelectMany(id => ChargesDeRegul(_bat, _loc, year, id)).Distinct().ToList();
+
+    /// Charges de l'année `year` à porter sur la régularisation de ce locataire :
+    /// celles encore à lui facturer, PLUS celles que sa régularisation de cette année
+    /// couvre déjà — une régularisation refaite ou corrigée doit les reprendre, sinon
+    /// elle sortirait à 0 €. Une charge qu'il s'est vu refacturer à part a sa propre
+    /// facture et n'y revient jamais ; les autres locataires ne sont pas concernés.
+    public static List<ChargeBatiment> ChargesDeRegul(Batiment bat, Locataire loc, int year, string listeId = "")
     {
         var res = new List<ChargeBatiment>();
-        if (_bat?.charges == null) return res;
-        foreach (var c in _bat.charges)
+        if (bat?.charges == null || loc == null) return res;
+        listeId = ListesCharges.Effective(listeId);
+        bool regulEmise = FacturationSuivi.EstDejaEmise(loc, ListesCharges.Cle(listeId, year), out _);
+        foreach (var c in bat.charges)
         {
-            if (c.paye || c.EstFacturee) continue;   // déjà facturée = plus proposée, même impayée
-            bool concerne = c.tousLocataires || (c.locatairesConcernes != null && c.locatairesConcernes.Contains(_loc.id));
-            if (!concerne) continue;
-            if (TryYear(c.dateISO) != year) continue;
-            res.Add(c);
+            if (c == null || c.paye) continue;   // réglée pour tous
+            if (!ListesCharges.DeLaListe(c, listeId)) continue;   // une autre liste a sa propre régularisation
+            if (!ListesCharges.Concerne(c, loc) || TryYear(c.dateISO) != year) continue;
+
+            bool couverte = regulEmise && c.EstFactureePour(loc.id)
+                            && loc.facturesEtat?.Any(x => x.key == "refac-" + c.id) != true;
+            if (c.AFacturerPour(loc.id) || couverte) res.Add(c);
         }
         return res;
     }
 
     int AnneeCiblee() => AnneeDeCle(_ligneCiblee?.key);
 
-    /// Année portée par une clé de suivi de régularisation (« regul-2025 » → 2025),
-    /// ou 0 si la clé est d'un autre type ou illisible.
+    /// Année portée par une clé de suivi de régularisation (« regul-2025 » ou
+    /// « regul-2025-&lt;liste&gt; » → 2025), ou 0 si la clé est d'un autre type ou illisible.
     public static int AnneeDeCle(string key)
-    {
-        const string prefixe = "regul-";
-        if (string.IsNullOrEmpty(key) || !key.StartsWith(prefixe)) return 0;
-        return int.TryParse(key.Substring(prefixe.Length), out int y) ? y : 0;
-    }
+        => ListesCharges.LireCle(key, out int y, out _) ? y : 0;
 
     List<int> YearsAvailable()
     {
@@ -382,9 +492,9 @@ public class FactureRegulPanel : MonoBehaviour
         if (_bat?.charges != null)
             foreach (var c in _bat.charges)
             {
-                if (c.paye || c.EstFacturee) continue;   // déjà facturée = plus proposée, même impayée
-                bool concerne = c.tousLocataires || (c.locatairesConcernes != null && c.locatairesConcernes.Contains(_loc.id));
-                if (!concerne) continue;
+                if (!c.AFacturerPour(_loc.id)) continue;   // déjà facturée à ce locataire (ou réglée)
+                if (!ListesSel().Any(id => ListesCharges.DeLaListe(c, id))) continue;
+                if (!ListesCharges.Concerne(c, _loc)) continue;
                 int y = TryYear(c.dateISO); if (y > 0) set.Add(y);
             }
         return set.Reverse().ToList();   // plus récent d'abord
@@ -392,14 +502,7 @@ public class FactureRegulPanel : MonoBehaviour
 
     // Quote-part du locataire sur une charge = coût × part_locataire / somme(parts).
     // Si un seul locataire concerné (ratios vides) → 100 % du coût.
-    float QuotePart(ChargeBatiment c)
-    {
-        if (c.ratios == null || c.ratios.Count == 0) return c.cout;
-        float sum = 0f; foreach (var r in c.ratios) sum += r.part;
-        var mine = c.ratios.FirstOrDefault(r => r.locataireId == _loc.id);
-        if (mine == null || sum <= 0f) return 0f;
-        return c.cout * mine.part / sum;
-    }
+    float QuotePart(ChargeBatiment c) => ListesCharges.QuotePart(c, _loc, _bat);
 
     // Reconstruit la liste des charges + recalcule les totaux.
     void RefreshCharges()
@@ -457,8 +560,7 @@ public class FactureRegulPanel : MonoBehaviour
     static float Cents(float v) => Mathf.Round(v * 100f) / 100f;
 
     float ProvisionsAuto()
-        => (_loc.provisionPourCharges ? _loc.provisionPourChargeValue : 0f)
-           * LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer);
+        => ListesSel().Sum(id => ListesCharges.Provision(_loc, id)) * LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer);
 
     // ── Numéro / aperçu entête ─────────────────────────────────────────────────
 
@@ -562,7 +664,7 @@ public class FactureRegulPanel : MonoBehaviour
             refInterne = _refInterne.text,
             dateStr = dateStr,
             numero = ComposedNumero(),
-            subtitle = $"Régularisation des charges {year}",
+            subtitle = ListesCharges.Libelle(ListesSel(), year),
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             charges = lignes,
             totalCharges = totalCharges,
@@ -607,6 +709,11 @@ public class FactureRegulPanel : MonoBehaviour
 
     void SauvegarderEtEnvoyer()
     {
+        // Refus AVANT tout (PDF, confirmation) si les listes cochées ne peuvent pas
+        // former une seule facture.
+        string refus = Regroupement(_loc, ListesSel(), SelectedYear(), out _);
+        if (refus != null) { UndoToast.Instance?.ShowInfo(refus); return; }
+
         SaveFromUI(markPaid: false);
         var d = BuildData();
 
@@ -640,7 +747,11 @@ public class FactureRegulPanel : MonoBehaviour
 
         int year = SelectedYear();
         string dir = FactureDir();
-        string key = $"regul-{year}";
+        var listes = ListesSel();
+        // Une facture regroupée se range sous UNE ligne (celle de la facture existante
+        // s'il y en a une) ; les autres reçoivent le même numéro et le même PDF.
+        string refus = Regroupement(_loc, listes, year, out string key);
+        if (refus != null) { UndoToast.Instance?.ShowInfo(refus); return; }
 
         // Déjà émise pour cette année → version « corrigée(X) » : même numéro, aucune
         // nouvelle séquence consommée, PDF d'origine conservé. Sans cette garde, un
@@ -649,7 +760,8 @@ public class FactureRegulPanel : MonoBehaviour
         d.numero = emission.NumeroFacture;
         bool correction = emission.Correction;
 
-        string fname = Sanitize($"RegularisationdeCharge-{_nom.text}-{year}{emission.SuffixeFichier}") + ".pdf";
+        string liste = listes.Count == 1 && listes[0] == "" ? "" : "-" + string.Join("+", listes.Select(ListesCharges.Nom));
+        string fname = Sanitize($"RegularisationdeCharge-{_nom.text}-{year}{liste}{emission.SuffixeFichier}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
         if (!FacturePdfService.GenerateRegulPdf(d, pdf, out string err))
@@ -737,13 +849,36 @@ public class FactureRegulPanel : MonoBehaviour
         // Les charges régularisées passent « en attente de paiement », PAS « payé » :
         // la facture vient de partir, le virement n'est pas arrivé. Elles sortent du
         // choix (pour ne pas être régularisées deux fois) sans prétendre être encaissées.
+        // La liste de la ligne `key` en tête : c'est elle qui porte la facture.
+        var listes = ListesSel();
+        if (ListesCharges.LireCle(key, out _, out string principale))
+        {
+            principale = ListesCharges.Effective(principale);
+            listes.Remove(principale);
+            listes.Insert(0, principale);
+        }
+        var montants = MontantsParListe(listes, year, d.ttc);   // avant de marquer les charges
         string aujourdhui = DateTime.Today.ToString("yyyy-MM-dd");
-        foreach (var c in ChargesFor(year)) c.factureeISO = aujourdhui;
+        foreach (var c in ChargesFor(year)) c.MarquerFacturee(_loc.id, aujourdhui);
 
         string message = FactureEmission.Enregistrer(_loc, key, "Regul", emission,
-            d.subtitle, _loc.factureRegul?.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
+            d.subtitle, _loc.factureRegul?.dateEcheanceISO, pdf, montants[listes[0]], _ribDD?.SelectedId,
             _loc.factureRegul, "Régularisation", envoye,
             "Régularisation enregistrée (PDF) · charges en attente de paiement");
+
+        // Les autres listes de la MÊME facture : même numéro, même PDF, chacune sa part
+        // du montant (la somme des lignes redonne le total de la facture). Le numéro
+        // n'est consommé qu'une fois, par la première liste ci-dessus.
+        for (int i = 1; i < listes.Count; i++)
+        {
+            string k = ListesCharges.Cle(listes[i], year);
+            string lib = ListesCharges.Libelle(listes[i], year);
+            if (correction && FacturationSuivi.EstDejaEmise(_loc, k, out _))
+                FacturationSuivi.MarquerCorrige(_loc, k, lib, pdf, montants[listes[i]]);
+            else
+                FacturationSuivi.MarquerEnvoye(_loc, k, "Regul", lib, _loc.factureRegul?.dateEcheanceISO,
+                    d.numero, pdf, montants[listes[i]], _ribDD?.SelectedId, FactureEmission.RibNom(_ribDD?.SelectedId), envoye);
+        }
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();   // persiste locataire + charges
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
@@ -756,6 +891,25 @@ public class FactureRegulPanel : MonoBehaviour
         }
 
         UndoToast.Instance?.ShowInfo(message + suffixeMessage);
+    }
+
+    /// Part de chaque liste dans le TTC de la facture : ses charges moins sa provision.
+    /// La première liste porte le reste, pour que la somme redonne exactement le total.
+    Dictionary<string, float> MontantsParListe(List<string> listes, int year, float ttcTotal)
+    {
+        var res = new Dictionary<string, float>();
+        int n = LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer);
+        float autres = 0f;
+        for (int i = 1; i < listes.Count; i++)
+        {
+            float charges = ChargesDeRegul(_bat, _loc, year, listes[i]).Sum(QuotePart);
+            float solde = Cents(charges - ListesCharges.Provision(_loc, listes[i]) * n);
+            float ttc = solde + Cents(solde * .2f);
+            res[listes[i]] = ttc;
+            autres += ttc;
+        }
+        res[listes[0]] = ttcTotal - autres;
+        return res;
     }
 
     void ShowPreview(string pngPath)
@@ -801,7 +955,8 @@ public class FactureRegulPanel : MonoBehaviour
         f.refInterne = _refInterne.text;
         f.provisionMontant = ParseF(_provisions.text);
         f.anneePeriode = SelectedYear();
-        f.objet = $"Régularisation des charges {SelectedYear()}";
+        f.listesRegul = ListesSel();
+        f.objet = ListesCharges.Libelle(ListesSel(), SelectedYear());
         f.saved = true;
         _loc.factureRegul = f;
 

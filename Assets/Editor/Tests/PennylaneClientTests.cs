@@ -62,6 +62,23 @@ public class PennylaneClientTests
     }
 
     [Test]
+    public void Une_ligne_par_provision_de_liste_et_toujours_juste_au_centime()
+    {
+        var provisions = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, float>>
+        {
+            new System.Collections.Generic.KeyValuePair<string, float>("Provision pour charges — Charges générales", 100.03f),
+            new System.Collections.Generic.KeyValuePair<string, float>("Provision pour charges — Taxe foncière", 100.03f),
+            new System.Collections.Generic.KeyValuePair<string, float>("Provision pour charges — Vide", 0f),
+        };
+        var imp = PennylaneClient.Montants("Loyer", 100.03f, provisions, true);
+
+        Assert.That(imp.invoice_lines.Count, Is.EqualTo(3), "loyer + 2 provisions ; la provision nulle est omise");
+        Assert.That(imp.invoice_lines[2].label, Does.Contain("Taxe foncière"));
+        Assert.That(imp.currency_tax, Is.EqualTo("60.02"));   // 300,09 × 20 %
+        AssertEquilibre(imp);
+    }
+
+    [Test]
     public void Le_SIREN_sort_du_SIRET_meme_avec_espaces()
     {
         Assert.That(PennylaneClient.Siren("494 972 698 00034"), Is.EqualTo("494972698"));

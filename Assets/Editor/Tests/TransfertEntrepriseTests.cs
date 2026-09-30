@@ -250,6 +250,74 @@ public class TransfertEntrepriseTests
         Assert.That(locs.Select(l => l.id).Distinct().Count(), Is.EqualTo(2), "collision d'id résolue");
     }
 
+    // ── Listes de charges (Réglages de chaque entreprise) ──────────────────────
+
+    static void Reglage(string racine, params ListeCharges[] listes)
+        => File.WriteAllText(Path.Combine(racine, "reglage.json"),
+                             JsonUtility.ToJson(new ReglageData { entrepriseNom = "x", listesCharges = listes.ToList() }, true));
+
+    static Batiment BatAvecListe(string listeId)
+    {
+        var loc = Loc("Sephora", "A1");
+        loc.regulListes.Add(new RegulListe { listeId = listeId, dateISO = "2026-11-15", provision = 50 });
+        loc.facturesEtat.Add(new FactureEtat { key = "regul-2025-" + listeId, statut = "Envoye" });
+        var b = Bat("Rivoli", "O", loc);
+        b.charges.Add(new ChargeBatiment { id = "tf", nom = "Taxe foncière 2025", listeId = listeId });
+        return b;
+    }
+
+    [Test]
+    public void Une_liste_de_meme_nom_dans_la_destination_est_reprise()
+    {
+        Reglage(_orig, new ListeCharges { id = "o1", nom = "Taxe foncière" });
+        Reglage(_dest, new ListeCharges { id = "d9", nom = "taxe foncière" });
+
+        var r = TransfertEntreprise.TransfererBatiment(BatAvecListe("o1"), _orig, _dest);
+
+        Assert.That(r.Succes, r.Erreur);
+        var b = Lire(_dest).Single();
+        Assert.That(b.charges[0].listeId, Is.EqualTo("d9"));
+        Assert.That(b.locataireDuBatiment[0].regulListes[0].listeId, Is.EqualTo("d9"));
+        Assert.That(b.locataireDuBatiment[0].facturesEtat[0].key, Is.EqualTo("regul-2025-d9"), "le suivi suit la liste");
+        var reg = JsonUtility.FromJson<ReglageData>(File.ReadAllText(Path.Combine(_dest, "reglage.json")));
+        Assert.That(reg.listesCharges.Count, Is.EqualTo(1), "aucune liste en double");
+    }
+
+    [Test]
+    public void Une_liste_absente_de_la_destination_y_est_creee()
+    {
+        Reglage(_orig, new ListeCharges { id = "o1", nom = "Taxe foncière" });
+        Reglage(_dest);
+
+        var r = TransfertEntreprise.TransfererBatiment(BatAvecListe("o1"), _orig, _dest);
+
+        Assert.That(r.Succes, r.Erreur);
+        var reg = JsonUtility.FromJson<ReglageData>(File.ReadAllText(Path.Combine(_dest, "reglage.json")));
+        Assert.That(reg.listesCharges.Single().nom, Is.EqualTo("Taxe foncière"));
+        Assert.That(reg.entrepriseNom, Is.EqualTo("x"), "le reste des réglages est conservé");
+        Assert.That(Lire(_dest).Single().charges[0].listeId, Is.EqualTo(reg.listesCharges[0].id));
+    }
+
+    [Test]
+    public void Le_choix_des_listes_du_locataire_suit_le_transfert()
+    {
+        Reglage(_orig, new ListeCharges { id = "o1", nom = "Taxe foncière" });
+        Reglage(_dest, new ListeCharges { id = "d9", nom = "Taxe foncière" });
+        var src = BatAvecListe("o1");
+        var loc = src.locataireDuBatiment[0];
+        loc.listesConcernees = new List<string> { "o1" };
+        loc.factureRegul = new FactureInfo { listesRegul = new List<string> { "", "o1" } };
+        loc.factureLoyer = new FactureInfo { provisionsListes = new List<MontantListe> { new MontantListe { listeId = "o1", montant = 50 } } };
+
+        var r = TransfertEntreprise.TransfererBatiment(src, _orig, _dest);
+
+        Assert.That(r.Succes, r.Erreur);
+        var l = Lire(_dest).Single().locataireDuBatiment[0];
+        Assert.That(l.listesConcernees, Is.EqualTo(new[] { "d9" }), "toujours limité à la taxe foncière");
+        Assert.That(l.factureRegul.listesRegul, Is.EqualTo(new[] { "", "d9" }));
+        Assert.That(l.factureLoyer.provisionsListes[0].listeId, Is.EqualTo("d9"));
+    }
+
     // ── Sécurité ──────────────────────────────────────────────────────────────
 
     [Test]
