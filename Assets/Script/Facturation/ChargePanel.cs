@@ -99,7 +99,9 @@ public class ChargePanel : MonoBehaviour
         UIFactory.LE(((Transform)body.parent.parent).gameObject, flexH: 1);
 
         var fNom = LabeledInput(body, "Nom de la charge", "Taxe foncière 2026…", _edit.nom);
-        var fCout = LabeledInput(body, "Coût (€)", "0", _edit.cout > 0 ? _edit.cout.ToString(CultureInfo.InvariantCulture) : "");
+        // Négatif = avoir d'un fournisseur : il doit se relire tel quel, sinon un nouvel
+        // enregistrement le remettrait à 0 en silence.
+        var fCout = LabeledInput(body, "Coût (€, négatif pour un avoir)", "0", _edit.cout != 0 ? _edit.cout.ToString(CultureInfo.InvariantCulture) : "");
         fCout.contentType = TMP_InputField.ContentType.DecimalNumber;
         var fDate = LabeledInput(body, "Date", "JJ/MM/AAAA",
             DateTime.TryParse(_edit.dateISO, out var de) ? de.ToString("dd/MM/yyyy") : "");

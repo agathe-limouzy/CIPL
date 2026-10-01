@@ -7,11 +7,13 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-/// Écran « Information Facture — Refacturation d'une charge ».
-/// Refacture UNE charge impayée du bâtiment au locataire (sa quote-part), avec le
-/// nom de la charge dans le tableau, TVA 20 %, et le justificatif en PJ si coché.
-/// « Sauvegarder et envoyer » produit le PDF, passe la charge en « payé » et avance
-/// le numéro. AUCUN envoi réel (Pennylane/email) ici.
+/// Écran « Information Facture — Refacturation de charges ».
+/// Refacture une ou plusieurs charges du bâtiment au locataire (sa quote-part) sur UNE
+/// facture : une ligne par charge dans le tableau, TVA 20 %, justificatifs cités si
+/// coché. Dans le suivi, chaque charge garde sa ligne `refac-<id>`, toutes portant le
+/// même numéro et le même PDF (comme la régul regroupée : `FacturationSuivi.MemeFacture`).
+/// « Sauvegarder et envoyer » produit le PDF, passe les charges « en attente de
+/// paiement » et avance le numéro.
 public class FactureRefacPanel : MonoBehaviour
 {
     public static FactureRefacPanel Instance { get; private set; }
@@ -33,14 +35,19 @@ public class FactureRefacPanel : MonoBehaviour
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
 
     TMP_Text _titre, _entetePreview, _modeInfo, _previewHint, _tHT, _tTVA, _tTTC;
-    TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _montant, _emailEnvoi;
+    TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _emailEnvoi;
+    // Charges proposées : une case et un montant HT chacune ; les cochées partent
+    // ensemble sur UNE facture (une ligne par charge).
+    Transform _chargesBox;
+    readonly List<(ChargeBatiment c, Toggle t, TMP_InputField inp)> _lignes = new List<(ChargeBatiment, Toggle, TMP_InputField)>();
     TMP_InputField _texteTvaDebit;
     TMP_InputField _emailObjet, _emailCorps;
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     TMP_Text _numeroPrefixe;
-    UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _chargeDD;
-    FactureEtat _ligneCiblee;   // ligne du suivi cliquée : elle désigne la charge à ouvrir
-    Toggle _retard, _pj;
+    UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _origineDD;
+    GameObject _origineBox;   // « Avoir sur la facture n° » : visible sur un avoir seulement
+    FactureEtat _ligneCiblee;   // ligne du suivi cliquée : elle désigne la facture (ses charges) à ouvrir
+    Toggle _retard, _pj, _deduit;
     UIDropdown _mentionTva;
     string _autoSomme;
 
@@ -168,16 +175,20 @@ public class FactureRefacPanel : MonoBehaviour
         _entetePreview = UIFactory.Text(pvv.transform, "—", UITheme.Role.Donnee, UITheme.TextePrincipal);
 
         // ── Charge à refacturer (contenu propre au type) ──
-        var g = UIFactory.Section(content, "Charge à refacturer", CoCharge, CoChargeL);
-        UIFactory.Text(g.transform, "Charge (impayée) concernée", UITheme.Role.Donnee, UITheme.TexteSecondaire);
-        _chargeDD = UIDropdown.Create(g.transform, new List<string> { "—" }, new List<string> { (string)null }, 0, _ => OnChargeSelected());
-        _montant = Labeled(g, "Montant HT (quote-part du locataire)");
-        _montant.contentType = TMP_InputField.ContentType.DecimalNumber;
-        _montant.onValueChanged.AddListener(_ => { RefreshTotaux(); RefreshEntetePreview(); });
+        var g = UIFactory.Section(content, "Charges à refacturer", CoCharge, CoChargeL);
+        UIFactory.Text(g.transform, "Cochez une ou plusieurs charges : elles partent sur la même facture. "
+            + "Montant HT = quote-part du locataire (modifiable).", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        _chargesBox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "ChargesBox").transform;
         _tHT  = MontRow(g, "Total HT");
         _tTVA = MontRow(g, "TVA 20 %");
         _tTTC = MontRow(g, "Total TTC");
+        _origineBox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "OrigineBox").gameObject;
+        UIFactory.Text(_origineBox.transform, "Avoir sur la facture n° (imprimé sous le titre de l'avoir)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        _origineDD = UIDropdown.Create(_origineBox.transform, new List<string> { "— (aucune)" }, new List<string> { "" }, 0, _ => { });
         _pj = UIFactory.Toggle(g.transform, "Joindre le justificatif de la charge (PJ)", true);
+        // Locataire à provisions : la charge entre dans sa régularisation (affichée et
+        // déduite comme déjà réglée) ou reste hors des provisions (case décochée).
+        _deduit = UIFactory.Toggle(g.transform, "Déduite des provisions (figurera sur la régularisation, déjà réglée)", false);
 
         // La ligne « la TVA est payée sur les débits » s'imprime juste sous ces
         // totaux : sa case vit donc ici, pas dans la carte d'envoi où on ne pensait
@@ -294,29 +305,13 @@ public class FactureRefacPanel : MonoBehaviour
         _numeroFormatDD.SetOptions(NumFmtLabels, NumFmtIds, fmt);
         _refInterne.text = f?.refInterne ?? "";
 
-        // Charges impayées concernant le locataire.
-        var charges = ImpayeesCharges();
-        var labels = charges.Select(ChargeLabel).ToList();
-        var ids = charges.Select(c => c.id).ToList();
-        // Charge désignée par la ligne cliquée. On la REMET dans la liste si besoin :
-        // `ImpayeesCharges` ne garde que les charges impayées, donc celle d'une
-        // refacturation qu'on veut refaire en avait justement disparu.
-        string cible = ChargeCiblee();
-        if (!string.IsNullOrEmpty(cible) && !ids.Contains(cible))
-        {
-            var c = _bat?.charges?.FirstOrDefault(x => x != null && x.id == cible);
-            if (c != null) { labels.Insert(0, ChargeLabel(c)); ids.Insert(0, c.id); }
-            else cible = null;   // charge supprimée : on ne peut pas l'ouvrir
-        }
-        if (labels.Count == 0) { labels.Add("Aucune charge impayée"); ids.Add(null); }
-        string selId = !string.IsNullOrEmpty(cible) ? cible
-            : (f != null && !string.IsNullOrEmpty(f.chargeId) && ids.Contains(f.chargeId) ? f.chargeId : ids[0]);
-        _chargeDD.SetOptions(labels, ids, selId);
-
-        var sc = SelectedCharge();
-        _montant.text = (f != null && f.saved && f.loyerMontant > 0 ? f.loyerMontant
-                         : (sc != null ? QuotePart(sc) : 0f)).ToString("0.00", CultureInfo.InvariantCulture);
+        ChargerCharges();
+        FacturationSuivi.FacturesOrigine(_loc, out var origLabels, out var origIds);
+        _origineDD.SetOptions(origLabels, origIds, "");
         _pj.isOn = f?.joindrePj ?? true;
+        // Facture rouverte : la case reprend le choix fait à son émission.
+        _deduit.SetIsOnWithoutNotify(Selection().Any(x => x.c.FacturationDe(_loc.id)?.deduitProvisions == true));
+        RefreshDeduit();
 
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
         RefreshNumero();
@@ -342,7 +337,111 @@ public class FactureRefacPanel : MonoBehaviour
         return string.IsNullOrEmpty(dstr) ? c.nom : $"{c.nom}  ·  {dstr}";
     }
 
-    string ChargeCiblee() => ChargeDeCle(_ligneCiblee?.key);
+    /// Une ligne par charge proposée : case + montant HT. Cochées d'office : toutes les
+    /// charges de la facture cliquée dans le suivi (sa correction) ; sinon aucune.
+    void ChargerCharges()
+    {
+        _lignes.Clear();
+        foreach (Transform t in _chargesBox) Destroy(t.gameObject);
+
+        var charges = ImpayeesCharges();
+        // Les charges de la facture cliquée sont REMISES dans la liste : déjà
+        // refacturées, `ImpayeesCharges` les avait justement écartées.
+        var cochees = ChargesDeLaFacture(_ligneCiblee);
+        for (int i = cochees.Count - 1; i >= 0; i--)
+            if (!charges.Contains(cochees[i])) charges.Insert(0, cochees[i]);
+
+        if (charges.Count == 0)
+        {
+            UIFactory.Text(_chargesBox, "Aucune charge à refacturer pour ce locataire.", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            return;
+        }
+        foreach (var c in charges)
+        {
+            var row = UIFactory.HBox(_chargesBox, 8, false, "ChRow");
+            UIFactory.LE(row.gameObject, minH: 34);
+            var t = UIFactory.Toggle(row.transform, ChargeLabel(c), cochees.Contains(c));
+            UIFactory.LE(t.gameObject, flexW: 1);
+            var inp = UIFactory.Input(row.transform, "HT");
+            UIFactory.LE(inp.gameObject, minW: 120, prefW: 120, flexW: 0);
+            inp.contentType = TMP_InputField.ContentType.DecimalNumber;
+            inp.text = MontantPropose(c).ToString("0.00", CultureInfo.InvariantCulture);
+            t.onValueChanged.AddListener(_ => { RefreshDeduit(); RefreshTotaux(); RefreshEntetePreview(); });
+            inp.onValueChanged.AddListener(_ => { RefreshTotaux(); RefreshEntetePreview(); });
+            _lignes.Add((c, t, inp));
+        }
+    }
+
+    /// Charges d'une facture du suivi : toutes les lignes `refac-<id>` de même PDF.
+    List<ChargeBatiment> ChargesDeLaFacture(FactureEtat ligne)
+    {
+        var res = new List<ChargeBatiment>();
+        if (ligne == null || _bat?.charges == null) return res;
+        var cles = FacturationSuivi.MemeFacture(_loc, ligne.key).Select(r => r.key).DefaultIfEmpty(ligne.key);
+        foreach (var k in cles)
+        {
+            string id = ChargeDeCle(k);
+            var c = _bat.charges.FirstOrDefault(x => x != null && x.id == id);
+            if (c != null && !res.Contains(c)) res.Add(c);   // charge supprimée : ignorée
+        }
+        return res;
+    }
+
+    /// Montant proposé : la part déjà facturée (HT) pour une charge d'une facture
+    /// rouverte, sinon la quote-part du locataire.
+    float MontantPropose(ChargeBatiment c)
+        => FacturationSuivi.EstDejaEmise(_loc, "refac-" + c.id, out var rec) && rec.montant != 0f
+           ? Mathf.Round(rec.montant / 1.2f * 100f) / 100f : QuotePart(c);
+
+    /// Charges cochées et leur montant HT, dans l'ordre de la liste.
+    List<(ChargeBatiment c, float ht)> Selection()
+        => _lignes.Where(l => l.t != null && l.t.isOn).Select(l => (l.c, ParseF(l.inp.text))).ToList();
+
+    string Noms(List<(ChargeBatiment c, float ht)> sel)
+        => sel.Count == 0 ? "Charge" : Liste(sel.Select(x => x.c.nom).ToList());
+
+    /// Une facture couvre des charges jamais refacturées, ou toutes celles d'UNE facture
+    /// existante (sa correction, éventuellement élargie) — même règle que la régul
+    /// regroupée. Renvoie null si c'est possible (`cle` = ligne qui porte la facture),
+    /// sinon la raison du refus.
+    public static string Regroupement(Locataire loc, IList<ChargeBatiment> charges, out string cle)
+    {
+        cle = null;
+        if (charges == null || charges.Count == 0) return "Coche au moins une charge à refacturer.";
+        if (FacturationSuivi.Regroupable(loc, charges.Select(c => "refac-" + c.id).ToList(), out cle, out var oubliees)) return null;
+        if (oubliees == null)
+            return "Ces charges sont déjà sur des factures différentes : corrige chacune depuis le suivi, "
+                 + "ou décoche celles déjà refacturées.";
+        // Les lignes portent le libellé de la facture entière : on compte les charges.
+        return $"Cette facture couvre aussi {oubliees.Count} autre(s) charge(s) : garde-les toutes cochées pour la corriger.";
+    }
+
+    /// TTC de chaque charge sur la facture (20 %, au centime) ; la première porte l'écart
+    /// d'arrondi pour que la somme des lignes du suivi redonne le total de la facture.
+    public static List<float> PartsTtc(IList<float> hts, float ttcTotal)
+    {
+        var res = hts.Select(h => Mathf.Round(h * 1.2f * 100f) / 100f).ToList();
+        if (res.Count > 0) res[0] = ttcTotal - res.Skip(1).Sum();
+        return res;
+    }
+
+    /// « Jardin 2025 et Ménage 2025 », « A, B et C ».
+    static string Liste(IList<string> noms)
+        => noms.Count <= 1 ? (noms.Count == 1 ? noms[0] : "")
+         : string.Join(", ", noms.Take(noms.Count - 1)) + " et " + noms[noms.Count - 1];
+
+    // ponytail: seuil en caractères, pas en pixels — à ajuster si la colonne du suivi change.
+    const int LongueurMaxNoms = 40;
+
+    /// Libellé de la facture dans le suivi, où elle tient sur UNE ligne : « Refacturation :
+    /// Jardin 2025 et Ménage 2025 », ou « Refacturation : 3 charges » si les noms ne
+    /// tiennent pas dans la colonne (retour du 01/10). « Avoir : … » pour un avoir.
+    public static string LibelleFacture(IList<string> noms, bool avoir)
+    {
+        string liste = Liste(noms);
+        if (noms.Count > 1 && liste.Length > LongueurMaxNoms) liste = $"{noms.Count} charges";
+        return $"{(avoir ? "Avoir" : "Refacturation")} : {liste}";
+    }
 
     /// Identifiant de charge porté par une clé de suivi de refacturation
     /// (« refac-&lt;guid&gt; » → le guid), ou null.
@@ -369,35 +468,33 @@ public class FactureRefacPanel : MonoBehaviour
         return res;
     }
 
-    ChargeBatiment SelectedCharge()
-    {
-        string id = _chargeDD?.SelectedId;
-        if (string.IsNullOrEmpty(id) || _bat?.charges == null) return null;
-        return _bat.charges.FirstOrDefault(c => c.id == id);
-    }
-
     float QuotePart(ChargeBatiment c) => ListesCharges.QuotePart(c, _loc, _bat);
 
-    void OnChargeSelected()
-    {
-        var c = SelectedCharge();
-        _montant.text = (c != null ? QuotePart(c) : 0f).ToString("0.00", CultureInfo.InvariantCulture);
-        RefreshTotaux();
-        RefreshEntetePreview();
-    }
+    // Le locataire verse une provision pour la liste de cette charge.
+    bool AProvision(ChargeBatiment c) => ListesCharges.Provision(_loc, ListesCharges.Effective(c.listeId)) > 0f;
+
+    // Case « déduite des provisions » : visible si une charge cochée relève d'une liste
+    // provisionnée. Elle ne s'applique qu'à celles-là.
+    void RefreshDeduit() => _deduit.gameObject.SetActive(Selection().Any(x => AProvision(x.c)));
 
     void RefreshTotaux()
     {
-        float ht = ParseF(_montant.text);
+        float ht = Selection().Sum(x => x.ht);
         _tHT.text  = $"{ht:N2} €";
         _tTVA.text = $"{ht * .2f:N2} €";
-        _tTTC.text = $"{ht * 1.2f:N2} €";
+        _tTTC.text = $"{ht * 1.2f:N2} €" + (ht < -0.005f ? "  ⚠ avoir (remboursement au locataire)" : "");
+        _origineBox.SetActive(ht < -0.005f);
+        RefreshSommeDefault();   // la phrase suit le signe du total
     }
+
+    // Total négatif (avoir d'une charge) : c'est nous qui remboursons.
+    bool EstAvoir() => Selection().Sum(x => x.ht) < -0.005f;
 
     // ── Numéro / phrase / aperçu entête ────────────────────────────────────────
 
     string DefaultSomme()
     {
+        if (_lignes.Count > 0 && EstAvoir()) return "SOMME QUI VOUS SERA REMBOURSÉE";
         DateTime ech = TryDate(_echeance != null ? _echeance.text : "", out var ed) ? ed : DateTime.Today;
         return "SOMME À NOUS RÉGLER LE " + ech.ToString("d MMMM yyyy", FacturePdfService.FrCulture);
     }
@@ -438,13 +535,13 @@ public class FactureRefacPanel : MonoBehaviour
 
     FactureContext BuildContext()
     {
-        float ht = ParseF(_montant.text);
+        var sel = Selection();
+        float ht = sel.Sum(x => x.ht);
         DateTime d = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
-        var c = SelectedCharge();
         return new FactureContext
         {
             date = d,
-            periode = c != null ? c.nom : "refacturation",
+            periode = sel.Count > 0 ? Noms(sel) : "refacturation",
             numero = ComposedNumero(),
             loyerHT = ht,
             tva = ht * .2f,
@@ -459,13 +556,13 @@ public class FactureRefacPanel : MonoBehaviour
         var ctx = BuildContext();
         var rib = ReglageService.GetRib(_ribDD?.SelectedId);
         var ent = ReglageService.GetEntete(_enteteDD?.SelectedId);
-        var charge = SelectedCharge();
-        string chargeName = charge != null ? charge.nom : "Charge";
-        float ht = ParseF(_montant.text);
+        var sel = Selection();
+        float ht = sel.Sum(x => x.ht);
         string entResolved = ent != null ? FactureVarResolver.Resolve(ent.texte, _loc, _bat, ctx) : "";
         string body = FacturePdfService.BodyHtml(entResolved);
-        if (_pj.isOn && charge != null && !string.IsNullOrEmpty(charge.pdfPath))
-            body += $"<p>Justificatif joint : {Path.GetFileName(charge.pdfPath)}</p>";
+        var pjs = sel.Where(x => !string.IsNullOrEmpty(x.c.pdfPath)).Select(x => Path.GetFileName(x.c.pdfPath)).ToList();
+        if (_pj.isOn && pjs.Count > 0)
+            body += $"<p>{(pjs.Count > 1 ? "Justificatifs joints" : "Justificatif joint")} : {string.Join(", ", pjs)}</p>";
         var foot = (R.basDePage ?? "").Replace("\r", "").Split('\n');
 
         return new FacturePdfService.Data
@@ -474,16 +571,23 @@ public class FactureRefacPanel : MonoBehaviour
             clientAdresseHtml = FacturePdfService.AdresseHtml(_adresse.text),
             clientSiret = _siret.text,
             refInterne = _refInterne.text,
-            ligneLabel = chargeName,
+            factureOrigine = ht < -0.005f ? _origineDD?.SelectedId : null,
+            // Une ligne par charge : la première dans la ligne principale du gabarit, les
+            // suivantes dans ses lignes additionnelles (celles des provisions du loyer).
+            ligneLabel = sel.Count > 0 ? sel[0].c.nom : "Charge",
+            totalPeriode = sel.Count > 0 ? sel[0].ht : 0f,
+            lignesProvision = sel.Skip(1).Select(x => new KeyValuePair<string, float>(x.c.nom, x.ht)).ToList(),
             dateStr = ctx.date.ToString("d MMMM yyyy", FacturePdfService.FrCulture),
             numero = ComposedNumero(),
-            subtitle = $"Refacturation : {chargeName}",
+            subtitle = $"{(ht < -0.005f ? "Avoir sur refacturation" : "Refacturation")} : {Noms(sel)}",
             bodyHtml = body,
-            totalPeriode = ht, provision = 0f, totalHT = ht, tva = ht * .2f, ttc = ht * 1.2f,
+            provision = 0f, totalHT = ht, tva = ht * .2f, ttc = ht * 1.2f,
             tvaDebit = MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
             // Résolue comme l'entête : le menu « / » propose des variables, elles
             // doivent donc être remplacées et non imprimées telles quelles.
-            sommePhrase = FactureVarResolver.Resolve(_sommePhrase.text, _loc, _bat, ctx),
+            // Filet de sécurité : une phrase « À NOUS RÉGLER » laissée sur un avoir est
+            // remplacée par la phrase de remboursement (même règle que la régul).
+            sommePhrase = FactureVarResolver.Resolve(FactureEmission.PhraseSomme(_sommePhrase.text, ht), _loc, _bat, ctx),
             texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
@@ -511,12 +615,14 @@ public class FactureRefacPanel : MonoBehaviour
         if (_envoiEnCours) { UndoToast.Instance?.ShowInfo("Un envoi est déjà en cours."); return; }
 
         SaveFromUI();
-        var charge = SelectedCharge();
-        if (charge == null) { UndoToast.Instance?.ShowInfo("Sélectionne une charge à refacturer."); return; }
+        var sel = Selection();
+        // Une facture neuve, ou la correction d'UNE facture existante avec toutes ses
+        // charges — `key` est la ligne qui porte la facture.
+        string refus = Regroupement(_loc, sel.Select(x => x.c).ToList(), out string key);
+        if (refus != null) { UndoToast.Instance?.ShowInfo(refus); return; }
         var d = BuildData();
         string dir = FactureDir();
         DateTime dt = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
-        string key = $"refac-{charge.id}";
 
         // Déjà refacturée → version « corrigée(X) » : même numéro, aucune nouvelle
         // séquence consommée, PDF d'origine conservé.
@@ -524,7 +630,9 @@ public class FactureRefacPanel : MonoBehaviour
         d.numero = emission.NumeroFacture;
         bool correction = emission.Correction;
 
-        string fname = Sanitize($"Refacturation-{charge.nom}-{_nom.text}-{dt:MM-yyyy}{emission.SuffixeFichier}") + ".pdf";
+        string quoi = sel.Count == 1 ? sel[0].c.nom : $"{sel.Count} charges";
+        string type = d.ttc < -0.005f ? "Avoir" : "Refacturation";
+        string fname = Sanitize($"{type}-{quoi}-{_nom.text}-{dt:MM-yyyy}{emission.SuffixeFichier}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
         if (!FacturePdfService.GeneratePdf(d, pdf, out string err))
@@ -540,7 +648,7 @@ public class FactureRefacPanel : MonoBehaviour
         // « Sauvegarder et envoyer », il faut le dire, sinon on attend un mail en vain.
         if (R.modeEnvoi != ModeEnvoi.Email)
         {
-            Finaliser(d, charge, key, emission, correction, pdf, false,
+            Finaliser(d, sel, key, emission, correction, pdf, false,
                 "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
             return;
         }
@@ -575,7 +683,7 @@ public class FactureRefacPanel : MonoBehaviour
             "Envoyer la refacturation par email ?",
             $"À : {dest}\nObjet : {objet}\nPièce jointe : {Path.GetFileName(pdf)}\n\n"
             + "Le message part immédiatement et ne pourra pas être rappelé.",
-            () => StartCoroutine(EnvoyerPuisFinaliser(d, charge, key, emission, correction, pdf, dest, objet, corps)),
+            () => StartCoroutine(EnvoyerPuisFinaliser(d, sel, key, emission, correction, pdf, dest, objet, corps)),
             "Envoyer");
     }
 
@@ -583,7 +691,7 @@ public class FactureRefacPanel : MonoBehaviour
     /// le numéro disponible et la charge NON payée : tant que la facture n'est pas
     /// partie, rien de ce qu'elle emporte ne doit être considéré comme acquis.
     System.Collections.IEnumerator EnvoyerPuisFinaliser(
-        FacturePdfService.Data d, ChargeBatiment charge, string key,
+        FacturePdfService.Data d, List<(ChargeBatiment c, float ht)> sel, string key,
         FactureEmission.Decision emission, bool correction, string pdf,
         string dest, string objet, string corps)
     {
@@ -602,23 +710,47 @@ public class FactureRefacPanel : MonoBehaviour
             yield break;
         }
 
-        Finaliser(d, charge, key, emission, correction, pdf, true, $" et envoyée à {dest}");
+        Finaliser(d, sel, key, emission, correction, pdf, true, $" et envoyée à {dest}");
     }
 
     /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après succès).
-    void Finaliser(FacturePdfService.Data d, ChargeBatiment charge, string key,
+    void Finaliser(FacturePdfService.Data d, List<(ChargeBatiment c, float ht)> sel, string key,
                    FactureEmission.Decision emission, bool correction, string pdf, bool envoye,
                    string suffixeMessage = "")
     {
-        // La charge refacturée passe « en attente de paiement » POUR CE LOCATAIRE, pas
-        // « payé » : le virement n'est pas arrivé. Elle sort de son choix — et donc de
-        // sa régularisation — sans toucher la part des autres locataires.
-        charge.MarquerFacturee(_loc.id, DateTime.Today.ToString("yyyy-MM-dd"));
+        // Les charges refacturées passent « en attente de paiement » POUR CE LOCATAIRE,
+        // pas « payé » : le virement n'est pas arrivé. Elles sortent de son choix — et
+        // donc de sa régularisation — sans toucher la part des autres locataires.
+        string aujourdhui = DateTime.Today.ToString("yyyy-MM-dd");
+        bool deduit = _deduit.gameObject.activeSelf && _deduit.isOn;
+        foreach (var (c, _) in sel)
+        {
+            c.MarquerFacturee(_loc.id, aujourdhui);
+            c.FacturationDe(_loc.id).deduitProvisions = deduit && AProvision(c);
+        }
 
+        // Une ligne de suivi par charge, toutes sur la même facture (même numéro, même
+        // PDF) : la ligne `key` d'abord, c'est elle qui consomme le numéro.
+        sel = sel.OrderBy(x => "refac-" + x.c.id == key ? 0 : 1).ToList();
+        var parts = PartsTtc(sel.Select(x => x.ht).ToList(), d.ttc);
+        bool avoir = d.ttc < -0.005f;
+        // Même libellé sur chaque ligne : le suivi n'en affiche qu'une par facture.
+        string libelle = LibelleFacture(sel.Select(x => x.c.nom).ToList(), avoir);
         string message = FactureEmission.Enregistrer(_loc, key, "Refac", emission,
-            d.subtitle, _loc.factureRefac?.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
-            _loc.factureRefac, "Refacturation", envoye,
-            "Refacturation enregistrée (PDF) · charge en attente de paiement");
+            libelle, _loc.factureRefac?.dateEcheanceISO, pdf, parts[0], _ribDD?.SelectedId,
+            _loc.factureRefac, avoir ? "Avoir" : "Refacturation", envoye,
+            avoir ? "Avoir enregistré (PDF) · à rembourser au locataire"
+            : sel.Count > 1 ? "Refacturation enregistrée (PDF) · charges en attente de paiement"
+                            : "Refacturation enregistrée (PDF) · charge en attente de paiement");
+        for (int i = 1; i < sel.Count; i++)
+        {
+            string k = "refac-" + sel[i].c.id;
+            if (correction && FacturationSuivi.EstDejaEmise(_loc, k, out _))
+                FacturationSuivi.MarquerCorrige(_loc, k, libelle, pdf, parts[i]);
+            else
+                FacturationSuivi.MarquerEnvoye(_loc, k, "Refac", libelle, _loc.factureRefac?.dateEcheanceISO,
+                    d.numero, pdf, parts[i], _ribDD?.SelectedId, FactureEmission.RibNom(_ribDD?.SelectedId), envoye);
+        }
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
@@ -674,11 +806,8 @@ public class FactureRefacPanel : MonoBehaviour
         f.emailObjet = _emailObjet.text;
         f.emailCorps = _emailCorps.text;
         f.refInterne = _refInterne.text;
-        f.chargeId = _chargeDD?.SelectedId;
         f.joindrePj = _pj.isOn;
-        f.loyerMontant = ParseF(_montant.text);
-        var c = SelectedCharge();
-        f.objet = $"Refacturation {(c != null ? c.nom : "")}";
+        f.objet = $"Refacturation {Noms(Selection())}";
         f.saved = true;
         _loc.factureRefac = f;
 

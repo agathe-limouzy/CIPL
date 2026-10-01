@@ -15,6 +15,7 @@ body{font-family:Calibri,"Segoe UI",Candara,"Trebuchet MS",Arial,sans-serif;colo
 .date{margin-top:26px;font-size:14px;}
 .refint{margin-top:16px;font-weight:bold;font-size:14px;color:#C0392B;}
 .factitle{margin-top:22px;font-weight:bold;font-size:15px;}
+.origine{margin-top:6px;font-size:14px;}
 .body{margin-top:20px;line-height:1.42;}
 .body p{margin:0;}
 .subtitle{margin-top:18px;font-weight:bold;font-size:14.5px;}
@@ -52,7 +53,8 @@ table.rib .val{text-align:center;}
 
   {{REF_INTERNE}}
 
-  <div class="factitle"><u>FACTURE : {{NUMERO}}</u></div>
+  <div class="factitle"><u>{{TITRE}} : {{NUMERO}}</u></div>
+  {{ORIGINE}}
 
   <div class="body">{{BODY}}</div>
 

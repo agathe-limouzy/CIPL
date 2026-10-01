@@ -75,8 +75,10 @@ public static class FacturationSuivi
         // Une période entièrement avant le premier bail, après le départ du locataire, ou
         // dans la franchise, n'attend aucune facture : grisée (« Hors bail » /
         // « Franchise »), sauf statut stocké. La fin du bail seule n'arrête rien.
+        // La franchise ne porte que sur le loyer : un locataire qui verse des provisions
+        // reçoit quand même sa facture (loyer à 0, provisions dues).
         bool avecBail = Loyers.DebutPremierBail(loc, out var debutBail);
-        bool avecFranchise = TryEcheance(loc.debutFacturationISO, out var finFranchise);
+        bool avecFranchise = TryEcheance(loc.debutFacturationISO, out var finFranchise) && !Loyers.AppelleProvisions(loc);
         bool avecSortie = TryEcheance(loc.dateSortieISO, out var sortie);
         int n = NbPeriodes(loc.periodiciteLoyer);
         for (int p = 1; p <= n; p++)
@@ -118,7 +120,14 @@ public static class FacturationSuivi
         {
             if (r.type != "Refac" && r.key != CleDepotInitial) continue;
             int ry = TryEcheance(r.echeanceISO, out var re) ? re.Year : year;
-            if (ry == year && !res.Any(x => x.key == r.key)) res.Add(CopieDe(r));
+            if (ry != year || res.Any(x => x.key == r.key)) continue;
+            // Une refacturation de plusieurs charges est UNE facture (même PDF) : une
+            // seule ligne, au total de ses charges (retour du 01/10). Les lignes par
+            // charge restent stockées : la régul et les paiements en ont besoin.
+            var meme = r.type == "Refac" && !string.IsNullOrEmpty(r.pdfPath)
+                ? res.FirstOrDefault(x => x.type == "Refac" && x.pdfPath == r.pdfPath) : null;
+            if (meme != null) meme.montant += r.montant;
+            else res.Add(CopieDe(r));
         }
 
         // Régularisations DÉJÀ ÉMISES de l'année qui ne sont plus planifiées (liste
@@ -227,8 +236,12 @@ public static class FacturationSuivi
 
         if (s == "Envoye")
         {
-            // Envoyé → Impayé 15 j après l'échéance si non réglé.
-            if (hasEch && today >= ech.AddDays(ImpayeApresEcheanceJours))
+            // Envoyé → Impayé 15 j après l'échéance si non réglé. Jamais pour un avoir
+            // (montant négatif) : c'est nous qui devons, il n'y a rien à réclamer — il
+            // reste « Envoyé » jusqu'au remboursement, marqué « Payé » à la main.
+            // ponytail: ligne par ligne — une régul regroupée aux parts de signes mêlés
+            // garderait sa part négative « Envoyé » ; juger sur MemeFacture si ça arrive.
+            if (hasEch && today >= ech.AddDays(ImpayeApresEcheanceJours) && f.montant >= 0f)
                 return Etat.Impaye;
             return Etat.Envoye;
         }
@@ -364,7 +377,7 @@ public static class FacturationSuivi
         }
         rec.libelle = bas + $" — corrigée({rec.corrections})";
         rec.pdfPath = DossiersDonnees.VersRelatif(pdfPath);
-        if (montant > 0f) rec.montant = montant;
+        if (montant != 0f) rec.montant = montant;   // 0 = non fourni ; négatif = avoir
         rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
         // Corriger ne fait rien partir : une ligne sans statut est prête, pas envoyée.
         if (string.IsNullOrEmpty(rec.statut)) rec.statut = "AttenteEnvoi";
@@ -407,6 +420,47 @@ public static class FacturationSuivi
             if (statut == "Envoye" && string.IsNullOrEmpty(r.dateEnvoiISO))
                 r.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
             RepercuterSurCharges(loc, bat, r, EtatDe(r));
+        }
+    }
+
+    /// Une facture portée par plusieurs lignes (même PDF : régul regroupée, refacturation
+    /// de plusieurs charges) couvre des lignes jamais émises, ou toutes celles d'UNE
+    /// facture existante (sa correction, éventuellement élargie). Mélanger deux factures
+    /// existantes referait payer ce qui l'est déjà ; en corriger une en retirant une de
+    /// ses lignes laisserait celle-ci pointer sur l'ancien document.
+    /// Vrai si c'est possible : `cle` = la ligne qui porte la facture. Faux : `oubliees`
+    /// = les lignes retirées, ou null si deux factures existantes sont mélangées.
+    public static bool Regroupable(Locataire loc, IList<string> cles, out string cle, out List<FactureEtat> oubliees)
+    {
+        cle = cles.Count > 0 ? cles[0] : null;
+        oubliees = new List<FactureEtat>();
+        var emises = new List<FactureEtat>();
+        foreach (var k in cles) if (EstDejaEmise(loc, k, out var r)) emises.Add(r);
+        if (emises.Count == 0) return true;   // facture neuve
+        if (emises.Select(r => r.pdfPath).Distinct().Count() > 1) { oubliees = null; return false; }
+        cle = emises[0].key;                  // la facture existante : c'est une correction
+        oubliees = MemeFacture(loc, cle).Where(r => !cles.Contains(r.key)).ToList();
+        return oubliees.Count == 0;
+    }
+
+    /// Factures déjà émises du locataire, pour « Avoir sur la facture n° … » : une
+    /// entrée par numéro (une facture regroupée a plusieurs lignes), hors avoirs, la plus
+    /// récente d'abord. Premier choix : aucune (id vide).
+    public static void FacturesOrigine(Locataire loc, out List<string> labels, out List<string> ids)
+    {
+        labels = new List<string> { "— (aucune)" };
+        ids = new List<string> { "" };
+        if (loc?.facturesEtat == null) return;
+        var parNumero = loc.facturesEtat
+            .Where(r => !string.IsNullOrEmpty(r.numero) && EstDejaEmise(loc, r.key, out _))
+            .GroupBy(r => r.numero)
+            .Where(g => g.Sum(r => r.montant) > 0f)
+            .OrderByDescending(g => g.Max(r => r.dateEnvoiISO ?? ""));
+        foreach (var g in parNumero)
+        {
+            int n = g.Count();
+            labels.Add($"{g.Key} · {g.First().libelle}{(n > 1 ? $" (+{n - 1})" : "")}");
+            ids.Add(g.Key);
         }
     }
 
@@ -480,8 +534,14 @@ public static class FacturationSuivi
                 foreach (var r in loc.facturesEtat)
                 {
                     var e = EtatDe(r);
-                    if (e == Etat.Envoye || e == Etat.Impaye)
-                        res.Add(new Due { bp = bp, loc = loc, rec = r, etat = e });
+                    if (e != Etat.Envoye && e != Etat.Impaye) continue;
+                    // Une facture portée par plusieurs lignes (même PDF : refacturation de
+                    // plusieurs charges, régul regroupée) est UNE créance, à son total.
+                    // `rec` est une copie : l'accueil ne fait que la lire.
+                    int i = string.IsNullOrEmpty(r.pdfPath) ? -1
+                          : res.FindIndex(x => x.loc == loc && x.rec.pdfPath == r.pdfPath);
+                    if (i >= 0) res[i].rec.montant += r.montant;
+                    else res.Add(new Due { bp = bp, loc = loc, rec = CopieDe(r), etat = e });
                 }
             }
         }

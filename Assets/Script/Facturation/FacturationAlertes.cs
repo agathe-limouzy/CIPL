@@ -39,7 +39,8 @@ public static class FacturationAlertes
         // ── Loyer ──
         var e = ProchaineEcheanceLoyer(loc, today);
         int pe = e.HasValue ? FacturationSuivi.PeriodeIndex(loc, e.Value.Month) : 0;
-        // Période en franchise ou avant le bail : aucune facture attendue, aucune alerte.
+        // Période avant le bail, après le départ, ou en franchise sans provisions à
+        // appeler : aucune facture attendue, aucune alerte.
         if (e.HasValue && !AvantReprise(loc, e.Value) && Loyers.PeriodeFacturable(loc, e.Value.Year, pe)
             && !FacturationSuivi.DejaTraite(loc, $"loyer-{e.Value.Year}-P{pe}"))
         {

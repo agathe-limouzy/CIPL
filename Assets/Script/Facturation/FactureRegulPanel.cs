@@ -32,14 +32,15 @@ public class FactureRegulPanel : MonoBehaviour
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
 
     TMP_Text _titre, _entetePreview, _modeInfo, _previewHint;
-    TMP_Text _tCharges, _tProvisions, _tSolde, _tTVA, _tTTC;
+    TMP_Text _tCharges, _tProvisions, _tDeja, _tSolde, _tTVA, _tTTC;
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _provisions, _emailEnvoi;
     TMP_InputField _texteTvaDebit;
     TMP_InputField _emailObjet, _emailCorps;
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     TMP_Text _numeroPrefixe;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
-    UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _anneeDD;
+    UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _anneeDD, _origineDD;
+    GameObject _origineBox;   // « Avoir sur la facture n° » : visible quand on rembourse
     // Listes de charges régularisées ensemble (une case par liste du locataire) : une
     // seule facture couvre toutes celles cochées.
     GameObject _listeLabel;
@@ -194,9 +195,13 @@ public class FactureRegulPanel : MonoBehaviour
         _provisions.onValueChanged.AddListener(_ => { RefreshTotaux(); RefreshEntetePreview(); });
         _tCharges    = MontRow(g, "Total des charges (quote-part)");
         _tProvisions = MontRow(g, "Provisions déjà versées");
+        _tDeja       = MontRow(g, FacturePdfService.LibelleDejaRefacture);
         _tSolde      = MontRow(g, "Solde HT");
         _tTVA        = MontRow(g, "TVA 20 %");
         _tTTC        = MontRow(g, "Total TTC");
+        _origineBox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "OrigineBox").gameObject;
+        UIFactory.Text(_origineBox.transform, "Avoir sur la facture n° (imprimé sous le titre de l'avoir)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        _origineDD = UIDropdown.Create(_origineBox.transform, new List<string> { "— (aucune)" }, new List<string> { "" }, 0, _ => { });
 
         // La ligne « la TVA est payée sur les débits » s'imprime juste sous ces
         // totaux : sa case vit donc ici, pas dans la carte d'envoi où on ne pensait
@@ -319,6 +324,8 @@ public class FactureRegulPanel : MonoBehaviour
 
         ChargerListes(f);
         ChargerAnnees(f);
+        FacturationSuivi.FacturesOrigine(_loc, out var origLabels, out var origIds);
+        _origineDD.SetOptions(origLabels, origIds, "");
 
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
         RefreshNumero();
@@ -420,24 +427,13 @@ public class FactureRegulPanel : MonoBehaviour
     {
         cle = null;
         if (listes == null || listes.Count == 0) return "Coche au moins une liste de charges à régulariser.";
-        cle = ListesCharges.Cle(listes[0], year);
-
-        var emises = new List<FactureEtat>();
-        foreach (var id in listes)
-            if (FacturationSuivi.EstDejaEmise(loc, ListesCharges.Cle(id, year), out var r)) emises.Add(r);
-        if (emises.Count == 0) return null;   // facture neuve
-
-        if (emises.Select(r => r.pdfPath).Distinct().Count() > 1)
+        var cles = listes.Select(id => ListesCharges.Cle(id, year)).ToList();
+        if (FacturationSuivi.Regroupable(loc, cles, out cle, out var oubliees)) return null;
+        if (oubliees == null)
             return $"Ces listes ont déjà des factures différentes pour {year} : corrige chacune depuis le suivi, "
                  + "ou décoche celles déjà facturées.";
-
-        cle = emises[0].key;   // la facture existante : c'est une correction
-        var cles = listes.Select(id => ListesCharges.Cle(id, year)).ToList();
-        var oubliees = FacturationSuivi.MemeFacture(loc, cle).Where(r => !cles.Contains(r.key)).ToList();
-        if (oubliees.Count > 0)
-            return "Cette facture couvre aussi : " + string.Join(", ", oubliees.Select(r => r.libelle))
-                 + ". Garde ces listes cochées pour la corriger.";
-        return null;
+        return "Cette facture couvre aussi : " + string.Join(", ", oubliees.Select(r => r.libelle))
+             + ". Garde ces listes cochées pour la corriger.";
     }
 
     /// Listes couvertes par la facture d'une ligne du suivi : une régularisation
@@ -479,6 +475,31 @@ public class FactureRegulPanel : MonoBehaviour
         return res;
     }
 
+    /// Charges de l'année refacturées à part à ce locataire « déduites des provisions »
+    /// (case de la refacturation, facture émise), avec le HT facturé. La régularisation
+    /// les affiche et les déduit aussitôt comme déjà réglées : le solde n'en dépend pas
+    /// (demande du 01/10). Sans la case, la refacturation reste hors des provisions.
+    public static List<(ChargeBatiment charge, float ht)> ChargesRefacturees(Batiment bat, Locataire loc, int year, string listeId = "")
+    {
+        var res = new List<(ChargeBatiment, float)>();
+        if (bat?.charges == null || loc == null) return res;
+        listeId = ListesCharges.Effective(listeId);
+        foreach (var c in bat.charges)
+        {
+            if (c == null || c.FacturationDe(loc.id)?.deduitProvisions != true) continue;
+            if (!ListesCharges.DeLaListe(c, listeId)) continue;
+            if (!ListesCharges.Concerne(c, loc) || TryYear(c.dateISO) != year) continue;
+            if (!FacturationSuivi.EstDejaEmise(loc, "refac-" + c.id, out var rec)) continue;
+            // Le suivi garde le TTC ; la refacturation est toujours à 20 %.
+            res.Add((c, rec.montant != 0f ? Cents(rec.montant / 1.2f) : ListesCharges.QuotePart(c, loc, bat)));
+        }
+        return res;
+    }
+
+    /// Charges refacturées « déduites des provisions » des listes cochées.
+    List<(ChargeBatiment charge, float ht)> RefacFor(int year)
+        => ListesSel().SelectMany(id => ChargesRefacturees(_bat, _loc, year, id)).Distinct().ToList();
+
     int AnneeCiblee() => AnneeDeCle(_ligneCiblee?.key);
 
     /// Année portée par une clé de suivi de régularisation (« regul-2025 » ou
@@ -510,28 +531,31 @@ public class FactureRegulPanel : MonoBehaviour
         foreach (Transform t in _chargesBox) Destroy(t.gameObject);
         var charges = ChargesFor(SelectedYear());
         if (charges.Count == 0)
-        {
             UIFactory.Text(_chargesBox, "Aucune charge impayée pour cette année.", UITheme.Role.Donnee, UITheme.TexteSecondaire);
-        }
-        else
-        {
-            foreach (var c in charges)
-            {
-                var row = UIFactory.HBox(_chargesBox, 8, false, "ChRow");
-                UIFactory.LE(row.gameObject, minH: 24);
-                string dstr = DateTime.TryParse(c.dateISO, out var cd) ? cd.ToString("dd/MM/yyyy") : "";
-                var l = UIFactory.Text(row.transform, $"{c.nom}  ·  {dstr}", UITheme.Role.Donnee, UITheme.TextePrincipal);
-                UIFactory.LE(l.gameObject, flexW: 1);
-                UIFactory.Text(row.transform, $"{QuotePart(c):N2} €", UITheme.Role.Donnee, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
-            }
-        }
+        foreach (var c in charges) LigneCharge(c, QuotePart(c), "", UITheme.TextePrincipal);
+        foreach (var (c, ht) in RefacFor(SelectedYear()))
+            LigneCharge(c, ht, "  ·  déjà refacturée", UITheme.TexteSecondaire);
         RefreshTotaux();
+    }
+
+    void LigneCharge(ChargeBatiment c, float montant, string mention, Color couleur)
+    {
+        var row = UIFactory.HBox(_chargesBox, 8, false, "ChRow");
+        UIFactory.LE(row.gameObject, minH: 24);
+        string dstr = DateTime.TryParse(c.dateISO, out var cd) ? cd.ToString("dd/MM/yyyy") : "";
+        var l = UIFactory.Text(row.transform, $"{c.nom}  ·  {dstr}{mention}", UITheme.Role.Donnee, couleur);
+        UIFactory.LE(l.gameObject, flexW: 1);
+        UIFactory.Text(row.transform, $"{montant:N2} €", UITheme.Role.Donnee, couleur, true, TextAlignmentOptions.Right);
     }
 
     void RefreshTotaux()
     {
         float totalCharges = ChargesFor(SelectedYear()).Sum(QuotePart);
         float provisions = ParseF(_provisions.text);
+        // Charges refacturées : comptées dans le total ET déduites — le solde ne bouge pas.
+        float deja = RefacFor(SelectedYear()).Sum(x => x.ht);
+        _tDeja.text = $"{deja:N2} €";
+        _tDeja.transform.parent.gameObject.SetActive(deja > 0.005f);
 
         // TVA et TTC dérivés du HT DÉJÀ ARRONDI, et TTC = HT + TVA.
         // Avant, `tva = solde*.2f` et `ttc = solde*1.2f` étaient calculés
@@ -541,7 +565,7 @@ public class FactureRegulPanel : MonoBehaviour
         float tva = Cents(solde * .2f);
         float ttc = solde + tva;
 
-        _tCharges.text    = $"{totalCharges:N2} €";
+        _tCharges.text    = $"{totalCharges + deja:N2} €";
         _tProvisions.text = $"{provisions:N2} €";
         _tSolde.text      = $"{solde:N2} €";
         _tTVA.text        = $"{tva:N2} €";
@@ -552,6 +576,7 @@ public class FactureRegulPanel : MonoBehaviour
         // une facture à montant négatif.
         if (solde < 0f)
             _tSolde.text = $"{solde:N2} €  ⚠ trop-perçu (avoir)";
+        _origineBox.SetActive(solde < -0.005f);
 
         RefreshSommeDefault();   // le solde vient de changer : la phrase doit suivre son signe
     }
@@ -648,11 +673,24 @@ public class FactureRegulPanel : MonoBehaviour
             quotePart = QuotePart(c),
             pj = string.IsNullOrEmpty(c.pdfPath) ? "" : Path.GetFileName(c.pdfPath),
         }).ToList();
+        float chargesRegul = lignes.Sum(l => l.quotePart);
 
-        float totalCharges = lignes.Sum(l => l.quotePart);
+        // Charges déjà refacturées : listées et déduites, le solde ne change pas.
+        var refac = RefacFor(year);
+        lignes.AddRange(refac.Select(x => new FacturePdfService.RegulLigne
+        {
+            nom = x.charge.nom + " (déjà refacturée)",
+            dateStr = DateTime.TryParse(x.charge.dateISO, out var cd) ? cd.ToString("dd/MM/yyyy") : "",
+            coutTotal = x.charge.cout,
+            quotePart = x.ht,
+            pj = string.IsNullOrEmpty(x.charge.pdfPath) ? "" : Path.GetFileName(x.charge.pdfPath),
+        }));
+        float deja = refac.Sum(x => x.ht);
+
+        float totalCharges = chargesRegul + deja;
         float totalARepartir = lignes.Sum(l => l.coutTotal);
         float provisions = ParseF(_provisions.text);
-        float solde = totalCharges - provisions;
+        float solde = chargesRegul - provisions;
         string adr = (_bat != null ? _bat.adressBatiment : "") ?? "";
         string detailTitre = $"{adr}, LOT N°{_loc.lotBatiment}";
 
@@ -662,6 +700,7 @@ public class FactureRegulPanel : MonoBehaviour
             clientAdresseHtml = FacturePdfService.AdresseHtml(_adresse.text),
             clientSiret = _siret.text,
             refInterne = _refInterne.text,
+            factureOrigine = solde < -0.005f ? _origineDD?.SelectedId : null,
             dateStr = dateStr,
             numero = ComposedNumero(),
             subtitle = ListesCharges.Libelle(ListesSel(), year),
@@ -669,6 +708,7 @@ public class FactureRegulPanel : MonoBehaviour
             charges = lignes,
             totalCharges = totalCharges,
             provisions = provisions,
+            dejaRefacture = deja,
             soldeHT = solde,
             tva = solde * .2f,
             ttc = solde * 1.2f,
@@ -956,7 +996,7 @@ public class FactureRegulPanel : MonoBehaviour
         f.provisionMontant = ParseF(_provisions.text);
         f.anneePeriode = SelectedYear();
         f.listesRegul = ListesSel();
-        f.objet = ListesCharges.Libelle(ListesSel(), SelectedYear());
+        f.objet =ListesCharges.Libelle(ListesSel(), SelectedYear());
         f.saved = true;
         _loc.factureRegul = f;
 

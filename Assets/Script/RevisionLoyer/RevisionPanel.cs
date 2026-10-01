@@ -659,7 +659,7 @@ public class RevisionPanel : MonoBehaviour
             "Avenant : le nouveau loyer s'applique en cours de bail", "Nouvelles conditions à compter du",
             out _avenantToggle, out _avenantDate);
         _franchiseBlockGO = BlocCaseDate(content, "FranchiseBlock",
-            "Franchise de loyer", "Facturation à partir du (fin de la franchise)",
+            "Franchise de loyer (les provisions restent dues)", "Loyer facturé à partir du (fin de la franchise)",
             out _franchiseToggle, out _franchiseDate);
 
         // Ordre : type de révision, avenant, franchise, puis la reprise.

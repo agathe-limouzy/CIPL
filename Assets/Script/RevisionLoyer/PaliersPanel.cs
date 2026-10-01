@@ -388,7 +388,7 @@ public class PaliersPanel
             return "Pas de franchise.";
         string duree = FacturationSuivi.TryEcheance(_loc.dateDebutBailISO, out var db) && ff > db
             ? $"{Loyers.DureeTexte(db, ff.AddDays(-1))} — " : "";
-        return $"Franchise : {duree}facturation à partir du {ff:dd/MM/yyyy} — comprise dans le premier palier, sans loyer.";
+        return $"Franchise : {duree}loyer facturé à partir du {ff:dd/MM/yyyy} — comprise dans le premier palier (les provisions restent dues).";
     }
 
     string Duree(PalierLoyer p) => Loyers.DureeLibelle(_loc, D(p.debutISO), D(p.finISO));

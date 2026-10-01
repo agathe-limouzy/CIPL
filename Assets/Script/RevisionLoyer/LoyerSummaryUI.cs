@@ -253,7 +253,7 @@ public class LoyerSummaryUI : MonoBehaviour
         _valMois     = Row(v.transform, "Mois facturés");
         _valRevision = Row(v.transform, "Prochaine révision");
         _lblRevision = _valRevision.transform.parent.GetChild(0).GetComponent<TMP_Text>();
-        _valFranchise = Row(v.transform, "Facturation à partir du", out _rowFranchise);
+        _valFranchise = Row(v.transform, "Loyer facturé à partir du", out _rowFranchise);
         _valSortie   = Row(v.transform, "Départ du locataire", out _rowSortie);
         _valRegul    = Row(v.transform, "Régularisation charges", out _rowRegul);
         // Une liste de charges par ligne : le libellé reste en face de la première.

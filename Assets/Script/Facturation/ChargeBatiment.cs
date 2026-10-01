@@ -120,6 +120,9 @@ public class ChargeFacturation
     public string locataireId;
     public string dateISO;   // "yyyy-MM-dd", date de la première facture émise
     public bool paye;        // le virement de ce locataire est arrivé
+    // Refacturation « déduite des provisions » : la charge figure sur la régularisation
+    // de son année avec ce montant déjà réglé. Sinon elle reste hors des provisions.
+    public bool deduitProvisions;
 }
 
 /// Poids de répartition d'une charge pour un locataire donné.

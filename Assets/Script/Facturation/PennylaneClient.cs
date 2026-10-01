@@ -72,10 +72,13 @@ public static class PennylaneClient
     public static Import Montants(string libelleLoyer, float loyerHT,
                                   IList<KeyValuePair<string, float>> provisions, bool avecTva)
     {
-        var lignes = new List<KeyValuePair<string, decimal>> { new KeyValuePair<string, decimal>(libelleLoyer, R2(loyerHT)) };
+        var lignes = new List<KeyValuePair<string, decimal>>();
         if (provisions != null)
             foreach (var p in provisions)
                 if (R2(p.Value) > 0) lignes.Add(new KeyValuePair<string, decimal>(p.Key, R2(p.Value)));
+        // Franchise : loyer à 0, seules les provisions sont appelées — pas de ligne à 0 €.
+        if (R2(loyerHT) > 0 || lignes.Count == 0)
+            lignes.Insert(0, new KeyValuePair<string, decimal>(libelleLoyer, R2(loyerHT)));
 
         decimal ht = 0m; foreach (var l in lignes) ht += l.Value;
         decimal tva = avecTva ? R2(ht * 0.2m) : 0m;

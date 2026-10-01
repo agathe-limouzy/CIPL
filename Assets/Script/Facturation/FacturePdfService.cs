@@ -54,6 +54,7 @@ public static class FacturePdfService
     {
         public string clientNom, clientAdresseHtml, clientSiret;
         public string refInterne;   // texte libre (ex. « N° Interne Magasin 001048 »), optionnel
+        public string factureOrigine;   // avoir : n° de la facture qu'il corrige (vide = rien d'imprimé)
         public string ligneLabel;   // libellé de la 1re ligne du tableau (« Total de la période », nom de charge…)
         public string dateStr, numero, subtitle, bodyHtml, sommePhrase;
         public float totalPeriode, provision, totalHT, tva, ttc;
@@ -88,6 +89,9 @@ public static class FacturePdfService
             .Replace("{{LIEU}}", Lieu())
             .Replace("{{DATE}}", H(d.dateStr))
             .Replace("{{NUMERO}}", H(d.numero))
+            // Total négatif = c'est nous qui remboursons : un avoir, pas une facture.
+            .Replace("{{TITRE}}", d.ttc < -0.005f ? "AVOIR" : "FACTURE")
+            .Replace("{{ORIGINE}}", Origine(d.ttc < -0.005f, d.factureOrigine))
             .Replace("{{BODY}}", d.bodyHtml ?? "")                       // déjà en HTML (<p>)
             .Replace("{{SUBTITLE}}", H(d.subtitle))
             .Replace("{{LIGNE_LABEL}}", H(string.IsNullOrEmpty(d.ligneLabel) ? "Total de la période" : d.ligneLabel))
@@ -113,14 +117,21 @@ public static class FacturePdfService
             .Replace("{{FOOT2}}", H(d.foot2));
     }
 
-    /// Lignes de provision du tableau : une par liste de charges (montant nul omis).
+    /// « Avoir sur la facture n° … » sous le titre — seulement sur un avoir.
+    static string Origine(bool avoir, string numero)
+        => !avoir || string.IsNullOrWhiteSpace(numero) ? ""
+         : $"<div class=\"origine\">Avoir sur la facture n° {H(numero)}</div>";
+
+    /// Lignes additionnelles du tableau : une par liste de charges (provisions du loyer)
+    /// ou par charge refacturée. Montant nul omis ; un montant négatif (avoir) s'imprime,
+    /// sinon il serait compté dans le total sans apparaître.
     static string LignesProvision(Data d)
     {
         var lignes = d.lignesProvision ?? new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, float>>
             { new System.Collections.Generic.KeyValuePair<string, float>("Provision pour charges", d.provision) };
         var sb = new System.Text.StringBuilder();
         foreach (var l in lignes)
-            if (l.Value > 0f) sb.Append($"<tr><td>{H(l.Key)}</td><td class=\"r\">{Euro(l.Value)}</td></tr>");
+            if (l.Value != 0f) sb.Append($"<tr><td>{H(l.Key)}</td><td class=\"r\">{Euro(l.Value)}</td></tr>");
         return sb.ToString();
     }
 
@@ -257,11 +268,15 @@ public static class FacturePdfService
     {
         public string clientNom, clientAdresseHtml, clientSiret, refInterne;
         public string dateStr, numero, subtitle, bodyHtml, sommePhrase;
+        public string factureOrigine;   // avoir : n° de la facture qu'il corrige (vide = rien d'imprimé)
         /// Bloc explicatif inséré sous le titre (révision du dépôt : tableau
         /// d'indexation du loyer + règle des N termes). Vide = rien d'imprimé.
         public string explicationHtml;
         public System.Collections.Generic.List<RegulLigne> charges = new System.Collections.Generic.List<RegulLigne>();
         public float totalCharges, provisions, soldeHT, tva, ttc;
+        // Charges déjà refacturées à part, comprises dans `totalCharges` pour mémoire
+        // et déduites aussitôt (déjà réglées) : sans effet sur le solde. 0 = pas de ligne.
+        public float dejaRefacture;
         // Libellés des 3 lignes de totaux (défauts = régularisation ; réutilisé pour le dépôt).
         public string labelTotal, labelProvisions, labelSolde;
         public bool masquerTva;   // true = pas de ligne TVA/TTC (ex. révision du dépôt de garantie)
@@ -289,6 +304,9 @@ public static class FacturePdfService
             .Replace("{{LIEU}}", Lieu())
             .Replace("{{DATE}}", H(d.dateStr))
             .Replace("{{NUMERO}}", H(d.numero))
+            // Solde négatif (régul ou dépôt qui rembourse) : un avoir, pas une facture.
+            .Replace("{{TITRE}}", d.soldeHT < -0.005f ? "AVOIR" : "FACTURE")
+            .Replace("{{ORIGINE}}", Origine(d.soldeHT < -0.005f, d.factureOrigine))
             .Replace("{{BODY}}", d.bodyHtml ?? "")
             .Replace("{{SUBTITLE}}", H(d.subtitle))
             .Replace("{{EXPLICATION}}", d.explicationHtml ?? "")
@@ -305,6 +323,8 @@ public static class FacturePdfService
             .Replace("{{FOOT2}}", H(d.foot2));
     }
 
+    public const string LibelleDejaRefacture = "Charges déjà refacturées (réglées à part)";
+
     // Page 1 : uniquement les totaux (le détail des charges part en page 2).
     static string TotauxBlock(RegulData d)
     {
@@ -316,6 +336,8 @@ public static class FacturePdfService
         sb.Append("<table class=\"totaux\">")
           .Append("<tr><td>").Append(H(lt)).Append("</td><td class=\"r\">").Append(Euro(d.totalCharges)).Append("</td></tr>")
           .Append("<tr><td>").Append(H(lp)).Append("</td><td class=\"r\">").Append(Euro(d.provisions)).Append("</td></tr>");
+        if (d.dejaRefacture > 0.005f)
+            sb.Append("<tr><td>").Append(H(LibelleDejaRefacture)).Append("</td><td class=\"r\">").Append(Euro(d.dejaRefacture)).Append("</td></tr>");
         if (d.masquerTva)
         {
             sb.Append("<tr class=\"ttc\"><td>").Append(H(ls)).Append("</td><td class=\"r\">").Append(Euro(d.soldeHT)).Append("</td></tr>");
@@ -359,6 +381,9 @@ public static class FacturePdfService
           .Append("</td><td class=\"r\">").Append(Euro(d.totalCharges)).Append("</td></tr>");
         sb.Append("<tr><td class=\"name\">Provision pour charges &agrave; d&eacute;duire</td><td></td><td></td><td class=\"r\">")
           .Append(Euro(d.provisions)).Append("</td></tr>");
+        if (d.dejaRefacture > 0.005f)
+            sb.Append("<tr><td class=\"name\">").Append(H(LibelleDejaRefacture)).Append("</td><td></td><td></td><td class=\"r\">")
+              .Append(Euro(d.dejaRefacture)).Append("</td></tr>");
         sb.Append("<tr class=\"tot\"><td>Solde H.T.</td><td></td><td></td><td class=\"r\">").Append(Euro(d.soldeHT)).Append("</td></tr>");
         sb.Append("</table></div>");
         return sb.ToString();

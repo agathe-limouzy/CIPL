@@ -65,7 +65,6 @@ public class FactureInfo
     public string emailCorps;
     public string objet;            // objet/titre (ex « Loyer avril 2026 »), éditable
     public string refInterne;       // texte libre affiché avec le n° (ex « N° Interne Magasin 001048 »)
-    public string chargeId;         // refacturation : id de la charge refacturée
     // Régularisation : listes de charges régularisées ensemble ("" = générale). Une
     // seule facture couvre toutes celles cochées.
     public System.Collections.Generic.List<string> listesRegul = new System.Collections.Generic.List<string>();

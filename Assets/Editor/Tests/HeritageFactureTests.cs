@@ -272,7 +272,6 @@ public class HeritageFactureTests
             sommePhrase = "SOMME À NOUS RÉGLER LE 3 mai 2026",
             refInterne = "N° Interne Magasin 001048",
             emailDest = "demo@example.invalid", objet = "Loyer avril 2026",
-            chargeId = "charge-42",
             loyerMontant = 12345.67f, provisionMontant = 890.12f,
             moisPeriode = 4, anneePeriode = 2026,
             saved = true
@@ -295,7 +294,6 @@ public class HeritageFactureTests
         Assert.That(f.refInterne, Is.Null.Or.Empty);
         Assert.That(f.emailDest, Is.Null.Or.Empty, "l'email doit venir de la fiche du nouveau locataire");
         Assert.That(f.objet, Is.Null.Or.Empty);
-        Assert.That(f.chargeId, Is.Null.Or.Empty);
         Assert.That(f.loyerMontant, Is.EqualTo(0f));
         Assert.That(f.provisionMontant, Is.EqualTo(0f));
         Assert.That(f.moisPeriode, Is.EqualTo(0));

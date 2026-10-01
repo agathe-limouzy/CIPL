@@ -48,14 +48,14 @@ Les montants attendus supposent que **nous sommes le 30/09/2026**.
   - vérifiez qu'il n'y a **pas** de case « Départ du locataire » (elle est dans la section Bail) ;
   - loyer de départ **12000**, périodicité **trimestriel**, pas de provision ;
   - **Révision du loyer** cochée, type **Par paliers** ;
-  - **Franchise de loyer** cochée, date **01/04/2026** ;
+  - **Franchise de loyer (les provisions restent dues)** cochée, date **01/04/2026** ;
   - ouvrez le menu **« Bail repris »** sans rien choisir. Il doit proposer exactement : Aucune, 4e trimestre 2026, 3e trimestre 2026, 2e trimestre 2026, 1er trimestre 2026. Donc pas de mois, rien de futur, rien avant le bail. Laissez « Aucune ».
   
   Cliquez sur **Initialiser**.
   → L'écran se ferme et **« Paliers de loyer · Test Paliers »** s'ouvre, avec :
   - « Loyer de départ : 12 000,00 € / an HT » ;
   - « Bail : du 01/01/2026 au 31/12/2034 (9 ans) » ;
-  - « Franchise : 3 mois — facturation à partir du 01/04/2026 — comprise dans le premier palier, sans loyer. » ;
+  - « Franchise : 3 mois — loyer facturé à partir du 01/04/2026 — comprise dans le premier palier (les provisions restent dues). » ;
   - le formulaire **Palier 1** ouvert, en trois colonnes alignées :
     - « Loyer annuel HT » : 12000 ;
     - « **Du (début du bail)** » : 01 / 01 / 2026, affiché comme les autres dates de l'app — le 1er palier contient la franchise ;
@@ -94,7 +94,7 @@ Les montants attendus supposent que **nous sommes le 30/09/2026**.
   Choisissez **« Pas encore demandé »**, puis cliquez sur **Initialiser**.
   → Message « « Test Paliers » est prêt : général, bail, loyer et dépôt sont renseignés. » **Le bandeau disparaît.** La carte Dépôt affiche 3 600,00 € et un bouton « Réviser ».
 - [ ] **C2** Le suivi de facturation 2026 **se remplit** :
-  - **Loyer 1er trimestre 2026** grisé, avec la pastille « **Franchise** » et aucune action ;
+  - **Loyer 1er trimestre 2026** grisé, avec la pastille « **Franchise** » et aucune action (pas de provision : rien à facturer — voir D3) ;
   - les 2e, 3e et 4e trimestres normaux (« À faire » : rien n'a été facturé) ;
   - une ligne **« Dépôt de garantie » 3 600,00 € « À faire »** ;
   - si une provision pour charges est réglée : aucune régularisation avant 2026, et **aucune pastille sur 2023, 2024 et 2025** ; pas d'alerte « Régularisation des charges » pour les charges d'avant le bail.
@@ -116,7 +116,7 @@ Les montants attendus supposent que **nous sommes le 30/09/2026**.
 
 - [ ] **D1** Carte Loyer :
   - loyer annuel HT **12 000,00 €** ;
-  - récapitulatif « **Prochain palier** : 01/10/2027 (13 000 €/an) » et « **Facturation à partir du** : 01/04/2026 » ;
+  - récapitulatif « **Prochain palier** : 01/10/2027 (13 000 €/an) » et « **Loyer facturé à partir du** : 01/04/2026 » ;
   - boutons « **Modalités** » et « **Paliers** ».
 - [ ] **D2** Cliquez sur **Facturer le loyer** et choisissez la période et l'année à chaque fois :
 
@@ -128,6 +128,13 @@ Les montants attendus supposent que **nous sommes le 30/09/2026**.
   | 1er trimestre 2026 | **0.00** | franchise |
 
   Fermez sans émettre.
+- [ ] **D3** Franchise et provisions : la franchise porte sur le loyer, pas sur les provisions.
+  Cliquez sur **Modalités**, cochez la provision pour charges, saisissez **300**, puis **Modifier**.
+  → Dans le suivi 2026, le **1er trimestre 2026 n'est plus grisé** : il est « À faire ».
+  
+  Facturer le loyer, 1er trimestre 2026 → loyer **0.00**, provision **300.00**. **Générer l'aperçu** : la première ligne du tableau est « **Loyer — franchise** · 0,00 € », puis la provision. Fermez sans émettre.
+  
+  Vous pouvez ensuite retirer la provision (Modalités → décocher → Modifier) : la ligne redevient grisée « Franchise ».
 
 ## E. Bail sans révision, puis avenant — locataire « Test Avenant »
 
@@ -209,15 +216,115 @@ Les montants attendus supposent que **nous sommes le 30/09/2026**.
   → Bandeau « 3 Loyer », facturation refusée, et le suivi ne montre que ses **2 factures déjà émises** (attendu : ce locataire de test n'a jamais eu de loyer initialisé).
 - [ ] **I3** Accueil → « À traiter » affiche toujours les révisions et échéances des vrais locataires.
 
-## J. Nettoyage
+## J. Charge refacturée et régularisation (Test Avenant)
 
-- [ ] **J1** Supprimez **un locataire** de TEST Parcours.
+*À faire en mode d'envoi Pennylane : en mode Email, une refacturation n'est enregistrée qu'une fois le mail parti.*
+
+- [ ] **J1** Test Avenant → **Modalités** → cochez la provision pour charges, **250** par trimestre (soit 1 000 € sur l'année) → Modifier.
+- [ ] **J2** Bâtiment TEST Parcours → onglet **Charges** → ajoutez deux charges datées de **2026**, qui concernent **seulement Test Avenant** :
+  - « Entretien » **1 200 €** ;
+  - « Eau » **800 €**.
+- [ ] **J3** Fiche Test Avenant → **Refacturation d'une charge**.
+  → La carte « Charges à refacturer » liste les charges avec une case et un montant HT chacune ; aucune n'est cochée.
+  
+  Cochez **« Eau »** (800,00).
+  → Une case « **Déduite des provisions** » apparaît (le locataire a une provision). **Cochez-la** → **Sauvegarder et envoyer**.
+  → En rouvrant la refacturation, l'eau n'est plus proposée.
+- [ ] **J4** **Régularisation des charges**, année **2026** :
+  - charges : « Entretien » 1 200,00 €, puis « Eau · déjà refacturée » 800,00 € en gris ;
+  - Total des charges **2 000,00 €**, Provisions déjà versées **1 000,00 €**, « Charges déjà refacturées (réglées à part) » **800,00 €** ;
+  - **Solde HT 200,00 €** (1 200 − 1 000 : l'eau, déjà payée, ne change rien).
+  
+  **Générer facture** : la ligne « Charges déjà refacturées » apparaît sous les provisions, en page 1 et en page 2.
+  
+  Fermez sans émettre.
+- [ ] **J5** Contre-épreuve : ajoutez une charge « Nettoyage » **300 €** (2026, Test Avenant), refacturez-la **sans cocher** « Déduite des provisions ».
+  → Dans la régularisation 2026, le Nettoyage **n'apparaît pas** : il reste hors des provisions. Le solde reste **200,00 €**.
+- [ ] **J6** Plusieurs charges sur une facture : ajoutez « Jardin » **200 €** et « Ménage » **100 €** (2026, Test Avenant). Refacturation → cochez **les deux** → **Générer facture**.
+  → Le tableau a **deux lignes** (Jardin 200,00 · Ménage 100,00), Total HT 300,00, TTC 360,00 ; titre « Refacturation : Jardin, Ménage ».
+  
+  **Sauvegarder et envoyer**.
+  → Le suivi 2026 montre **deux lignes** « Refacturation : Jardin » (240,00) et « Refacturation : Ménage » (120,00), avec le **même numéro**. Passez l'une en « Payé » → **les deux** passent « Payé ».
+- [ ] **J7** Rouvrez la refacturation depuis la ligne « Jardin » du suivi.
+  → Jardin **et** Ménage sont cochés (c'est la même facture). Décochez Ménage → Sauvegarder → refus : « Cette facture couvre aussi : Refacturation : Ménage… ». Fermez.
+- [ ] **J8** Avoir : ajoutez une charge « Avoir eau » à **-500** (2026, Test Avenant). Rouvrez-la dans l'onglet Charges : le coût affiche bien **-500** (et non vide).
+  
+  Refacturation → cochez « Avoir eau » (-500,00).
+  → Total TTC **-600,00 €  ⚠ avoir**, phrase de règlement « SOMME QUI VOUS SERA REMBOURSÉE », et un menu « **Avoir sur la facture n°** » apparaît : il liste les factures déjà émises de Test Avenant (Jardin + Ménage n'y figure qu'une fois). Choisissez la refacturation de l'eau (J3).
+  
+  **Générer facture**.
+  → Titre **« AVOIR : n° »**, juste dessous « **Avoir sur la facture n° …** » (celle choisie), « Avoir sur refacturation : Avoir eau », montants négatifs.
+  
+  Sauvegarder.
+  → Ligne « Avoir : Avoir eau » (-600,00) dans le suivi ; elle restera « Envoyé » et ne passera **jamais « Impayé »** (rien à réclamer). Marquez-la « Payé » une fois le remboursement fait.
+
+## K. Nettoyage
+
+- [ ] **K1** Supprimez **un locataire** de TEST Parcours.
   → Retour au **résumé du bâtiment**, avec le locataire retiré de la liste.
   
   Cliquez sur « Annuler » dans le message.
   → Retour sur la **fiche du locataire restauré**. Supprimez-le à nouveau.
-- [ ] **J2** Supprimez le bâtiment **TEST Parcours**.
+- [ ] **K2** Supprimez le bâtiment **TEST Parcours**.
   → L'application affiche le **bâtiment voisin** (celui de l'onglet précédent, sinon le suivant), jamais un écran vide. S'il n'y avait plus aucun bâtiment, elle reviendrait à l'**accueil**.
+
+## L. Raccourci : bâtiment « TEST Nouveautés » déjà préparé (DemoCIPL)
+
+Préparé le 01/10. Ce bâtiment remplace la saisie des sections A à J : on va directement aux vérifications.
+- **6 locataires** (A à F) et **7 charges 2025**, toutes réservées à F.
+- F a déjà **4 factures émises**, avec leurs PDF :
+  - 2026/08001 « Électricité » (360 €, échue : Impayé) ;
+  - 2026/08002 « Avoir électricité » (-180 €, sur la 08001) ;
+  - 2026/09003 « Eau », **déduite des provisions** (960 €) ;
+  - 2026/09004 « Jardin + Ménage », sur une même facture (240 + 120 €).
+
+**Règle unique** : **n'émettez rien**. Tout se vérifie à l'écran et avec **« Générer facture »** (l'aperçu), en gardant le mode d'envoi Email. Ces locataires n'ont pas d'email : un « Sauvegarder et envoyer » serait refusé de toute façon. Fermez toujours « Facturer le loyer » sans émettre.
+
+- [ ] **L1 · A · Paliers + franchise**
+  - carte Loyer : boutons « Modalités » et **« Paliers »**, « Prochain palier : 01/10/2027 (13 000 €/an) », « **Loyer facturé à partir du** : 01/04/2026 » ;
+  - Paliers : deux lignes, la première « 01/01/2026 → 30/09/2027 · 1 an 9 mois, **dont 1 an 6 mois payés** » ;
+  - suivi 2026 : le 1er trimestre est **grisé « Franchise »** (pas de provision : rien à facturer) ;
+  - Facturer le loyer : 2e trimestre 2026 = **3000.00**, 4e trimestre 2027 = **3250.00**.
+- [ ] **L2 · B · Franchise + provisions** (franchise jusqu'au 30/04/2026, provision 300 par trimestre)
+  - suivi 2026 : le 1er trimestre **n'est pas grisé** (les provisions restent dues) ;
+  - Facturer le loyer, 1er trimestre 2026 : loyer **0.00**, provision **300.00**. Générer l'aperçu : la ligne s'intitule « **Loyer — franchise** · 0,00 € » ;
+  - 2e trimestre 2026 : loyer **2010.99**, au jour : 61 jours facturés sur 91 (mai-juin). Provision **300.00**.
+- [ ] **L3 · C · Avenant + départ** (12 000 € puis 15 000 € à partir du 15/02/2027, départ le 14/08/2027)
+  - section Bail : « Départ du locataire » affiché, dernier jour **14/08/2027** ;
+  - Facturer le loyer : 4e trimestre 2026 = **3000.00**, 1er trimestre 2027 = **3375.00**, 3e trimestre 2027 = **1834.24** ;
+  - suivi 2027 : 4e trimestre **« Hors bail »**.
+- [ ] **L4 · D · Indice à initialiser** *(Internet)*
+  - bandeau « **3 Loyer** », facturation refusée ;
+  - carte Loyer → **Initialiser** → type « Par indice » → Initialiser → « Initialisation de l'indice » : ILC, **2025-T2**, révision **01/01/2027** → Initialiser ;
+  - la fenêtre du dépôt s'ouvre : **3** périodes, « **Demandé, pas encore reçu** » → ligne « Dépôt de garantie » **10 800,00 €** en **Impayé**, aussi dans les Créances de l'accueil.
+- [ ] **L5 · E · Dépôt à initialiser**
+  - bandeau « **4 Dépôt de garantie** » ;
+  - carte Dépôt → Initialiser : **1** période, « **Pas encore demandé** » → ligne « Dépôt de garantie » **2 700,00 €** « À faire » ;
+  - Générer → aperçu au **format refacturation** (« TVA — dépôt de garantie non soumis »). Fermez sans émettre.
+- [ ] **L6 · F · Suivi des refacturations déjà émises** (suivi, année **2026**)
+  - « Refacturation : Électricité… » 360,00 en **Impayé** rouge, avec un bouton « Rappel » : facture échue depuis plus de 15 jours ;
+  - « **Avoir : Avoir électricité 2025** » -180,00, également échu, mais **« Envoyé »**, sans bouton « Rappel » : un avoir ne passe jamais « Impayé » ;
+  - **une seule ligne** pour la facture 2026/09004 : « **Refacturation : Jardin 2025 et Ménage 2025** » **360,00**. Avec trop de charges pour la colonne, ce serait « Refacturation : 3 charges » ;
+  - bouton « PDF » sur chaque ligne :
+    - 08002 s'intitule « **AVOIR : 2026/08002** », avec « Avoir sur la facture n° 2026/08001 » ;
+    - 09004 a deux lignes, Jardin et Ménage.
+- [ ] **L7 · Correction d'une facture à plusieurs charges**
+  - « Refaire » sur la ligne « Jardin 2025 et Ménage 2025 » → l'écran s'ouvre avec Jardin **et** Ménage cochés (montants 200,00 et 100,00) ;
+  - décochez Ménage → « Sauvegarder et envoyer » → **refusé** : « Cette facture couvre aussi 1 autre(s) charge(s) : garde-les toutes cochées pour la corriger. » Fermez.
+- [ ] **L8 · Nouvelle refacturation et avoir** (Refacturation d'une charge, sans rien émettre)
+  - la liste ne propose plus que les charges **non refacturées** : Entretien espaces verts 2025 et Avoir eau 2025 (**-500,00**). Aucune n'est cochée ;
+  - cochez **Entretien** → la case « **Déduite des provisions** » apparaît (F a une provision) ;
+  - cochez aussi **Avoir eau 2025** → **Générer facture** : deux lignes (1 200,00 et **-500,00**, la ligne négative est bien imprimée), Total HT 700,00. C'est une facture : titre « FACTURE » ;
+  - décochez Entretien (seul l'avoir reste) → Total TTC **-600,00 €  ⚠ avoir**, phrase « **SOMME QUI VOUS SERA REMBOURSÉE** » ;
+  - le menu « **Avoir sur la facture n°** » apparaît. Il propose 09004 (Jardin +1, une seule fois), 09003 (Eau) et 08001 (Électricité), mais **pas l'avoir 08002**. Choisissez 09003 ;
+  - **Générer facture** : « **AVOIR : n°** », juste dessous « **Avoir sur la facture n° 2026/09003** », « Avoir sur refacturation : Avoir eau 2025 », montants négatifs. Fermez sans émettre.
+  - onglet Charges du bâtiment : rouvrez « Avoir eau 2025 », le coût affiche **-500** (et non vide). Fermez sans enregistrer.
+- [ ] **L9 · Régul 2025 qui rembourse le locataire** (Régularisation des charges, année **2025**)
+  - charges : « Entretien espaces verts 2025 » 1 200,00, « Avoir eau 2025 » -500,00, puis « **Eau 2025 · déjà refacturée** » 800,00 en gris. Électricité, Jardin et Ménage, refacturés sans la case « Déduite », n'apparaissent pas ;
+  - Total des charges **1 500,00**, Provisions déjà versées **2 000,00** (500 × 4), « Charges déjà refacturées (réglées à part) » **800,00**, Solde HT **-1 300,00  ⚠ trop-perçu (avoir)** ;
+  - le menu « Avoir sur la facture n° » apparaît : choisissez 08001 ;
+  - **Générer facture** : « **AVOIR : n°** », « Avoir sur la facture n° 2026/08001 », « Montant à vous rembourser -1 300,00 », « SOMME QUI VOUS SERA REMBOURSÉE ». La page 2 liste l'eau « (déjà refacturée) » et la ligne « Charges déjà refacturées » sous les provisions. Fermez sans émettre.
+- [ ] **L10 · Nettoyage** : supprimez le bâtiment **TEST Nouveautés**.
 
 ---
 

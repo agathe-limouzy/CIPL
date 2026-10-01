@@ -100,6 +100,8 @@ public static class Loyers
     /// cours de période, et quand un avenant change le loyer en cours de période. Une
     /// période pleine à un seul loyer vaut exactement loyer / n. 0 si la période est
     /// entièrement non facturable (avant le bail, en franchise, après le départ).
+    /// Au jour et non au mois (choix de l'utilisatrice, 01/10 : plus juste) — un mois
+    /// de franchise sur un trimestre laisse donc 59/90 et non 2/3.
     public static float MontantPeriode(Locataire loc, int year, int periode)
     {
         if (loc == null) return 0f;
@@ -115,12 +117,28 @@ public static class Loyers
         return (float)Math.Round(somme / n / ((fin - debut).TotalDays + 1), 2);
     }
 
-    /// Vrai si au moins un jour de la période est facturable.
+    /// Vrai si une facture est attendue pour la période : au moins un jour de loyer
+    /// facturable — ou, pendant la franchise, des provisions à appeler. La franchise
+    /// porte sur le loyer seul, les provisions restent dues (retour du 01/10).
     public static bool PeriodeFacturable(Locataire loc, int year, int periode)
     {
         FacturationSuivi.PeriodeBornes(loc, year, periode, out var debut, out var fin);
-        return fin >= DebutFacturation(loc) && debut <= FinFacturation(loc);
+        var depuis = !AppelleProvisions(loc) ? DebutFacturation(loc)
+                   : DebutPremierBail(loc, out var p) ? p.Date : DateTime.MinValue;
+        return fin >= depuis && debut <= FinFacturation(loc);
     }
+
+    /// Vrai si la franchise couvre le début de la période (loyer nul ou partiel).
+    public static bool EnFranchise(Locataire loc, int year, int periode)
+    {
+        if (!Date(loc?.debutFacturationISO, out var f)) return false;
+        FacturationSuivi.PeriodeBornes(loc, year, periode, out var debut, out _);
+        return debut < f.Date;
+    }
+
+    /// Le locataire verse des provisions pour charges : elles sont facturées même
+    /// pendant la franchise.
+    public static bool AppelleProvisions(Locataire loc) => ListesCharges.ProvisionTotale(loc) > 0f;
 
     /// Vrai si la date est le 1er jour d'une période de facturation du locataire.
     public static bool EstDebutPeriode(Locataire loc, DateTime date)

@@ -52,6 +52,16 @@ public class PennylaneClientTests
     }
 
     [Test]
+    public void En_franchise_seules_les_provisions_sont_envoyees()
+    {
+        var imp = PennylaneClient.Montants("Loyer", 0f, 150f, true);
+
+        Assert.That(imp.invoice_lines.Count, Is.EqualTo(1), "pas de ligne de loyer à 0 €");
+        Assert.That(imp.currency_amount_before_tax, Is.EqualTo("150.00"));
+        AssertEquilibre(imp);
+    }
+
+    [Test]
     public void Sans_TVA_les_lignes_sont_exonerees()
     {
         var imp = PennylaneClient.Montants("Loyer", 800f, 50f, false);

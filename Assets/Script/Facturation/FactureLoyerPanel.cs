@@ -381,6 +381,7 @@ public class FactureLoyerPanel : MonoBehaviour
             numero = ComposedNumero(),
             subtitle = $"Loyer {ctx.periode}",
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
+            ligneLabel = LigneLoyer(loyer),
             totalPeriode = loyer, provision = prov, totalHT = totalHT, tva = tva, ttc = ttc,
             lignesProvision = LignesProvision(),
             tvaDebit = MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
@@ -976,12 +977,19 @@ public class FactureLoyerPanel : MonoBehaviour
 
     // Loyer HT proposé pour la période et l'année choisies (voir Loyers.MontantPeriode).
     string DefaultLoyer()
+        => Loyers.MontantPeriode(_loc, PeriodeAnnee(), PeriodeChoisie()).ToString("0.00", CultureInfo.InvariantCulture);
+
+    int PeriodeChoisie()
     {
         int periode = 1;
         if (_periodeDD != null) int.TryParse(_periodeDD.SelectedId, out periode);
-        if (periode < 1) periode = 1;
-        return Loyers.MontantPeriode(_loc, PeriodeAnnee(), periode).ToString("0.00", CultureInfo.InvariantCulture);
+        return periode < 1 ? 1 : periode;
     }
+
+    // Ligne du loyer : « Loyer — franchise » quand la franchise l'annule (seules les
+    // provisions sont dues), sinon null = libellé par défaut du gabarit.
+    string LigneLoyer(float loyer)
+        => loyer == 0f && Loyers.EnFranchise(_loc, PeriodeAnnee(), PeriodeChoisie()) ? "Loyer — franchise" : null;
 
     // Même règle que l'échéance : le loyer suit la période tant qu'il n'a pas été saisi à la main.
     void RefreshLoyerDefault()
@@ -1069,7 +1077,7 @@ public class FactureLoyerPanel : MonoBehaviour
             sb.AppendLine(FactureVarResolver.Resolve(ent.texte, _loc, _bat, ctx));
             sb.AppendLine();
         }
-        sb.AppendLine($"Loyer HT (période) : {loyer:N2} €");
+        sb.AppendLine($"{LigneLoyer(loyer) ?? "Loyer HT (période)"} : {loyer:N2} €");
         if (prov > 0f) sb.AppendLine($"Provision charges : {prov:N2} €");
         sb.AppendLine($"Total HT : {totalHT:N2} €");
         sb.AppendLine($"TVA 20 % : {tva:N2} €");

@@ -230,6 +230,15 @@ public class RevisionLoyerTests
     }
 
     [Test]
+    public void Un_mois_de_franchise_sur_un_trimestre_est_proratise_au_jour()
+    {
+        // Choix du 01/10 : au jour, plus juste qu'au mois — 59 jours facturés sur 90.
+        var loc = Bail(TypeRevision.Aucune);
+        loc.debutFacturationISO = "2026-02-01";
+        Assert.That(Loyers.MontantPeriode(loc, 2026, 1), Is.EqualTo(1966.67f));
+    }
+
+    [Test]
     public void Une_premiere_periode_partielle_est_proratisee_au_jour()
     {
         // Bail au 15/02/2026, 1er trimestre de 90 jours dont 45 facturés.
@@ -278,6 +287,26 @@ public class RevisionLoyerTests
         Assert.That(EtatLoyer(loc, 2026, 1), Is.EqualTo(FacturationSuivi.Etat.Franchise));
         Assert.That(EtatLoyer(loc, 2026, 2), Is.EqualTo(FacturationSuivi.Etat.Franchise));
         Assert.That(FacturationSuivi.EstGrisee(EtatLoyer(loc, 2026, 3)), Is.False);
+    }
+
+    [Test]
+    public void En_franchise_les_provisions_restent_a_facturer()
+    {
+        // Retour du 01/10 : la franchise porte sur le loyer, pas sur les provisions.
+        var loc = Bail(TypeRevision.Aucune);
+        loc.debutFacturationISO = "2026-07-01";
+        loc.provisionPourCharges = true;
+        loc.provisionPourChargeValue = 300f;
+        Assert.That(Loyers.MontantPeriode(loc, 2026, 1), Is.EqualTo(0f), "pas de loyer");
+        Assert.That(Loyers.PeriodeFacturable(loc, 2026, 1), Is.True, "mais une facture de provisions");
+        Assert.That(FacturationSuivi.EstGrisee(EtatLoyer(loc, 2026, 1)), Is.False);
+        Assert.That(Loyers.EnFranchise(loc, 2026, 1), Is.True, "ligne « Loyer — franchise »");
+        Assert.That(Loyers.EnFranchise(loc, 2026, 3), Is.False);
+
+        // Avant le bail, rien — provisions ou pas.
+        loc.dateDebutBailISO = "2026-04-01";
+        Assert.That(Loyers.PeriodeFacturable(loc, 2026, 1), Is.False);
+        Assert.That(EtatLoyer(loc, 2026, 1), Is.EqualTo(FacturationSuivi.Etat.HorsBail));
     }
 
     [Test]
