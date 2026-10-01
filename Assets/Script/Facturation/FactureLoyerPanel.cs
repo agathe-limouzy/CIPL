@@ -47,6 +47,7 @@ public class FactureLoyerPanel : MonoBehaviour
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _periodeDD;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     string _autoEcheance;// dernière échéance proposée (suivie tant qu'elle n'est pas saisie à la main)
+    string _autoLoyer;   // dernier loyer proposé pour la période (suivi tant qu'il n'est pas saisi à la main)
     Toggle _retard, _mensuel;
     UIDropdown _mentionTva;
     Button _btnSauver;   // libellé variable : « … et envoyer » ou « … pour l'envoi du JJ/MM »
@@ -754,11 +755,12 @@ public class FactureLoyerPanel : MonoBehaviour
         _autoSomme = DefaultSomme();
         _sommePhrase.text = !string.IsNullOrEmpty(f?.sommePhrase) ? f.sommePhrase : _autoSomme;
 
-        // Montants pré-remplis (ou repris s'ils ont été saisis/mémorisés).
-        int n = LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer);
-        float loyerCalc = _loc.loyerAnnuel / n;
+        // Loyer : celui de la période choisie (palier, révision, franchise), et non
+        // celui de la dernière facture — il restait sinon à l'ancien montant après une
+        // révision ou un changement de palier. Recalculé avec la période (RefreshLoyerDefault).
+        _autoLoyer = DefaultLoyer();
+        _loyer.text = _autoLoyer;
         float provCalc = ListesCharges.Provision(_loc, "");   // charges générales ; les listes suivent
-        _loyer.text = (f != null && f.saved ? f.loyerMontant : loyerCalc).ToString("0.00", CultureInfo.InvariantCulture);
         _provision.text = (f != null && f.saved ? f.provisionMontant : provCalc).ToString("0.00", CultureInfo.InvariantCulture);
         ChargerProvisionsListes(f);
 
@@ -969,6 +971,25 @@ public class FactureLoyerPanel : MonoBehaviour
         if (_echeance.text == _autoEcheance) _echeance.text = def;   // déclenche RefreshSommeDefault
         _autoEcheance = def;
         RefreshBoutonSauver();
+        RefreshLoyerDefault();
+    }
+
+    // Loyer HT proposé pour la période et l'année choisies (voir Loyers.MontantPeriode).
+    string DefaultLoyer()
+    {
+        int periode = 1;
+        if (_periodeDD != null) int.TryParse(_periodeDD.SelectedId, out periode);
+        if (periode < 1) periode = 1;
+        return Loyers.MontantPeriode(_loc, PeriodeAnnee(), periode).ToString("0.00", CultureInfo.InvariantCulture);
+    }
+
+    // Même règle que l'échéance : le loyer suit la période tant qu'il n'a pas été saisi à la main.
+    void RefreshLoyerDefault()
+    {
+        if (_loc == null || _loyer == null) return;
+        string def = DefaultLoyer();
+        if (_loyer.text == _autoLoyer) _loyer.text = def;   // déclenche RefreshMontants
+        _autoLoyer = def;
     }
 
     // Date d'envoi de la facture en cours de saisie, d'après l'échéance affichée.

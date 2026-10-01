@@ -9,7 +9,15 @@ using UnityEngine;
 /// l'état de chacune : À venir → À faire → Envoyé → Impayé / Payé.
 public static class FacturationSuivi
 {
-    public enum Etat { AVenir, AFaire, AttenteEnvoi, Envoye, Impaye, Paye, Cloture }
+    // Cloture / Franchise / HorsBail : statuts transitoires (jamais stockés), lignes
+    // grisées et non actionnables — voir EstGrisee.
+    public enum Etat { AVenir, AFaire, AttenteEnvoi, Envoye, Impaye, Paye, Cloture, Franchise, HorsBail }
+
+    /// Ligne sans facture attendue : période reprise, en franchise ou avant le bail.
+    public static bool EstGrisee(Etat e) => e == Etat.Cloture || e == Etat.Franchise || e == Etat.HorsBail;
+
+    /// Clé de la ligne du dépôt de garantie initial (demandé à l'initialisation du dépôt).
+    public const string CleDepotInitial = "depot-initial";
 
     // Formats d'échéance réellement écrits par l'app (ISO). On parse en culture
     // INVARIANTE : `DateTime.TryParse` en culture courante pouvait échouer selon la
@@ -64,17 +72,32 @@ public static class FacturationSuivi
 
         // Loyers : une ligne par PÉRIODE de l'année (suit la périodicité du loyer :
         // mensuel → 12 lignes, trimestriel → 4, etc.).
+        // Une période entièrement avant le premier bail, après le départ du locataire, ou
+        // dans la franchise, n'attend aucune facture : grisée (« Hors bail » /
+        // « Franchise »), sauf statut stocké. La fin du bail seule n'arrête rien.
+        bool avecBail = Loyers.DebutPremierBail(loc, out var debutBail);
+        bool avecFranchise = TryEcheance(loc.debutFacturationISO, out var finFranchise);
+        bool avecSortie = TryEcheance(loc.dateSortieISO, out var sortie);
         int n = NbPeriodes(loc.periodiciteLoyer);
         for (int p = 1; p <= n; p++)
         {
             var ech = EcheanceLoyer(loc, year, p);
-            res.Add(Fusion(stored, $"loyer-{year}-P{p}", "Loyer",
-                $"Loyer {PeriodeLibelle(loc.periodiciteLoyer, p, year)}", ech, 0f));
+            var ligne = Fusion(stored, $"loyer-{year}-P{p}", "Loyer",
+                $"Loyer {PeriodeLibelle(loc.periodiciteLoyer, p, year)}", ech, 0f);
+            if (string.IsNullOrEmpty(ligne.statut))
+            {
+                PeriodeBornes(loc, year, p, out var debutPeriode, out var finPeriode);
+                if (avecBail && finPeriode < debutBail.Date) ligne.statut = "HorsBail";
+                else if (avecSortie && debutPeriode > sortie.Date) ligne.statut = "HorsBail";
+                else if (avecFranchise && finPeriode < finFranchise.Date) ligne.statut = "Franchise";
+            }
+            res.Add(ligne);
         }
 
         // Régularisation des charges de l'année (si provision) — faite en N+1, à la
         // date de chaque liste : la générale, puis chaque liste spécifique datée.
-        if (loc.provisionPourCharges)
+        // Seulement pour une année où le locataire était dans les lieux (bail).
+        if (loc.provisionPourCharges && Loyers.AnneeDansLeBail(loc, year))
             foreach (var listeId in ListesCharges.DuLocataire(loc))
             {
                 DateTime ech = TryEcheance(ListesCharges.DateRegul(loc, listeId), out var dr)
@@ -89,10 +112,11 @@ public static class FacturationSuivi
             res.Add(Fusion(stored, $"depot-{year}", "Depot",
                 "Révision du dépôt de garantie", dd, 0f));
 
-        // Refacturations enregistrées de l'année (créées à la demande).
+        // Refacturations enregistrées de l'année (créées à la demande), et dépôt de
+        // garantie initial (créé à l'initialisation du dépôt).
         foreach (var r in stored)
         {
-            if (r.type != "Refac") continue;
+            if (r.type != "Refac" && r.key != CleDepotInitial) continue;
             int ry = TryEcheance(r.echeanceISO, out var re) ? re.Year : year;
             if (ry == year && !res.Any(x => x.key == r.key)) res.Add(CopieDe(r));
         }
@@ -118,6 +142,19 @@ public static class FacturationSuivi
                     l.statut = "Cloture";
 
         return res.OrderBy(x => TryEcheance(x.echeanceISO, out var e) ? e : DateTime.MaxValue).ToList();
+    }
+
+    /// Lignes montrées dans le suivi de la fiche. Tant que le locataire n'est pas
+    /// complet (parcours Général → Bail → Loyer → Dépôt), rien n'est planifié : un
+    /// suivi rempli de loyers « À faire » n'aurait aucun sens avant que le loyer
+    /// existe. Seules restent les factures réellement touchées (émises, payées,
+    /// forcées) — celles d'un locataire en cours de réinitialisation, par exemple.
+    public static List<FactureEtat> LignesAffichees(Locataire loc, int year)
+    {
+        var lignes = Lignes(loc, year);
+        if (loc == null || ParcoursLocataire.Prochaine(loc) == ParcoursLocataire.Etape.Termine) return lignes;
+        var stored = loc.facturesEtat ?? new List<FactureEtat>();
+        return lignes.Where(l => stored.Any(s => s.key == l.key && !string.IsNullOrEmpty(s.statut))).ToList();
     }
 
     // Ligne planifiée : reprend l'enregistrement s'il existe, sinon une ligne « vierge ».
@@ -171,6 +208,8 @@ public static class FacturationSuivi
         if (s == "Paye") return Etat.Paye;
         if (s == "Impaye") return Etat.Impaye;
         if (s == "Cloture") return Etat.Cloture;   // période reprise (historique)
+        if (s == "Franchise") return Etat.Franchise;
+        if (s == "HorsBail") return Etat.HorsBail;
 
         // En attente d'envoi : le PDF existe, rien n'est parti. Cet état ne se
         // périme pas — il ne devient « Envoyé » que par un envoi réel ou un forçage
@@ -213,6 +252,8 @@ public static class FacturationSuivi
             case Etat.Impaye: return "Impayé";
             case Etat.Paye:   return "Payé";
             case Etat.Cloture: return "Clôturé";
+            case Etat.Franchise: return "Franchise";
+            case Etat.HorsBail: return "Hors bail";
         }
         return "";
     }
@@ -489,6 +530,37 @@ public static class FacturationSuivi
         int jour = loc != null && loc.jourDemandeLoyer > 0 ? loc.jourDemandeLoyer : 1;
         int mois = MoisEcheance(loc, periode);
         return new DateTime(year, mois, Mathf.Clamp(jour, 1, DateTime.DaysInMonth(year, mois)));
+    }
+
+    /// Premier et dernier jour d'une période de loyer : du 1er de son mois d'échéance à
+    /// la veille de la période suivante (les mois cochés peuvent être irréguliers).
+    public static void PeriodeBornes(Locataire loc, int year, int periode, out DateTime debut, out DateTime fin)
+    {
+        int n = NbPeriodes(loc != null ? loc.periodiciteLoyer : Periodicite.mensuel);
+        debut = new DateTime(year, MoisEcheance(loc, periode), 1);
+        var suivant = periode < n
+            ? new DateTime(year, MoisEcheance(loc, periode + 1), 1)
+            : new DateTime(year + 1, MoisEcheance(loc, 1), 1);
+        // Mois cochés incomplets (moins de mois que de périodes) : période standard.
+        if (suivant <= debut) suivant = debut.AddMonths(12 / n);
+        fin = suivant.AddDays(-1);
+    }
+
+    /// Ligne du dépôt de garantie initial, posée à l'initialisation du dépôt :
+    /// statut « Envoye » = demandé mais pas reçu (une créance) ; statut vide = pas
+    /// encore demandé (« À faire », la facture se génère depuis le suivi).
+    public static void AjouterDepotInitial(Locataire loc, float montant, string statut, DateTime echeance)
+    {
+        if (loc == null) return;
+        loc.facturesEtat ??= new List<FactureEtat>();
+        var rec = loc.facturesEtat.FirstOrDefault(x => x.key == CleDepotInitial);
+        if (rec == null) { rec = new FactureEtat { key = CleDepotInitial }; loc.facturesEtat.Add(rec); }
+        rec.type = "Depot";
+        rec.libelle = "Dépôt de garantie";
+        rec.echeanceISO = echeance.ToString("yyyy-MM-dd");
+        rec.montant = montant;
+        rec.statut = statut ?? "";
+        if (rec.statut == "Envoye") rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
     }
 
     /// Échéance attendue par les modalités actuelles pour une ligne de loyer déjà

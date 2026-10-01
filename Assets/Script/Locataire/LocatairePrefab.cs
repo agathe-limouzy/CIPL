@@ -57,6 +57,15 @@ public class LocatairePrefab : PrefabBatLoc
     private LocataireFacturationFields facturationFields;
     private LocataireBailFields bailFields;
 
+    // Parcours de création : Général → Bail → Loyer → Dépôt (voir ParcoursLocataire).
+    // `_enCreation` : fiche créée dans cette session, les écrans s'enchaînent seuls.
+    private ParcoursLocataireUI _parcours;
+    private bool _enCreation, _enModification, _loyerInitialiseAvant;
+    // Le locataire affiché. À la création, la fiche est construite AVANT que le
+    // bâtiment ne l'ajoute à sa liste (BatimentPrefab.Addlocataire) : GetLocataire()
+    // renvoie alors null, et le bandeau du parcours restait caché.
+    private Locataire _locAffiche;
+
     [Header("Sections repliables")]
     public CollapsibleSection[] sections;
     private bool[] _sectionStateSnapshot;
@@ -199,6 +208,12 @@ public class LocatairePrefab : PrefabBatLoc
         facturationFields.EnsureBuilt(this);
         BuildSiretRow();
 
+        if (_parcours == null) _parcours = gameObject.AddComponent<ParcoursLocataireUI>();
+        _parcours.EnsureBuilt(this);
+        BrancherParcoursSurSaisie();
+        _locAffiche = newLocataire;
+        _loyerInitialiseAvant = newLocataire.LoyerInitialise;
+
 
 
 
@@ -244,13 +259,19 @@ public class LocatairePrefab : PrefabBatLoc
             save.gameObject.SetActive(false);
             modifyBatiment.gameObject.SetActive(true);
             Delete.gameObject.SetActive(true);
+            _enModification = false;
         }
         else
         {
-            // ── Nouveau locataire : l'utilisateur choisit le mode ────────────
+            // ── Nouveau locataire : le parcours commence (Général, puis Bail) ──
+            _enCreation = true;
             loyerSummary.Refresh(newLocataire);
+            // Cartes Dépôt / Facturation / Suivi à l'état de CE locataire : sans ce
+            // chargement, la carte Dépôt gardait « Réviser » au lieu d'« Initialiser ».
+            facturationFields.Load(newLocataire);
             Modify();
         }
+        RefreshParcours();
 
         Delete.onClick.AddListener(() =>
         {
@@ -345,6 +366,24 @@ public class LocatairePrefab : PrefabBatLoc
         string erreurBail = bailFields != null ? bailFields.Verifier() : null;
         if (erreurBail != null) { UndoToast.Instance?.ShowInfo(erreurBail); return; }
 
+        // Création : le parcours exige Général (le nom) puis Bail (les dates) avant tout
+        // enregistrement — un bail jamais saisi partait au « 01/01/0001 », et le loyer
+        // ou le dépôt n'avaient alors rien de juste sur quoi s'appuyer.
+        if (_enCreation)
+        {
+            string nomSaisi = nameOfLocataire.GetValue();
+            if (string.IsNullOrWhiteSpace(nomSaisi) || nomSaisi.Trim() == Data.NomParDefaut)
+            { UndoToast.Instance?.ShowInfo(ParcoursLocataire.Consigne(ParcoursLocataire.Etape.General)); return; }
+            if (!dateDebutBail.LireDate(out var debut) || !dateFinBail.LireDate(out var fin))
+            { UndoToast.Instance?.ShowInfo(ParcoursLocataire.Consigne(ParcoursLocataire.Etape.Bail)); return; }
+            if (fin <= debut)
+            { UndoToast.Instance?.ShowInfo("Étape 2 — Bail : la date de fin doit être après la date de début."); return; }
+            // Les champs sont lus tels qu'affichés : la date n'était retenue qu'en
+            // quittant la case, un clic direct sur « Sauvegarder » la perdait.
+            dateDebutBail.ApplyDate(debut);
+            dateFinBail.ApplyDate(fin);
+        }
+
         // ── Nom : unicité DANS CE BÂTIMENT + dossier déplacé si le nom change ─────
         // Le dossier du locataire vit à l'intérieur de celui de son bâtiment : deux
         // locataires homonymes dans DEUX bâtiments différents ne se gênent donc pas et
@@ -426,6 +465,78 @@ public class LocatairePrefab : PrefabBatLoc
         // Même chemin que la mise à jour du démarrage, donc même règle.
         StartCoroutine(PappersSync.Un(batimentPrefabOrigin, locataire));
         locataireScrollContent?.SetDirty();
+
+        // Création : Général et Bail sont faits, l'écran du loyer s'ouvre (étape 3).
+        if (_enCreation) ContinuerParcours();
+    }
+
+    // ── Parcours de création (Général → Bail → Loyer → Dépôt) ────────────────
+
+    public void RefreshParcours()
+    {
+        var loc = GetLocataire() ?? _locAffiche;
+        if (_parcours != null && loc != null) _parcours.Refresh(loc, EtapeAffichee(loc), _enCreation, _enModification);
+    }
+
+    /// Étape montrée par le bandeau. Pendant la saisie, Général et Bail se lisent dans
+    /// les champs — le nom tapé suffit à passer au bail, sans attendre l'enregistrement.
+    /// Loyer et dépôt, eux, n'existent qu'une fois la fiche enregistrée.
+    ParcoursLocataire.Etape EtapeAffichee(Locataire loc)
+    {
+        var enregistree = ParcoursLocataire.Prochaine(loc);
+        if (!_enModification) return enregistree;
+        string nom = nameOfLocataire.inputModify != null ? nameOfLocataire.inputModify.text : "";
+        if (string.IsNullOrWhiteSpace(nom) || nom.Trim() == Data.NomParDefaut) return ParcoursLocataire.Etape.General;
+        bool bail = dateDebutBail.LireDate(out var debut) && dateFinBail.LireDate(out var fin) && fin > debut;
+        if (!bail) return ParcoursLocataire.Etape.Bail;
+        return enregistree < ParcoursLocataire.Etape.Loyer ? ParcoursLocataire.Etape.Loyer : enregistree;
+    }
+
+    // Le bandeau suit la frappe dans le nom et les dates du bail (branché une fois).
+    bool _parcoursBranche;
+    void BrancherParcoursSurSaisie()
+    {
+        if (_parcoursBranche) return;
+        _parcoursBranche = true;
+        if (nameOfLocataire.inputModify != null)
+            nameOfLocataire.inputModify.onValueChanged.AddListener(_ => RefreshParcours());
+        foreach (var date in new[] { dateDebutBail, dateFinBail })
+            foreach (var champ in new[] { date.dayInput, date.monthInput, date.yearInput })
+                if (champ != null) champ.onValueChanged.AddListener(_ => RefreshParcours());
+    }
+
+    /// Ouvre l'écran de l'étape en cours ; Général et Bail se remplissent sur la fiche.
+    public void ContinuerParcours()
+    {
+        var loc = GetLocataire();
+        if (loc == null) return;
+        var etape = ParcoursLocataire.Prochaine(loc);
+        switch (etape)
+        {
+            case ParcoursLocataire.Etape.General:
+            case ParcoursLocataire.Etape.Bail:
+                if (!_enModification) Modify();
+                UndoToast.Instance?.ShowInfo(ParcoursLocataire.Consigne(etape));
+                break;
+            case ParcoursLocataire.Etape.Loyer:
+                RevisionPanel.Instance.Open(loc, OnRevisionSaved, RevisionPanel.Volet.Initialisation);
+                break;
+            case ParcoursLocataire.Etape.Depot:
+                facturationFields?.OuvrirDepot();
+                break;
+            default:
+                if (_enCreation) UndoToast.Instance?.ShowInfo($"« {loc.Name} » est prêt : général, bail, loyer et dépôt sont renseignés.");
+                _enCreation = false;
+                break;
+        }
+        RefreshParcours();
+    }
+
+    /// Appelé à l'initialisation du dépôt (dernière étape du parcours).
+    public void OnDepotInitialise()
+    {
+        RefreshParcours();
+        if (_enCreation) ContinuerParcours();
     }
 
     public override void Modify()
@@ -457,6 +568,8 @@ public class LocatairePrefab : PrefabBatLoc
             _sectionStateSnapshot[i] = sections[i].IsOpen;
         foreach (var s in sections) s.Open();
 
+        _enModification = true;
+        RefreshParcours();
         locataireScrollContent?.SetDirty();
     }
     public void OnRevisionSaved()
@@ -466,6 +579,13 @@ public class LocatairePrefab : PrefabBatLoc
         RefreshRevisionAlert(loc);
         batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         locataireScrollContent?.SetDirty();   // ← ajouter
+
+        // Création : le loyer vient d'être initialisé → étape 4, le dépôt. Seulement
+        // à ce moment-là (une date de révision modifiée plus tard ne rouvre rien).
+        bool vientDInitialiser = !_loyerInitialiseAvant && loc.LoyerInitialise;
+        _loyerInitialiseAvant = loc.LoyerInitialise;
+        RefreshParcours();
+        if (_enCreation && vientDInitialiser) ContinuerParcours();
     }
 
 

@@ -327,6 +327,9 @@ public class BatimentManager : MonoBehaviour
                     // Charges au format « facturée pour tous » → par locataire, d'après
                     // le suivi. Avant la création de la fiche : elle travaille sur une copie.
                     bool reconstitue = ChargeBatiment.Reconstituer(data);
+                    // Loyer à paliers : le loyer courant suit le palier du jour.
+                    if (data.locataireDuBatiment != null)
+                        foreach (var loc in data.locataireDuBatiment) Loyers.Actualiser(loc, DateTime.Today);
                     _batiments.Add(data);
                     if (reconstitue) SaveBatiment(data);
                     var prefab = SpawnPrefabInPanel(data, batimentsContainerPanel, false);

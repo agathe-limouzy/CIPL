@@ -27,11 +27,17 @@ public class LoyerSummaryUI : MonoBehaviour
     {
         _locatairePrefab = locatairePrefab;
 
+        // Bouton « Réviser » : révision par indice, ou tableau des paliers, selon le type.
         btnOuvrirRevision.onClick.RemoveAllListeners();
         btnOuvrirRevision.onClick.AddListener(() =>
-            RevisionPanel.Instance.Open(
-                _locatairePrefab.GetLocataire(),
-                onSaved: () => _locatairePrefab.OnRevisionSaved()));
+        {
+            var loc = _locatairePrefab.GetLocataire();
+            if (loc == null) return;
+            if (loc.typeRevision == TypeRevision.Paliers)
+                PaliersPanel.Open(loc, () => _locatairePrefab.OnRevisionSaved(), _locatairePrefab);
+            else
+                RevisionPanel.Instance.Open(loc, () => _locatairePrefab.OnRevisionSaved(), RevisionPanel.Volet.Indice);
+        });
 
         EnsureModalitesButton();
     }
@@ -45,6 +51,7 @@ public class LoyerSummaryUI : MonoBehaviour
 
         var clone = Instantiate(btnOuvrirRevision.gameObject, btnOuvrirRevision.transform.parent);
         clone.name = "BtnModalites";
+        clone.SetActive(true);   // « Réviser » peut être masqué (paliers absents, sans révision)
         clone.transform.SetSiblingIndex(btnOuvrirRevision.transform.GetSiblingIndex()); // avant « Réviser »
         _btnModalites = clone.GetComponent<Button>();
 
@@ -58,10 +65,32 @@ public class LoyerSummaryUI : MonoBehaviour
 
         _btnModalites.onClick.RemoveAllListeners();
         _btnModalites.onClick.AddListener(() =>
-            RevisionPanel.Instance.Open(
-                _locatairePrefab.GetLocataire(),
-                onSaved: () => _locatairePrefab.OnRevisionSaved(),
-                RevisionPanel.Volet.Modalites));
+        {
+            var loc = _locatairePrefab.GetLocataire();
+            if (loc == null) return;
+            // Parcours : pas de loyer avant le général et le bail (dates enregistrées).
+            string bloque = ParcoursLocataire.Bloque(loc, ParcoursLocataire.Etape.Loyer);
+            if (bloque != null) { UndoToast.Instance?.ShowInfo(bloque); return; }
+            RevisionPanel.Instance.Open(loc, () => _locatairePrefab.OnRevisionSaved(), RevisionPanel.Volet.Initialisation);
+        });
+    }
+
+    // Les deux boutons de la bande « Loyer » suivent l'état du loyer :
+    // « Initialiser » tant qu'il ne l'est pas, puis « Modalités » ; le second bouton
+    // n'existe que s'il y a quelque chose à réviser (« Réviser » / « Paliers »).
+    private void RefreshBoutons(Locataire loc)
+    {
+        bool init = loc.LoyerInitialise;
+        var lblMod = _btnModalites != null ? _btnModalites.GetComponentInChildren<TMP_Text>(true) : null;
+        if (lblMod != null) lblMod.text = init ? "Modalités" : "Initialiser";
+
+        bool revisable = init && loc.typeRevision != TypeRevision.Aucune;
+        if (btnOuvrirRevision != null)
+        {
+            btnOuvrirRevision.gameObject.SetActive(revisable);
+            var lbl = btnOuvrirRevision.GetComponentInChildren<TMP_Text>(true);
+            if (lbl != null) lbl.text = loc.typeRevision == TypeRevision.Paliers ? "Paliers" : "Réviser";
+        }
     }
 
     public void Refresh(Locataire loc)
@@ -119,6 +148,8 @@ public class LoyerSummaryUI : MonoBehaviour
             _aTtc.text = $"{perHTCharge * TVA:N2} €";
             if (_perLabel != null) _perLabel.text = $"Loyer par période ({labelP})";
         }
+
+        RefreshBoutons(loc);
 
         // Badge + bouton Réviser plus voyants si révision dépassée
         bool due = EstRevisionDue(loc);
@@ -187,8 +218,8 @@ public class LoyerSummaryUI : MonoBehaviour
     // Affiché dans la carte Loyer, au-dessus du bouton « Réviser ». Les valeurs
     // sont saisies dans le pop-up « Révision du loyer » (voir RevisionPanel).
 
-    private GameObject _recapGO, _rowRegul;
-    private TMP_Text _valDemande, _valMois, _valRevision, _valRegul;
+    private GameObject _recapGO, _rowRegul, _rowFranchise, _rowSortie;
+    private TMP_Text _valDemande, _valMois, _valRevision, _lblRevision, _valRegul, _valFranchise, _valSortie;
 
     private static readonly string[] MoisNoms =
     {
@@ -221,6 +252,9 @@ public class LoyerSummaryUI : MonoBehaviour
         _valDemande  = Row(v.transform, "Loyer demandé le");
         _valMois     = Row(v.transform, "Mois facturés");
         _valRevision = Row(v.transform, "Prochaine révision");
+        _lblRevision = _valRevision.transform.parent.GetChild(0).GetComponent<TMP_Text>();
+        _valFranchise = Row(v.transform, "Facturation à partir du", out _rowFranchise);
+        _valSortie   = Row(v.transform, "Départ du locataire", out _rowSortie);
         _valRegul    = Row(v.transform, "Régularisation charges", out _rowRegul);
         // Une liste de charges par ligne : le libellé reste en face de la première.
         _rowRegul.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.UpperLeft;
@@ -253,10 +287,35 @@ public class LoyerSummaryUI : MonoBehaviour
         else
             _valMois.text = "à définir";
 
-        bool initialise = !string.IsNullOrEmpty(loc.indiceImmoAuDepart)
-                          && loc.indiceImmoAuDepart != "—";
-        _valRevision.text = initialise ? loc.MoisDeRevision.ToString("dd/MM/yyyy") : "—";
+        // Révision : date de la prochaine (indice), prochain palier, ou rien.
+        switch (loc.typeRevision)
+        {
+            case TypeRevision.Paliers:
+                _lblRevision.text = "Prochain palier";
+                var prochain = Loyers.Prochain(loc, System.DateTime.Today);
+                _valRevision.text = prochain != null && System.DateTime.TryParse(prochain.debutISO, out var dp)
+                    ? $"{dp:dd/MM/yyyy} ({prochain.loyer:N0} €/an)" : "—";
+                break;
+            case TypeRevision.Aucune:
+                _lblRevision.text = "Révision";
+                _valRevision.text = "Aucune";
+                break;
+            default:
+                _lblRevision.text = "Prochaine révision";
+                _valRevision.text = loc.IndiceInitialise ? loc.MoisDeRevision.ToString("dd/MM/yyyy") : "—";
+                break;
+        }
         _valRevision.color = EstRevisionDue(loc) ? Col("#D85A30") : UITheme.TextePrincipal;
+
+        // Franchise : la date à partir de laquelle on facture.
+        bool franchise = System.DateTime.TryParse(loc.debutFacturationISO, out var df);
+        _rowFranchise.SetActive(franchise);
+        if (franchise) _valFranchise.text = df.ToString("dd/MM/yyyy");
+
+        // Départ : dernier jour facturé (sans départ, le loyer continue après la fin du bail).
+        bool sortie = System.DateTime.TryParse(loc.dateSortieISO, out var ds);
+        _rowSortie.SetActive(sortie);
+        if (sortie) _valSortie.text = ds.ToString("dd/MM/yyyy");
 
         // Régularisation : uniquement en cas de provision pour charges.
         _rowRegul.SetActive(loc.provisionPourCharges);
@@ -273,12 +332,10 @@ public class LoyerSummaryUI : MonoBehaviour
 
     private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
+    /// Révision par indice arrivée à échéance. Jamais pour des paliers (ils s'appliquent
+    /// seuls) ni pour un bail sans révision.
     public static bool EstRevisionDue(Locataire loc)
-    {
-        bool initialise = !string.IsNullOrEmpty(loc.indiceImmoAuDepart)
-                          && loc.indiceImmoAuDepart != "—";
-        return initialise && System.DateTime.Now >= loc.MoisDeRevision;
-    }
+        => loc.RevisionIndiceSuivie && System.DateTime.Now >= loc.MoisDeRevision;
 
     public static int NbPeriodes(Periodicite p) => p switch
     {

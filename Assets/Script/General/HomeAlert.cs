@@ -85,9 +85,7 @@ public static class HomeAlertCollector
             // ── Révisions de loyer ────────────────────────────────────────────
             foreach (var loc in bp.listLocataire)
             {
-                bool initialise = !string.IsNullOrEmpty(loc.indiceImmoAuDepart)
-                                  && loc.indiceImmoAuDepart != "—";
-                if (!initialise) continue;
+                if (!loc.RevisionIndiceSuivie) continue;   // paliers / sans révision : rien à réviser
 
                 int jours = (loc.MoisDeRevision - today).Days;
                 string nomLoc = string.IsNullOrEmpty(loc.Name) ? "Locataire" : loc.Name;

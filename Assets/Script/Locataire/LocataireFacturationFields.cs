@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using TMPro;
 using UnityEngine;
@@ -21,6 +22,7 @@ public class LocataireFacturationFields : MonoBehaviour
     // Récap dépôt de garantie (lecture seule)
     TMP_Text _valMontant, _valMoisEquiv, _valDateRev;
     GameObject _depotBadge;   // pastille « Révision à faire » (bandeau Dépôt)
+    TMP_Text _depotBtnLbl;    // « Initialiser » tant que le dépôt ne l'est pas, puis « Réviser »
     GameObject _pastilleLoyer, _pastilleRegul, _pastilleDepot;   // rappels sur les boutons d'action
 
     LocatairePrefab _fiche;
@@ -339,7 +341,13 @@ public class LocataireFacturationFields : MonoBehaviour
     {
         var b = UIFactory.Button(row, label, bg, Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(b.gameObject, flexW: 1, minW: 0, minH: 46, prefH: 46);
-        b.onClick.AddListener(() => onClick());
+        b.onClick.AddListener(() =>
+        {
+            // Parcours : aucune facture tant que général, bail, loyer et dépôt manquent.
+            string bloque = ParcoursLocataire.FacturationBloquee(_fiche != null ? _fiche.GetLocataire() : null);
+            if (bloque != null) { UndoToast.Instance?.ShowInfo(bloque); return; }
+            onClick();
+        });
         return b;
     }
 
@@ -513,6 +521,7 @@ public class LocataireFacturationFields : MonoBehaviour
             if (b != null) { b.onClick.RemoveAllListeners(); b.onClick.AddListener(OpenRevisionPopup); }
             var lbl = go.GetComponentInChildren<TMP_Text>(true);
             if (lbl != null) { lbl.text = "Réviser"; lbl.color = Color.white; }
+            _depotBtnLbl = lbl;
             var img = go.GetComponent<UnityEngine.UI.Image>();
             if (img != null) img.color = MoneyAccent;
             var le = go.GetComponent<LayoutElement>() ?? go.AddComponent<LayoutElement>();
@@ -614,6 +623,7 @@ public class LocataireFacturationFields : MonoBehaviour
         bool due = RevisionDepotDue(loc);
         _valDateRev.color = due ? HexC("#D85A30") : UITheme.TextePrincipal;
         if (_depotBadge != null) _depotBadge.SetActive(due);
+        if (_depotBtnLbl != null) _depotBtnLbl.text = loc.DepotInitialise ? "Réviser" : "Initialiser";
     }
 
     // ── Clone d'un champ InputAndText (rendu natif) ─────────────────────────
@@ -653,11 +663,26 @@ public class LocataireFacturationFields : MonoBehaviour
 
     // ── Révision du dépôt de garantie (pop-up) ──────────────────────────────
 
+    /// Ouvre l'initialisation (ou la révision) du dépôt — étape 4 du parcours de création.
+    public void OuvrirDepot() => OpenRevisionPopup();
+
+    // Même modale pour les deux temps du dépôt (schéma du 30/09) : « Initialiser »
+    // tant que le dépôt ne l'a jamais été (nombre de périodes, TVA, date de révision,
+    // demandé et reçu ?), puis « Réviser ».
     void OpenRevisionPopup()
     {
         if (_fiche == null) return;
         var loc = _fiche.GetLocataire();
         if (loc == null) return;
+        bool init = !loc.DepotInitialise;
+        // Parcours : le dépôt vient en dernier — il se calcule en périodes de loyer.
+        string bloque = init ? ParcoursLocataire.Bloque(loc, ParcoursLocataire.Etape.Depot) : null;
+        if (bloque != null) { UndoToast.Instance?.ShowInfo(bloque); return; }
+        if (init && loc.loyerAnnuel <= 0f)
+        {
+            UndoToast.Instance?.ShowInfo("Le loyer est à zéro : le dépôt se calcule en périodes de loyer.");
+            return;
+        }
         // Loyer par période (selon la périodicité du bail), hors charges, HT.
         float periodeHT = loc.loyerAnnuel / LoyerSummaryUI.NbPeriodes(loc.periodiciteLoyer);
 
@@ -699,16 +724,22 @@ public class LocataireFacturationFields : MonoBehaviour
         if (hSprite != null) hImg.sprite = hSprite;
         hImg.color = Color.white; hImg.preserveAspect = true; hImg.raycastTarget = false;
         UIFactory.LE(hIcon.gameObject, prefW: 26, minW: 26, prefH: 26, minH: 26, flexW: 0);
-        var hTitle = UIFactory.Text(header.transform, "Révision du dépôt de garantie", UITheme.Role.Section, Color.white, true);
+        var hTitle = UIFactory.Text(header.transform,
+            init ? "Initialisation du dépôt de garantie" : "Révision du dépôt de garantie",
+            UITheme.Role.Section, Color.white, true);
         UIFactory.LE(hTitle.gameObject, flexW: 1);
 
         // Corps (formulaire) sur fond crème, encadré.
         var body = UIFactory.VBox(v.transform, 10, 18, 18, 14, 16, "Body");
 
-        UIFactory.Text(body.transform, "Date de révision", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, init ? "Date de la prochaine révision" : "Date de révision",
+            UITheme.Role.Donnee, UITheme.TexteSecondaire);
         var dateInput = UIFactory.Input(body.transform, "JJ / MM / AAAA");
+        // Initialisation sans date : un an après le début du bail.
+        DateTime dateDefaut = DateTime.Today;
+        if (init && DateTime.TryParse(loc.dateDebutBailISO, out var debutBail)) dateDefaut = debutBail.AddYears(1);
         dateInput.text = DateTime.TryParse(loc.dateRevisionDepotISO, out var drx)
-            ? drx.ToString("dd/MM/yyyy") : DateTime.Today.ToString("dd/MM/yyyy");
+            ? drx.ToString("dd/MM/yyyy") : dateDefaut.ToString("dd/MM/yyyy");
 
         // Soumis à TVA → loyer TTC ; sinon → loyer HT (mémorisé sur le locataire).
         var ttcToggle = UIFactory.Toggle(body.transform, "Locataire soumis à la TVA (loyer TTC)", loc.depotSurTTC);
@@ -727,8 +758,22 @@ public class LocataireFacturationFields : MonoBehaviour
         if (currentPeriode() > 0f && loc.depotDeGarantie > 0f)
             moisInput.text = Mathf.RoundToInt(loc.depotDeGarantie / currentPeriode()).ToString();
 
-        // Ancien dépôt (fixe) + nouveau dépôt possible (recalculé en direct).
-        UIFactory.Text(body.transform, $"Ancien dépôt : {loc.depotDeGarantie:0.00} €", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        // Initialisation : le dépôt a-t-il été demandé, et reçu ? Décide de la ligne
+        // posée dans le suivi (aucune, une créance, ou une facture à faire).
+        UIDropdown demande = null;
+        if (init)
+        {
+            UIFactory.Text(body.transform, "Dépôt demandé et reçu ?", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            demande = UIDropdown.Create(body.transform,
+                new List<string> { "Demandé et reçu", "Demandé, pas encore reçu", "Pas encore demandé" },
+                new List<string> { "recu", "attendu", "ademander" }, 0, _ => { });
+            UIFactory.Text(body.transform,
+                "Pas encore reçu : une créance est ajoutée au suivi. Pas encore demandé : une facture « Dépôt de garantie » est à faire depuis le suivi.",
+                UITheme.Role.Aide, UITheme.TexteSecondaire).enableWordWrapping = true;
+        }
+        else
+            // Ancien dépôt (fixe) + nouveau dépôt possible (recalculé en direct).
+            UIFactory.Text(body.transform, $"Ancien dépôt : {loc.depotDeGarantie:0.00} €", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         var nouveauLine = UIFactory.Text(body.transform, "", UITheme.Role.Valeur, UITheme.Primaire, true);
         var hintLine = UIFactory.Text(body.transform, "", UITheme.Role.Donnee, UITheme.Alerte);
 
@@ -739,19 +784,26 @@ public class LocataireFacturationFields : MonoBehaviour
         UIFactory.Border(cancel.gameObject); UIFactory.LE(cancel.gameObject, flexW: 1);
         cancel.onClick.AddListener(() => Destroy(scrim.gameObject));
 
-        var reviser = UIFactory.Button(actions.transform, "Réviser", UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
+        var reviser = UIFactory.Button(actions.transform, init ? "Initialiser" : "Réviser", UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
         UIFactory.LE(reviser.gameObject, flexW: 1);
 
         // Recalcul auto du nouveau dépôt + état du bouton : la révision n'est
-        // possible qu'à partir de la date de révision (à/après ce jour).
+        // possible qu'à partir de la date de révision (à/après ce jour). À
+        // l'initialisation, la date est celle de la PROCHAINE révision : pas de contrainte.
         Action recompute = () =>
         {
             refreshLoyer();
-            int.TryParse(moisInput.text, out int nb);
+            bool nbOk = int.TryParse(moisInput.text, out int nb) && nb >= 0;
             float nouveau = currentPeriode() * Mathf.Max(0, nb);
-            nouveauLine.text = $"Nouveau dépôt : {nouveau:0.00} €";
+            nouveauLine.text = init ? $"Dépôt de garantie : {nouveau:0.00} €" : $"Nouveau dépôt : {nouveau:0.00} €";
 
             bool dateOk = TryParseFr(dateInput.text, out var dr);
+            if (init)
+            {
+                reviser.interactable = dateOk && nbOk;
+                hintLine.text = !dateOk ? "Date de révision invalide." : !nbOk ? "Nombre de périodes à saisir." : "";
+                return;
+            }
             bool due = dateOk && DateTime.Today.Date >= dr.Date;
             reviser.interactable = due && nb > 0;
             hintLine.text = !dateOk ? "Date de révision invalide."
@@ -766,6 +818,13 @@ public class LocataireFacturationFields : MonoBehaviour
         reviser.onClick.AddListener(() =>
         {
             int.TryParse(moisInput.text, out int nb);
+            if (init)
+            {
+                if (nb < 0 || !TryParseFr(dateInput.text, out var dInit)) return;
+                InitialiserDepot(loc, currentPeriode() * nb, ttcToggle.isOn, dInit, demande?.SelectedId);
+                Destroy(scrim.gameObject);
+                return;
+            }
             if (nb <= 0) return;
             if (!TryParseFr(dateInput.text, out var dr) || DateTime.Today.Date < dr.Date) return;
 
@@ -785,6 +844,37 @@ public class LocataireFacturationFields : MonoBehaviour
                 $"Dépôt révisé : {loc.depotDeGarantie:0.00} € — prochaine révision {next:dd/MM/yyyy}");
             Destroy(scrim.gameObject);
         });
+    }
+
+    /// Initialisation du dépôt. Selon la réponse à « demandé et reçu ? » :
+    /// reçu → rien de plus ; demandé, pas reçu → une créance « Envoyé » au montant du
+    /// dépôt, échéance au début du bail ; pas encore demandé → une ligne « À faire »,
+    /// dont la facture « Dépôt de garantie » se génère depuis le suivi.
+    void InitialiserDepot(Locataire loc, float montant, bool surTTC, DateTime dateRevision, string demande)
+    {
+        loc.depotDeGarantie = montant;
+        loc.depotSurTTC = surTTC;
+        loc.dateRevisionDepotISO = dateRevision.ToString("yyyy-MM-dd");
+        loc.depotInitialise = true;
+
+        string suite = "";
+        if (montant > 0f && demande == "attendu")
+        {
+            var echeance = DateTime.TryParse(loc.dateDebutBailISO, out var db) ? db : DateTime.Today;
+            FacturationSuivi.AjouterDepotInitial(loc, montant, "Envoye", echeance);
+            suite = " — créance ajoutée au suivi.";
+        }
+        else if (montant > 0f && demande == "ademander")
+        {
+            FacturationSuivi.AjouterDepotInitial(loc, montant, "", DateTime.Today);
+            suite = " — facture à faire depuis le suivi.";
+        }
+
+        RefreshDepotRecap(loc);
+        _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+        LocataireSuiviInline.RefreshFor(_fiche);
+        UndoToast.Instance?.ShowInfo($"Dépôt initialisé : {montant:0.00} €{suite}");
+        _fiche.OnDepotInitialise();   // dernière étape du parcours de création
     }
 
     // ── Load / Modify / Save ────────────────────────────────────────────────

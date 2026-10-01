@@ -245,9 +245,8 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     // 0 = retard, 1 = à initialiser, 2 = bientôt, 3 = ok
     private static int TriUrgence(Locataire loc)
     {
-        bool initialise = !string.IsNullOrEmpty(loc.indiceImmoAuDepart)
-                          && loc.indiceImmoAuDepart != "—";
-        if (!initialise) return 1;
+        if (!loc.LoyerInitialise) return 1;
+        if (!loc.RevisionIndiceSuivie) return 3;   // paliers / sans révision : rien à réviser
         double jours = (loc.MoisDeRevision - DateTime.Now).TotalDays;
         if (jours < 0) return 0;
         if (jours <= 90) return 2;
@@ -523,6 +522,9 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         RefreshLoyerTotal(); // ← ajouter
         RebuildLocataireRows();
         BatimentManager.Instance.SaveBatiment(batiment);
+        // Retour au résumé du bâtiment (demande du 30/09) : la vue locataires restait
+        // vide quand on supprimait le dernier.
+        ShowSummary();
     }
 
     public void RestoreLocataire(string json)
@@ -539,7 +541,11 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
 
         RefreshTailleBatiment();
         RefreshLoyerTotal();
+        RebuildLocataireRows();
         BatimentManager.Instance.SaveBatiment(batiment);
+        // « Annuler » ramène sur la fiche du locataire restauré (la suppression avait
+        // basculé sur le résumé).
+        ShowLocataireView();
     }
 
 

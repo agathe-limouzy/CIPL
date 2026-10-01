@@ -26,9 +26,7 @@ public static class BatimentEtatHelper
                 continue;
             }
 
-            bool initialise = !string.IsNullOrEmpty(loc.indiceImmoAuDepart)
-                              && loc.indiceImmoAuDepart != "—";
-            if (!initialise) continue;
+            if (!loc.RevisionIndiceSuivie) continue;   // paliers / sans révision : rien à réviser
 
             int jours = (loc.MoisDeRevision - today).Days;
             if (jours < 0) retard = true;

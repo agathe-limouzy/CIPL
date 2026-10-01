@@ -73,6 +73,53 @@ public class Locataire : Data
     public string dateRevisionDepotISO;
     // Base du calcul du dépôt : loyer TTC (locataire soumis à TVA) ou HT (sinon).
     public bool depotSurTTC = true;
+    // Dépôt passé par l'écran « Initialiser » (voir DepotInitialise pour les anciennes fiches).
+    public bool depotInitialise;
+    public bool DepotInitialise => depotInitialise || depotDeGarantie > 0f;
+
+    // ── Révision du loyer : type, paliers, franchise ───────────────────────────
+    // Indice vaut 0 : toutes les fiches antérieures sont des révisions par indice.
+    public TypeRevision typeRevision;
+    // Loyer à paliers : chaque palier démarre le lendemain de la fin du précédent,
+    // toujours le 1er jour d'une période de facturation (voir Loyers).
+    public List<PalierLoyer> paliers = new List<PalierLoyer>();
+    // Franchise : date à partir de laquelle on facture. Vide = pas de franchise.
+    public string debutFacturationISO;
+    // Avenant (renégociation) : date d'effet des conditions actuelles. Vide = depuis le
+    // début du bail. Les loyers d'avant sont dans historiqueLoyers ({debut, fin,
+    // loyer annuel HT}, debut vide = depuis toujours) : la période qui contient
+    // l'avenant est proratisée entre l'ancien et le nouveau loyer (voir Loyers).
+    public string debutConditionsISO;
+    public List<PalierLoyer> historiqueLoyers = new List<PalierLoyer>();
+    // Départ du locataire : dernier jour de location. Vide = il reste, et le loyer
+    // continue après la fin du bail (tacite prolongation). Sinon la période qui le
+    // contient est proratisée et les suivantes ne sont plus facturées (voir Loyers).
+    public string dateSortieISO;
+
+    /// Le locataire est parti (dernier jour de location passé).
+    public bool EstParti => FacturationSuivi.TryEcheance(dateSortieISO, out var s) && s.Date < DateTime.Today;
+
+    /// L'indice de départ est connu (révision par indice initialisée).
+    public bool IndiceInitialise => !string.IsNullOrEmpty(indiceImmoAuDepart) && indiceImmoAuDepart != "—";
+
+    /// Une révision par indice est à suivre (alertes, date de prochaine révision) :
+    /// les paliers s'appliquent seuls, « aucune révision » n'en a pas.
+    public bool RevisionIndiceSuivie => typeRevision == TypeRevision.Indice && IndiceInitialise && !EstParti;
+
+    /// Le loyer est initialisé, quel que soit son type. Rien n'est stocké : des paliers
+    /// qui ne couvrent plus le bail (fin prolongée) le repassent « à initialiser ».
+    public bool LoyerInitialise
+    {
+        get
+        {
+            switch (typeRevision)
+            {
+                case TypeRevision.Paliers: return Loyers.Couvrent(this, paliers, out _);
+                case TypeRevision.Aucune:  return true;
+                default:                   return IndiceInitialise;
+            }
+        }
+    }
 
     // Date de création de la fiche. Sert à retrouver le locataire créé juste avant,
     // dont les réglages de facture sont dupliqués sur le nouveau (voir
@@ -397,6 +444,24 @@ public enum RevisionMode
 {
     NouveauBail,
     BailEnCours
+}
+
+// Ordre figé (valeur stockée) : Indice = 0 pour les fiches antérieures.
+public enum TypeRevision
+{
+    Indice,
+    Paliers,
+    Aucune
+}
+
+/// Un palier de loyer : loyer annuel HT du début à la fin (incluses).
+/// [Serializable] vital : sans lui, JsonUtility ignore la liste (voir C4).
+[Serializable]
+public class PalierLoyer
+{
+    public string debutISO;
+    public string finISO;
+    public float loyer;
 }
 
 /// Une « référence » d'indexation : le loyer de base et l'indice de départ

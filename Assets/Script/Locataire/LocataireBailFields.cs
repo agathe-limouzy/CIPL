@@ -21,6 +21,13 @@ public class LocataireBailFields : MonoBehaviour
     InputAndText _duree, _fermes;
     bool _enModification;
 
+    // Départ du locataire (dernier jour de location), sous les dates du bail. Vide = il
+    // reste : le loyer continue même après la fin du bail (tacite prolongation). En
+    // lecture, la rangée n'apparaît que si un départ est saisi.
+    GameObject _rangeeDepart;
+    Toggle _depart;
+    DateInputController _dateDepart;
+
     public void EnsureBuilt(LocatairePrefab fiche)
     {
         if (_duree != null) return;
@@ -63,6 +70,37 @@ public class LocataireBailFields : MonoBehaviour
         foreach (var champ in new[] { debut.dayInput, debut.monthInput, debut.yearInput })
             champ.onValueChanged.AddListener(_ => RecalculerFin());
         _duree.inputModify.onValueChanged.AddListener(_ => RecalculerFin());
+
+        // Rangée « Départ du locataire », juste sous les dates, réglée comme elles.
+        var rangeeDates = fiche.dateFinBail.transform.parent;
+        var rd = new GameObject("RowDepart", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
+        rd.transform.SetParent(rangeeDates.parent, false);
+        rd.transform.SetSiblingIndex(rangeeDates.GetSiblingIndex() + 1);
+        rd.GetComponent<LayoutElement>().flexibleWidth = 1;
+        var hd = rd.GetComponent<HorizontalLayoutGroup>();
+        if (modele != null)
+        {
+            hd.padding = new RectOffset(modele.padding.left, modele.padding.right, modele.padding.top, modele.padding.bottom);
+            hd.spacing = modele.spacing;
+            hd.childControlWidth = modele.childControlWidth; hd.childControlHeight = modele.childControlHeight;
+            hd.childForceExpandWidth = modele.childForceExpandWidth; hd.childForceExpandHeight = modele.childForceExpandHeight;
+        }
+        hd.childAlignment = TextAnchor.MiddleLeft;
+        _rangeeDepart = rd;
+        _depart = UIFactory.Toggle(rd.transform, "Départ du locataire", false);
+        Largeur(_depart.transform, 1);
+        var bloc = Instantiate(fiche.dateFinBail.gameObject, rd.transform);
+        bloc.name = "DepartDate";
+        _dateDepart = bloc.GetComponent<DateInputController>();
+        _dateDepart.OnModify.RemoveAllListeners();
+        var titre = bloc.transform.Find("Titre")?.GetComponent<TMP_Text>();
+        if (titre != null) titre.text = "Dernier jour de location";
+        Largeur(bloc.transform, 1);
+        _depart.onValueChanged.AddListener(on =>
+        {
+            _dateDepart.gameObject.SetActive(on);
+            if (on && _enModification) _dateDepart.ModifyDate();
+        });
     }
 
     static void Largeur(Transform t, float parts)
@@ -82,6 +120,14 @@ public class LocataireBailFields : MonoBehaviour
         _duree.ApplySave(duree > 0 ? duree.ToString() : "");
         _fermes.ApplySave(fermes > 0 ? fermes.ToString() : "");
         MontrerFermes(type);
+
+        // Départ : affiché seulement s'il est saisi, en lecture.
+        bool depart = FacturationSuivi.TryEcheance(loc.dateSortieISO, out var dd);
+        _depart.SetIsOnWithoutNotify(depart);
+        _depart.interactable = false;
+        if (depart) _dateDepart.ApplyDate(dd);
+        _dateDepart.gameObject.SetActive(depart);
+        _rangeeDepart.SetActive(depart);
     }
 
     public void Modify()
@@ -90,6 +136,13 @@ public class LocataireBailFields : MonoBehaviour
         _fiche.typedeBailDropDown.interactable = true;
         _duree.Modify();
         _fermes.Modify();
+
+        // Départ : case toujours proposée en saisie ; la date suit la case.
+        _rangeeDepart.SetActive(true);
+        _depart.interactable = true;
+        _dateDepart.gameObject.SetActive(_depart.isOn);
+        if (_depart.isOn) _dateDepart.ModifyDate();
+        else { _dateDepart.dayInput.text = ""; _dateDepart.monthInput.text = ""; _dateDepart.yearInput.text = ""; }
     }
 
     /// Message à afficher si le bail ne tient pas debout, sinon null.
@@ -97,7 +150,12 @@ public class LocataireBailFields : MonoBehaviour
     {
         int.TryParse(_duree.GetValue(), out int duree);
         int.TryParse(_fermes.GetValue(), out int fermes);
-        return Locataire.VerifierBail(duree, Locataire.PeriodeFermePossible(TypeChoisi()) ? fermes : 0);
+        string erreur = Locataire.VerifierBail(duree, Locataire.PeriodeFermePossible(TypeChoisi()) ? fermes : 0);
+        if (erreur != null || !_depart.isOn) return erreur;
+        if (!_dateDepart.LireDate(out var depart)) return "Départ du locataire : saisissez le dernier jour de location (JJ/MM/AAAA).";
+        if (_fiche.dateDebutBail.LireDate(out var debut) && depart < debut)
+            return $"Le départ ne peut pas précéder le début du bail ({debut:dd/MM/yyyy}).";
+        return null;
     }
 
     public void Save(Locataire loc)
@@ -107,6 +165,8 @@ public class LocataireBailFields : MonoBehaviour
         int.TryParse(_duree.GetNewSave(), out loc.dureeBailAns);
         int.TryParse(_fermes.GetNewSave(), out int fermes);
         loc.anneesFermes = Locataire.PeriodeFermePossible(type) ? fermes : 0;
+        // Départ : dernier jour de location, ou vide si le locataire reste.
+        loc.dateSortieISO = _depart.isOn && _dateDepart.LireDate(out var depart) ? depart.ToString("yyyy-MM-dd") : "";
         _fiche.typedeBailDropDown.interactable = false;
         _enModification = false;
     }

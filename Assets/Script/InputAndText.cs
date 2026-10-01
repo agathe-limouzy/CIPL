@@ -15,10 +15,18 @@ public class InputAndText : MonoBehaviour
     private ScrollAutoResize[] _scrollAutoResizes;
     private TMP_Text _quantite;
 
+    // Vrai dès qu'un appel a choisi l'affichage (Modify, ShowSaveElement, ApplySave).
+    // Awake ne tourne qu'à la PREMIÈRE activation de l'objet : sur une fiche construite
+    // inactive (nouveau bâtiment, nouveau locataire), il passait APRÈS Modify() et
+    // remettait tous les champs en lecture seule — le bouton « Sauvegarder » était là,
+    // mais impossible de saisir le nom (constaté le 30/09).
+    private bool _etatPose;
+
 
     private void Awake()
     {
         EnsureInit();
+        if (_etatPose) return;   // un appel a déjà choisi : ne pas l'écraser
         // Dans les prefabs, le texte ET le champ de saisie sont actifs tous les deux
         // (vérifié : les 14 champs du bâtiment, les 11 du locataire). L'affichage
         // correct ne tenait donc qu'à un appel de Modify()/ApplySave() quelque part —
@@ -62,6 +70,7 @@ public class InputAndText : MonoBehaviour
     public void Modify()
     {
         EnsureInit();
+        _etatPose = true;
         inputModify.gameObject.SetActive(true);
         textSaved.gameObject.SetActive(false);
 
@@ -98,6 +107,7 @@ public class InputAndText : MonoBehaviour
     public void ShowSaveElement()
     {
         EnsureInit();
+        _etatPose = true;
         inputModify.gameObject.SetActive(false);
         textSaved.gameObject.SetActive(true);
         ForceRebuildLayout();

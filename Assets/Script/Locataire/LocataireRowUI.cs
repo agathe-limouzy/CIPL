@@ -57,15 +57,20 @@ public class LocataireRowUI : MonoBehaviour
             txtLoyer.text = loc.loyerAnnuel > 0 ? $"{loc.loyerAnnuel:N0} €/an" : "—";
 
         // État révision → avatar + badge
-        bool initialise = !string.IsNullOrEmpty(loc.indiceImmoAuDepart)
-                          && loc.indiceImmoAuDepart != "—";
-        int joursRestants = initialise
+        bool suivie = loc.RevisionIndiceSuivie;
+        int joursRestants = suivie
             ? (int)(loc.MoisDeRevision - DateTime.Now).TotalDays
             : int.MaxValue;
 
-        if (!initialise)
+        if (!loc.LoyerInitialise)
         {
-            SetEtat(UITheme.AttentionClair, UITheme.AttentionTexte, "Bail à initialiser", true);
+            SetEtat(UITheme.AttentionClair, UITheme.AttentionTexte, "Loyer à initialiser", true);
+        }
+        else if (!suivie)
+        {
+            // Paliers (appliqués seuls) ou aucune révision : rien à surveiller.
+            SetEtat(UITheme.PrimaireClair, UITheme.Primaire,
+                loc.typeRevision == TypeRevision.Paliers ? "Paliers" : "Sans révision", false);
         }
         else if (joursRestants < 0)
         {

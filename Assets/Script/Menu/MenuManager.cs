@@ -209,36 +209,30 @@ public class MenuManager : MonoBehaviour
 
     public void RemoveTabAndBuilding(PrefabBatLoc batiment)
     {
-        Debug.Log("RemoveTab");
-        // Supprime l'onglet UI
-        PrefabBatLoc tab = null;
-        foreach(var key in dictionnaryMenu.Keys)
+        // Onglet à montrer ensuite : le VOISIN dans l'ordre affiché — le précédent,
+        // sinon le suivant. On prenait toujours le premier onglet, et rien du tout
+        // quand il n'en restait plus : l'écran restait vide.
+        var ordre = dictionnaryMenu.OrderBy(kv => kv.Value.transform.GetSiblingIndex()).Select(kv => kv.Key).ToList();
+        int i = ordre.IndexOf(batiment);
+        PrefabBatLoc voisin = i > 0 ? ordre[i - 1] : (i == 0 && ordre.Count > 1 ? ordre[1] : null);
+
+        if (batiment != null && dictionnaryMenu.TryGetValue(batiment, out var tab))
         {
-            if (key == batiment)
-            {
-                tab = key;
-            }
-        }
-        if (tab != null)
-        {
-            Debug.Log("RemoveTab2");
-            Destroy(dictionnaryMenu[tab].gameObject);
-            dictionnaryMenu.Remove(tab);
-           
+            Destroy(tab.gameObject);
+            dictionnaryMenu.Remove(batiment);
         }
 
-       
-
-      
-
-        // Sélectionne un autre onglet si possible
-        if (dictionnaryMenu.Count > 0)
-        {
-            OnSelect(dictionnaryMenu.First().Key);
-            Debug.Log("RemoveTab4");
-        }
+        if (voisin != null && dictionnaryMenu.ContainsKey(voisin))
+            OnSelect(voisin);
+        else if (dictionnaryMenu.Count > 0)
+            OnSelect(dictionnaryMenu.First().Key);   // onglet retiré inconnu de la barre
         else
+        {
             _activePrefab = null;
+            // Plus aucun bâtiment : retour à l'accueil. (Pour les locataires, c'est la
+            // fiche bâtiment qui revient à son résumé — voir DeleteLocataire.)
+            if (IsMenuBatiment) OpenGeneralMenu();
+        }
     }
 
 

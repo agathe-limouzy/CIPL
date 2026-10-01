@@ -257,7 +257,7 @@ public class LocataireSuiviInline : MonoBehaviour
     {
         if (_loc == null) return null;
         bool impaye = false, autre = false;
-        foreach (var l in FacturationSuivi.Lignes(_loc, y))
+        foreach (var l in FacturationSuivi.LignesAffichees(_loc, y))
         {
             var e = FacturationSuivi.EtatDe(l);
             if (e == FacturationSuivi.Etat.Impaye) impaye = true;
@@ -297,7 +297,7 @@ public class LocataireSuiviInline : MonoBehaviour
             return;
         }
 
-        var lignes = FacturationSuivi.Lignes(_loc, _year);
+        var lignes = FacturationSuivi.LignesAffichees(_loc, _year);
 
         var card = UIFactory.Panel("Card", _tableBox, UITheme.Carte);
         UIFactory.Border(card.gameObject);
@@ -315,8 +315,12 @@ public class LocataireSuiviInline : MonoBehaviour
 
         if (lignes.Count == 0)
         {
-            Ligne(prefab, cv.transform).SetupVide("Aucune facture pour cette année.",
-                UITheme.Carte, UITheme.TexteSecondaire);
+            // Locataire incomplet : dire pourquoi le suivi est vide, et quoi faire.
+            var etape = ParcoursLocataire.Prochaine(_loc);
+            string vide = etape == ParcoursLocataire.Etape.Termine
+                ? "Aucune facture pour cette année."
+                : "Le suivi de facturation apparaîtra une fois le locataire complet. " + ParcoursLocataire.Consigne(etape);
+            Ligne(prefab, cv.transform).SetupVide(vide, UITheme.Carte, UITheme.TexteSecondaire);
             return;
         }
 
@@ -324,7 +328,7 @@ public class LocataireSuiviInline : MonoBehaviour
         foreach (var l in lignes)
         {
             var etat = FacturationSuivi.EtatDe(l);
-            bool clot = etat == FacturationSuivi.Etat.Cloture;   // période reprise (historique) → grisée
+            bool clot = FacturationSuivi.EstGrisee(etat);   // reprise, franchise, hors bail → grisée
             var couleurs = new SuiviRowUI.Couleurs(
                 clot ? Hex("#F0EEE8") : ((i % 2 == 0) ? UITheme.Carte : Hex("#F6F4EC")),
                 clot ? Hex("#A8A7A1") : UITheme.TextePrincipal,
@@ -334,7 +338,7 @@ public class LocataireSuiviInline : MonoBehaviour
             var row = Ligne(prefab, cv.transform);
             row.Setup(Libelle(l), Ech(l.echeanceISO), Montant(l.montant), couleurs,
                 FacturationSuivi.EtatLibelle(etat), EtatBg(etat), EtatFg(etat),
-                // Période clôturée (reprise) : pastille statique, et aucune action.
+                // Ligne grisée (reprise, franchise, hors bail) : pastille statique, aucune action.
                 !clot, () => OpenStatutMenu(lgn, (RectTransform)row.pastille.transform),
                 Actions(l, etat));
         }
@@ -348,7 +352,7 @@ public class LocataireSuiviInline : MonoBehaviour
     List<(string libelle, Action onClick)> Actions(FactureEtat l, FacturationSuivi.Etat etat)
     {
         var a = new List<(string libelle, Action onClick)>();
-        if (etat == FacturationSuivi.Etat.Cloture) return a;   // période reprise : historique
+        if (FacturationSuivi.EstGrisee(etat)) return a;   // reprise, franchise, hors bail : rien à faire
         string pdfAbs = FacturationSuivi.CheminPdf(l);
         bool genere = !string.IsNullOrEmpty(pdfAbs) && File.Exists(pdfAbs);
         if (genere)
@@ -445,14 +449,17 @@ public class LocataireSuiviInline : MonoBehaviour
 
     void OuvrirGeneration(string type, FactureEtat ligneCiblee = null)
     {
+        // Parcours : aucune facture tant que général, bail, loyer et dépôt manquent.
+        string bloque = ParcoursLocataire.FacturationBloquee(_loc);
+        if (bloque != null) { UndoToast.Instance?.ShowInfo(bloque); return; }
         switch (type)
         {
             case "Loyer": FactureLoyerPanel.OpenLoyer(_fiche, ligneCiblee); break;
             case "Regul": FactureRegulPanel.OpenRegul(_fiche, ligneCiblee); break;
             case "Refac": FactureRefacPanel.OpenRefac(_fiche, ligneCiblee); break;
-            // Le dépôt n'a rien à cibler : son année vient de la date de révision de
-            // la fiche, il n'y a pas de sélecteur dans le panneau.
-            case "Depot": FactureDepotPanel.OpenDepot(_fiche); break;
+            // Révision : l'année vient de la date de révision de la fiche. La ligne ne
+            // sert qu'à reconnaître le dépôt initial (« depot-initial »).
+            case "Depot": FactureDepotPanel.OpenDepot(_fiche, ligneCiblee); break;
         }
     }
 
@@ -482,7 +489,9 @@ public class LocataireSuiviInline : MonoBehaviour
             case FacturationSuivi.Etat.AttenteEnvoi: return Hex("#EDE8F6");
             case FacturationSuivi.Etat.Envoye: return Hex("#E6F1FB");
             case FacturationSuivi.Etat.Impaye: return Hex("#FCEBEB");
-            case FacturationSuivi.Etat.Cloture: return Hex("#ECEAE3");
+            case FacturationSuivi.Etat.Cloture:
+            case FacturationSuivi.Etat.Franchise:
+            case FacturationSuivi.Etat.HorsBail: return Hex("#ECEAE3");
             default:                           return Hex("#E1F5EE");
         }
     }
@@ -496,7 +505,9 @@ public class LocataireSuiviInline : MonoBehaviour
             case FacturationSuivi.Etat.AttenteEnvoi: return Hex("#6A5AA0");
             case FacturationSuivi.Etat.Envoye: return Hex("#185FA5");
             case FacturationSuivi.Etat.Impaye: return Hex("#A32D2D");
-            case FacturationSuivi.Etat.Cloture: return Hex("#9B9A94");
+            case FacturationSuivi.Etat.Cloture:
+            case FacturationSuivi.Etat.Franchise:
+            case FacturationSuivi.Etat.HorsBail: return Hex("#9B9A94");
             default:                           return Hex("#0F6E56");
         }
     }

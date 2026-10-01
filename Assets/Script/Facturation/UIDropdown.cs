@@ -74,31 +74,55 @@ public class UIDropdown : MonoBehaviour
         scrim.SetAsLastSibling();
         sBtn.onClick.AddListener(() => Destroy(scrim.gameObject));
 
-        // Liste : VLG directement sur le fond + CSF vertical.
-        var listBg = UIFactory.Panel("DDList", scrim, Color.white);
-        UIFactory.Border(listBg.gameObject);
-        var vlg = listBg.gameObject.AddComponent<VerticalLayoutGroup>();
-        vlg.spacing = 2; vlg.padding = new RectOffset(4, 4, 4, 4);
-        vlg.childControlWidth = true; vlg.childControlHeight = true;
-        vlg.childForceExpandWidth = true; vlg.childForceExpandHeight = false;
-        var csf = listBg.gameObject.AddComponent<ContentSizeFitter>();
-        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        // Liste à hauteur bornée, qui DÉFILE : sans ça, une longue liste (reprise sur 4
+        // ans en mensuel, fins de palier sur un bail de 9 ans) sortait de l'écran et ses
+        // derniers choix étaient inaccessibles.
+        const float HauteurLigne = 36f, Espace = 2f, Marge = 4f;
+        float hauteurMax = Mathf.Min(360f, root.rect.height * 0.6f);
+        float hauteurContenu = _labels.Count * (HauteurLigne + Espace) - Espace + 2 * Marge;
 
         var myRT = (RectTransform)transform;
-        var corners = new Vector3[4]; myRT.GetWorldCorners(corners);   // 0=BL 1=TL 2=TR 3=BR
+        var listBg = UIFactory.Panel("DDList", scrim, Color.white);
+        UIFactory.Border(listBg.gameObject);
         var lrt = (RectTransform)listBg.transform;
         lrt.anchorMin = lrt.anchorMax = Vector2.zero;                  // ancrage coin bas-gauche de l'écran
-        lrt.pivot = new Vector2(0, 1);                                 // pivot haut-gauche (déroule vers le bas)
-        lrt.sizeDelta = new Vector2(myRT.rect.width, 0);
-        lrt.anchoredPosition = new Vector2(corners[0].x, corners[0].y);
+        lrt.sizeDelta = new Vector2(myRT.rect.width, Mathf.Min(hauteurContenu, hauteurMax));
+
+        var viewport = UIFactory.Rect("Viewport", listBg.transform);
+        UIFactory.Stretch(viewport);
+        viewport.gameObject.AddComponent<RectMask2D>();
+        var content = UIFactory.Rect("Content", viewport);
+        content.anchorMin = new Vector2(0, 1); content.anchorMax = new Vector2(1, 1);
+        content.pivot = new Vector2(0.5f, 1); content.sizeDelta = Vector2.zero;
+        var vlg = content.gameObject.AddComponent<VerticalLayoutGroup>();
+        vlg.spacing = Espace; vlg.padding = new RectOffset((int)Marge, (int)Marge, (int)Marge, (int)Marge);
+        vlg.childControlWidth = true; vlg.childControlHeight = true;
+        vlg.childForceExpandWidth = true; vlg.childForceExpandHeight = false;
+        content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        var defil = listBg.gameObject.AddComponent<ScrollRect>();
+        defil.viewport = viewport; defil.content = content;
+        defil.horizontal = false; defil.movementType = ScrollRect.MovementType.Clamped;
+        defil.scrollSensitivity = 30f;
 
         for (int i = 0; i < _labels.Count; i++)
         {
             int idx = i;
             bool on = idx == _index;
             var b = UIFactory.Button(vlg.transform, _labels[i], on ? UITheme.PrimaireClair : Color.white,
-                UITheme.TextePrincipal, 36, UITheme.Role.Donnee, false);
+                UITheme.TextePrincipal, HauteurLigne, UITheme.Role.Donnee, false);
             b.onClick.AddListener(() => { SetIndex(idx, true); Destroy(scrim.gameObject); });
+        }
+
+        // Sous le champ, ou au-dessus s'il manque de place en bas.
+        UIFactory.PlacePopup(lrt, myRT, 6f);
+
+        // Le choix en cours est visible dès l'ouverture, même en bas d'une longue liste.
+        if (hauteurContenu > hauteurMax && _index > 0)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(content);   // une fois, à l'ouverture
+            float haut = Marge + _index * (HauteurLigne + Espace);
+            defil.verticalNormalizedPosition = Mathf.Clamp01(1f - haut / (hauteurContenu - hauteurMax));
         }
     }
 }

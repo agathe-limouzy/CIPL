@@ -31,12 +31,17 @@ public static class FacturationAlertes
     {
         var res = new List<Alerte>();
         if (loc == null) return res;
+        // Locataire incomplet (parcours de création) : rien n'est facturable, donc
+        // aucune échéance à rappeler — le bandeau du parcours dit quoi faire.
+        if (ParcoursLocataire.Prochaine(loc) != ParcoursLocataire.Etape.Termine) return res;
         DateTime today = DateTime.Today;
 
         // ── Loyer ──
         var e = ProchaineEcheanceLoyer(loc, today);
-        if (e.HasValue && !AvantReprise(loc, e.Value) && !FacturationSuivi.DejaTraite(loc,
-                $"loyer-{e.Value.Year}-P{FacturationSuivi.PeriodeIndex(loc, e.Value.Month)}"))
+        int pe = e.HasValue ? FacturationSuivi.PeriodeIndex(loc, e.Value.Month) : 0;
+        // Période en franchise ou avant le bail : aucune facture attendue, aucune alerte.
+        if (e.HasValue && !AvantReprise(loc, e.Value) && Loyers.PeriodeFacturable(loc, e.Value.Year, pe)
+            && !FacturationSuivi.DejaTraite(loc, $"loyer-{e.Value.Year}-P{pe}"))
         {
             DateTime E = e.Value, envoi = E.AddDays(-LoyerEnvoiAvant);
             if (today >= envoi)
@@ -63,13 +68,17 @@ public static class FacturationAlertes
                 string quoi = string.IsNullOrEmpty(listeId) ? "" : $" ({ListesCharges.Nom(listeId)})";
 
                 // Échéance déjà arrivée : en retard, sauf si reprise (historique) ou déjà traitée.
+                // Une régul porte sur les charges de l'année PRÉCÉDENTE : rien si le
+                // locataire n'était pas dans les lieux cette année-là (bail plus récent).
                 bool echueOk = !AvantReprise(loc, echue)
+                               && Loyers.AnneeDansLeBail(loc, echue.Year - 1)
                                && !FacturationSuivi.DejaTraite(loc, ListesCharges.Cle(listeId, echue.Year - 1));
                 if (echueOk)
                     res.Add(new Alerte { niveau = Niveau.Urgent, type = AlerteType.Regul,
                         message = $"URGENT — Régularisation des charges{quoi} à faire (échue le {echue:dd/MM/yyyy})." });
                 else if (today >= prochaine.AddDays(-RegulAttentionLead)
                          && !AvantReprise(loc, prochaine)
+                         && Loyers.AnneeDansLeBail(loc, prochaine.Year - 1)
                          && !FacturationSuivi.DejaTraite(loc, ListesCharges.Cle(listeId, prochaine.Year - 1)))
                     res.Add(new Alerte { niveau = Niveau.Attention, type = AlerteType.Regul,
                         message = $"Régularisation des charges{quoi} à préparer (le {prochaine:dd/MM/yyyy})." });

@@ -50,12 +50,21 @@ public class RevisionPanel : MonoBehaviour
     private Locataire _loc;
     private Action _onSaved;
 
-    // ── Découpage en deux volets (deux « menus » ouverts par deux boutons) ──────
-    //  • Revision  : indice, loyer de départ, trimestres, dates, calcul + résultat.
-    //  • Modalites : gestion du loyer / facturation — périodicité, jour de demande,
-    //                mois facturés, provisions, date de régularisation.
-    public enum Volet { Revision, Modalites }
-    Volet _volet = Volet.Revision;
+    // ── Deux volets (deux « menus » ouverts par deux boutons de la fiche) ───────
+    //  • Initialisation : loyer de départ, périodicité, jour, mois, provisions et
+    //    listes, type de révision (indice / paliers / aucune), franchise, reprise.
+    //    Bouton Initialiser / Réinitialiser / Modifier selon l'état (BoutonInit).
+    //  • Indice : initialisation de l'indice (type, trimestre de référence, date de
+    //    révision), puis révision (trimestre voulu, calcul + résultat).
+    // Les paliers ont leur propre écran (PaliersPanel).
+    public enum Volet { Initialisation, Indice }
+    Volet _volet = Volet.Indice;
+
+    // Écran « Initialiser » : type de révision, avenant, franchise, départ (construits en code).
+    Toggle _revisionToggle, _franchiseToggle, _avenantToggle;
+    UIDropdown _typeRevDD;
+    DateInputController _franchiseDate, _avenantDate;
+    GameObject _revisionBlockGO, _typeRevRowGO, _franchiseBlockGO, _avenantBlockGO;
 
     // ── Champs facturation ajoutés par code (jour de demande, mois, régularisation) ──
     TMP_InputField _jourDemande;
@@ -95,7 +104,7 @@ public class RevisionPanel : MonoBehaviour
 
     // ── Ouverture ─────────────────────────────────────────────────────────────
 
-    public void Open(Locataire loc, Action onSaved) => Open(loc, onSaved, Volet.Revision);
+    public void Open(Locataire loc, Action onSaved) => Open(loc, onSaved, Volet.Indice);
 
     public void Open(Locataire loc, Action onSaved, Volet volet)
     {
@@ -134,8 +143,11 @@ public class RevisionPanel : MonoBehaviour
         periodiciteDropdown.onValueChanged.AddListener(_ => OnPeriodiciteChanged());
         RefreshMoisVisibility();
 
-        // Champs bail
-        loyerDepart.text=(loc.loyerDepart.ToString());
+        // Champs bail. Le loyer de départ se saisit dans « Initialiser » ; il change
+        // le libellé du bouton (Réinitialiser) dès qu'il diffère de celui enregistré.
+        loyerDepart.text = loc.loyerDepart > 0f ? loc.loyerDepart.ToString() : "";
+        loyerDepart.onValueChanged.RemoveAllListeners();
+        loyerDepart.onValueChanged.AddListener(_ => RefreshBoutonInit());
         trimestreDepart.Init();
         if (!string.IsNullOrEmpty(loc.trimestreDeRevision))
             trimestreDepart.SetTrimestre(loc.trimestreDeRevision);
@@ -181,6 +193,15 @@ public class RevisionPanel : MonoBehaviour
         toggleProvisions.onValueChanged.AddListener(_ => RefreshRegulVisibility());
         RefreshRegulVisibility();
 
+        // Type de révision + franchise (écran « Initialiser »).
+        _revisionToggle.SetIsOnWithoutNotify(loc.typeRevision != TypeRevision.Aucune);
+        _typeRevDD.SetOptions(new List<string> { "Par indice (INSEE)", "Par paliers" },
+            new List<string> { "Indice", "Paliers" },
+            loc.typeRevision == TypeRevision.Paliers ? "Paliers" : "Indice");
+        ChargerCaseDate(_franchiseToggle, _franchiseDate, loc.debutFacturationISO);
+        ChargerCaseDate(_avenantToggle, _avenantDate, "");   // un avenant se saisit à chaque réinitialisation
+        RefreshInitVisibility();
+
         // Infos
         txtIndiceDepart.text = string.IsNullOrEmpty(loc.indiceImmoAuDepart) ? "—" : loc.indiceImmoAuDepart;
         txtIndiceActuel.text = string.IsNullOrEmpty(loc.indiceImmoActuel) ? "—" : loc.indiceImmoActuel;
@@ -207,13 +228,11 @@ public class RevisionPanel : MonoBehaviour
         btnFermer.onClick.RemoveAllListeners();
         btnFermer.onClick.AddListener(() => gameObject.SetActive(false));
 
-        // Mode (toggle) — auto-détecté selon l'état du bail, basculable
-        if (btnModeInit != null) { btnModeInit.onClick.RemoveAllListeners(); btnModeInit.onClick.AddListener(() => SetMode(true)); }
-        if (btnModeReviser != null) { btnModeReviser.onClick.RemoveAllListeners(); btnModeReviser.onClick.AddListener(() => SetMode(false)); }
-        bool initialise = !string.IsNullOrEmpty(loc.indiceImmoAuDepart) && loc.indiceImmoAuDepart != "—";
-        SetMode(!initialise);
+        // Mode imposé par l'état de l'indice : l'initialiser d'abord, le réviser ensuite.
+        // (La bascule manuelle du prefab est masquée dans ApplyVolet.)
+        SetMode(!loc.IndiceInitialise);
 
-        // Applique le volet demandé (Révision par défaut / Modalités facturation).
+        // Applique le volet demandé (Indice par défaut / Initialiser).
         ApplyVolet(volet);
     }
 
@@ -341,11 +360,14 @@ public class RevisionPanel : MonoBehaviour
         _loc.loyerAnnuelPrecedent = 0f;   // nul à l'initialisation, aucune révision encore
         _loc.indiceImmoAuDepart = FormatIndice(obsRef.valeur, obsRef.periode);
         _loc.indiceImmoActuel = "—";
-        AppliquerChampsCommuns();
+        EcrireChampsIndice();
+        _loc.MoisDeRevision = dateDeRevision.SelectedDate;
 
-        // Historique : nouvelle référence d'indexation (prend effet au début du bail)
+        // Historique : nouvelle référence d'indexation (prend effet au début du bail,
+        // ou à la date de l'avenant après une renégociation)
         LoyerHistoryService.EnregistrerReference(_loc,
-            DateTime.TryParse(_loc.dateDebutBailISO, out var dbInit) ? dbInit : DateTime.Now,
+            FacturationSuivi.TryEcheance(_loc.debutConditionsISO, out var dbInit)
+                || DateTime.TryParse(_loc.dateDebutBailISO, out dbInit) ? dbInit : DateTime.Now,
             (IndiceImmo)indiceDropdown.value, obsRef.periode, obsRef.valeur, loyer);
 
         txtIndiceDepart.text = _loc.indiceImmoAuDepart;
@@ -355,14 +377,14 @@ public class RevisionPanel : MonoBehaviour
         if (txtLoyerPrecedent != null) txtLoyerPrecedent.text = "—";
 
         bool estFallback = InseeIndiceService.Normalize(obsRef.periode) != periode;
-        statusText.text = estFallback
-            ? $"Bail initialisé — indice {obsRef.periode} utilisé ({periode} non encore publié)"
-            : $"Bail initialisé — indice {obsRef.periode} : {obsRef.valeur:F2}";
+        string message = estFallback
+            ? $"Indice initialisé — indice {obsRef.periode} utilisé ({periode} non encore publié)"
+            : $"Indice initialisé — indice {obsRef.periode} : {obsRef.valeur:F2}";
 
-        btnInitialiser.gameObject.SetActive(false);
-        btnReviser.gameObject.SetActive(true);
-
+        // Retour à la fiche (schéma) : la révision se fera plus tard, par « Réviser ».
         _onSaved?.Invoke();
+        UndoToast.Instance?.ShowInfo(message);
+        gameObject.SetActive(false);
     }
 
     // ── Révision (bail en cours) ──────────────────────────────────────────────
@@ -449,7 +471,7 @@ public class RevisionPanel : MonoBehaviour
         dateDeRevision.ApplyDate(_loc.MoisDeRevision);
         dateDeRevision.ModifyDate();
 
-        AppliquerChampsCommuns(revision: true);
+        EcrireChampsIndice();
 
         // Historique : n'enregistre un nouveau segment que si la référence
         // (trimestre de départ / indice / loyer de base) a réellement changé.
@@ -555,38 +577,13 @@ public class RevisionPanel : MonoBehaviour
 
     // ── Communs ───────────────────────────────────────────────────────────────
 
-    private void AppliquerChampsCommuns(bool revision = false)
+    // Champs propres à l'indice. Les modalités (périodicité, provisions…) ne sont
+    // écrites que par l'écran « Initialiser » : l'indice les réécrivait autrefois
+    // depuis des champs masqués.
+    private void EcrireChampsIndice()
     {
         _loc.indiceTypeImmo = (IndiceImmo)indiceDropdown.value;
-        _loc.periodiciteLoyer = (Periodicite)periodiciteDropdown.value;
         _loc.trimestreDeRevision = trimestreDepart.TrimestreValue;
-        if (!revision)
-            _loc.MoisDeRevision = dateDeRevision.SelectedDate;
-
-        _loc.provisionPourCharges = toggleProvisions.isOn;
-        float prov = SaisieNumerique.Parse(provisionValue.text);
-        _loc.provisionPourChargeValue = toggleProvisions.isOn ? prov : 0f;
-
-        // Facturation
-        if (_jourDemande != null)
-        {
-            int.TryParse(_jourDemande.text, out int jd);
-            _loc.jourDemandeLoyer = Mathf.Clamp(jd, 0, 31);
-        }
-        if (_dateRegulCtrl != null)
-        {
-            if (int.TryParse(_dateRegulCtrl.dayInput.text, out int rdd)
-                && int.TryParse(_dateRegulCtrl.monthInput.text, out int rmm)
-                && int.TryParse(_dateRegulCtrl.yearInput.text, out int ryy))
-            {
-                try { _loc.dateRegularisationChargeISO = new DateTime(ryy, rmm, rdd).ToString("yyyy-MM-dd"); }
-                catch { _loc.dateRegularisationChargeISO = ""; }
-            }
-            else _loc.dateRegularisationChargeISO = "";
-        }
-        AppliquerListes();
-        _loc.moisFacturationLoyer = new List<int>();
-        for (int i = 0; i < 12; i++) if (_moisState[i]) _loc.moisFacturationLoyer.Add(i + 1);
     }
 
     // ── Facturation : champs injectés (jour, mois, régularisation) ────────────
@@ -643,6 +640,34 @@ public class RevisionPanel : MonoBehaviour
         _listesBlockGO = lb.gameObject;
         lb.transform.SetSiblingIndex(regulGO.transform.GetSiblingIndex() + 1);
 
+        // Type de révision : case « Révision du loyer » + menu Indice / Paliers
+        // (case décochée = pas de révision). Entre les listes et la reprise.
+        var rb = UIFactory.VBox(content, 6, 0, 0, 4, 4, "RevisionTypeBlock");
+        _revisionBlockGO = rb.gameObject;
+        _revisionToggle = UIFactory.Toggle(rb.transform, "Révision du loyer", true);
+        var tr = UIFactory.VBox(rb.transform, 4, 0, 0, 0, 0, "TypeRevision");
+        _typeRevRowGO = tr.gameObject;
+        UIFactory.Text(tr.transform, "Type de révision", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        _typeRevDD = UIDropdown.Create(tr.transform, new List<string> { "Par indice (INSEE)", "Par paliers" },
+            new List<string> { "Indice", "Paliers" }, 0, _ => RefreshBoutonInit());
+        _revisionToggle.onValueChanged.AddListener(_ => { RefreshInitVisibility(); RefreshBoutonInit(); });
+
+        // Avenant (visible seulement pour « Réinitialiser ») et franchise. Le départ du
+        // locataire est un événement du BAIL : il se saisit dans la section Bail de la
+        // fiche (LocataireBailFields), pas ici.
+        _avenantBlockGO = BlocCaseDate(content, "AvenantBlock",
+            "Avenant : le nouveau loyer s'applique en cours de bail", "Nouvelles conditions à compter du",
+            out _avenantToggle, out _avenantDate);
+        _franchiseBlockGO = BlocCaseDate(content, "FranchiseBlock",
+            "Franchise de loyer", "Facturation à partir du (fin de la franchise)",
+            out _franchiseToggle, out _franchiseDate);
+
+        // Ordre : type de révision, avenant, franchise, puis la reprise.
+        int ri = _repriseBlockGO.transform.GetSiblingIndex();
+        rb.transform.SetSiblingIndex(ri);
+        _avenantBlockGO.transform.SetSiblingIndex(ri + 1);
+        _franchiseBlockGO.transform.SetSiblingIndex(ri + 2);
+
         // Bouton « Enregistrer » (volet Modalités) — clone du bouton Réviser, même
         // visuel, glissé dans la rangée de boutons juste après lui.
         if (btnReviser != null)
@@ -654,23 +679,23 @@ public class RevisionPanel : MonoBehaviour
             var t = _btnEnregistrer.GetComponentInChildren<TMP_Text>(true);
             if (t != null) t.text = "Enregistrer";
             _btnEnregistrer.onClick.RemoveAllListeners();
-            _btnEnregistrer.onClick.AddListener(SaveModalites);
+            _btnEnregistrer.onClick.AddListener(ValiderInitialisation);
             _btnEnregistrer.gameObject.SetActive(false);
         }
     }
 
-    // Mois visibles seulement dans le volet Modalités, hors mensuel ;
-    // régularisation visible seulement dans Modalités et en cas de provision.
+    // Mois visibles seulement dans le volet Initialiser, hors mensuel ;
+    // régularisation visible seulement dans Initialiser et en cas de provision.
     void RefreshMoisVisibility()
     {
-        bool show = _volet == Volet.Modalites && periodiciteDropdown.value != (int)Periodicite.mensuel;
+        bool show = _volet == Volet.Initialisation && periodiciteDropdown.value != (int)Periodicite.mensuel;
         if (_moisLabelGO != null) _moisLabelGO.SetActive(show);
         if (_moisWrapGO != null) _moisWrapGO.SetActive(show);
     }
 
     void RefreshRegulVisibility()
     {
-        bool show = _volet == Volet.Modalites && toggleProvisions.isOn;
+        bool show = _volet == Volet.Initialisation && toggleProvisions.isOn;
         // Avec des listes spécifiques, la générale a sa ligne en bas comme les autres :
         // le montant à côté de la case et la date du prefab feraient doublon.
         bool avecListes = ListesCharges.Specifiques().Count > 0;
@@ -846,25 +871,47 @@ public class RevisionPanel : MonoBehaviour
         }
     }
 
-    // Options du sélecteur de reprise : « Aucune » + périodes récentes (4 ans),
-    // les plus récentes en tête, selon la périodicité du loyer.
+    // Options du sélecteur de reprise : « Aucune » + les périodes qui ont pu être
+    // facturées hors de l'app, les plus récentes en tête (4 ans). Trois règles
+    // (retour du 30/09) : la périodicité CHOISIE à l'écran, et non celle enregistrée
+    // (un nouveau locataire, encore mensuel, se voyait proposer des mois alors qu'on
+    // venait de choisir « trimestriel ») ; pas de période future — seulement celles
+    // déjà échues ou dont la facture est déjà partie (22 j avant l'échéance, comme le
+    // suivi) ; rien d'antérieur au bail.
     void RefreshRepriseOptions()
     {
         if (_repriseDD == null || _loc == null) return;
         var labels = new List<string> { "Aucune (nouveau bail)" };
         var ids = new List<string> { "" };
-        var p = _loc.periodiciteLoyer;
+        var p = (Periodicite)periodiciteDropdown.value;
         int n = LoyerSummaryUI.NbPeriodes(p);
+        int jour = _jourDemande != null && int.TryParse(_jourDemande.text, out int j) ? j : _loc.jourDemandeLoyer;
+        var limite = DateTime.Today.AddDays(FacturationSuivi.Lead("Loyer"));
+        bool avecBail = Loyers.DebutPremierBail(_loc, out var debutBail);
         int cur = DateTime.Now.Year;
         for (int y = cur; y >= cur - 3; y--)
             for (int per = n; per >= 1; per--)
             {
+                var ech = FacturationSuivi.EcheancePeriode(p, per, y, jour);
+                if (ech > limite) continue;
+                var finPeriode = new DateTime(ech.Year, ech.Month, 1).AddMonths(12 / n).AddDays(-1);
+                if (avecBail && finPeriode < debutBail.Date) continue;
                 labels.Add(FacturationSuivi.LibellePeriode(p, per, y));
                 ids.Add($"{y}-P{per}");
             }
         string sel = "";
         if (DateTime.TryParse(_loc.repriseFacturationISO, out var rd))
-            sel = $"{rd.Year}-P{FacturationSuivi.PeriodeIndex(_loc, rd.Month)}";
+        {
+            int perEnr = FacturationSuivi.PeriodeIndex(_loc, rd.Month);
+            sel = $"{rd.Year}-P{perEnr}";
+            // Reprise déjà enregistrée mais hors des options (plus de 4 ans…) : on la
+            // garde proposée, sinon un simple « Modifier » l'effaçait sans le dire.
+            if (!ids.Contains(sel) && p == _loc.periodiciteLoyer)
+            {
+                labels.Insert(1, FacturationSuivi.LibellePeriode(p, perEnr, rd.Year));
+                ids.Insert(1, sel);
+            }
+        }
         _repriseDD.SetOptions(labels, ids, sel);
     }
 
@@ -899,28 +946,37 @@ public class RevisionPanel : MonoBehaviour
     {
         _volet = volet;
         ResolveBlocks();
-        bool mod = volet == Volet.Modalites;
+        bool mod = volet == Volet.Initialisation;
 
         // Titre de la modale
         var titleT = transform.Find("Content/titre/Revision")?.GetComponent<TMP_Text>();
-        if (titleT != null) titleT.text = mod ? "Gestion du loyer" : "Révision du loyer";
+        if (titleT != null)
+            titleT.text = mod
+                ? (_loc != null && _loc.LoyerInitialise ? "Gestion du loyer" : "Initialisation du loyer")
+                : (_loc != null && _loc.IndiceInitialise ? "Révision du loyer" : "Initialisation de l'indice");
 
-        // Blocs « Révision » (masqués en Modalités)
+        // Loyer de départ : visible partout, saisi seulement dans « Initialiser » (le
+        // changer ensuite demande de réinitialiser).
+        SetGO(_loyerDepartGO, true);
+        loyerDepart.interactable = mod;
+
+        // Blocs « Indice » (masqués dans Initialiser). Le mode (initialiser / réviser)
+        // suit l'état de l'indice : la bascule manuelle du prefab n'est plus montrée.
         SetGO(_chipsIndiceGO, !mod);
-        SetGO(_loyerDepartGO, !mod);
         SetGO(_trimRefGO, !mod);
         SetGO(_dateRevGO, !mod);
-        SetGO(_modeToggleGO, !mod);
+        SetGO(_modeToggleGO, false);
         SetGO(_informationGO, !mod);
 
-        // Blocs « Modalités / facturation » (masqués en Révision)
+        // Blocs « Initialiser » (masqués dans Indice)
         SetGO(_periodiciteGO, mod);
         SetGO(_jourLabelGO, mod);
         if (_jourDemande != null) SetGO(_jourDemande.gameObject, mod);
         SetGO(_provBlockGO, mod);
         SetGO(_repriseBlockGO, mod);
-        RefreshMoisVisibility();     // mois : Modalités + hors mensuel
-        RefreshRegulVisibility();    // régularisation : Modalités + provision
+        RefreshMoisVisibility();     // mois : Initialiser + hors mensuel
+        RefreshRegulVisibility();    // régularisation : Initialiser + provision
+        RefreshInitVisibility();     // type de révision + franchise : Initialiser
 
         // Boutons de la rangée basse
         if (mod)
@@ -937,10 +993,95 @@ public class RevisionPanel : MonoBehaviour
         }
 
         ApplyThemeVolet(mod);
+        RefreshBoutonInit();
     }
 
-    // Habillage : Révision garde le thème (dû → terracotta / sinon prune) ;
-    // Modalités passe en ambre (famille « argent » du loyer).
+    // Bloc « case + date » de l'écran Initialiser : la date n'apparaît que case cochée.
+    // Même saisie de date que partout (clone du bloc « Date de révision »).
+    GameObject BlocCaseDate(Transform content, string nom, string libelleCase, string titreDate,
+                            out Toggle caseACocher, out DateInputController date)
+    {
+        var bloc = UIFactory.VBox(content, 6, 0, 0, 4, 4, nom);
+        caseACocher = UIFactory.Toggle(bloc.transform, libelleCase, false);
+        var go = Instantiate(dateDeRevision.gameObject, bloc.transform);
+        go.name = nom + "Date";
+        go.SetActive(true);
+        date = go.GetComponent<DateInputController>();
+        date.OnModify.RemoveAllListeners();
+        var titre = go.transform.Find("Titre")?.GetComponent<TMP_Text>();
+        if (titre != null) titre.text = titreDate;
+        caseACocher.onValueChanged.AddListener(_ => { RefreshInitVisibility(); RefreshBoutonInit(); });
+        foreach (var champ in new[] { date.dayInput, date.monthInput, date.yearInput })
+            if (champ != null) champ.onValueChanged.AddListener(_ => RefreshBoutonInit());
+        return bloc.gameObject;
+    }
+
+    // Remet un bloc « case + date » sur une date stockée (ISO), ou vide et décoché.
+    static void ChargerCaseDate(Toggle caseACocher, DateInputController date, string iso)
+    {
+        bool avec = FacturationSuivi.TryEcheance(iso, out var d);
+        caseACocher.SetIsOnWithoutNotify(avec);
+        if (avec) date.ApplyDate(d);
+        else { date.dayInput.text = ""; date.monthInput.text = ""; date.yearInput.text = ""; }
+        date.ModifyDate();
+    }
+
+    // Type de révision et franchise : seulement dans « Initialiser » ; le menu du type
+    // suit la case « Révision du loyer », chaque date suit sa case. L'avenant, lui,
+    // n'apparaît que pour « Réinitialiser » (voir RefreshBoutonInit). Le départ du
+    // locataire se saisit dans la section Bail de la fiche.
+    void RefreshInitVisibility()
+    {
+        bool init = _volet == Volet.Initialisation;
+        SetGO(_revisionBlockGO, init);
+        SetGO(_franchiseBlockGO, init);
+        if (!init) SetGO(_avenantBlockGO, false);
+        SetGO(_typeRevRowGO, _revisionToggle != null && _revisionToggle.isOn);
+        if (_franchiseDate != null) SetGO(_franchiseDate.gameObject, _franchiseToggle.isOn);
+        if (_avenantDate != null) SetGO(_avenantDate.gameObject, _avenantToggle.isOn);
+    }
+
+    TypeRevision TypeChoisi()
+        => !_revisionToggle.isOn ? TypeRevision.Aucune
+         : _typeRevDD.SelectedId == "Paliers" ? TypeRevision.Paliers : TypeRevision.Indice;
+
+    // Date d'un bloc « case + date » (ISO) : "" case décochée, null si illisible.
+    static string DateSaisie(Toggle caseACocher, DateInputController date)
+    {
+        if (!caseACocher.isOn) return "";
+        return date.LireDate(out var d) ? d.ToString("yyyy-MM-dd") : null;
+    }
+
+    string FranchiseSaisie() => DateSaisie(_franchiseToggle, _franchiseDate);
+
+    /// Un champ qui fonde le loyer a changé depuis l'enregistrement : loyer de départ,
+    /// révision oui/non, type. Le reste (périodicité, provisions, franchise…) se modifie
+    /// sans réinitialiser — la franchise est comprise dans le 1er palier, elle ne le
+    /// déplace pas.
+    bool ChangementStructurant()
+    {
+        if (_loc == null) return false;
+        var type = TypeChoisi();
+        if (type != _loc.typeRevision) return true;
+        float saisi = SaisieNumerique.TryParse(loyerDepart.text, out var v) ? v : 0f;
+        return !Mathf.Approximately(saisi, _loc.loyerDepart);
+    }
+
+    // Le bouton dit ce qu'il va faire : Initialiser (jamais fait), Réinitialiser (un
+    // champ structurant a changé → on repasse par l'indice ou les paliers), Modifier.
+    void RefreshBoutonInit()
+    {
+        if (_btnEnregistrer == null || _loc == null || _volet != Volet.Initialisation) return;
+        bool reinit = _loc.LoyerInitialise && ChangementStructurant();
+        var t = _btnEnregistrer.GetComponentInChildren<TMP_Text>(true);
+        if (t != null)
+            t.text = !_loc.LoyerInitialise ? "Initialiser" : reinit ? "Réinitialiser" : "Modifier";
+        // Renégociation en cours de bail : le nouveau loyer ne vaut qu'à partir de l'avenant.
+        SetGO(_avenantBlockGO, reinit);
+    }
+
+    // Habillage : Indice garde le thème (dû → terracotta / sinon prune) ;
+    // Initialiser passe en ambre (famille « argent » du loyer).
     void ApplyThemeVolet(bool mod)
     {
         if (!mod) { ApplyTheme(LoyerSummaryUI.EstRevisionDue(_loc)); return; }
@@ -949,11 +1090,89 @@ public class RevisionPanel : MonoBehaviour
         ColorButton(_btnEnregistrer, Hex("#A9741C"));
     }
 
-    // ── Enregistrement du volet Modalités (pas de calcul, juste la sauvegarde) ──
-    void SaveModalites()
+    // ── Validation de l'écran « Initialiser » ─────────────────────────────────
+    // Modifier : les modalités sont enregistrées, fin. Initialiser / Réinitialiser :
+    // on repart du loyer de départ, puis l'écran du type choisi (schéma du 30/09) —
+    // indice → initialisation de l'indice, paliers → tableau, aucune → la fiche.
+    void ValiderInitialisation()
     {
         if (_loc == null) return;
+        if (!TryParseLoyer(out float loyer) || loyer <= 0f)
+        { UndoToast.Instance?.ShowInfo("Saisissez le loyer de départ annuel (HT)."); return; }
 
+        string franchise = FranchiseSaisie();
+        if (franchise == null) { UndoToast.Instance?.ShowInfo("Date de fin de franchise invalide."); return; }
+        if (franchise != "")
+        {
+            var df = DateTime.ParseExact(franchise, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+            if (FacturationSuivi.TryEcheance(_loc.dateDebutBailISO, out var db) && df < db.Date)
+            { UndoToast.Instance?.ShowInfo($"La franchise ne peut pas finir avant le début du bail ({db:dd/MM/yyyy})."); return; }
+            if (FacturationSuivi.TryEcheance(_loc.dateFinBailISO, out var fb) && df > fb.Date)
+            { UndoToast.Instance?.ShowInfo($"La franchise ne peut pas finir après la fin du bail ({fb:dd/MM/yyyy})."); return; }
+        }
+
+        bool avecBail = Loyers.DebutPremierBail(_loc, out var debutBail);
+
+        // À décider AVANT d'écrire quoi que ce soit sur le locataire.
+        var type = TypeChoisi();
+        bool etaitInitialise = _loc.LoyerInitialise;
+        bool reinit = !etaitInitialise || ChangementStructurant();
+
+        // Avenant : l'ancien loyer reste dû jusqu'à la veille (prorata de la période).
+        string avenant = reinit && etaitInitialise ? DateSaisie(_avenantToggle, _avenantDate) : "";
+        if (avenant == null) { UndoToast.Instance?.ShowInfo("Date de l'avenant invalide."); return; }
+        if (avenant != "")
+        {
+            if (avecBail && Iso(avenant) <= debutBail.Date)
+            { UndoToast.Instance?.ShowInfo($"L'avenant doit prendre effet après le début du bail ({debutBail:dd/MM/yyyy})."); return; }
+            if (type == TypeRevision.Paliers && FacturationSuivi.TryEcheance(_loc.dateFinBailISO, out var finBail) && Iso(avenant) > finBail.Date)
+            { UndoToast.Instance?.ShowInfo("Les paliers vont jusqu'à la fin du bail : prolongez d'abord sa date de fin (section Bail)."); return; }
+            // Lit le type, les paliers et le loyer encore en place : avant toute écriture.
+            Loyers.EnregistrerAvenant(_loc, Iso(avenant));
+        }
+
+        EcrireModalites();
+        _loc.loyerDepart = loyer;
+        _loc.debutFacturationISO = franchise;
+        _loc.typeRevision = type;
+
+        if (!reinit)
+        {
+            _onSaved?.Invoke();
+            UndoToast.Instance?.ShowInfo("Modalités du loyer enregistrées");
+            gameObject.SetActive(false);
+            return;
+        }
+
+        // (Ré)initialisation : on repart du loyer de départ. L'historique des références
+        // d'indexation est conservé : la rentabilité des années passées en dépend.
+        _loc.indiceImmoAuDepart = "";
+        _loc.indiceImmoActuel = "";
+        _loc.loyerAnnuelPrecedent = 0f;
+        _loc.loyerAnnuel = loyer;
+        _onSaved?.Invoke();
+
+        switch (type)
+        {
+            case TypeRevision.Aucune:
+                UndoToast.Instance?.ShowInfo("Loyer initialisé, sans révision.");
+                gameObject.SetActive(false);
+                break;
+            case TypeRevision.Paliers:
+                PaliersPanel.Open(_loc, _onSaved, this);   // avant de masquer : il cherche le canvas depuis ce panneau
+                gameObject.SetActive(false);
+                break;
+            default:
+                Open(_loc, _onSaved, Volet.Indice);   // l'indice vient d'être vidé : mode initialisation
+                break;
+        }
+    }
+
+    static DateTime Iso(string iso) => DateTime.ParseExact(iso, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    // Modalités de facturation (périodicité, provisions, listes, jour, mois, reprise).
+    void EcrireModalites()
+    {
         _loc.periodiciteLoyer = (Periodicite)periodiciteDropdown.value;
 
         _loc.provisionPourCharges = toggleProvisions.isOn;
@@ -997,10 +1216,6 @@ public class RevisionPanel : MonoBehaviour
                         .ToString("yyyy-MM-dd");
             }
         }
-
-        _onSaved?.Invoke();
-        UndoToast.Instance?.ShowInfo("Modalités du loyer enregistrées");
-        gameObject.SetActive(false);
     }
 
     // Nombre max de mois sélectionnables selon la périodicité.

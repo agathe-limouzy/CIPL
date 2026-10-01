@@ -57,6 +57,9 @@ public static class FacturePdfService
         public string ligneLabel;   // libellé de la 1re ligne du tableau (« Total de la période », nom de charge…)
         public string dateStr, numero, subtitle, bodyHtml, sommePhrase;
         public float totalPeriode, provision, totalHT, tva, ttc;
+        // Libellé de la ligne TVA. Vide = « TVA 20% » (loyer, refacturation) ; le dépôt
+        // de garantie, non soumis, le remplace pour ne pas afficher « TVA 20% : 0,00 € ».
+        public string tvaLibelle;
         // Une ligne par liste de charges (libellé, montant). Null = une seule ligne
         // « Provision pour charges » de `provision`, comme avant les listes.
         public System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, float>> lignesProvision;
@@ -91,6 +94,7 @@ public static class FacturePdfService
             .Replace("{{TOTAL_PERIODE}}", Euro(d.totalPeriode))
             .Replace("{{PROVISION_ROW}}", LignesProvision(d))
             .Replace("{{TOTAL_HT}}", Euro(d.totalHT))
+            .Replace("{{TVA_LIBELLE}}", H(string.IsNullOrEmpty(d.tvaLibelle) ? "TVA 20%" : d.tvaLibelle))
             .Replace("{{TVA}}", Euro(d.tva))
             .Replace("{{TTC}}", Euro(d.ttc))
             .Replace("{{TVA_DEBIT}}", d.tvaDebit

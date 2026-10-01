@@ -58,7 +58,9 @@ public class FactureDepotPanel : MonoBehaviour
         gameObject.SetActive(false);
     }
 
-    public static void OpenDepot(LocatairePrefab fiche)
+    /// `ligne` = la ligne du suivi cliquée : « depot-initial » ouvre la facture du dépôt
+    /// initial (rien de déjà versé), toute autre valeur la révision.
+    public static void OpenDepot(LocatairePrefab fiche, FactureEtat ligne = null)
     {
         if (fiche == null) return;
         if (Instance == null)
@@ -69,8 +71,15 @@ public class FactureDepotPanel : MonoBehaviour
             go.transform.SetParent(canvas.rootCanvas.transform, false);
             go.AddComponent<FactureDepotPanel>();
         }
+        Instance._initial = ligne?.key == FacturationSuivi.CleDepotInitial;
         Instance.OpenFor(fiche);
     }
+
+    // Dépôt initial (demandé à l'initialisation du dépôt) : on facture tout le dépôt,
+    // rien n'est déjà versé, au format d'une facture simple (comme une refacturation) ;
+    // sinon, le complément d'une révision, au format régularisation avec l'explication.
+    bool _initial;
+    readonly List<GameObject> _explication = new List<GameObject>();   // bloc explicatif (révision seulement)
 
     void OpenFor(LocatairePrefab fiche)
     {
@@ -183,6 +192,8 @@ public class FactureDepotPanel : MonoBehaviour
         // appartiennent à CETTE facture, pas à l'entreprise — d'où leur place ici
         // plutôt que dans les Réglages. Trois variantes et non un texte unique :
         // la phrase imprimée dépend du sens de la dette, et ce choix-là reste au code.
+        // (Masquées pour le dépôt initial : sa facture est au format simple, sans bloc.)
+        int debutExplication = g.transform.childCount;
         UIFactory.Text(g.transform,
             "Explication imprimée sur le document — variables : {depot.termes} · {depot.nb} · "
             + "{depot.base} · {depot.montant}, plus les {loc.*} et {bat.*}. « / » ouvre la liste. "
@@ -204,6 +215,7 @@ public class FactureDepotPanel : MonoBehaviour
         UIFactory.Text(g.transform, "Dépôt déjà au bon montant (rien à régler)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _depotEquilibre = UIFactory.Input(g.transform, "…aucun ajustement n'est nécessaire.", 70, true);
         SlashAutocomplete.Attach(_depotEquilibre);
+        for (int i = debutExplication; i < g.transform.childCount; i++) _explication.Add(g.transform.GetChild(i).gameObject);
 
         // ── 3. Règlement (pied du document) ──
         // L'échéance, la phrase qu'elle alimente et le RIB sont voisins : le lien se
@@ -288,7 +300,8 @@ public class FactureDepotPanel : MonoBehaviour
         if (_loc == null) return;
         var f = _loc.factureDepot;
 
-        _titre.text = $"Révision du dépôt · {(_loc.Name ?? "")}";
+        _titre.text = $"{(_initial ? "Dépôt de garantie" : "Révision du dépôt")} · {(_loc.Name ?? "")}";
+        foreach (var go in _explication) go.SetActive(!_initial);
 
         _nom.text     = !string.IsNullOrEmpty(f?.destNom)     ? f.destNom     : (_loc.Name ?? "");
         _adresse.text = !string.IsNullOrEmpty(f?.destAdresse) ? f.destAdresse : (_loc.adresseLocataire ?? "");
@@ -324,10 +337,12 @@ public class FactureDepotPanel : MonoBehaviour
 
         // Dépôt : base TTC/HT, ancien montant, nb de périodes (dérivé du dépôt actuel).
         _ttcToggle.isOn = _loc.depotSurTTC;
-        _ancien.text = _loc.depotDeGarantie.ToString("0.00", CultureInfo.InvariantCulture);
+        _ancien.text = (_initial ? 0f : _loc.depotDeGarantie).ToString("0.00", CultureInfo.InvariantCulture);
         float per = CurrentPeriode();
         int nb = per > 0f ? Mathf.Max(1, Mathf.RoundToInt(_loc.depotDeGarantie / per)) : 1;
-        if (f != null && f.moisPeriode > 0) nb = f.moisPeriode;
+        // Le nombre mémorisé est celui de la dernière facture de révision. Le dépôt
+        // initial, lui, facture le dépôt tel qu'initialisé : on le déduit du montant.
+        if (!_initial && f != null && f.moisPeriode > 0) nb = f.moisPeriode;
         _nbPeriodes.text = nb.ToString();
 
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
@@ -464,7 +479,7 @@ public class FactureDepotPanel : MonoBehaviour
             refInterne = _refInterne.text,
             dateStr = ctx.date.ToString("d MMMM yyyy", FacturePdfService.FrCulture),
             numero = ComposedNumero(),
-            subtitle = "Révision du dépôt de garantie",
+            subtitle = _initial ? "Dépôt de garantie" : "Révision du dépôt de garantie",
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             // Explication du calcul : indice de référence → nouvel indice → nouveau
             // loyer, puis la règle des N termes qui donne le dépôt.
@@ -472,10 +487,10 @@ public class FactureDepotPanel : MonoBehaviour
             charges = new List<FacturePdfService.RegulLigne>(),   // pas de page 2
             totalCharges = nouveau, provisions = ancien, soldeHT = complement,
             tva = 0f, ttc = complement,
-            labelTotal = "Nouveau dépôt de garantie",
+            labelTotal = _initial ? "Dépôt de garantie" : "Nouveau dépôt de garantie",
             labelProvisions = "Dépôt de garantie déjà versé",
             // « Complément à régler » serait faux quand c'est nous qui remboursons.
-            labelSolde = FactureEmission.LibelleSolde(complement, "Complément à régler"),
+            labelSolde = FactureEmission.LibelleSolde(complement, _initial ? "Montant à régler" : "Complément à régler"),
             masquerTva = true,
             tvaDebit = MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
             texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
@@ -494,30 +509,102 @@ public class FactureDepotPanel : MonoBehaviour
     string FactureDir() => DossiersDonnees.DossierFactures(
         _fiche.batimentPrefabOrigin.getName(), _loc.Name);
 
+    // Dépôt initial : facture au format SIMPLE, celui d'une refacturation (demande du
+    // 30/09) — une ligne « Dépôt de garantie », sans TVA : un dépôt n'y est pas soumis.
+    FacturePdfService.Data BuildDataInitial()
+    {
+        var ctx = BuildContext();
+        var rib = ReglageService.GetRib(_ribDD?.SelectedId);
+        var ent = ReglageService.GetEntete(_enteteDD?.SelectedId);
+        string entResolved = ent != null ? FactureVarResolver.Resolve(ent.texte, _loc, _bat, ctx) : "";
+        var foot = (R.basDePage ?? "").Replace("\r", "").Split('\n');
+        float montant = Cents(Nouveau());
+        int.TryParse((_nbPeriodes.text ?? "").Trim(), out int nb);
+        string baseLoyer = _ttcToggle != null && _ttcToggle.isOn ? "TTC" : "HT";
+
+        return new FacturePdfService.Data
+        {
+            clientNom = _nom.text,
+            clientAdresseHtml = FacturePdfService.AdresseHtml(_adresse.text),
+            clientSiret = _siret.text,
+            refInterne = _refInterne.text,
+            ligneLabel = $"Dépôt de garantie — {nb} terme{(nb > 1 ? "s" : "")} de loyer {baseLoyer}",
+            dateStr = ctx.date.ToString("d MMMM yyyy", FacturePdfService.FrCulture),
+            numero = ComposedNumero(),
+            subtitle = "Dépôt de garantie",
+            bodyHtml = FacturePdfService.BodyHtml(entResolved),
+            totalPeriode = montant, provision = 0f, totalHT = montant, tva = 0f, ttc = montant,
+            tvaLibelle = "TVA — dépôt de garantie non soumis",
+            tvaDebit = MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
+            sommePhrase = FactureVarResolver.Resolve(_sommePhrase.text, _loc, _bat, ctx),
+            texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
+            ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
+            ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
+            legal = R.phraseRetard,
+            foot1 = foot.Length > 0 ? foot[0] : "",
+            foot2 = foot.Length > 1 ? foot[1] : "",
+        };
+    }
+
+    // Le document à émettre, quel que soit son format : révision (gabarit régularisation,
+    // avec l'explication du calcul) ou dépôt initial (facture simple). Le protocole —
+    // numéro, correction, envoi, suivi — est le même pour les deux.
+    sealed class Document
+    {
+        public string Sujet;
+        public float Montant;
+        public Func<string> LireNumero;
+        public Action<string> PoserNumero;
+        public Func<string, string> Pdf, Apercu;   // chemin → erreur, ou null si réussi
+    }
+
+    Document DocumentAEmettre()
+    {
+        if (_initial)
+        {
+            var d = BuildDataInitial();
+            return new Document
+            {
+                Sujet = d.subtitle, Montant = d.ttc,
+                LireNumero = () => d.numero, PoserNumero = n => d.numero = n,
+                Pdf = p => FacturePdfService.GeneratePdf(d, p, out var e) ? null : e,
+                Apercu = p => FacturePdfService.GeneratePreviewPng(d, p, out var e) ? null : e,
+            };
+        }
+        var r = BuildData();
+        return new Document
+        {
+            Sujet = r.subtitle, Montant = r.soldeHT,
+            LireNumero = () => r.numero, PoserNumero = n => r.numero = n,
+            Pdf = p => FacturePdfService.GenerateRegulPdf(r, p, out var e) ? null : e,
+            Apercu = p => FacturePdfService.GenerateRegulPreviewPng(r, p, out var e) ? null : e,
+        };
+    }
+
     void GenererApercu()
     {
         SaveFromUI();
-        var d = BuildData();
         string png = Path.Combine(FactureDir(), "apercu_depot.png");
-        if (FacturePdfService.GenerateRegulPreviewPng(d, png, out string err)) ShowPreview(png);
+        string err = DocumentAEmettre().Apercu(png);
+        if (err == null) ShowPreview(png);
         else UndoToast.Instance?.ShowInfo("Échec de l'aperçu : " + err);
     }
 
     void SauvegarderEtEnvoyer()
     {
         SaveFromUI();
-        var d = BuildData();
+        var d = DocumentAEmettre();
 
         // Complément négatif = le nouveau dépôt est inférieur à l'ancien, donc c'est
         // NOUS qui devons. Le document est émis quand même (comptablement, c'est un
         // avoir : il consomme un numéro comme une facture), mais il est confirmé —
         // inverser le sens d'une somme ne doit pas tenir à un clic.
-        if (d.soldeHT < -0.005f && ConfirmDialog.Instance != null)
+        if (d.Montant < -0.005f && ConfirmDialog.Instance != null)
         {
             ConfirmDialog.Instance.Show(
                 "Remboursement au locataire",
                 "Le nouveau dépôt est inférieur à l'ancien : ce document constate "
-                + (-d.soldeHT).ToString("N2", FacturePdfService.FrCulture)
+                + (-d.Montant).ToString("N2", FacturePdfService.FrCulture)
                 + " € dus AU locataire, et non réclamés. "
                 + "Il consommera un numéro comme une facture.",
                 () => Emettre(d), "Émettre");
@@ -529,7 +616,7 @@ public class FactureDepotPanel : MonoBehaviour
 
     /// Génère le PDF et met le suivi à jour. Séparé de `SauvegarderEtEnvoyer` pour
     /// pouvoir être repris après une confirmation (voir le cas du remboursement).
-    void Emettre(FacturePdfService.RegulData d)
+    void Emettre(Document d)
     {
         // L'envoi est asynchrone : sans cette garde, un double clic partirait deux fois.
         if (_envoiEnCours) { UndoToast.Instance?.ShowInfo("Un envoi est déjà en cours."); return; }
@@ -541,25 +628,26 @@ public class FactureDepotPanel : MonoBehaviour
         // clic consommait une nouvelle séquence et écrasait le PDF déjà émis.
         int revYear = DateTime.TryParse(_loc.dateRevisionDepotISO, out var rv) ? rv.Year
             : (TryDate(_date.text, out var dtr) ? dtr.Year : DateTime.Today.Year);
-        string key = $"depot-{revYear}";
+        string key = _initial ? FacturationSuivi.CleDepotInitial : $"depot-{revYear}";
 
         // Déjà émise → version « corrigée(X) » : même numéro, aucune nouvelle
         // séquence consommée, et le PDF d'origine est conservé.
-        var emission = FactureEmission.Preparer(_loc, key, d.numero);
-        d.numero = emission.NumeroFacture;
+        var emission = FactureEmission.Preparer(_loc, key, d.LireNumero());
+        d.PoserNumero(emission.NumeroFacture);
         bool correction = emission.Correction;
 
-        string fname = Sanitize($"RevisionDepot-{_nom.text}-{year}{emission.SuffixeFichier}") + ".pdf";
+        string fname = Sanitize($"{(_initial ? "DepotGarantie" : "RevisionDepot")}-{_nom.text}-{year}{emission.SuffixeFichier}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
-        if (!FacturePdfService.GenerateRegulPdf(d, pdf, out string err))
+        string err = d.Pdf(pdf);
+        if (err != null)
         {
             UndoToast.Instance?.ShowInfo("Échec génération PDF : " + err);
             return;
         }
 
         string png = Path.Combine(dir, "apercu_depot.png");
-        if (FacturePdfService.GenerateRegulPreviewPng(d, png, out _)) ShowPreview(png);
+        if (d.Apercu(png) == null) ShowPreview(png);
 
         // Pas d'envoi demandé : on enregistre, rien ne part. Le bouton s'appelant
         // « Sauvegarder et envoyer », il faut le dire, sinon on attend un mail en vain.
@@ -606,7 +694,7 @@ public class FactureDepotPanel : MonoBehaviour
 
     /// Envoie, attend, et n'enregistre QUE si le message est parti.
     System.Collections.IEnumerator EnvoyerPuisFinaliser(
-        FacturePdfService.RegulData d, string key, FactureEmission.Decision emission,
+        Document d, string key, FactureEmission.Decision emission,
         bool correction, string pdf, string dest, string objet, string corps)
     {
         _envoiEnCours = true;
@@ -628,14 +716,15 @@ public class FactureDepotPanel : MonoBehaviour
     }
 
     /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après succès).
-    void Finaliser(FacturePdfService.RegulData d, string key, FactureEmission.Decision emission,
+    void Finaliser(Document d, string key, FactureEmission.Decision emission,
                    bool correction, string pdf, bool envoye, string suffixeMessage = "")
     {
         // Le dépôt de la fiche n'est PAS modifié par l'émission.
         string message = FactureEmission.Enregistrer(_loc, key, "Depot", emission,
-            d.subtitle, _loc.factureDepot?.dateEcheanceISO, pdf, d.soldeHT, _ribDD?.SelectedId,
-            _loc.factureDepot, "Facture de révision du dépôt", envoye,
-            "Facture de révision du dépôt enregistrée (le montant du dépôt n'a pas été modifié)");
+            d.Sujet, _loc.factureDepot?.dateEcheanceISO, pdf, d.Montant, _ribDD?.SelectedId,
+            _loc.factureDepot, _initial ? "Facture de dépôt de garantie" : "Facture de révision du dépôt", envoye,
+            _initial ? "Facture de dépôt de garantie enregistrée"
+                     : "Facture de révision du dépôt enregistrée (le montant du dépôt n'a pas été modifié)");
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite

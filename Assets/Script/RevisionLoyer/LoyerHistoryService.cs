@@ -104,7 +104,21 @@ public static class LoyerHistoryService
         Dictionary<IndiceImmo, List<(string periode, float valeur)>> obsParType)
     {
         if (loc == null) return 0f;
+
+        // Paliers ou sans révision : le loyer de l'année = la somme de ses périodes,
+        // qui tiennent déjà compte des paliers, de la franchise et du début du bail.
+        if (loc.typeRevision != TypeRevision.Indice)
+        {
+            float somme = 0f;
+            int np = LoyerSummaryUI.NbPeriodes(loc.periodiciteLoyer);
+            for (int p = 1; p <= np; p++) somme += Loyers.MontantPeriode(loc, annee, p);
+            return somme;
+        }
+
+        // Indice : la franchise repousse le début du loyer perçu.
         var premierBail = PremierBail(loc);
+        if (FacturationSuivi.TryEcheance(loc.debutFacturationISO, out var franchise) && franchise > premierBail)
+            premierBail = franchise;
         if (annee < premierBail.Year) return 0f;   // local vacant avant le premier bail
 
         var segs = Segments(loc);
@@ -127,9 +141,16 @@ public static class LoyerHistoryService
             loyer = LoyerSegmentPourAnnee(loc, seg, annee, obsParType);
         }
 
-        // Proratisation de la première année du bail
-        if (annee == premierBail.Year)
-            loyer *= (12 - premierBail.Month + 1) / 12f;
+        // Proratisation au mois : première année du bail, et année du départ du
+        // locataire (rien après). La fin du bail seule n'arrête pas le loyer.
+        int moisDebut = annee == premierBail.Year ? premierBail.Month : 1;
+        int moisFin = 12;
+        if (FacturationSuivi.TryEcheance(loc.dateSortieISO, out var sortie))
+        {
+            if (annee > sortie.Year) return 0f;
+            if (annee == sortie.Year) moisFin = sortie.Month;
+        }
+        loyer *= Mathf.Max(0, moisFin - moisDebut + 1) / 12f;
 
         return loyer;
     }
