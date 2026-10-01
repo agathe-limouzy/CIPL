@@ -339,6 +339,62 @@ public class RevisionLoyerTests
         Assert.That(FacturationSuivi.EtatDe(ligne), Is.EqualTo(FacturationSuivi.Etat.AFaire));
     }
 
+    // ── Loyer selon le chiffre d'affaires (01/10) ─────────────────────────────
+
+    static Locataire SelonCA()
+    {
+        var loc = Bail(TypeRevision.ChiffreAffaires);   // bail au 01/01/2026, 12 000 € la 1re année
+        loc.pourcentageCA = 8f;
+        loc.loyerMinBase = 10000f;
+        loc.loyerMaxBase = 20000f;
+        loc.indiceImmoAuDepart = "130.00  (2025-T2)";
+        return loc;
+    }
+
+    [Test]
+    public void Le_loyer_selon_le_CA_est_borne_par_le_min_et_le_max()
+    {
+        var loc = SelonCA();
+        Assert.That(Loyers.LoyerSelonCA(loc, 2026, 150000f, 10200f, 20400f, out float brut), Is.EqualTo(12000f), "8 % de 150 000");
+        Assert.That(brut, Is.EqualTo(12000f));
+        Assert.That(Loyers.LoyerSelonCA(loc, 2026, 100000f, 10200f, 20400f, out brut), Is.EqualTo(10200f), "8 000 sous le minimum");
+        Assert.That(brut, Is.EqualTo(8000f));
+        Assert.That(Loyers.LoyerSelonCA(loc, 2026, 400000f, 10200f, 20400f, out _), Is.EqualTo(20400f), "32 000 au-dessus du maximum");
+        Assert.That(loc.LoyerInitialise, Is.True);
+        Assert.That(loc.RevisionIndiceSuivie, Is.True, "révision annuelle suivie (alertes, bouton Réviser)");
+
+        loc.loyerMaxBase = 5000f;   // max sous le min : pas initialisable
+        Assert.That(loc.LoyerInitialise, Is.False);
+    }
+
+    [Test]
+    public void Le_CA_d_une_annee_incomplete_est_ramene_a_l_annee()
+    {
+        var loc = SelonCA();
+        loc.dateDebutBailISO = "2026-07-01";
+        Loyers.LoyerSelonCA(loc, 2026, 75000f, 10000f, 20000f, out float brut);   // 184 jours sur 365
+        Assert.That(brut, Is.EqualTo((float)Math.Round(0.08 * 75000 / (184.0 / 365), 2)));
+        Assert.That(Loyers.LoyerSelonCA(loc, 2025, 75000f, 10000f, 20000f, out _), Is.EqualTo(0f), "pas dans les lieux en 2025");
+    }
+
+    [Test]
+    public void Une_revision_selon_le_CA_garde_l_ancien_loyer_avant_sa_date()
+    {
+        var loc = SelonCA();
+        Loyers.EnregistrerAvenant(loc, D("2027-01-01"));   // ce que fait la révision
+        loc.loyerAnnuel = 14000f;
+        Assert.That(Loyers.MontantPeriode(loc, 2026, 4), Is.EqualTo(3000f), "1re année : le loyer de départ");
+        Assert.That(Loyers.MontantPeriode(loc, 2027, 1), Is.EqualTo(3500f), "après révision : 14 000 / 4");
+
+        Loyers.PoserCA(loc, 2026, 175000f);
+        Loyers.PoserCA(loc, 2026, 180000f);   // corrigé : remplacé, pas doublé
+        var relu = JsonUtility.FromJson<Locataire>(JsonUtility.ToJson(loc));
+        Assert.That(relu.chiffresAffaires.Count, Is.EqualTo(1));
+        Assert.That(Loyers.CA(relu, 2026), Is.EqualTo(180000f));
+        Assert.That(relu.typeRevision, Is.EqualTo(TypeRevision.ChiffreAffaires));
+        Assert.That(relu.loyerMaxBase, Is.EqualTo(20000f));
+    }
+
     // ── Départ, tacite prolongation, avenant ──────────────────────────────────
 
     [Test]

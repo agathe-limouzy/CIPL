@@ -96,15 +96,26 @@ public class Locataire : Data
     // contient est proratisée et les suivantes ne sont plus facturées (voir Loyers).
     public string dateSortieISO;
 
+    // Loyer selon le chiffre d'affaires (typeRevision = ChiffreAffaires) : la 1re année,
+    // le loyer de départ ; à chaque révision, % × CA HT de l'année civile écoulée, borné
+    // par le minimum et le maximum — indexés INSEE depuis la référence, comme le loyer
+    // en mode indice (base × nouvel indice / indice de référence). Voir Loyers.LoyerSelonCA.
+    public float pourcentageCA;                 // ex. 8 = 8 % du CA HT
+    public float loyerMinBase, loyerMaxBase;    // €/an HT à l'indice de référence
+    public float loyerMinRevise, loyerMaxRevise; // bornes de la dernière révision
+    public List<ChiffreAffairesAnnuel> chiffresAffaires = new List<ChiffreAffairesAnnuel>();
+
     /// Le locataire est parti (dernier jour de location passé).
     public bool EstParti => FacturationSuivi.TryEcheance(dateSortieISO, out var s) && s.Date < DateTime.Today;
 
     /// L'indice de départ est connu (révision par indice initialisée).
     public bool IndiceInitialise => !string.IsNullOrEmpty(indiceImmoAuDepart) && indiceImmoAuDepart != "—";
 
-    /// Une révision par indice est à suivre (alertes, date de prochaine révision) :
-    /// les paliers s'appliquent seuls, « aucune révision » n'en a pas.
-    public bool RevisionIndiceSuivie => typeRevision == TypeRevision.Indice && IndiceInitialise && !EstParti;
+    /// Une révision annuelle est à suivre (alertes, date de prochaine révision) : par
+    /// indice, ou selon le CA (dont les bornes sont indexées). Les paliers s'appliquent
+    /// seuls, « aucune révision » n'en a pas.
+    public bool RevisionIndiceSuivie => (typeRevision == TypeRevision.Indice || typeRevision == TypeRevision.ChiffreAffaires)
+                                        && IndiceInitialise && !EstParti;
 
     /// Le loyer est initialisé, quel que soit son type. Rien n'est stocké : des paliers
     /// qui ne couvrent plus le bail (fin prolongée) le repassent « à initialiser ».
@@ -116,6 +127,8 @@ public class Locataire : Data
             {
                 case TypeRevision.Paliers: return Loyers.Couvrent(this, paliers, out _);
                 case TypeRevision.Aucune:  return true;
+                case TypeRevision.ChiffreAffaires:
+                    return IndiceInitialise && pourcentageCA > 0f && loyerMinBase > 0f && loyerMaxBase >= loyerMinBase;
                 default:                   return IndiceInitialise;
             }
         }
@@ -451,7 +464,16 @@ public enum TypeRevision
 {
     Indice,
     Paliers,
-    Aucune
+    Aucune,
+    ChiffreAffaires   // % du CA, borné min/max indexés (ajouté le 01/10 : à la suite)
+}
+
+/// Chiffre d'affaires HT déclaré par le locataire pour une année civile.
+[Serializable]
+public class ChiffreAffairesAnnuel
+{
+    public int annee;
+    public float montantHT;
 }
 
 /// Un palier de loyer : loyer annuel HT du début à la fin (incluses).

@@ -65,6 +65,15 @@ public class RevisionPanel : MonoBehaviour
     UIDropdown _typeRevDD;
     DateInputController _franchiseDate, _avenantDate;
     GameObject _revisionBlockGO, _typeRevRowGO, _franchiseBlockGO, _avenantBlockGO;
+    // Loyer selon le CA : % et bornes (écran Initialiser), CA de l'année (révision).
+    readonly List<GameObject> _caChamps = new List<GameObject>();   // min, max, % (clones de « Loyer de départ »)
+    GameObject _caRevisionGO, _caResultGO, _compareStripGO, _loyerPrecedentGO;
+    TMP_InputField _caPct, _caMin, _caMax, _caMontant, _caPrecedent, _trimPrecedent;
+    TMP_Text _caTitre, _caTitrePrecedent, _titreLoyerCalcule, _lPct, _rPct, _rMin, _rMax, _rRegle, _rAncien, _rProchaine, _rIndice;
+    int _caAnnee;   // année du CA affichée dans le champ (année de révision - 1)
+    // Largeur de la fenêtre : d'origine pour Initialiser, élargie pour la révision.
+    const float LargeurFormulaire = 560f, LargeurRevision = 900f;
+    LayoutElement _leFenetre, _leTitre;
 
     // ── Champs facturation ajoutés par code (jour de demande, mois, régularisation) ──
     TMP_InputField _jourDemande;
@@ -195,9 +204,9 @@ public class RevisionPanel : MonoBehaviour
 
         // Type de révision + franchise (écran « Initialiser »).
         _revisionToggle.SetIsOnWithoutNotify(loc.typeRevision != TypeRevision.Aucune);
-        _typeRevDD.SetOptions(new List<string> { "Par indice (INSEE)", "Par paliers" },
-            new List<string> { "Indice", "Paliers" },
-            loc.typeRevision == TypeRevision.Paliers ? "Paliers" : "Indice");
+        _typeRevDD.SetOptions(TypesLibelles, TypesIds,
+            loc.typeRevision == TypeRevision.Paliers ? "Paliers"
+            : loc.typeRevision == TypeRevision.ChiffreAffaires ? "CA" : "Indice");
         ChargerCaseDate(_franchiseToggle, _franchiseDate, loc.debutFacturationISO);
         ChargerCaseDate(_avenantToggle, _avenantDate, "");   // un avenant se saisit à chaque réinitialisation
         RefreshInitVisibility();
@@ -234,6 +243,10 @@ public class RevisionPanel : MonoBehaviour
 
         // Applique le volet demandé (Indice par défaut / Initialiser).
         ApplyVolet(volet);
+        RefreshCARevision(true);
+        // Référence : le trimestre (et l'indice) de la dernière révision ; vide la 1re fois.
+        if (_trimPrecedent != null) _trimPrecedent.text = DerniereRevision(loc.indiceImmoActuel);
+        if (loc.typeRevision == TypeRevision.ChiffreAffaires && loc.IndiceInitialise) ViderResultatCA();
     }
 
     // ── Thème dynamique : couleur de la modale = état de la révision ──────────
@@ -326,7 +339,59 @@ public class RevisionPanel : MonoBehaviour
         if (_loc == null) return;
         _loc.MoisDeRevision = dateDeRevision.SelectedDate;
         statusText.text = $"Prochaine révision : {_loc.MoisDeRevision:dd/MM/yyyy}";
+        RefreshCARevision(false);   // l'année du CA suit la date de révision
         _onSaved?.Invoke();   // sauvegarde + refresh badge/résumé
+    }
+
+    // Selon le CA, volet Indice : à l'initialisation, loyer min / max / % sous la date de
+    // révision ; à la révision, les bornes en vigueur et le CA HT de l'année civile
+    // écoulée (année de la révision - 1), pré-rempli s'il a déjà été déclaré.
+    void RefreshCARevision(bool preRemplir)
+    {
+        if (_caRevisionGO == null || _loc == null) return;
+        bool ca = _loc.typeRevision == TypeRevision.ChiffreAffaires;
+        bool init = !_loc.IndiceInitialise;
+
+        // Loyer min / max / % : au format du loyer de départ, dans le volet Indice.
+        foreach (var g in _caChamps) SetGO(g, ca && _volet == Volet.Indice);
+        // Résultat : tableau CA / bornes / loyer retenu à la place des indices.
+        SetGO(_caResultGO, ca && !init);
+        SetGO(_compareStripGO, !ca);
+        SetGO(_loyerPrecedentGO, !ca);
+        if (_titreLoyerCalcule != null) _titreLoyerCalcule.text = ca ? "Nouveau loyer annuel" : "Loyer révisé";
+        _caRevisionGO.SetActive(ca && !init);
+        if (!ca) return;
+
+        // Bornes : saisies à l'initialisation, grisées à la révision (l'indice les révise).
+        // La part du CA reste modifiable à la révision : rare, mais possible (retour du 01/10).
+        _caMin.interactable = _caMax.interactable = init;
+        _caPct.interactable = true;
+        if (preRemplir)
+        {
+            _caMin.text = Nombre(init || _loc.loyerMinRevise <= 0f ? _loc.loyerMinBase : _loc.loyerMinRevise);
+            _caMax.text = Nombre(init || _loc.loyerMaxRevise <= 0f ? _loc.loyerMaxBase : _loc.loyerMaxRevise);
+            _caPct.text = Nombre(_loc.pourcentageCA);
+        }
+        if (init) return;
+
+        int annee = dateDeRevision.SelectedDate.Year - 1;
+        _caAnnee = annee;
+        _caTitre.text = $"Nouveau CA HT ({annee})";
+        // Précédent : le dernier CA enregistré avant cette année ; vide s'il n'y en a pas.
+        var prec = _loc.chiffresAffaires?.Where(c => c.annee < annee).OrderByDescending(c => c.annee).FirstOrDefault();
+        _caTitrePrecedent.text = prec != null ? $"CA précédent ({prec.annee})" : "CA précédent";
+        _caPrecedent.text = prec != null ? Euros(prec.montantHT) : "";
+        if (preRemplir || string.IsNullOrWhiteSpace(_caMontant.text))
+            _caMontant.text = Loyers.CA(_loc, annee) is float v ? v.ToString(CultureInfo.InvariantCulture) : "";
+    }
+
+    // Résultat vide (avant le calcul) : rien d'affiché ne doit passer pour un résultat.
+    void ViderResultatCA()
+    {
+        foreach (var t in new[] { _rPct, _rMin, _rMax, _rRegle, _rAncien, _rProchaine })
+            if (t != null) t.text = "—";
+        if (_rIndice != null) _rIndice.text = "";
+        if (txtLoyerCalcule != null) txtLoyerCalcule.text = "—";
     }
 
     // ── Initialisation (nouveau bail) ─────────────────────────────────────────
@@ -334,6 +399,20 @@ public class RevisionPanel : MonoBehaviour
     private IEnumerator Initialiser()
     {
         if (!TryParseLoyer(out float loyer)) yield break;
+
+        // Selon le CA : loyer min / max et % obligatoires, le max au moins égal au min.
+        bool selonCA = _loc.typeRevision == TypeRevision.ChiffreAffaires;
+        float pct = 0f, min = 0f, max = 0f;
+        if (selonCA)
+        {
+            SaisieNumerique.TryParse(_caPct.text, out pct);
+            SaisieNumerique.TryParse(_caMin.text, out min);
+            SaisieNumerique.TryParse(_caMax.text, out max);
+            if (min <= 0f || max < min)
+            { statusText.text = "Saisissez un loyer minimum, et un maximum au moins égal au minimum."; yield break; }
+            if (pct <= 0f || pct > 100f)
+            { statusText.text = "Saisissez le pourcentage du chiffre d'affaires (entre 0 et 100)."; yield break; }
+        }
 
         btnInitialiser.interactable = false;
         statusText.text = "Récupération de l'indice de référence...";
@@ -362,6 +441,13 @@ public class RevisionPanel : MonoBehaviour
         _loc.indiceImmoActuel = "—";
         EcrireChampsIndice();
         _loc.MoisDeRevision = dateDeRevision.SelectedDate;
+        if (selonCA)
+        {
+            // Bornes à l'indice de référence ; pas encore de révision : en vigueur = base.
+            _loc.pourcentageCA = pct;
+            _loc.loyerMinBase = _loc.loyerMinRevise = min;
+            _loc.loyerMaxBase = _loc.loyerMaxRevise = max;
+        }
 
         // Historique : nouvelle référence d'indexation (prend effet au début du bail,
         // ou à la date de l'avenant après une renégociation)
@@ -450,7 +536,42 @@ public class RevisionPanel : MonoBehaviour
         MasqueTrimWarn();
 
         // Calcul
-        float loyerRevise = loyer * (obsActuel.valeur / obsDepart.valeur);
+        float ratio = obsActuel.valeur / obsDepart.valeur;
+        float loyerRevise = loyer * ratio;
+
+        // Selon le CA : % du CA HT de l'année écoulée, borné par le minimum et le maximum
+        // indexés comme le loyer en mode indice (base × nouvel indice / référence).
+        bool selonCA = _loc.typeRevision == TypeRevision.ChiffreAffaires;
+        int anneeCA = dateDeRevision.SelectedDate.Year - 1;
+        float caHT = 0f, minRev = 0f, maxRev = 0f, brut = 0f;
+        if (selonCA)
+        {
+            // Le montant saisi vaut pour l'année affichée. Si la date de révision a avancé
+            // (révision déjà faite), on ne réutilise pas ce CA en silence pour l'année suivante.
+            if (anneeCA != _caAnnee)
+            {
+                RefreshCARevision(false);   // l'année suit la date ; le montant reste à vérifier
+                statusText.text = $"La date de révision porte sur le CA {anneeCA} : vérifiez le montant, puis recalculez.";
+                yield break;
+            }
+            if (!SaisieNumerique.TryParse(_caMontant.text, out caHT) || caHT <= 0f)
+            { statusText.text = $"Saisissez le CA HT {anneeCA} du locataire."; yield break; }
+            if (!SaisieNumerique.TryParse(_caPct.text, out float pctSaisi) || pctSaisi <= 0f || pctSaisi > 100f)
+            { statusText.text = "Saisissez la part du CA (entre 0 et 100 %)."; yield break; }
+            minRev = (float)Math.Round(_loc.loyerMinBase * ratio, 2);
+            maxRev = (float)Math.Round(_loc.loyerMaxBase * ratio, 2);
+            // Part du CA éventuellement modifiée à l'écran : elle vaut pour cette révision et
+            // les suivantes. Remise en place si la révision n'aboutit pas.
+            float pctAvant = _loc.pourcentageCA;
+            _loc.pourcentageCA = pctSaisi;
+            loyerRevise = Loyers.LoyerSelonCA(_loc, anneeCA, caHT, minRev, maxRev, out brut);
+            if (loyerRevise <= 0f)
+            {
+                _loc.pourcentageCA = pctAvant;
+                statusText.text = $"Le locataire n'était pas dans les lieux en {anneeCA} : aucun CA à prendre en compte.";
+                yield break;
+            }
+        }
 
         // Prochaine révision = date saisie + 1 an. Calculée AVANT toute écriture :
         // `new DateTime(d.Year + 1, d.Month, d.Day)` levait sur un 29 février (l'année
@@ -459,6 +580,16 @@ public class RevisionPanel : MonoBehaviour
         var d = dateDeRevision.SelectedDate;
         int jourClamp = Math.Min(d.Day, DateTime.DaysInMonth(d.Year + 1, d.Month));
         var prochaineRevision = new DateTime(d.Year + 1, d.Month, jourClamp);
+
+        if (selonCA)
+        {
+            // L'ancien loyer reste dû jusqu'à la veille de la révision : les périodes
+            // passées (facture, rentabilité) gardent leur montant (voir Loyers.LoyerAnnuelA).
+            Loyers.EnregistrerAvenant(_loc, d.Date);
+            _loc.loyerMinRevise = minRev;
+            _loc.loyerMaxRevise = maxRev;
+            Loyers.PoserCA(_loc, anneeCA, caHT);
+        }
 
         _loc.loyerDepart = loyer;
         _loc.loyerAnnuelPrecedent = _loc.loyerAnnuel;   // loyer AVANT révision
@@ -489,8 +620,33 @@ public class RevisionPanel : MonoBehaviour
         }
         if (txtLoyerPrecedent != null)
             txtLoyerPrecedent.text = $"{_loc.loyerAnnuelPrecedent:N2} €";
-        statusText.text = $"{InseeIndiceService.GetLabel(type)} — loyer révisé : {loyerRevise:N2} € " +
-                          $"(prochaine révision {_loc.MoisDeRevision:dd/MM/yyyy})";
+        if (selonCA)
+        {
+            // Le résultat parle de CA, de bornes et de loyer ; les indices n'en sont
+            // que l'origine des bornes (une ligne discrète en bas).
+            var fr = FacturePdfService.FrCulture;
+            bool rameneAnnee = Loyers.FractionPresence(_loc, anneeCA) < 0.999;
+            txtLoyerCalcule.text = Euros(loyerRevise);
+            _lPct.text = $"{_loc.pourcentageCA.ToString("0.##", fr)} % du CA" + (rameneAnnee ? " (ramené à l'année)" : "");
+            _rPct.text = Euros(brut);
+            _rMin.text = Euros(minRev);
+            _rMax.text = Euros(maxRev);
+            _rRegle.text = brut < minRev ? "le minimum" : brut > maxRev ? "le maximum" : "le % du CA";
+            _rAncien.text = Euros(_loc.loyerAnnuelPrecedent);
+            _rProchaine.text = _loc.MoisDeRevision.ToString("dd/MM/yyyy");
+            float variationBornes = (obsActuel.valeur / obsDepart.valeur - 1f) * 100f;
+            _rIndice.text = $"Bornes indexées sur l'{InseeIndiceService.GetLabel(type)} : "
+                + $"{obsDepart.valeur.ToString("0.00", fr)} ({obsDepart.periode}) → {obsActuel.valeur.ToString("0.00", fr)} ({obsActuel.periode}), "
+                + $"{(variationBornes >= 0 ? "+" : "")}{variationBornes.ToString("0.0", fr)} %";
+            statusText.text = "";
+            // Le CA reste dans son champ, là où il a été saisi (retour du 01/10) ; seules
+            // les bornes affichées passent aux nouvelles valeurs.
+            _caMin.text = Nombre(minRev);
+            _caMax.text = Nombre(maxRev);
+        }
+        else
+            statusText.text = $"{InseeIndiceService.GetLabel(type)} — loyer révisé : {loyerRevise:N2} € " +
+                              $"(prochaine révision {_loc.MoisDeRevision:dd/MM/yyyy})";
 
         _onSaved?.Invoke();
     }
@@ -648,9 +804,94 @@ public class RevisionPanel : MonoBehaviour
         var tr = UIFactory.VBox(rb.transform, 4, 0, 0, 0, 0, "TypeRevision");
         _typeRevRowGO = tr.gameObject;
         UIFactory.Text(tr.transform, "Type de révision", UITheme.Role.Donnee, UITheme.TexteSecondaire);
-        _typeRevDD = UIDropdown.Create(tr.transform, new List<string> { "Par indice (INSEE)", "Par paliers" },
-            new List<string> { "Indice", "Paliers" }, 0, _ => RefreshBoutonInit());
+        _typeRevDD = UIDropdown.Create(tr.transform, TypesLibelles, TypesIds, 0, _ => RefreshBoutonInit());
         _revisionToggle.onValueChanged.AddListener(_ => { RefreshInitVisibility(); RefreshBoutonInit(); });
+
+        // Loyer selon le CA (schéma du 01/10) : loyer minimum, maximum et % du CA, au
+        // format du « Loyer de départ » (le même bloc, cloné) et juste dessous. Saisis à
+        // l'initialisation ; grisés à la révision, où ils montrent les bornes en vigueur.
+        Transform ld = loyerDepart.transform;
+        while (ld != null && ld.parent != content) ld = ld.parent;
+        if (ld != null)
+        {
+            int at = ld.GetSiblingIndex();
+            _caMin = ChampCA(ld.gameObject, content, ++at, "LoyerMinimum", "Loyer minimum", "€");
+            _caMax = ChampCA(ld.gameObject, content, ++at, "LoyerMaximum", "Loyer maximum", "€");
+            _caPct = ChampCA(ld.gameObject, content, ++at, "PourcentageCA", "Part du CA HT", "%");
+        }
+
+        // Révision : le CA de l'année écoulée, sous le trimestre de révision.
+        var parentRev = trimestreVoulu != null ? trimestreVoulu.transform.parent : null;
+        if (parentRev != null && ld != null)
+        {
+            // Trimestre de la dernière révision (référence) à côté de celui de cette
+            // révision — indice comme CA (retour du 01/10). L'avertissement du trimestre
+            // est créé avant le déplacement : il reste sous la ligne, pas dedans.
+            EnsureTrimWarn();
+            var lt = UIFactory.HBox(parentRev, 14, true, "LigneTrimestres");
+            lt.childAlignment = TextAnchor.UpperLeft;
+            lt.transform.SetSiblingIndex(trimestreVoulu.transform.GetSiblingIndex());
+            _trimPrecedent = ClonerChamp(ld.gameObject, lt.transform, 0, "DerniereRevision", "Dernière révision", "");
+            _trimPrecedent.contentType = TMP_InputField.ContentType.Standard;
+            _trimPrecedent.interactable = false;
+            _trimPrecedent.transform.parent.parent.gameObject.SetActive(true);
+            trimestreVoulu.transform.SetParent(lt.transform, false);
+            foreach (Transform b in lt.transform)
+            {
+                var le = b.GetComponent<LayoutElement>() ?? b.gameObject.AddComponent<LayoutElement>();
+                le.minWidth = 0f; le.preferredWidth = 1f; le.flexibleWidth = 1f;
+            }
+        }
+        if (parentRev != null)
+        {
+            var crv = UIFactory.VBox(parentRev, 4, 0, 0, 4, 4, "CARevision");
+            _caRevisionGO = crv.gameObject;
+            // CA précédent (dernier enregistré, vide sinon) à côté du nouveau CA à saisir.
+            var cote = UIFactory.HBox(crv.transform, 12, true, "CAPrecedentNouveau");
+            cote.childAlignment = TextAnchor.UpperLeft;
+            var gauche = UIFactory.VBox(cote.transform, 4, 0, 0, 0, 0, "CAPrecedent");
+            _caTitrePrecedent = UIFactory.Text(gauche.transform, "CA précédent", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            _caPrecedent = UIFactory.Input(gauche.transform, "—");
+            _caPrecedent.interactable = false;
+            var droite = UIFactory.VBox(cote.transform, 4, 0, 0, 0, 0, "CANouveau");
+            _caTitre = UIFactory.Text(droite.transform, "Nouveau CA HT", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            _caMontant = UIFactory.Input(droite.transform, "CA HT de l'année (€)");
+            _caMontant.contentType = TMP_InputField.ContentType.DecimalNumber;
+            _caRevisionGO.SetActive(false);
+        }
+
+        // Résultat d'une révision selon le CA : ce qui compte, ce sont le CA, les bornes et
+        // le loyer retenu — pas les indices (retour du 01/10). Tableau dans le cadre
+        // « Résultat de la révision », la comparaison d'indices réduite à une ligne.
+        Transform info = statusText.transform;
+        while (info != null && info.parent != content) info = info.parent;
+        if (info != null)
+        {
+            _compareStripGO = EnfantDirect(info, txtIndiceDepart != null ? txtIndiceDepart.transform : null);
+            _loyerPrecedentGO = EnfantDirect(info, txtLoyerPrecedent != null ? txtLoyerPrecedent.transform : null);
+            var ligneLoyer = EnfantDirect(info, txtLoyerCalcule.transform);
+            _titreLoyerCalcule = ligneLoyer != null ? ligneLoyer.transform.Find("title")?.GetComponent<TMP_Text>() : null;
+            var res = UIFactory.VBox(info, 4, 0, 0, 2, 2, "ResultatCA");
+            _caResultGO = res.gameObject;
+            if (ligneLoyer != null) res.transform.SetSiblingIndex(ligneLoyer.transform.GetSiblingIndex() + 1);
+            // Deux colonnes : le calcul (%, bornes) à gauche, la décision à droite. Pas de
+            // ligne « CA » : il reste dans son champ, là où il a été saisi.
+            var deux = UIFactory.HBox(res.transform, 24, true, "DeuxColonnes");
+            deux.childAlignment = TextAnchor.UpperLeft;
+            var colG = UIFactory.VBox(deux.transform, 3, 0, 0, 0, 0, "Calcul");
+            var colD = UIFactory.VBox(deux.transform, 3, 0, 0, 0, 0, "Decision");
+            _rPct = LigneResultat(colG.transform, "% du CA", out _lPct);
+            _rMin = LigneResultat(colG.transform, "Nouveau loyer minimum", out _);
+            _rMax = LigneResultat(colG.transform, "Nouveau loyer maximum", out _);
+            _rRegle = LigneResultat(colD.transform, "Loyer retenu", out _);
+            _rAncien = LigneResultat(colD.transform, "Ancien loyer", out _);
+            _rProchaine = LigneResultat(colD.transform, "Prochaine révision", out _);
+            _rIndice = UIFactory.Text(res.transform, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
+            _caResultGO.SetActive(false);
+        }
+
+        _leFenetre = content.parent.GetComponent<LayoutElement>();
+        _leTitre = content.parent.Find("titre")?.GetComponent<LayoutElement>();
 
         // Avenant (visible seulement pour « Réinitialiser ») et franchise. Le départ du
         // locataire est un événement du BAIL : il se saisit dans la section Bail de la
@@ -682,6 +923,9 @@ public class RevisionPanel : MonoBehaviour
             _btnEnregistrer.onClick.AddListener(ValiderInitialisation);
             _btnEnregistrer.gameObject.SetActive(false);
         }
+
+        // En dernier : les clones ci-dessus partent des blocs d'origine, hors des lignes.
+        LignesCompactes(content);
     }
 
     // Mois visibles seulement dans le volet Initialiser, hors mensuel ;
@@ -953,7 +1197,9 @@ public class RevisionPanel : MonoBehaviour
         if (titleT != null)
             titleT.text = mod
                 ? (_loc != null && _loc.LoyerInitialise ? "Gestion du loyer" : "Initialisation du loyer")
-                : (_loc != null && _loc.IndiceInitialise ? "Révision du loyer" : "Initialisation de l'indice");
+                : _loc != null && _loc.typeRevision == TypeRevision.ChiffreAffaires
+                    ? (_loc.IndiceInitialise ? "Révision du loyer selon le CA" : "Initialisation du loyer selon le CA")
+                    : (_loc != null && _loc.IndiceInitialise ? "Révision du loyer" : "Initialisation de l'indice");
 
         // Loyer de départ : visible partout, saisi seulement dans « Initialiser » (le
         // changer ensuite demande de réinitialiser).
@@ -967,6 +1213,7 @@ public class RevisionPanel : MonoBehaviour
         SetGO(_dateRevGO, !mod);
         SetGO(_modeToggleGO, false);
         SetGO(_informationGO, !mod);
+        AppliquerLargeur(!mod);
 
         // Blocs « Initialiser » (masqués dans Indice)
         SetGO(_periodiciteGO, mod);
@@ -1041,9 +1288,113 @@ public class RevisionPanel : MonoBehaviour
         if (_avenantDate != null) SetGO(_avenantDate.gameObject, _avenantToggle.isOn);
     }
 
+    static readonly List<string> TypesLibelles = new List<string> { "Par indice (INSEE)", "Par paliers", "Selon le chiffre d'affaires" };
+    static readonly List<string> TypesIds = new List<string> { "Indice", "Paliers", "CA" };
+
     TypeRevision TypeChoisi()
         => !_revisionToggle.isOn ? TypeRevision.Aucune
-         : _typeRevDD.SelectedId == "Paliers" ? TypeRevision.Paliers : TypeRevision.Indice;
+         : _typeRevDD.SelectedId == "Paliers" ? TypeRevision.Paliers
+         : _typeRevDD.SelectedId == "CA" ? TypeRevision.ChiffreAffaires : TypeRevision.Indice;
+
+    // Clone du bloc « Loyer de départ » (titre, champ, unité) : même visuel, même
+    // grisé quand il n'est pas modifiable.
+    TMP_InputField ClonerChamp(GameObject modele, Transform parent, int index, string nom, string titre, string unite)
+    {
+        var go = Instantiate(modele, parent);
+        go.name = nom;
+        go.transform.SetSiblingIndex(index);
+        foreach (var t in go.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (t.name == "title") t.text = titre;
+            else if (t.name == "quantité") { t.text = unite; t.gameObject.SetActive(unite.Length > 0); }
+        }
+        var f = go.GetComponentInChildren<TMP_InputField>(true);
+        f.onValueChanged.RemoveAllListeners();
+        f.contentType = TMP_InputField.ContentType.DecimalNumber;
+        f.text = "";
+        return f;
+    }
+
+    // Champ du loyer selon le CA (min, max, %) : visible seulement pour ce type.
+    TMP_InputField ChampCA(GameObject modele, Transform parent, int index, string nom, string titre, string unite)
+    {
+        var f = ClonerChamp(modele, parent, index, nom, titre, unite);
+        var go = EnfantDirect(parent, f.transform);
+        _caChamps.Add(go);
+        go.SetActive(false);
+        return f;
+    }
+
+    // « 137.16  (2026-Q2) » (indice de la dernière révision) → « 2026-T2 · 137,16 » ; vide
+    // s'il n'y a pas encore eu de révision.
+    static string DerniereRevision(string indiceActuel)
+    {
+        if (string.IsNullOrWhiteSpace(indiceActuel)) return "";
+        int o = indiceActuel.IndexOf('('), f = indiceActuel.IndexOf(')');
+        if (o < 0 || f <= o) return "";
+        string periode = InseeIndiceService.Normalize(indiceActuel.Substring(o + 1, f - o - 1).Trim());
+        return float.TryParse(indiceActuel.Substring(0, o).Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float v)
+            ? $"{periode} · {v.ToString("0.00", FacturePdfService.FrCulture)}" : periode;
+    }
+
+    // Une ligne « libellé ……… valeur » du résultat d'une révision selon le CA.
+    static TMP_Text LigneResultat(Transform parent, string libelle, out TMP_Text lbl)
+    {
+        var h = UIFactory.HBox(parent, 8, false, "Ligne");
+        UIFactory.LE(h.gameObject, minH: 22);
+        lbl = UIFactory.Text(h.transform, libelle, UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.LE(lbl.gameObject, flexW: 1);
+        return UIFactory.Text(h.transform, "—", UITheme.Role.Donnee, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
+    }
+
+    // Mise en page compacte (retour du 01/10 : en hauteur, la fenêtre dépassait de
+    // l'écran) : les champs courts côte à côte sur une fenêtre plus large — loyer de
+    // départ / min / max / %, puis trimestre de référence / date de révision. Les blocs
+    // de la scène sont déplacés dans des lignes ; masqués, ils libèrent leur place.
+    void LignesCompactes(Transform corps)
+    {
+        Ligne(corps, "LigneLoyers", loyerDepart.transform, _caMin?.transform, _caMax?.transform, _caPct?.transform);
+        Ligne(corps, "LigneIndice", trimestreDepart.transform, dateDeRevision.transform);
+    }
+
+    // Regroupe dans une ligne, à la place du premier, les blocs (enfants directs du corps)
+    // qui contiennent ces éléments ; chacun prend une part égale de la largeur.
+    void Ligne(Transform corps, string nom, params Transform[] elements)
+    {
+        var blocs = elements.Select(e => EnfantDirect(corps, e)).Where(b => b != null).Distinct().ToList();
+        if (blocs.Count < 2) return;
+        var ligne = UIFactory.HBox(corps, 14, true, nom);
+        ligne.childAlignment = TextAnchor.UpperLeft;
+        ligne.transform.SetSiblingIndex(blocs[0].transform.GetSiblingIndex());
+        foreach (var b in blocs)
+        {
+            b.transform.SetParent(ligne.transform, false);
+            var le = b.GetComponent<LayoutElement>() ?? b.AddComponent<LayoutElement>();
+            le.minWidth = 0f; le.preferredWidth = 1f; le.flexibleWidth = 1f;
+        }
+    }
+
+    // Volet Indice (révision) : fenêtre large ; volet Initialiser : largeur d'origine.
+    // Le parent ne pilote pas la largeur de la fenêtre (elle vient de sa taille propre) :
+    // on la règle directement — changer les LayoutElement n'élargissait que le titre.
+    void AppliquerLargeur(bool large)
+    {
+        float w = large ? LargeurRevision : LargeurFormulaire;
+        foreach (var le in new[] { _leFenetre, _leTitre })
+            if (le != null) { le.minWidth = w; le.preferredWidth = w; }
+        if (_leFenetre != null)
+            ((RectTransform)_leFenetre.transform).SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, w);
+    }
+
+    // Enfant direct de `racine` qui contient `t` (null si `t` n'est pas dessous).
+    static GameObject EnfantDirect(Transform racine, Transform t)
+    {
+        while (t != null && t.parent != racine) t = t.parent;
+        return t != null ? t.gameObject : null;
+    }
+
+    static string Nombre(float v) => v > 0f ? v.ToString(CultureInfo.InvariantCulture) : "";
+    static string Euros(float v) => v.ToString("N2", FacturePdfService.FrCulture) + " €";
 
     // Date d'un bloc « case + date » (ISO) : "" case décochée, null si illisible.
     static string DateSaisie(Toggle caseACocher, DateInputController date)

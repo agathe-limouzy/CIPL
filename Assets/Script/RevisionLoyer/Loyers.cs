@@ -324,6 +324,45 @@ public static class Loyers
         loc.debutConditionsISO = Iso(effet);
     }
 
+    // ── Loyer selon le chiffre d'affaires ─────────────────────────────────────
+
+    /// Part de l'année civile où le locataire était dans les lieux (du premier bail au
+    /// départ), de 0 à 1. Sert à ramener le CA d'une année incomplète à une année pleine.
+    public static double FractionPresence(Locataire loc, int annee)
+    {
+        var janvier = new DateTime(annee, 1, 1);
+        var decembre = new DateTime(annee, 12, 31);
+        var debut = DebutPremierBail(loc, out var b) && b.Date > janvier ? b.Date : janvier;
+        var fin = FinFacturation(loc) < decembre ? FinFacturation(loc) : decembre;
+        if (fin < debut) return 0;
+        return ((fin - debut).TotalDays + 1) / ((decembre - janvier).TotalDays + 1);
+    }
+
+    /// Nouveau loyer annuel HT selon le CA (décisions du 01/10) : % × CA HT de l'année
+    /// civile, ramené à une année pleine au prorata des jours de présence, puis borné
+    /// au minimum et au maximum révisés. `brut` = le loyer avant bornage (affichage).
+    /// 0 si le locataire n'était pas là cette année-là.
+    public static float LoyerSelonCA(Locataire loc, int annee, float caHT, float min, float max, out float brut)
+    {
+        double f = FractionPresence(loc, annee);
+        brut = f <= 0 ? 0f : (float)Math.Round(loc.pourcentageCA / 100.0 * caHT / f, 2);
+        if (f <= 0) return 0f;
+        return (float)Math.Round(Math.Min(Math.Max(brut, min), max), 2);
+    }
+
+    /// CA HT déclaré pour l'année, ou null s'il n'a pas été saisi.
+    public static float? CA(Locataire loc, int annee)
+        => loc?.chiffresAffaires?.FirstOrDefault(c => c.annee == annee)?.montantHT;
+
+    /// Enregistre (ou remplace) le CA HT d'une année.
+    public static void PoserCA(Locataire loc, int annee, float montantHT)
+    {
+        loc.chiffresAffaires ??= new List<ChiffreAffairesAnnuel>();
+        var c = loc.chiffresAffaires.FirstOrDefault(x => x.annee == annee);
+        if (c == null) loc.chiffresAffaires.Add(new ChiffreAffairesAnnuel { annee = annee, montantHT = montantHT });
+        else c.montantHT = montantHT;
+    }
+
     /// « 2 ans 3 mois », « 6 mois », « 45 jours » — durée de `debut` à `fin` inclus.
     public static string DureeTexte(DateTime debut, DateTime fin)
     {

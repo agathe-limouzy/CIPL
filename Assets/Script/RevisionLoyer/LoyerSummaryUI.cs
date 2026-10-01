@@ -218,8 +218,8 @@ public class LoyerSummaryUI : MonoBehaviour
     // Affiché dans la carte Loyer, au-dessus du bouton « Réviser ». Les valeurs
     // sont saisies dans le pop-up « Révision du loyer » (voir RevisionPanel).
 
-    private GameObject _recapGO, _rowRegul, _rowFranchise, _rowSortie;
-    private TMP_Text _valDemande, _valMois, _valRevision, _lblRevision, _valRegul, _valFranchise, _valSortie;
+    private GameObject _recapGO, _rowRegul, _rowFranchise, _rowSortie, _rowCA;
+    private TMP_Text _valDemande, _valMois, _valRevision, _lblRevision, _valRegul, _valFranchise, _valSortie, _valCA;
 
     private static readonly string[] MoisNoms =
     {
@@ -253,6 +253,7 @@ public class LoyerSummaryUI : MonoBehaviour
         _valMois     = Row(v.transform, "Mois facturés");
         _valRevision = Row(v.transform, "Prochaine révision");
         _lblRevision = _valRevision.transform.parent.GetChild(0).GetComponent<TMP_Text>();
+        _valCA       = Row(v.transform, "Loyer selon le CA", out _rowCA);
         _valFranchise = Row(v.transform, "Loyer facturé à partir du", out _rowFranchise);
         _valSortie   = Row(v.transform, "Départ du locataire", out _rowSortie);
         _valRegul    = Row(v.transform, "Régularisation charges", out _rowRegul);
@@ -307,6 +308,16 @@ public class LoyerSummaryUI : MonoBehaviour
         }
         _valRevision.color = EstRevisionDue(loc) ? Col("#D85A30") : UITheme.TextePrincipal;
 
+        // Selon le CA : le % et les bornes en vigueur (révisées, sinon de base).
+        bool selonCA = loc.typeRevision == TypeRevision.ChiffreAffaires;
+        _rowCA.SetActive(selonCA);
+        if (selonCA)
+        {
+            float min = loc.loyerMinRevise > 0f ? loc.loyerMinRevise : loc.loyerMinBase;
+            float max = loc.loyerMaxRevise > 0f ? loc.loyerMaxRevise : loc.loyerMaxBase;
+            _valCA.text = $"{loc.pourcentageCA:0.##} % · min {min:N0} € · max {max:N0} €";
+        }
+
         // Franchise : la date à partir de laquelle on facture.
         bool franchise = System.DateTime.TryParse(loc.debutFacturationISO, out var df);
         _rowFranchise.SetActive(franchise);
@@ -332,8 +343,8 @@ public class LoyerSummaryUI : MonoBehaviour
 
     private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
-    /// Révision par indice arrivée à échéance. Jamais pour des paliers (ils s'appliquent
-    /// seuls) ni pour un bail sans révision.
+    /// Révision annuelle (indice, ou selon le CA) arrivée à échéance. Jamais pour des
+    /// paliers (ils s'appliquent seuls) ni pour un bail sans révision.
     public static bool EstRevisionDue(Locataire loc)
         => loc.RevisionIndiceSuivie && System.DateTime.Now >= loc.MoisDeRevision;
 
