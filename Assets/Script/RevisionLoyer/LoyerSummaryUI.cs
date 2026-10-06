@@ -70,7 +70,7 @@ public class LoyerSummaryUI : MonoBehaviour
             if (loc == null) return;
             // Parcours : pas de loyer avant le général et le bail (dates enregistrées).
             string bloque = ParcoursLocataire.Bloque(loc, ParcoursLocataire.Etape.Loyer);
-            if (bloque != null) { UndoToast.Instance?.ShowInfo(bloque); return; }
+            if (bloque != null) { ConfirmDialog.Erreur(bloque); return; }
             RevisionPanel.Instance.Open(loc, () => _locatairePrefab.OnRevisionSaved(), RevisionPanel.Volet.Initialisation);
         });
     }

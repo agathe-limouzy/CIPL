@@ -24,6 +24,8 @@ public class LocataireFacturationFields : MonoBehaviour
     GameObject _depotBadge;   // pastille « Révision à faire » (bandeau Dépôt)
     TMP_Text _depotBtnLbl;    // « Initialiser » tant que le dépôt ne l'est pas, puis « Réviser »
     GameObject _pastilleLoyer, _pastilleRegul, _pastilleDepot;   // rappels sur les boutons d'action
+    TMP_Text _btnDepotFactLbl;   // « Révision du dépôt (facture) », ou « Décompte de sortie » après le départ
+    UnityEngine.UI.Button _depotBtn;   // « Réviser » de la carte Dépôt, désactivé après le départ
 
     LocatairePrefab _fiche;
     bool _built;
@@ -326,7 +328,9 @@ public class LocataireFacturationFields : MonoBehaviour
         var row2 = UIFactory.HBox(body, 8, false, "FactRow2");
         row2.childControlWidth = true; row2.childForceExpandWidth = true; row2.childControlHeight = true;
         GridBtn(row2.transform, "Refacturation d'une charge", HexC("#7A5AA6"), () => FactureRefacPanel.OpenRefac(_fiche));
+        // Une fois le départ saisi, ce bouton ouvre le décompte de sortie (libellé : RefreshAlertes).
         var bDepot = GridBtn(row2.transform, "Révision du dépôt (facture)", DepotAccent, () => FactureDepotPanel.OpenDepot(_fiche));
+        _btnDepotFactLbl = bDepot.GetComponentInChildren<TMP_Text>(true);
 
         // Pastilles de rappel (coin haut-droit) affichées quand l'échéance est due.
         _pastilleLoyer = AddReminderDot(bLoyer);
@@ -345,7 +349,7 @@ public class LocataireFacturationFields : MonoBehaviour
         {
             // Parcours : aucune facture tant que général, bail, loyer et dépôt manquent.
             string bloque = ParcoursLocataire.FacturationBloquee(_fiche != null ? _fiche.GetLocataire() : null);
-            if (bloque != null) { UndoToast.Instance?.ShowInfo(bloque); return; }
+            if (bloque != null) { ConfirmDialog.Erreur(bloque); return; }
             onClick();
         });
         return b;
@@ -381,7 +385,8 @@ public class LocataireFacturationFields : MonoBehaviour
             {
                 if (a.type == FacturationAlertes.AlerteType.Loyer) loyerDue = true;
                 else if (a.type == FacturationAlertes.AlerteType.Regul) regulDue = true;
-                else if (a.type == FacturationAlertes.AlerteType.Depot) depotDue = true;
+                else if (a.type == FacturationAlertes.AlerteType.Depot
+                         || a.type == FacturationAlertes.AlerteType.Restitution) depotDue = true;
 
                 if (_alertesBox == null) continue;
                 bool urgent = a.niveau == FacturationAlertes.Niveau.Urgent;
@@ -401,6 +406,8 @@ public class LocataireFacturationFields : MonoBehaviour
         if (_pastilleLoyer != null) _pastilleLoyer.SetActive(loyerDue);
         if (_pastilleRegul != null) _pastilleRegul.SetActive(regulDue);
         if (_pastilleDepot != null) _pastilleDepot.SetActive(depotDue);
+        if (_btnDepotFactLbl != null)
+            _btnDepotFactLbl.text = !string.IsNullOrEmpty(loc?.dateSortieISO) ? "Décompte de sortie" : "Révision du dépôt (facture)";
     }
 
     void AddSoon(Transform parent, string label)
@@ -519,6 +526,7 @@ public class LocataireFacturationFields : MonoBehaviour
             go.SetActive(true);
             var b = go.GetComponent<UnityEngine.UI.Button>();
             if (b != null) { b.onClick.RemoveAllListeners(); b.onClick.AddListener(OpenRevisionPopup); }
+            _depotBtn = b;
             var lbl = go.GetComponentInChildren<TMP_Text>(true);
             if (lbl != null) { lbl.text = "Réviser"; lbl.color = Color.white; }
             _depotBtnLbl = lbl;
@@ -559,6 +567,7 @@ public class LocataireFacturationFields : MonoBehaviour
     static bool RevisionDepotDue(Locataire loc)
     {
         if (loc == null || loc.depotDeGarantie <= 0f) return false;
+        if (!string.IsNullOrEmpty(loc.dateSortieISO)) return false;   // départ saisi : plus de révision
         if (!DateTime.TryParse(loc.dateRevisionDepotISO, out var d)) return false;
         if (FacturationSuivi.DejaTraite(loc, "depot-" + d.Year)) return false;
         return DateTime.Today >= d;
@@ -624,6 +633,8 @@ public class LocataireFacturationFields : MonoBehaviour
         _valDateRev.color = due ? HexC("#D85A30") : UITheme.TextePrincipal;
         if (_depotBadge != null) _depotBadge.SetActive(due);
         if (_depotBtnLbl != null) _depotBtnLbl.text = loc.DepotInitialise ? "Réviser" : "Initialiser";
+        // Départ saisi : le dépôt sera rendu (décompte de sortie, carte Facturation), plus révisé.
+        if (_depotBtn != null) _depotBtn.interactable = !loc.DepotInitialise || string.IsNullOrEmpty(loc.dateSortieISO);
     }
 
     // ── Clone d'un champ InputAndText (rendu natif) ─────────────────────────
@@ -677,10 +688,10 @@ public class LocataireFacturationFields : MonoBehaviour
         bool init = !loc.DepotInitialise;
         // Parcours : le dépôt vient en dernier — il se calcule en périodes de loyer.
         string bloque = init ? ParcoursLocataire.Bloque(loc, ParcoursLocataire.Etape.Depot) : null;
-        if (bloque != null) { UndoToast.Instance?.ShowInfo(bloque); return; }
+        if (bloque != null) { ConfirmDialog.Erreur(bloque); return; }
         if (init && loc.loyerAnnuel <= 0f)
         {
-            UndoToast.Instance?.ShowInfo("Le loyer est à zéro : le dépôt se calcule en périodes de loyer.");
+            ConfirmDialog.Erreur("Le loyer est à zéro : le dépôt se calcule en périodes de loyer.");
             return;
         }
         // Loyer par période (selon la périodicité du bail), hors charges, HT.

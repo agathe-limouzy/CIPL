@@ -134,6 +134,9 @@ public static class HomeAlertCollector
                         FacturationAlertes.AlerteType.Loyer => "Facturer",
                         FacturationAlertes.AlerteType.Regul => "Régul.",
                         FacturationAlertes.AlerteType.Depot => "Rév. dépôt",
+                        FacturationAlertes.AlerteType.Depart => "Départ",
+                        FacturationAlertes.AlerteType.Restitution => "Rest. dépôt",
+                        FacturationAlertes.AlerteType.Archiver => "Archiver",
                         _ => "Facturation"
                     };
                     alertes.Add(new HomeAlert
@@ -161,7 +164,7 @@ public static class HomeAlertCollector
 
             foreach (var loc in bp.listLocataire)
             {
-                if (loc.objectifs?.items == null) continue;
+                if (loc.archive || loc.objectifs?.items == null) continue;   // archivé : plus rien à traiter
                 string nomLoc = string.IsNullOrEmpty(loc.Name) ? "Locataire" : loc.Name;
                 foreach (var obj in loc.objectifs.items)
                     AjouteObjectif(alertes, obj, nomBat, nomLoc, bp, loc);

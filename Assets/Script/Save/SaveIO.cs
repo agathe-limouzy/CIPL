@@ -33,7 +33,7 @@ public static class SaveIO
             // l'ancienne racine. Surtout, on NE retire PAS l'ancienne entreprise de la
             // liste — elle détient encore les données, les photos et la clé API.
             SaveLocationService.UseRoot(ancien);
-            UndoToast.Instance?.ShowInfo("Déplacement annulé : " + erreur);
+            ConfirmDialog.Erreur("Déplacement annulé : " + erreur);
             return false;
         }
 

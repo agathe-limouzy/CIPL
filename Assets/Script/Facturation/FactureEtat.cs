@@ -15,6 +15,7 @@ public class FactureEtat
     public string pdfPath;      // chemin du PDF généré
     public string dateEnvoiISO; // date de génération / envoi
     public float montant;       // montant TTC
+    public float loyerHT;       // loyer HT facturé (Loyer seulement ; 0 = inconnu) — voir DepartLocataire.LoyerACorriger
     public string ribId;        // RIB CIPL (banque) sur lequel la facture est réglée
     public string ribNom;       // libellé du RIB (pour affichage / filtre)
     public int corrections;     // nb de fois où la facture a été refaite/corrigée (0 = originale)

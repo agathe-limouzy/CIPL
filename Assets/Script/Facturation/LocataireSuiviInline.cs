@@ -107,6 +107,8 @@ public class LocataireSuiviInline : MonoBehaviour
         if (fiche == null) return;
         foreach (var s in Resources.FindObjectsOfTypeAll<LocataireSuiviInline>())
             if (s != null && s._fiche == fiche) s.Refresh();
+        fiche.RefreshParcours();   // le bandeau du départ suit les factures émises
+        fiche.RafraichirAlertesFacturation();
     }
 
     // ── Arrivée depuis « Créances » ─────────────────────────────────────────────
@@ -430,6 +432,8 @@ public class LocataireSuiviInline : MonoBehaviour
             _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
             Destroy(scrim.gameObject);
             RebuildTable();
+            _fiche.RefreshParcours();   // « Payé » peut faire avancer le départ (archivage)
+            _fiche.RafraichirAlertesFacturation();
         };
         MenuItem(vlg.transform, "Payé", () => set("Paye"));
         MenuItem(vlg.transform, "Impayé", () => set("Impaye"));
@@ -451,7 +455,7 @@ public class LocataireSuiviInline : MonoBehaviour
     {
         // Parcours : aucune facture tant que général, bail, loyer et dépôt manquent.
         string bloque = ParcoursLocataire.FacturationBloquee(_loc);
-        if (bloque != null) { UndoToast.Instance?.ShowInfo(bloque); return; }
+        if (bloque != null) { ConfirmDialog.Erreur(bloque); return; }
         switch (type)
         {
             case "Loyer": FactureLoyerPanel.OpenLoyer(_fiche, ligneCiblee); break;

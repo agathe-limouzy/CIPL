@@ -126,7 +126,7 @@ public class ParcoursLocataireUI : MonoBehaviour
             bool faite = i < (int)etape, courante = i == (int)etape;
             _pastilles[i].color = faite ? UITheme.PrimaireClair : courante ? Ambre : UITheme.Carte;
             _libelles[i].color = faite ? UITheme.Primaire : courante ? Color.white : UITheme.TexteSecondaire;
-            _libelles[i].text = faite ? $"✓ {Titres[i].Substring(3)}" : Titres[i];
+            _libelles[i].text = faite ? $"{Titres[i].Substring(3)} : fait" : Titres[i];   // pas de « ✓ » : absent de la police
         }
 
         // Pendant la saisie de la fiche, la consigne suit la frappe ; « Continuer » ne

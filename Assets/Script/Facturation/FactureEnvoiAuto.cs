@@ -352,9 +352,8 @@ public class FactureEnvoiAuto : MonoBehaviour
         _envoiEnCours = false;
         LocataireSuiviInline.RefreshTous();
 
-        UndoToast.Instance?.ShowInfo(echecs == 0
-            ? $"{ok} facture(s) envoyée(s)."
-            : $"{ok} envoyée(s), {echecs} en échec — {derniereErreur} "
+        if (echecs == 0) UndoToast.Instance?.ShowInfo($"{ok} facture(s) envoyée(s).");
+        else ConfirmDialog.Erreur($"{ok} envoyée(s), {echecs} en échec — {derniereErreur} "
               + "Les factures non parties restent en attente d'envoi.");
         Destroy(gameObject);
     }

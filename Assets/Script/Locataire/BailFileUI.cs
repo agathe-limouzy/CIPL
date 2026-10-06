@@ -22,7 +22,7 @@ public class BailFileUI : MonoBehaviour
 
     private LocatairePrefab _locatairePrefab;
     private Button _btnAvenant;
-    private readonly List<GameObject> _lignesAvenants = new List<GameObject>();
+    private readonly List<GameObject> _lignesDocs = new List<GameObject>();   // avenants, état des lieux
 
     public void Init(LocatairePrefab locatairePrefab)
     {
@@ -58,6 +58,16 @@ public class BailFileUI : MonoBehaviour
         Refresh();
     }
 
+    /// Joint le PDF de l'état des lieux de sortie (fenêtre « Départ du locataire ») :
+    /// copié dans le dossier Bail du locataire, enregistré. Vrai si un document a été joint.
+    public bool JoindreEtatDesLieux()
+    {
+        string nom = ChoisirEtCopier("Choisir l'état des lieux de sortie");
+        if (nom == null) return false;
+        Modifier(loc => loc.etatDesLieux = nom);
+        return true;
+    }
+
     public void Refresh()
     {
         var loc = Locataire();
@@ -70,37 +80,48 @@ public class BailFileUI : MonoBehaviour
         btnOuvrir.gameObject.SetActive(bailLie);
         if (_btnAvenant != null) _btnAvenant.gameObject.SetActive(bailLie);
 
-        // « Bail : » et « Avenant n : » ont la même largeur : les noms de fichier s'alignent,
-        // et « Avenant 1 : » ne déborde plus sur le nom.
+        // « Bail : », « Avenant n : » et « État des lieux : » ont la même largeur : les
+        // noms de fichier s'alignent, et aucune étiquette ne déborde sur le nom.
         var etiquette = transform.Find("Label")?.GetComponent<TMP_Text>();
-        float largeurEtiquette = etiquette != null ? etiquette.GetPreferredValues("Avenant 99 :").x : 0f;
+        float largeurEtiquette = etiquette != null ? etiquette.GetPreferredValues("État des lieux :").x : 0f;
         Etiqueter(etiquette, "Bail :", largeurEtiquette);
 
-        // Une ligne par avenant, clonée de celle du bail, juste en dessous.
-        foreach (var l in _lignesAvenants) Destroy(l);
-        _lignesAvenants.Clear();
-        if (loc?.avenants == null) return;
-        for (int i = 0; i < loc.avenants.Count; i++)
-        {
-            int n = i;
-            string nom = loc.avenants[i];
-            var ligne = Instantiate(gameObject, transform.parent);
-            ligne.name = $"RowAvenant{n + 1}";
-            ligne.transform.SetSiblingIndex(transform.GetSiblingIndex() + 1 + n);
-            Destroy(ligne.GetComponent<BailFileUI>());
+        // Une ligne par avenant, puis l'état des lieux, clonées de celle du bail, dessous.
+        foreach (var l in _lignesDocs) Destroy(l);
+        _lignesDocs.Clear();
+        if (loc == null) return;
+        int n0 = 0;
+        if (loc.avenants != null)
+            for (int i = 0; i < loc.avenants.Count; i++)
+            {
+                int n = i;
+                LigneDocument($"RowAvenant{n + 1}", $"Avenant {n + 1} :", loc.avenants[i], n0++,
+                              largeurEtiquette, l => l.avenants.RemoveAt(n));
+            }
+        if (!string.IsNullOrEmpty(loc.etatDesLieux))
+            LigneDocument("RowEtatDesLieux", "État des lieux :", loc.etatDesLieux, n0,
+                          largeurEtiquette, l => l.etatDesLieux = "");
+    }
 
-            Etiqueter(ligne.transform.Find("Label")?.GetComponent<TMP_Text>(), $"Avenant {n + 1} :", largeurEtiquette);
-            ligne.transform.Find(btnParcourir.name)?.gameObject.SetActive(false);
-            ligne.transform.Find(_btnAvenant.name)?.gameObject.SetActive(false);
+    // Ligne d'un document secondaire (avenant, état des lieux) : Ouvrir et Retirer.
+    void LigneDocument(string nomObjet, string etiquette, string stocke, int rang, float largeur, Action<Locataire> retirer)
+    {
+        var ligne = Instantiate(gameObject, transform.parent);
+        ligne.name = nomObjet;
+        ligne.transform.SetSiblingIndex(transform.GetSiblingIndex() + 1 + rang);
+        Destroy(ligne.GetComponent<BailFileUI>());
 
-            var txt = ligne.transform.Find(txtChemin.name)?.GetComponent<TMP_Text>();
-            var ouvrir = ligne.transform.Find(btnOuvrir.name)?.GetComponent<Button>();
-            var retirer = btnRetirer != null ? ligne.transform.Find(btnRetirer.name)?.GetComponent<Button>() : null;
-            AfficherLigne(txt, ouvrir, retirer, nom, "");
-            if (ouvrir != null) { ouvrir.gameObject.SetActive(true); Brancher(ouvrir, () => Ouvrir(nom)); }
-            if (retirer != null) Brancher(retirer, () => Modifier(l => l.avenants.RemoveAt(n)));
-            _lignesAvenants.Add(ligne);
-        }
+        Etiqueter(ligne.transform.Find("Label")?.GetComponent<TMP_Text>(), etiquette, largeur);
+        ligne.transform.Find(btnParcourir.name)?.gameObject.SetActive(false);
+        ligne.transform.Find(_btnAvenant.name)?.gameObject.SetActive(false);
+
+        var txt = ligne.transform.Find(txtChemin.name)?.GetComponent<TMP_Text>();
+        var ouvrir = ligne.transform.Find(btnOuvrir.name)?.GetComponent<Button>();
+        var btnRet = btnRetirer != null ? ligne.transform.Find(btnRetirer.name)?.GetComponent<Button>() : null;
+        AfficherLigne(txt, ouvrir, btnRet, stocke, "");
+        if (ouvrir != null) { ouvrir.gameObject.SetActive(true); Brancher(ouvrir, () => Ouvrir(stocke)); }
+        if (btnRet != null) Brancher(btnRet, () => Modifier(retirer));
+        _lignesDocs.Add(ligne);
     }
 
     // ── Aides ──────────────────────────────────────────────────────────────────
@@ -156,7 +177,7 @@ public class BailFileUI : MonoBehaviour
         }
         catch (Exception e)
         {
-            UndoToast.Instance?.ShowInfo($"Copie du document impossible : {e.Message}");
+            ConfirmDialog.Erreur($"Copie du document impossible : {e.Message}");
             return null;
         }
 #else

@@ -39,8 +39,8 @@ public class FactureRegulPanel : MonoBehaviour
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     TMP_Text _numeroPrefixe;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
-    UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _anneeDD, _origineDD;
-    GameObject _origineBox;   // « Avoir sur la facture n° » : visible quand on rembourse
+    string _autoProv;    // dernière provision auto (suit l'année tant que non saisie à la main)
+    UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _anneeDD;
     // Listes de charges régularisées ensemble (une case par liste du locataire) : une
     // seule facture couvre toutes celles cochées.
     GameObject _listeLabel;
@@ -186,11 +186,11 @@ public class FactureRegulPanel : MonoBehaviour
             UITheme.Role.Donnee, UITheme.TexteSecondaire).gameObject;
         _listesBox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "ListesBox").transform;
         UIFactory.Text(g.transform, "Année à régulariser (charges impayées)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
-        _anneeDD = UIDropdown.Create(g.transform, new List<string> { "—" }, new List<string> { DateTime.Today.Year.ToString() }, 0, _ => RefreshCharges());
+        _anneeDD = UIDropdown.Create(g.transform, new List<string> { "—" }, new List<string> { DateTime.Today.Year.ToString() }, 0, _ => { RefreshProvisionsAuto(); RefreshCharges(); });
         UIFactory.Text(g.transform, "Charges concernées (quote-part du locataire) :", UITheme.Role.Aide, UITheme.TexteSecondaire);
         var cbox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "ChargesBox");
         _chargesBox = cbox.transform;
-        _provisions = Labeled(g, "Provisions déjà versées (provision × nb périodes)");
+        _provisions = Labeled(g, "Provisions déjà versées (provision × périodes facturées)");
         _provisions.contentType = TMP_InputField.ContentType.DecimalNumber;
         _provisions.onValueChanged.AddListener(_ => { RefreshTotaux(); RefreshEntetePreview(); });
         _tCharges    = MontRow(g, "Total des charges (quote-part)");
@@ -199,9 +199,8 @@ public class FactureRegulPanel : MonoBehaviour
         _tSolde      = MontRow(g, "Solde HT");
         _tTVA        = MontRow(g, "TVA 20 %");
         _tTTC        = MontRow(g, "Total TTC");
-        _origineBox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "OrigineBox").gameObject;
-        UIFactory.Text(_origineBox.transform, "Avoir sur la facture n° (imprimé sous le titre de l'avoir)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
-        _origineDD = UIDropdown.Create(_origineBox.transform, new List<string> { "— (aucune)" }, new List<string> { "" }, 0, _ => { });
+        // Pas de « Avoir sur la facture n° » ici (retiré le 05/10) : une régul qui rembourse
+        // solde les provisions de l'année, elle ne corrige pas une facture précise.
 
         // La ligne « la TVA est payée sur les débits » s'imprime juste sous ces
         // totaux : sa case vit donc ici, pas dans la carte d'envoi où on ne pensait
@@ -324,8 +323,6 @@ public class FactureRegulPanel : MonoBehaviour
 
         ChargerListes(f);
         ChargerAnnees(f);
-        FacturationSuivi.FacturesOrigine(_loc, out var origLabels, out var origIds);
-        _origineDD.SetOptions(origLabels, origIds, "");
 
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
         RefreshNumero();
@@ -369,12 +366,22 @@ public class FactureRegulPanel : MonoBehaviour
             : (f != null && f.anneePeriode > 0 && years.Contains(f.anneePeriode) ? f.anneePeriode.ToString() : years[0].ToString());
         _anneeDD.SetOptions(years.Select(y => y.ToString()).ToList(), years.Select(y => y.ToString()).ToList(), selYear);
 
-        // Provisions : mémorisées si saisies POUR CES MÊMES LISTES, sinon somme des
-        // provisions des listes × nb de périodes.
+        // Provisions : mémorisées si saisies POUR CES MÊMES LISTES ET CETTE ANNÉE (celles
+        // d'une année pleine ne valent pas pour l'année du départ), sinon somme des
+        // provisions des listes × périodes facturées.
         var sel = ListesSel();
-        bool memo = f != null && f.saved && f.listesRegul != null
+        bool memo = f != null && f.saved && f.listesRegul != null && f.anneePeriode == SelectedYear()
                     && f.listesRegul.Select(ListesCharges.Effective).OrderBy(x => x).SequenceEqual(sel.OrderBy(x => x));
-        _provisions.text = (memo ? f.provisionMontant : ProvisionsAuto()).ToString("0.00", CultureInfo.InvariantCulture);
+        _autoProv = ProvisionsAuto().ToString("0.00", CultureInfo.InvariantCulture);
+        _provisions.text = memo ? f.provisionMontant.ToString("0.00", CultureInfo.InvariantCulture) : _autoProv;
+    }
+
+    // L'année change : la provision proposée suit, sauf si elle a été saisie à la main.
+    void RefreshProvisionsAuto()
+    {
+        string def = ProvisionsAuto().ToString("0.00", CultureInfo.InvariantCulture);
+        if (_provisions != null && _provisions.text == _autoProv) _provisions.text = def;
+        _autoProv = def;
     }
 
     /// Une case par liste du locataire. Cochées : celles de la facture cliquée dans le
@@ -521,9 +528,10 @@ public class FactureRegulPanel : MonoBehaviour
         return set.Reverse().ToList();   // plus récent d'abord
     }
 
-    // Quote-part du locataire sur une charge = coût × part_locataire / somme(parts).
+    // Quote-part du locataire sur une charge = coût × part_locataire / somme(parts),
+    // au prorata de ses jours de présence dans l'année (arrivée, départ — 01/10).
     // Si un seul locataire concerné (ratios vides) → 100 % du coût.
-    float QuotePart(ChargeBatiment c) => ListesCharges.QuotePart(c, _loc, _bat);
+    float QuotePart(ChargeBatiment c) => ListesCharges.QuotePartAuProrata(c, _loc, _bat);
 
     // Reconstruit la liste des charges + recalcule les totaux.
     void RefreshCharges()
@@ -575,8 +583,7 @@ public class FactureRegulPanel : MonoBehaviour
         // d'un AVOIR — pas d'une facture. On le signale au lieu de laisser passer
         // une facture à montant négatif.
         if (solde < 0f)
-            _tSolde.text = $"{solde:N2} €  ⚠ trop-perçu (avoir)";
-        _origineBox.SetActive(solde < -0.005f);
+            _tSolde.text = $"{solde:N2} €  — trop-perçu (avoir)";   // pas de « ⚠ » : absent de la police
 
         RefreshSommeDefault();   // le solde vient de changer : la phrase doit suivre son signe
     }
@@ -584,8 +591,10 @@ public class FactureRegulPanel : MonoBehaviour
     /// Arrondi au centime — évite les dérives de `float` sur les montants.
     static float Cents(float v) => Mathf.Round(v * 100f) / 100f;
 
+    // Provisions appelées : une par période facturée de l'année (départ, arrivée,
+    // franchise sans provisions → moins de périodes).
     float ProvisionsAuto()
-        => ListesSel().Sum(id => ListesCharges.Provision(_loc, id)) * LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer);
+        => ListesSel().Sum(id => ListesCharges.Provision(_loc, id)) * Loyers.PeriodesFacturees(_loc, SelectedYear());
 
     // ── Numéro / aperçu entête ─────────────────────────────────────────────────
 
@@ -700,7 +709,6 @@ public class FactureRegulPanel : MonoBehaviour
             clientAdresseHtml = FacturePdfService.AdresseHtml(_adresse.text),
             clientSiret = _siret.text,
             refInterne = _refInterne.text,
-            factureOrigine = solde < -0.005f ? _origineDD?.SelectedId : null,
             dateStr = dateStr,
             numero = ComposedNumero(),
             subtitle = ListesCharges.Libelle(ListesSel(), year),
@@ -744,7 +752,7 @@ public class FactureRegulPanel : MonoBehaviour
         string png = Path.Combine(FactureDir(), "apercu_regul.png");
         // Hauteur 2 pages : la facture (p.1) + le détail des charges (p.2).
         if (FacturePdfService.GenerateRegulPreviewPng(d, png, out string err, 794, 2246)) ShowPreview(png);
-        else UndoToast.Instance?.ShowInfo("Échec de l'aperçu : " + err);
+        else ConfirmDialog.Erreur("Échec de l'aperçu : " + err);
     }
 
     void SauvegarderEtEnvoyer()
@@ -752,7 +760,7 @@ public class FactureRegulPanel : MonoBehaviour
         // Refus AVANT tout (PDF, confirmation) si les listes cochées ne peuvent pas
         // former une seule facture.
         string refus = Regroupement(_loc, ListesSel(), SelectedYear(), out _);
-        if (refus != null) { UndoToast.Instance?.ShowInfo(refus); return; }
+        if (refus != null) { ConfirmDialog.Erreur(refus); return; }
 
         SaveFromUI(markPaid: false);
         var d = BuildData();
@@ -791,7 +799,7 @@ public class FactureRegulPanel : MonoBehaviour
         // Une facture regroupée se range sous UNE ligne (celle de la facture existante
         // s'il y en a une) ; les autres reçoivent le même numéro et le même PDF.
         string refus = Regroupement(_loc, listes, year, out string key);
-        if (refus != null) { UndoToast.Instance?.ShowInfo(refus); return; }
+        if (refus != null) { ConfirmDialog.Erreur(refus); return; }
 
         // Déjà émise pour cette année → version « corrigée(X) » : même numéro, aucune
         // nouvelle séquence consommée, PDF d'origine conservé. Sans cette garde, un
@@ -806,7 +814,7 @@ public class FactureRegulPanel : MonoBehaviour
 
         if (!FacturePdfService.GenerateRegulPdf(d, pdf, out string err))
         {
-            UndoToast.Instance?.ShowInfo("Échec génération PDF : " + err);
+            ConfirmDialog.Erreur("Échec génération PDF : " + err);
             return;
         }
 
@@ -826,13 +834,13 @@ public class FactureRegulPanel : MonoBehaviour
         string dest = (_emailEnvoi.text ?? "").Trim();
         if (string.IsNullOrWhiteSpace(dest))
         {
-            UndoToast.Instance?.ShowInfo("Aucune adresse email pour ce locataire. "
+            ConfirmDialog.Erreur("Aucune adresse email pour ce locataire. "
                 + "Rien n'a été envoyé ; le PDF est enregistré.");
             return;
         }
 
         string manque = EmailService.CeQuiManque();
-        if (manque != null) { UndoToast.Instance?.ShowInfo(manque + " Le PDF est enregistré."); return; }
+        if (manque != null) { ConfirmDialog.Erreur(manque + " Le PDF est enregistré."); return; }
 
         var ctx = BuildContext();
         string objet = FactureVarResolver.Resolve(
@@ -843,7 +851,7 @@ public class FactureRegulPanel : MonoBehaviour
         // Sans confirmation disponible, rien ne part.
         if (ConfirmDialog.Instance == null)
         {
-            UndoToast.Instance?.ShowInfo("Confirmation indisponible : rien n'a été envoyé. "
+            ConfirmDialog.Erreur("Confirmation indisponible : rien n'a été envoyé. "
                 + "Le PDF est enregistré.");
             return;
         }
@@ -873,7 +881,7 @@ public class FactureRegulPanel : MonoBehaviour
 
         if (!envoi.Succes)
         {
-            UndoToast.Instance?.ShowInfo("Envoi échoué — " + envoi.Erreur
+            ConfirmDialog.Erreur("Envoi échoué — " + envoi.Erreur
                 + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : tu peux réessayer.");
             yield break;
         }
@@ -967,7 +975,7 @@ public class FactureRegulPanel : MonoBehaviour
             if (_viewer != null && tex.height > 0) _viewer.SetAspect((float)tex.width / tex.height);
             if (_previewHint != null) _previewHint.gameObject.SetActive(false);
         }
-        catch (Exception e) { UndoToast.Instance?.ShowInfo("Aperçu illisible : " + e.Message); }
+        catch (Exception e) { ConfirmDialog.Erreur("Aperçu illisible : " + e.Message); }
     }
 
     // ── Sauvegarde (mémorisé sur le locataire) ─────────────────────────────────

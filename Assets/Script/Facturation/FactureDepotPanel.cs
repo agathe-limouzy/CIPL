@@ -72,6 +72,10 @@ public class FactureDepotPanel : MonoBehaviour
             go.AddComponent<FactureDepotPanel>();
         }
         Instance._initial = ligne?.key == FacturationSuivi.CleDepotInitial;
+        // Décompte de sortie : sa ligne du suivi, ou le bouton de la carte une fois le
+        // départ saisi (la révision n'a plus lieu d'être : le dépôt sera rendu).
+        Instance._sortie = ligne != null ? ligne.key == DepartLocataire.CleDecompte
+                                         : !string.IsNullOrEmpty(fiche.GetLocataire()?.dateSortieISO);
         Instance.OpenFor(fiche);
     }
 
@@ -80,6 +84,19 @@ public class FactureDepotPanel : MonoBehaviour
     // sinon, le complément d'une révision, au format régularisation avec l'explication.
     bool _initial;
     readonly List<GameObject> _explication = new List<GameObject>();   // bloc explicatif (révision seulement)
+
+    // Décompte de sortie (décisions du 01/10, règles dans DepartLocataire) : dépôt
+    // détenu − retenues − créances reprises, en un document au format simple — AVOIR
+    // si l'on rembourse. Sa carte remplace celle du dépôt.
+    bool _sortie;
+    GameObject _carteDepot, _carteSortie, _blocMentionS;
+    TMP_InputField _depotDetenu, _texteTvaDebitS;
+    UIDropdown _mentionTvaS;
+    Transform _retenuesBox, _creancesBox;
+    TMP_Text _tRetenues, _tCreances, _tDepotRendu, _tSolde;
+    readonly List<(TMP_InputField lib, TMP_InputField ht, Toggle tva, GameObject row)> _retenues
+        = new List<(TMP_InputField, TMP_InputField, Toggle, GameObject)>();
+    readonly List<(FactureEtat rec, Toggle on)> _creances = new List<(FactureEtat, Toggle)>();
 
     void OpenFor(LocatairePrefab fiche)
     {
@@ -216,6 +233,33 @@ public class FactureDepotPanel : MonoBehaviour
         _depotEquilibre = UIFactory.Input(g.transform, "…aucun ajustement n'est nécessaire.", 70, true);
         SlashAutocomplete.Attach(_depotEquilibre);
         for (int i = debutExplication; i < g.transform.childCount; i++) _explication.Add(g.transform.GetChild(i).gameObject);
+        _carteDepot = g.transform.parent.gameObject;
+
+        // ── Décompte de sortie (remplace la carte du dépôt en mode sortie) ──
+        var s = UIFactory.Section(content, "Décompte de sortie", CoDepot, CoDepotL);
+        _carteSortie = s.transform.parent.gameObject;
+        _depotDetenu = Labeled(s, "Dépôt de garantie détenu (€)");
+        _depotDetenu.contentType = TMP_InputField.ContentType.DecimalNumber;
+        _depotDetenu.onValueChanged.AddListener(_ => RefreshTotaux());
+
+        UIFactory.Text(s.transform, "Retenues (remise en état, réparations…) — montant HT, TVA si cochée",
+            UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        _retenuesBox = UIFactory.VBox(s.transform, 6, 0, 0, 0, 0, "Retenues").transform;
+        var plus = UIFactory.Button(s.transform, "+ Ajouter une retenue", UITheme.Carte, UITheme.TextePrincipal, 36, UITheme.Role.Action, false);
+        UIFactory.Border(plus.gameObject);
+        plus.onClick.AddListener(() => { AjouterRetenue(new RetenueSortie()); RefreshTotaux(); });
+
+        UIFactory.Text(s.transform, "Sommes dues reprises — cochées : soldées par le dépôt (passent « Payé » à l'émission)",
+            UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        _creancesBox = UIFactory.VBox(s.transform, 4, 0, 0, 0, 0, "Creances").transform;
+
+        _tRetenues   = MontRow(s, "Retenues");
+        _tCreances   = MontRow(s, "Sommes dues reprises");
+        _tDepotRendu = MontRow(s, "Dépôt de garantie");
+        _tSolde      = MontRow(s, "Solde");
+        // Mention TVA : seulement si une retenue est soumise (sinon le PDF n'en dit rien).
+        _blocMentionS = UIFactory.VBox(s.transform, 6, name: "MentionTvaSortie").gameObject;
+        _mentionTvaS = MentionTva.Creer(_blocMentionS.transform, out _texteTvaDebitS);
 
         // ── 3. Règlement (pied du document) ──
         // L'échéance, la phrase qu'elle alimente et le RIB sont voisins : le lien se
@@ -300,8 +344,11 @@ public class FactureDepotPanel : MonoBehaviour
         if (_loc == null) return;
         var f = _loc.factureDepot;
 
-        _titre.text = $"{(_initial ? "Dépôt de garantie" : "Révision du dépôt")} · {(_loc.Name ?? "")}";
+        _titre.text = $"{(_sortie ? "Décompte de sortie" : _initial ? "Dépôt de garantie" : "Révision du dépôt")} · {(_loc.Name ?? "")}";
         foreach (var go in _explication) go.SetActive(!_initial);
+        _carteDepot.SetActive(!_sortie);
+        _carteSortie.SetActive(_sortie);
+        if (_sortie) ChargerSortie(f);
 
         _nom.text     = !string.IsNullOrEmpty(f?.destNom)     ? f.destNom     : (_loc.Name ?? "");
         _adresse.text = !string.IsNullOrEmpty(f?.destAdresse) ? f.destAdresse : (_loc.adresseLocataire ?? "");
@@ -320,6 +367,10 @@ public class FactureDepotPanel : MonoBehaviour
         _echeance.text = f != null && DateTime.TryParse(f.dateEcheanceISO, out var de)
             ? de.ToString("dd/MM/yyyy")
             : (TryDate(_date.text, out var dbase) ? dbase.AddDays(30) : now.AddDays(30)).ToString("dd/MM/yyyy");
+        // Décompte : échéance = date limite de restitution (celle d'une révision ne vaut pas).
+        if (_sortie && DepartLocataire.EcheanceRestitution(_loc, out var er)
+            && !FacturationSuivi.EstDejaEmise(_loc, DepartLocataire.CleDecompte, out _))
+            _echeance.text = er.ToString("dd/MM/yyyy");
         _autoSomme = DefaultSomme();
         _sommePhrase.text = !string.IsNullOrEmpty(f?.sommePhrase) ? f.sommePhrase : _autoSomme;
 
@@ -349,6 +400,7 @@ public class FactureDepotPanel : MonoBehaviour
         RefreshNumero();
 
         MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
+        MentionTva.Charger(_mentionTvaS, _texteTvaDebitS, f);
         _retard.isOn = f?.ajouterRetard ?? true;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
         _emailObjet.text = FacturePdfService.Texte(f?.emailObjet, EmailService.ObjetDefaut);
@@ -360,6 +412,69 @@ public class FactureDepotPanel : MonoBehaviour
         RefreshTotaux();
         RefreshEntetePreview();
     }
+
+    // ── Décompte de sortie ─────────────────────────────────────────────────────
+
+    void ChargerSortie(FactureInfo f)
+    {
+        // Déjà émis (correction) : on reprend ce qu'il contenait ; sinon tout est neuf —
+        // le dépôt de la fiche, aucune retenue, toutes les sommes dues cochées.
+        bool correction = FacturationSuivi.EstDejaEmise(_loc, DepartLocataire.CleDecompte, out _);
+        _depotDetenu.text = (correction && f != null && f.depotDetenu > 0f ? f.depotDetenu : _loc.depotDeGarantie)
+            .ToString("0.00", CultureInfo.InvariantCulture);
+
+        foreach (var r in _retenues) Destroy(r.row);
+        _retenues.Clear();
+        if (correction && f?.retenuesSortie != null)
+            foreach (var r in f.retenuesSortie) AjouterRetenue(r);
+
+        foreach (Transform c in _creancesBox) Destroy(c.gameObject);
+        _creances.Clear();
+        var reprises = correction ? f?.creancesReprises : null;
+        var proposees = DepartLocataire.CreancesProposees(_loc, reprises);
+        if (proposees.Count == 0)
+            UIFactory.Text(_creancesBox, "Aucune somme due.", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        foreach (var c in proposees)
+        {
+            string label = $"{(string.IsNullOrEmpty(c.numero) ? "" : c.numero + " · ")}{c.libelle} · {c.montant:N2} €";
+            var t = UIFactory.Toggle(_creancesBox, label, reprises == null || reprises.Contains(c.key));
+            t.onValueChanged.AddListener(_ => RefreshTotaux());
+            _creances.Add((c, t));
+        }
+    }
+
+    void AjouterRetenue(RetenueSortie r)
+    {
+        var row = UIFactory.HBox(_retenuesBox, 8, false, "Retenue");
+        UIFactory.LE(row.gameObject, minH: 40);
+        var lib = UIFactory.Input(row.transform, "Libellé (ex. réparation porte)");
+        UIFactory.LE(lib.gameObject, flexW: 3, minH: 40);
+        lib.text = r.libelle ?? "";
+        var ht = UIFactory.Input(row.transform, "HT €");
+        ht.contentType = TMP_InputField.ContentType.DecimalNumber;
+        UIFactory.LE(ht.gameObject, flexW: 1, minH: 40);
+        ht.text = r.ht != 0f ? r.ht.ToString("0.00", CultureInfo.InvariantCulture) : "";
+        ht.onValueChanged.AddListener(_ => RefreshTotaux());
+        var tva = UIFactory.Toggle(row.transform, "TVA", r.tva);
+        tva.onValueChanged.AddListener(_ => RefreshTotaux());
+        var moins = UIFactory.Button(row.transform, "−", UITheme.Carte, UITheme.TextePrincipal, 36, UITheme.Role.Action, false);
+        UIFactory.Border(moins.gameObject);
+        UIFactory.LE(moins.gameObject, prefW: 40, flexW: 0);
+        var entree = (lib, ht, tva, row.gameObject);
+        moins.onClick.AddListener(() => { _retenues.Remove(entree); Destroy(row.gameObject); RefreshTotaux(); });
+        _retenues.Add(entree);
+    }
+
+    List<RetenueSortie> RetenuesSaisies()
+        => _retenues.Select(r => new RetenueSortie { libelle = r.lib.text, ht = ParseF(r.ht.text), tva = r.tva.isOn }).ToList();
+
+    List<FactureEtat> CreancesCochees() => _creances.Where(c => c.on.isOn).Select(c => c.rec).ToList();
+
+    DepartLocataire.Decompte DecompteSaisi()
+        => DepartLocataire.Calculer(ParseF(_depotDetenu.text), RetenuesSaisies(), CreancesCochees());
+
+    /// Ce que le document réclame (négatif = remboursement), selon le mode.
+    float Solde() => _sortie ? DecompteSaisi().ttc : Nouveau() - ParseF(_ancien.text);
 
     // ── Calculs dépôt ──────────────────────────────────────────────────────────
 
@@ -377,6 +492,19 @@ public class FactureDepotPanel : MonoBehaviour
 
     void RefreshTotaux()
     {
+        if (_sortie && _tSolde != null)
+        {
+            var d = DecompteSaisi();
+            _tRetenues.text   = $"{d.retenuesHT:N2} €" + (d.tva > 0f ? $" HT  (+ TVA {d.tva:N2} €)" : "");
+            _blocMentionS.SetActive(d.tva > 0f);
+            _tCreances.text   = $"{d.creances:N2} €";
+            _tDepotRendu.text = $"{-ParseF(_depotDetenu.text):N2} €";
+            _tSolde.text = d.ttc < -0.005f ? $"{d.ttc:N2} €  — à rembourser au locataire (avoir)"
+                         : d.ttc > 0.005f ? $"{d.ttc:N2} €  — dû par le locataire (facture)" : "0,00 €  — rien à régler";
+            RefreshSommeDefault();
+            RefreshEntetePreview();
+            return;
+        }
         float per = CurrentPeriode();
         _perLine.text = $"Loyer : {per:0.00} € / période {(_ttcToggle != null && _ttcToggle.isOn ? "TTC" : "HT")}";
         float nouveau = Cents(Nouveau()), ancien = Cents(ParseF(_ancien.text));
@@ -388,7 +516,7 @@ public class FactureDepotPanel : MonoBehaviour
         // Nouveau dépôt inférieur à l'ancien : c'est un remboursement au locataire,
         // donc un avoir — pas une facture de complément.
         if (complement < 0f)
-            _tComplement.text = $"{complement:N2} €  ⚠ remboursement (avoir)";
+            _tComplement.text = $"{complement:N2} €  — remboursement (avoir)";   // pas de « ⚠ » : absent de la police
 
         RefreshSommeDefault();   // le solde vient de changer : la phrase doit suivre son signe
         RefreshEntetePreview();
@@ -405,7 +533,7 @@ public class FactureDepotPanel : MonoBehaviour
     /// `FactureEmission.PhraseSomme` reste le filet de sécurité à la génération.
     string DefaultSomme()
     {
-        if (Nouveau() - ParseF(_ancien.text) < -0.005f) return "SOMME QUI VOUS SERA REMBOURSÉE";
+        if (Solde() < -0.005f) return "SOMME QUI VOUS SERA REMBOURSÉE";
 
         DateTime ech = TryDate(_echeance != null ? _echeance.text : "", out var ed) ? ed : DateTime.Today;
         return "SOMME À NOUS RÉGLER LE " + ech.ToString("d MMMM yyyy", FacturePdfService.FrCulture);
@@ -448,12 +576,12 @@ public class FactureDepotPanel : MonoBehaviour
 
     FactureContext BuildContext()
     {
-        float c = Nouveau() - ParseF(_ancien.text);
+        float c = Solde();
         DateTime d = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
         return new FactureContext
         {
             date = d,
-            periode = "dépôt de garantie",
+            periode = _sortie ? "décompte de sortie" : "dépôt de garantie",
             numero = ComposedNumero(),
             loyerHT = c, tva = 0f, ttc = c,
         };
@@ -534,10 +662,53 @@ public class FactureDepotPanel : MonoBehaviour
             subtitle = "Dépôt de garantie",
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             totalPeriode = montant, provision = 0f, totalHT = montant, tva = 0f, ttc = montant,
-            tvaLibelle = "TVA — dépôt de garantie non soumis",
+            // Un dépôt n'est pas soumis à la TVA : aucune ligne de TVA, un seul « Total »
+            // (demande du 02/10 ; avant : « TVA — dépôt de garantie non soumis 0,00 »).
+            masquerTva = true,
             tvaDebit = MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
             sommePhrase = FactureVarResolver.Resolve(_sommePhrase.text, _loc, _bat, ctx),
             texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
+            ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
+            ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
+            legal = R.phraseRetard,
+            foot1 = foot.Length > 0 ? foot[0] : "",
+            foot2 = foot.Length > 1 ? foot[1] : "",
+        };
+    }
+
+    // Décompte de sortie : même format simple, une ligne par élément — le dépôt rendu
+    // (négatif), puis retenues et sommes reprises. Titre AVOIR si l'on rembourse.
+    FacturePdfService.Data BuildDataSortie()
+    {
+        var ctx = BuildContext();
+        var rib = ReglageService.GetRib(_ribDD?.SelectedId);
+        var ent = ReglageService.GetEntete(_enteteDD?.SelectedId);
+        string entResolved = ent != null ? FactureVarResolver.Resolve(ent.texte, _loc, _bat, ctx) : "";
+        var foot = (R.basDePage ?? "").Replace("\r", "").Split('\n');
+        var d = DecompteSaisi();
+        float depot = Cents(ParseF(_depotDetenu.text));
+        string edl = FacturationSuivi.TryEcheance(_loc.dateEtatDesLieuxISO, out var e)
+            ? $" — état des lieux du {e:dd/MM/yyyy}" : "";
+
+        return new FacturePdfService.Data
+        {
+            clientNom = _nom.text,
+            clientAdresseHtml = FacturePdfService.AdresseHtml(_adresse.text),
+            clientSiret = _siret.text,
+            refInterne = _refInterne.text,
+            ligneLabel = "Dépôt de garantie restitué",
+            dateStr = ctx.date.ToString("d MMMM yyyy", FacturePdfService.FrCulture),
+            numero = ComposedNumero(),
+            subtitle = "Décompte de sortie" + edl,
+            bodyHtml = FacturePdfService.BodyHtml(entResolved),
+            totalPeriode = -depot, lignesProvision = d.lignes,
+            totalHT = d.totalHT, tva = d.tva, ttc = d.ttc,
+            // Aucune retenue soumise : aucune information de TVA (demande du 02/10).
+            tvaLibelle = "TVA 20 % (retenues soumises)", masquerTva = d.tva <= 0f,
+            // Aucune retenue soumise : aucune information de TVA, mention comprise (02/10).
+            tvaDebit = d.tva > 0f && MentionTva.Imprimee(_mentionTvaS), retard = _retard.isOn,
+            sommePhrase = FactureVarResolver.Resolve(FactureEmission.PhraseSomme(_sommePhrase.text, d.ttc), _loc, _bat, ctx),
+            texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTvaS, _texteTvaDebitS), _loc, _bat, ctx),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
             legal = R.phraseRetard,
@@ -560,9 +731,9 @@ public class FactureDepotPanel : MonoBehaviour
 
     Document DocumentAEmettre()
     {
-        if (_initial)
+        if (_sortie || _initial)
         {
-            var d = BuildDataInitial();
+            var d = _sortie ? BuildDataSortie() : BuildDataInitial();
             return new Document
             {
                 Sujet = d.subtitle, Montant = d.ttc,
@@ -587,7 +758,7 @@ public class FactureDepotPanel : MonoBehaviour
         string png = Path.Combine(FactureDir(), "apercu_depot.png");
         string err = DocumentAEmettre().Apercu(png);
         if (err == null) ShowPreview(png);
-        else UndoToast.Instance?.ShowInfo("Échec de l'aperçu : " + err);
+        else ConfirmDialog.Erreur("Échec de l'aperçu : " + err);
     }
 
     void SauvegarderEtEnvoyer()
@@ -603,7 +774,7 @@ public class FactureDepotPanel : MonoBehaviour
         {
             ConfirmDialog.Instance.Show(
                 "Remboursement au locataire",
-                "Le nouveau dépôt est inférieur à l'ancien : ce document constate "
+                (_sortie ? "Le décompte de sortie constate " : "Le nouveau dépôt est inférieur à l'ancien : ce document constate ")
                 + (-d.Montant).ToString("N2", FacturePdfService.FrCulture)
                 + " € dus AU locataire, et non réclamés. "
                 + "Il consommera un numéro comme une facture.",
@@ -628,7 +799,7 @@ public class FactureDepotPanel : MonoBehaviour
         // clic consommait une nouvelle séquence et écrasait le PDF déjà émis.
         int revYear = DateTime.TryParse(_loc.dateRevisionDepotISO, out var rv) ? rv.Year
             : (TryDate(_date.text, out var dtr) ? dtr.Year : DateTime.Today.Year);
-        string key = _initial ? FacturationSuivi.CleDepotInitial : $"depot-{revYear}";
+        string key = _sortie ? DepartLocataire.CleDecompte : _initial ? FacturationSuivi.CleDepotInitial : $"depot-{revYear}";
 
         // Déjà émise → version « corrigée(X) » : même numéro, aucune nouvelle
         // séquence consommée, et le PDF d'origine est conservé.
@@ -636,13 +807,13 @@ public class FactureDepotPanel : MonoBehaviour
         d.PoserNumero(emission.NumeroFacture);
         bool correction = emission.Correction;
 
-        string fname = Sanitize($"{(_initial ? "DepotGarantie" : "RevisionDepot")}-{_nom.text}-{year}{emission.SuffixeFichier}") + ".pdf";
+        string fname = Sanitize($"{(_sortie ? "DecompteSortie" : _initial ? "DepotGarantie" : "RevisionDepot")}-{_nom.text}-{year}{emission.SuffixeFichier}") + ".pdf";
         string pdf = Path.Combine(dir, fname);
 
         string err = d.Pdf(pdf);
         if (err != null)
         {
-            UndoToast.Instance?.ShowInfo("Échec génération PDF : " + err);
+            ConfirmDialog.Erreur("Échec génération PDF : " + err);
             return;
         }
 
@@ -662,13 +833,13 @@ public class FactureDepotPanel : MonoBehaviour
         string dest = (_emailEnvoi.text ?? "").Trim();
         if (string.IsNullOrWhiteSpace(dest))
         {
-            UndoToast.Instance?.ShowInfo("Aucune adresse email pour ce locataire. "
+            ConfirmDialog.Erreur("Aucune adresse email pour ce locataire. "
                 + "Rien n'a été envoyé ; le PDF est enregistré.");
             return;
         }
 
         string manque = EmailService.CeQuiManque();
-        if (manque != null) { UndoToast.Instance?.ShowInfo(manque + " Le PDF est enregistré."); return; }
+        if (manque != null) { ConfirmDialog.Erreur(manque + " Le PDF est enregistré."); return; }
 
         var ctx = BuildContext();
         string objet = FactureVarResolver.Resolve(
@@ -679,7 +850,7 @@ public class FactureDepotPanel : MonoBehaviour
         // Sans confirmation disponible, rien ne part.
         if (ConfirmDialog.Instance == null)
         {
-            UndoToast.Instance?.ShowInfo("Confirmation indisponible : rien n'a été envoyé. "
+            ConfirmDialog.Erreur("Confirmation indisponible : rien n'a été envoyé. "
                 + "Le PDF est enregistré.");
             return;
         }
@@ -707,7 +878,7 @@ public class FactureDepotPanel : MonoBehaviour
 
         if (!envoi.Succes)
         {
-            UndoToast.Instance?.ShowInfo("Envoi échoué — " + envoi.Erreur
+            ConfirmDialog.Erreur("Envoi échoué — " + envoi.Erreur
                 + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : tu peux réessayer.");
             yield break;
         }
@@ -722,9 +893,21 @@ public class FactureDepotPanel : MonoBehaviour
         // Le dépôt de la fiche n'est PAS modifié par l'émission.
         string message = FactureEmission.Enregistrer(_loc, key, "Depot", emission,
             d.Sujet, _loc.factureDepot?.dateEcheanceISO, pdf, d.Montant, _ribDD?.SelectedId,
-            _loc.factureDepot, _initial ? "Facture de dépôt de garantie" : "Facture de révision du dépôt", envoye,
-            _initial ? "Facture de dépôt de garantie enregistrée"
+            _loc.factureDepot,
+            _sortie ? "Décompte de sortie" : _initial ? "Facture de dépôt de garantie" : "Facture de révision du dépôt", envoye,
+            _sortie ? "Décompte de sortie enregistré"
+            : _initial ? "Facture de dépôt de garantie enregistrée"
                      : "Facture de révision du dépôt enregistrée (le montant du dépôt n'a pas été modifié)");
+
+        // Décompte : les sommes reprises sont soldées par le dépôt.
+        // ponytail: une créance décochée lors d'une correction reste « Payé » — la
+        // remettre à la main dans le suivi ; à automatiser si le cas se présente.
+        if (_sortie)
+        {
+            var bat = _fiche.batimentPrefabOrigin.getBatiment();
+            foreach (var c in CreancesCochees())
+                FacturationSuivi.SetStatut(_loc, c, "Paye", bat);
+        }
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
@@ -753,7 +936,7 @@ public class FactureDepotPanel : MonoBehaviour
             if (_viewer != null && tex.height > 0) _viewer.SetAspect((float)tex.width / tex.height);
             if (_previewHint != null) _previewHint.gameObject.SetActive(false);
         }
-        catch (Exception e) { UndoToast.Instance?.ShowInfo("Aperçu illisible : " + e.Message); }
+        catch (Exception e) { ConfirmDialog.Erreur("Aperçu illisible : " + e.Message); }
     }
 
     // ── Sauvegarde ─────────────────────────────────────────────────────────────
@@ -773,7 +956,8 @@ public class FactureDepotPanel : MonoBehaviour
         f.numeroFormat = _numeroFormatDD?.SelectedId ?? "AMN";
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();
-        MentionTva.Enregistrer(_mentionTva, _texteTvaDebit, f);
+        if (_sortie) MentionTva.Enregistrer(_mentionTvaS, _texteTvaDebitS, f);
+        else MentionTva.Enregistrer(_mentionTva, _texteTvaDebit, f);
         f.ajouterRetard = _retard.isOn;
         f.emailDest = _emailEnvoi.text;
         f.emailObjet = _emailObjet.text;
@@ -783,11 +967,21 @@ public class FactureDepotPanel : MonoBehaviour
         f.depotDu        = _depotDu.text;
         f.depotRembourse = _depotRembourse.text;
         f.depotEquilibre = _depotEquilibre.text;
-        int.TryParse((_nbPeriodes.text ?? "").Trim(), out int nb);
-        f.moisPeriode = Mathf.Max(0, nb);
-        f.loyerMontant = Nouveau();
-        f.provisionMontant = ParseF(_ancien.text);
-        f.objet = "Révision du dépôt de garantie";
+        if (_sortie)
+        {
+            // Le décompte n'écrase pas les réglages de la révision (périodes, montants).
+            f.depotDetenu = ParseF(_depotDetenu.text);
+            f.retenuesSortie = RetenuesSaisies();
+            f.creancesReprises = CreancesCochees().Select(c => c.key).ToList();
+        }
+        else
+        {
+            int.TryParse((_nbPeriodes.text ?? "").Trim(), out int nb);
+            f.moisPeriode = Mathf.Max(0, nb);
+            f.loyerMontant = Nouveau();
+            f.provisionMontant = ParseF(_ancien.text);
+            f.objet = "Révision du dépôt de garantie";
+        }
         f.saved = true;
         _loc.factureDepot = f;
 

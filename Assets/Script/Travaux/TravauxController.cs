@@ -179,7 +179,7 @@ public class TravauxController : MonoBehaviour
 
         if (txtStatusBreakEven != null)
         {
-            if (cashFlowAnnuel <= 0) txtStatusBreakEven.text = "⚠ Cash flow négatif";
+            if (cashFlowAnnuel <= 0) txtStatusBreakEven.text = "Attention : cash flow négatif";   // pas de « ⚠ » : absent de la police
             else if (breakEvenAns <= 10f) txtStatusBreakEven.text = "✅ Rentable < 10 ans";
             else if (breakEvenAns <= 20f) txtStatusBreakEven.text = "📅 Rentable < 20 ans";
             else txtStatusBreakEven.text = "⏳ Rentabilité longue";

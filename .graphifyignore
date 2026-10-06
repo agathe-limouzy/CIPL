@@ -1,0 +1,38 @@
+# graphify : ne garder que le code C# du projet (Assets/Script, Assets/Editor) et les documents .md.
+# Dossiers générés par Unity / l'IDE
+Library/
+Temp/
+Logs/
+obj/
+UserSettings/
+Build/
+Packages/
+ProjectSettings/
+graphify-out/
+.claude/
+.mcp.json
+*.csproj
+*.sln
+
+# Bibliothèques tierces
+Assets/StandaloneFileBrowser/
+Assets/TextMesh Pro/
+Assets/Plugins/
+
+# Fichiers Unity non textuels ou générés (sinon envoyés un à un au modèle d'IA)
+*.meta
+*.unity
+*.prefab
+*.asset
+*.mat
+*.anim
+*.controller
+*.png
+*.jpg
+*.jpeg
+*.psd
+*.tga
+*.ttf
+*.otf
+*.pdf
+*.html

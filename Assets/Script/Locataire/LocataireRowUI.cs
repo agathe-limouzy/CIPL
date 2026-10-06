@@ -62,7 +62,19 @@ public class LocataireRowUI : MonoBehaviour
             ? (int)(loc.MoisDeRevision - DateTime.Now).TotalDays
             : int.MaxValue;
 
-        if (!loc.LoyerInitialise)
+        // Départ : il prime sur la révision (plus rien à réviser après). Parti ou archivé :
+        // ligne grisée, la fiche reste ouvrable.
+        if (loc.archive)
+        {
+            SetEtat(UITheme.Bordure, UITheme.TexteSecondaire, "Archivé", true);
+            Griser();
+        }
+        else if (DepartLocataire.Sortie(loc, out var sortie))
+        {
+            if (loc.EstParti) { SetEtat(UITheme.Bordure, UITheme.TexteSecondaire, $"Parti le {sortie:dd/MM/yyyy}", true); Griser(); }
+            else SetEtat(UITheme.AttentionClair, UITheme.AttentionTexte, $"Départ le {sortie:dd/MM/yyyy}", true);
+        }
+        else if (!loc.LoyerInitialise)
         {
             SetEtat(UITheme.AttentionClair, UITheme.AttentionTexte, "Loyer à initialiser", true);
         }
@@ -92,6 +104,13 @@ public class LocataireRowUI : MonoBehaviour
             btnFiche.onClick.RemoveAllListeners();
             btnFiche.onClick.AddListener(() => onOpenFiche?.Invoke());
         }
+    }
+
+    // Nom et loyer en gris secondaire : le locataire n'est plus dans les lieux.
+    private void Griser()
+    {
+        if (txtNom != null) txtNom.color = UITheme.TexteSecondaire;
+        if (txtLoyer != null) txtLoyer.color = UITheme.TexteSecondaire;
     }
 
     private void SetEtat(Color fond, Color texte, string label, bool badgeVisible)

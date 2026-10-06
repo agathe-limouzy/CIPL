@@ -1449,17 +1449,17 @@ public class RevisionPanel : MonoBehaviour
     {
         if (_loc == null) return;
         if (!TryParseLoyer(out float loyer) || loyer <= 0f)
-        { UndoToast.Instance?.ShowInfo("Saisissez le loyer de départ annuel (HT)."); return; }
+        { ConfirmDialog.Erreur("Saisissez le loyer de départ annuel (HT)."); return; }
 
         string franchise = FranchiseSaisie();
-        if (franchise == null) { UndoToast.Instance?.ShowInfo("Date de fin de franchise invalide."); return; }
+        if (franchise == null) { ConfirmDialog.Erreur("Date de fin de franchise invalide."); return; }
         if (franchise != "")
         {
             var df = DateTime.ParseExact(franchise, "yyyy-MM-dd", CultureInfo.InvariantCulture);
             if (FacturationSuivi.TryEcheance(_loc.dateDebutBailISO, out var db) && df < db.Date)
-            { UndoToast.Instance?.ShowInfo($"La franchise ne peut pas finir avant le début du bail ({db:dd/MM/yyyy})."); return; }
+            { ConfirmDialog.Erreur($"La franchise ne peut pas finir avant le début du bail ({db:dd/MM/yyyy})."); return; }
             if (FacturationSuivi.TryEcheance(_loc.dateFinBailISO, out var fb) && df > fb.Date)
-            { UndoToast.Instance?.ShowInfo($"La franchise ne peut pas finir après la fin du bail ({fb:dd/MM/yyyy})."); return; }
+            { ConfirmDialog.Erreur($"La franchise ne peut pas finir après la fin du bail ({fb:dd/MM/yyyy})."); return; }
         }
 
         bool avecBail = Loyers.DebutPremierBail(_loc, out var debutBail);
@@ -1471,13 +1471,13 @@ public class RevisionPanel : MonoBehaviour
 
         // Avenant : l'ancien loyer reste dû jusqu'à la veille (prorata de la période).
         string avenant = reinit && etaitInitialise ? DateSaisie(_avenantToggle, _avenantDate) : "";
-        if (avenant == null) { UndoToast.Instance?.ShowInfo("Date de l'avenant invalide."); return; }
+        if (avenant == null) { ConfirmDialog.Erreur("Date de l'avenant invalide."); return; }
         if (avenant != "")
         {
             if (avecBail && Iso(avenant) <= debutBail.Date)
-            { UndoToast.Instance?.ShowInfo($"L'avenant doit prendre effet après le début du bail ({debutBail:dd/MM/yyyy})."); return; }
+            { ConfirmDialog.Erreur($"L'avenant doit prendre effet après le début du bail ({debutBail:dd/MM/yyyy})."); return; }
             if (type == TypeRevision.Paliers && FacturationSuivi.TryEcheance(_loc.dateFinBailISO, out var finBail) && Iso(avenant) > finBail.Date)
-            { UndoToast.Instance?.ShowInfo("Les paliers vont jusqu'à la fin du bail : prolongez d'abord sa date de fin (section Bail)."); return; }
+            { ConfirmDialog.Erreur("Les paliers vont jusqu'à la fin du bail : prolongez d'abord sa date de fin (section Bail)."); return; }
             // Lit le type, les paliers et le loyer encore en place : avant toute écriture.
             Loyers.EnregistrerAvenant(_loc, Iso(avenant));
         }

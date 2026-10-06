@@ -102,7 +102,7 @@ public class PhotoGalleryController : MonoBehaviour
         {
             if (!PhotoService.Restaurer(_batiment, suppr))
             {
-                UndoToast.Instance.ShowInfo("Photo introuvable : restauration impossible.");
+                ConfirmDialog.Erreur("Photo introuvable : restauration impossible.");
                 return;
             }
             _index = Mathf.Clamp(suppr.index, 0, Mathf.Max(0, Photos.Count - 1));

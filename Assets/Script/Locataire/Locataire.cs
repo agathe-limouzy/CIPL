@@ -95,6 +95,17 @@ public class Locataire : Data
     // continue après la fin du bail (tacite prolongation). Sinon la période qui le
     // contient est proratisée et les suivantes ne sont plus facturées (voir Loyers).
     public string dateSortieISO;
+    // Sortie (décisions du 01/10, voir DepartLocataire) : état des lieux (date + NOM du
+    // PDF dans le dossier du locataire), délai de restitution du dépôt en mois (0 = 2),
+    // fiche archivée (hors de la liste du bâtiment, consultable par filtre).
+    public string dateEtatDesLieuxISO;
+    public string etatDesLieux;
+    public bool sansEtatDesLieux;   // « pas d'état des lieux » choisi au départ (étape faite sans lui)
+    // Cessions du bail (06/10) : qui tenait le bail avant, et depuis quand (voir Cessions).
+    public List<CessionBail> cessions = new List<CessionBail>();
+    public CessionPrevue cessionPrevue;   // cession datée dans le futur, appliquée le jour venu
+    public int delaiRestitutionMois;
+    public bool archive;
 
     // Loyer selon le chiffre d'affaires (typeRevision = ChiffreAffaires) : la 1re année,
     // le loyer de départ ; à chaque révision, % × CA HT de l'année civile écoulée, borné
@@ -211,6 +222,7 @@ public class Locataire : Data
     {
         jours = 0;
         if (loc == null || string.IsNullOrEmpty(loc.Name)) return false;
+        if (!string.IsNullOrEmpty(loc.dateSortieISO)) return false;   // départ saisi : la fin est décidée
         if (!DateTime.TryParse(loc.dateFinBailISO, out var fin)) return false;
         jours = (fin - aujourdhui).Days;
         return aujourdhui >= fin.AddMonths(-(PREAVIS_CONGE_MOIS + ALERTE_AVANT_LIMITE_MOIS));
@@ -281,6 +293,7 @@ public class Locataire : Data
     {
         echeance = limite = default;
         if (loc == null || string.IsNullOrEmpty(loc.Name) || !PeriodeFermePossible(loc.typeDeBail)) return false;
+        if (!string.IsNullOrEmpty(loc.dateSortieISO)) return false;   // départ saisi : plus de congé à rappeler
         if (!DateTime.TryParse(loc.dateDebutBailISO, out var debut)) return false;
         foreach (var e in EcheancesTriennales(debut, loc.DureeBail(), loc.AnneesFermes()))
         {

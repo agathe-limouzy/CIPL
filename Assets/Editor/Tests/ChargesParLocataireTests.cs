@@ -212,9 +212,11 @@ public class ChargesParLocataireTests
         var facture = FacturePdfService.BuildHtml(new FacturePdfService.Data { ttc = 600f, factureOrigine = "2026/09001" });
         Assert.That(facture, Does.Not.Contain("Avoir sur la facture"), "jamais sur une facture");
 
-        var regul = FacturePdfService.BuildRegulHtml(new FacturePdfService.RegulData { soldeHT = -1800f, factureOrigine = "2026/01005" });
+        // Régul qui rembourse : un AVOIR, mais sans facture d'origine (retiré le 05/10 :
+        // elle solde les provisions de l'année, pas une facture précise).
+        var regul = FacturePdfService.BuildRegulHtml(new FacturePdfService.RegulData { soldeHT = -1800f });
         Assert.That(regul, Does.Contain("AVOIR :"));
-        Assert.That(regul, Does.Contain("Avoir sur la facture n° 2026/01005"));
+        Assert.That(regul, Does.Not.Contain("Avoir sur la facture"));
         Assert.That(FacturePdfService.BuildRegulHtml(new FacturePdfService.RegulData { soldeHT = 200f }), Does.Contain("FACTURE :"));
 
         // Factures proposées : une par numéro (régul regroupée = 2 lignes), sans les avoirs.

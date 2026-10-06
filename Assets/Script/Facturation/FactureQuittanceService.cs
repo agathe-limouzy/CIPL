@@ -40,7 +40,7 @@ public static class FactureQuittanceService
 
         if (!FacturePdfService.GenerateQuittancePdf(d, pdf, out string err))
         {
-            UndoToast.Instance?.ShowInfo("Échec de la quittance : " + err);
+            ConfirmDialog.Erreur("Échec de la quittance : " + err);
             return;
         }
         Application.OpenURL("file:///" + pdf.Replace("\\", "/"));

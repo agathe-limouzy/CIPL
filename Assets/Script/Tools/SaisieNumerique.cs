@@ -54,7 +54,7 @@ public static class SaisieNumerique
         if (TryParse(saisie, out float v)) return v;
 
         Debug.LogWarning($"[{contexte}] Valeur non numérique ignorée : « {saisie} » → 0 retenu.");
-        UndoToast.Instance?.ShowInfo($"« {saisie} » n'est pas un nombre valide — valeur ignorée (0).");
+        ConfirmDialog.Erreur($"« {saisie} » n'est pas un nombre valide — valeur ignorée (0).");
         return 0f;
     }
 

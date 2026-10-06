@@ -52,7 +52,7 @@ public class BatimentManager : MonoBehaviour
         }
         else
         {
-            UndoToast.Instance?.ShowInfo("Migration des dossiers annulée — voir la console.");
+            ConfirmDialog.Erreur("Migration des dossiers annulée — voir la console.");
         }
 
         // L'application démarre sur le menu général (Home)
@@ -292,6 +292,25 @@ public class BatimentManager : MonoBehaviour
 
     // ── Chargement ───────────────────────────────────────────────────────────
 
+    // Cession prévue arrivée à son jour (retour du 06/10) : le dossier suit le nouveau nom,
+    // comme un renommage par « Modifier ». Nom pris ou dossier bloqué : on réessaie au
+    // prochain lancement. ponytail: vérifiée au lancement seulement ; une application
+    // restée ouverte passé le jour de la cession attend le lancement suivant.
+    static bool EffectuerCession(Batiment bat, Locataire loc)
+    {
+        var p = Cessions.Due(loc, DateTime.Today);
+        if (p == null) return false;
+        bool pris = !DossiersDonnees.MemeDossier(loc.Name, p.nom)
+            && bat.locataireDuBatiment.Exists(l => l != null && l.id != loc.id && DossiersDonnees.MemeDossier(l.Name, p.nom));
+        string err = pris ? "nom déjà pris dans le bâtiment" : null;
+        if (pris || !DossiersDonnees.RenommerLocataire(bat.Name, loc.Name, p.nom, out err))
+        {
+            Debug.LogWarning($"[Cession] « {loc.Name} » → « {p.nom} » reportée au prochain lancement : {err}");
+            return false;
+        }
+        return Cessions.Effectuer(loc, DateTime.Today);
+    }
+
     public void LoadAll()
     {
         _batiments.Clear();
@@ -327,11 +346,17 @@ public class BatimentManager : MonoBehaviour
                     // Charges au format « facturée pour tous » → par locataire, d'après
                     // le suivi. Avant la création de la fiche : elle travaille sur une copie.
                     bool reconstitue = ChargeBatiment.Reconstituer(data);
-                    // Loyer à paliers : le loyer courant suit le palier du jour.
+                    // Loyer à paliers : le loyer courant suit le palier du jour. Cession
+                    // prévue dont le jour est arrivé : la fiche change de titulaire.
+                    bool cede = false;
                     if (data.locataireDuBatiment != null)
-                        foreach (var loc in data.locataireDuBatiment) Loyers.Actualiser(loc, DateTime.Today);
+                        foreach (var loc in data.locataireDuBatiment)
+                        {
+                            Loyers.Actualiser(loc, DateTime.Today);
+                            cede |= EffectuerCession(data, loc);
+                        }
                     _batiments.Add(data);
-                    if (reconstitue) SaveBatiment(data);
+                    if (reconstitue || cede) SaveBatiment(data);
                     var prefab = SpawnPrefabInPanel(data, batimentsContainerPanel, false);
                     BatimentPrefab.Add(prefab);
                     menuManager.CreateTab(prefab);

@@ -60,6 +60,7 @@ public class LocatairePrefab : PrefabBatLoc
     // Parcours de création : Général → Bail → Loyer → Dépôt (voir ParcoursLocataire).
     // `_enCreation` : fiche créée dans cette session, les écrans s'enchaînent seuls.
     private ParcoursLocataireUI _parcours;
+    private ParcoursDepartUI _departUI;   // bouton « Départ du locataire » + bandeau du départ
     private bool _enCreation, _enModification, _loyerInitialiseAvant;
     // Le locataire affiché. À la création, la fiche est construite AVANT que le
     // bâtiment ne l'ajoute à sa liste (BatimentPrefab.Addlocataire) : GetLocataire()
@@ -269,6 +270,12 @@ public class LocatairePrefab : PrefabBatLoc
             // Cartes Dépôt / Facturation / Suivi à l'état de CE locataire : sans ce
             // chargement, la carte Dépôt gardait « Réviser » au lieu d'« Initialiser ».
             facturationFields.Load(newLocataire);
+            // Remplaçant d'un locataire parti (06/10) : lot, surface et début du bail sont
+            // déjà connus (DepartLocataire.PreparerRemplacant) — les afficher, sinon la
+            // fiche partait vide et « Sauvegarder » perdait le lot repris.
+            if (newLocataire.lotBatiment > 0) lotBatimentTxt.ApplySave(newLocataire.lotBatiment.ToString());
+            if (newLocataire.tailleLot > 0) tailleLotTxt.ApplySave(batimentPrefabOrigin.TailleLotEffective(newLocataire).ToString());
+            if (FacturationSuivi.TryEcheance(newLocataire.dateDebutBailISO, out var debutRepris)) dateDebutBail.ApplyDate(debutRepris);
             Modify();
         }
         RefreshParcours();
@@ -292,6 +299,10 @@ public class LocatairePrefab : PrefabBatLoc
                 });
         });
         TransfertEntrepriseUI.AjouterBouton(Delete, () => TransfertEntrepriseUI.OuvrirLocataire(this));
+        // Après « Transférer » : le bouton du départ se place juste avant lui.
+        if (_departUI == null) _departUI = gameObject.AddComponent<ParcoursDepartUI>();
+        _departUI.EnsureBuilt(this);
+        RefreshParcours();
         EnsureScrollable();
         locataireScrollContent?.SetDirty();
     }
@@ -364,7 +375,7 @@ public class LocatairePrefab : PrefabBatLoc
         // Le bail d'abord (années fermes au-delà de la durée…) : s'il ne tient pas
         // debout, rien n'est enregistré et la fiche reste en modification.
         string erreurBail = bailFields != null ? bailFields.Verifier() : null;
-        if (erreurBail != null) { UndoToast.Instance?.ShowInfo(erreurBail); return; }
+        if (erreurBail != null) { ConfirmDialog.Erreur(erreurBail); return; }
 
         // Création : le parcours exige Général (le nom) puis Bail (les dates) avant tout
         // enregistrement — un bail jamais saisi partait au « 01/01/0001 », et le loyer
@@ -373,11 +384,11 @@ public class LocatairePrefab : PrefabBatLoc
         {
             string nomSaisi = nameOfLocataire.GetValue();
             if (string.IsNullOrWhiteSpace(nomSaisi) || nomSaisi.Trim() == Data.NomParDefaut)
-            { UndoToast.Instance?.ShowInfo(ParcoursLocataire.Consigne(ParcoursLocataire.Etape.General)); return; }
+            { ConfirmDialog.Erreur(ParcoursLocataire.Consigne(ParcoursLocataire.Etape.General)); return; }
             if (!dateDebutBail.LireDate(out var debut) || !dateFinBail.LireDate(out var fin))
-            { UndoToast.Instance?.ShowInfo(ParcoursLocataire.Consigne(ParcoursLocataire.Etape.Bail)); return; }
+            { ConfirmDialog.Erreur(ParcoursLocataire.Consigne(ParcoursLocataire.Etape.Bail)); return; }
             if (fin <= debut)
-            { UndoToast.Instance?.ShowInfo("Étape 2 — Bail : la date de fin doit être après la date de début."); return; }
+            { ConfirmDialog.Erreur("Étape 2 — Bail : la date de fin doit être après la date de début."); return; }
             // Les champs sont lus tels qu'affichés : la date n'était retenue qu'en
             // quittant la case, un clic direct sur « Sauvegarder » la perdait.
             dateDebutBail.ApplyDate(debut);
@@ -399,7 +410,7 @@ public class LocatairePrefab : PrefabBatLoc
                 if (autre == null || autre.id == locataire.id) continue;
                 if (!DossiersDonnees.MemeDossier(autre.Name, nouveauNomLoc)) continue;
 
-                UndoToast.Instance?.ShowInfo(
+                ConfirmDialog.Erreur(
                     $"Un locataire nommé « {autre.Name} » existe déjà dans ce bâtiment. " +
                     "Choisissez un autre nom : le dossier de factures porte le nom du locataire.");
                 nameOfLocataire.ApplySave(ancienNomLoc);
@@ -408,7 +419,7 @@ public class LocatairePrefab : PrefabBatLoc
 
             if (!DossiersDonnees.RenommerLocataire(nomBat, ancienNomLoc, nouveauNomLoc, out string errLoc))
             {
-                UndoToast.Instance?.ShowInfo(
+                ConfirmDialog.Erreur(
                     $"Renommage impossible ({errLoc}). Fermez les fichiers ouverts de ce locataire et réessayez.");
                 nameOfLocataire.ApplySave(ancienNomLoc);
                 return;
@@ -476,6 +487,24 @@ public class LocatairePrefab : PrefabBatLoc
     {
         var loc = GetLocataire() ?? _locAffiche;
         if (_parcours != null && loc != null) _parcours.Refresh(loc, EtapeAffichee(loc), _enCreation, _enModification);
+        if (_departUI != null && loc != null) _departUI.Refresh(loc, _enModification);
+    }
+
+    /// Alertes et pastilles de la carte Facturation, recalculées après une facture émise
+    /// ou un changement d'état du suivi (elles restaient figées jusqu'à la réouverture
+    /// de la fiche — retour du 05/10 : « montant à corriger » encore affiché après correction).
+    public void RafraichirAlertesFacturation() => facturationFields?.RefreshAlertes(GetLocataire());
+
+    /// Le départ vient de changer (saisi, annulé, étape franchie, archivé) : on
+    /// enregistre et on réaffiche la fiche, son suivi et la liste du bâtiment.
+    public void ApresDepart()
+    {
+        var loc = GetLocataire();
+        if (loc == null) return;
+        batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+        InitializeLocataire(loc, false);
+        LocataireSuiviInline.RefreshFor(this);
+        batimentPrefabOrigin.RebuildLocataireRows();
     }
 
     /// Étape montrée par le bandeau. Pendant la saisie, Général et Bail se lisent dans
@@ -613,7 +642,7 @@ public class LocatairePrefab : PrefabBatLoc
         var s = siret.GetValue().Trim();
         if (s.Length < 9)
         {
-            UndoToast.Instance?.ShowInfo("Siret incomplet — 9 chiffres minimum pour ouvrir Pappers.");
+            ConfirmDialog.Erreur("Siret incomplet — 9 chiffres minimum pour ouvrir Pappers.");
             return;
         }
         Application.OpenURL($"https://www.pappers.fr/entreprise/{s.Substring(0, 9)}");
@@ -624,7 +653,7 @@ public class LocatairePrefab : PrefabBatLoc
         var s = siret.GetValue().Trim();
         if (s.Length < 9)
         {
-            UndoToast.Instance?.ShowInfo("Siret incomplet — 9 chiffres minimum pour interroger la société.");
+            ConfirmDialog.Erreur("Siret incomplet — 9 chiffres minimum pour interroger la société.");
             return;
         }
         papperService.FetchBySiret(s,

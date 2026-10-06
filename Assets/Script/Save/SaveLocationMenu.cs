@@ -115,7 +115,7 @@ public class SaveLocationMenu : MonoBehaviour
             // emplacement plutôt que de pointer vers un dossier à moitié rempli.
             SaveLocationService.UseRoot(ancienRoot);
             if (txtStatus != null) txtStatus.text = "Déplacement annulé : " + erreurMigration;
-            UndoToast.Instance?.ShowInfo("Déplacement annulé : " + erreurMigration);
+            ConfirmDialog.Erreur("Déplacement annulé : " + erreurMigration);
             return;
         }
 

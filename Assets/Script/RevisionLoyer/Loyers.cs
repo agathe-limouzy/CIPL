@@ -128,6 +128,12 @@ public static class Loyers
         return fin >= depuis && debut <= FinFacturation(loc);
     }
 
+    /// Nombre de périodes de l'année qui reçoivent une facture. Chacune appelle la
+    /// provision ENTIÈRE (même partielle) : c'est ce que la régul déduit — départ le
+    /// 15/05 au trimestre → T1 et T2 = 2 provisions, et non 4.
+    public static int PeriodesFacturees(Locataire loc, int annee)
+        => Enumerable.Range(1, LoyerSummaryUI.NbPeriodes(loc.periodiciteLoyer)).Count(p => PeriodeFacturable(loc, annee, p));
+
     /// Vrai si la franchise couvre le début de la période (loyer nul ou partiel).
     public static bool EnFranchise(Locataire loc, int year, int periode)
     {

@@ -58,9 +58,12 @@ public static class FacturePdfService
         public string ligneLabel;   // libellé de la 1re ligne du tableau (« Total de la période », nom de charge…)
         public string dateStr, numero, subtitle, bodyHtml, sommePhrase;
         public float totalPeriode, provision, totalHT, tva, ttc;
-        // Libellé de la ligne TVA. Vide = « TVA 20% » (loyer, refacturation) ; le dépôt
-        // de garantie, non soumis, le remplace pour ne pas afficher « TVA 20% : 0,00 € ».
+        // Libellé de la ligne TVA. Vide = « TVA 20% » (loyer, refacturation) ; le décompte
+        // de sortie précise « retenues soumises ».
         public string tvaLibelle;
+        // Pas de TVA au tableau : une seule ligne « Total », ni HT ni TVA (dépôt de garantie,
+        // décompte de sortie sans retenue soumise). La mention (`tvaDebit`) reste à part.
+        public bool masquerTva;
         // Une ligne par liste de charges (libellé, montant). Null = une seule ligne
         // « Provision pour charges » de `provision`, comme avant les listes.
         public System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, float>> lignesProvision;
@@ -97,10 +100,7 @@ public static class FacturePdfService
             .Replace("{{LIGNE_LABEL}}", H(string.IsNullOrEmpty(d.ligneLabel) ? "Total de la période" : d.ligneLabel))
             .Replace("{{TOTAL_PERIODE}}", Euro(d.totalPeriode))
             .Replace("{{PROVISION_ROW}}", LignesProvision(d))
-            .Replace("{{TOTAL_HT}}", Euro(d.totalHT))
-            .Replace("{{TVA_LIBELLE}}", H(string.IsNullOrEmpty(d.tvaLibelle) ? "TVA 20%" : d.tvaLibelle))
-            .Replace("{{TVA}}", Euro(d.tva))
-            .Replace("{{TTC}}", Euro(d.ttc))
+            .Replace("{{TOTAUX}}", Totaux(d))
             .Replace("{{TVA_DEBIT}}", d.tvaDebit
                 ? $"<div class=\"tva\">&nbsp;{Texte(d.texteTvaDebit, TvaDebitDefaut)}</div>" : "")
             .Replace("{{MENSUEL_ROW}}", d.afficherMensuel && d.montantMensuel > 0f
@@ -116,6 +116,14 @@ public static class FacturePdfService
             .Replace("{{FOOT1}}", H(d.foot1))
             .Replace("{{FOOT2}}", H(d.foot2));
     }
+
+    /// Bas du tableau : Total HT, TVA, Total TTC — ou une seule ligne « Total » sans TVA.
+    static string Totaux(Data d)
+        => d.masquerTva
+            ? $"<tr class=\"ttc\"><td>Total</td><td class=\"r\">{Euro(d.ttc)}</td></tr>"
+            : $"<tr><td>Total H.T.</td><td class=\"r\">{Euro(d.totalHT)}</td></tr>"
+            + $"<tr><td>{H(string.IsNullOrEmpty(d.tvaLibelle) ? "TVA 20%" : d.tvaLibelle)}</td><td class=\"r\">{Euro(d.tva)}</td></tr>"
+            + $"<tr class=\"ttc\"><td>Total T.T.C.</td><td class=\"r\">{Euro(d.ttc)}</td></tr>";
 
     /// « Avoir sur la facture n° … » sous le titre — seulement sur un avoir.
     static string Origine(bool avoir, string numero)
@@ -268,7 +276,6 @@ public static class FacturePdfService
     {
         public string clientNom, clientAdresseHtml, clientSiret, refInterne;
         public string dateStr, numero, subtitle, bodyHtml, sommePhrase;
-        public string factureOrigine;   // avoir : n° de la facture qu'il corrige (vide = rien d'imprimé)
         /// Bloc explicatif inséré sous le titre (révision du dépôt : tableau
         /// d'indexation du loyer + règle des N termes). Vide = rien d'imprimé.
         public string explicationHtml;
@@ -306,7 +313,8 @@ public static class FacturePdfService
             .Replace("{{NUMERO}}", H(d.numero))
             // Solde négatif (régul ou dépôt qui rembourse) : un avoir, pas une facture.
             .Replace("{{TITRE}}", d.soldeHT < -0.005f ? "AVOIR" : "FACTURE")
-            .Replace("{{ORIGINE}}", Origine(d.soldeHT < -0.005f, d.factureOrigine))
+            // Pas de « Avoir sur la facture n° » sur une régul (retiré le 05/10).
+            .Replace("{{ORIGINE}}", "")
             .Replace("{{BODY}}", d.bodyHtml ?? "")
             .Replace("{{SUBTITLE}}", H(d.subtitle))
             .Replace("{{EXPLICATION}}", d.explicationHtml ?? "")

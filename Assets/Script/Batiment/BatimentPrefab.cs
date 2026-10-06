@@ -137,7 +137,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         // enregistrement, un toast à chaque fois serait insupportable.
         float trop = TailleLotDepassement();
         if (trop > 0.01f && Mathf.Abs(trop - _depassementSignale) > 0.01f)
-            UndoToast.Instance?.ShowInfo(
+            ConfirmDialog.Erreur(
                 $"Les surfaces des locataires dépassent celle du bâtiment de {trop:0.##} m². "
                 + "Corrigez la surface du bâtiment ou celle d'un lot.");
         _depassementSignale = trop;
@@ -228,7 +228,10 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         foreach (Transform child in locataireRowContainer)
             Destroy(child.gameObject);
 
-        var tries = listLocataire.OrderBy(TriUrgence).ThenBy(l => l.lotBatiment).ToList();
+        // Locataires archivés : hors de la liste, sauf avec « Anciens locataires ».
+        int archives = listLocataire.Count(l => l.archive);
+        var tries = listLocataire.Where(l => _voirAnciens || !l.archive)
+                                 .OrderBy(TriUrgence).ThenBy(l => l.lotBatiment).ToList();
         foreach (var loc in tries)
         {
             var go = Instantiate(locataireRowPrefab, locataireRowContainer);
@@ -237,14 +240,42 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             {
                 ShowLocataireView();   // la ligne ouvre la fiche du locataire
                 if (dictionnairelocataire.TryGetValue(l, out var prefab))
+                {
+                    menulocataire.SetTabVisible(prefab, true);   // archivé : onglet montré le temps de la consultation
                     menulocataire.OnSelect(prefab);
+                }
             });
+        }
+        if (archives > 0)
+        {
+            var t = UIFactory.Toggle(locataireRowContainer, $"Anciens locataires ({archives})", _voirAnciens);
+            t.onValueChanged.AddListener(v => { _voirAnciens = v; RebuildLocataireRows(); });
         }
     }
 
-    // 0 = retard, 1 = à initialiser, 2 = bientôt, 3 = ok
+    bool _voirAnciens;   // filtre « Anciens locataires » de la liste
+
+    /// Archive (ou réactive) un locataire parti : il sort de la liste, des onglets et des
+    /// alertes, et reste consultable par « Anciens locataires » (décision du 01/10).
+    public void Archiver(Locataire loc, bool archive)
+    {
+        if (loc == null) return;
+        loc.archive = archive;
+        SaveAfterModifyToDoListLocataire();
+        if (dictionnairelocataire.TryGetValue(loc, out var prefab)) menulocataire.SetTabVisible(prefab, !archive);
+        RebuildLocataireRows();
+        if (archive)
+        {
+            ShowSummary();
+            UndoToast.Instance?.ShowInfo($"« {loc.Name} » est archivé : il reste consultable par « Anciens locataires ».");
+        }
+    }
+
+    // 0 = retard, 1 = à initialiser, 2 = bientôt, 3 = ok, 4 = parti, 5 = archivé
     private static int TriUrgence(Locataire loc)
     {
+        if (loc.archive) return 5;
+        if (loc.EstParti) return 4;
         if (!loc.LoyerInitialise) return 1;
         if (!loc.RevisionIndiceSuivie) return 3;   // paliers / sans révision : rien à réviser
         double jours = (loc.MoisDeRevision - DateTime.Now).TotalDays;
@@ -300,7 +331,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         if (!alerte && AUnObjectifObligatoire(batiment.objectifs)) alerte = true;
         if (!alerte)
             foreach (var loc in listLocataire)
-                if (loc != null && AUnObjectifObligatoire(loc.objectifs)) { alerte = true; break; }
+                if (loc != null && !loc.archive && AUnObjectifObligatoire(loc.objectifs)) { alerte = true; break; }
 
         BatimentManager.Instance.menuManager?.SetTabAlert(this, alerte);
     }
@@ -395,10 +426,12 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
               var locatPrefab= SpawnPrefabLocataireInPanel(batiment.locataireDuBatiment[i], locataireContent.transform, false);
                 dictionnairelocataire.Add(batiment.locataireDuBatiment[i], locatPrefab);
                 menulocataire.CreateTab(locatPrefab);
+                if (batiment.locataireDuBatiment[i].archive) menulocataire.SetTabVisible(locatPrefab, false);
 
             }
             if (listLocataire.Count > 0)
-                menulocataire.OnSelect(dictionnairelocataire.First().Value);
+                menulocataire.OnSelect((dictionnairelocataire.FirstOrDefault(kv => !kv.Key.archive).Value)
+                                       ?? dictionnairelocataire.First().Value);
             RefreshTailleBatiment();
             RefreshLoyerTotal();
             RebuildLocataireRows();
@@ -449,7 +482,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
                             if (!string.Equals(SaveLocationService.GetSaveRoot(), racineOrigine,
                                                System.StringComparison.OrdinalIgnoreCase))
                             {
-                                UndoToast.Instance?.ShowInfo(
+                                ConfirmDialog.Erreur(
                                     "Restauration impossible : l'entreprise active a changé depuis la suppression.");
                                 return;
                             }
@@ -610,7 +643,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
                     if (autre == null || autre.id == batiment.id) continue;
                     if (!DossiersDonnees.MemeDossier(autre.Name, nouveauNom)) continue;
 
-                    UndoToast.Instance?.ShowInfo(
+                    ConfirmDialog.Erreur(
                         $"Un bâtiment nommé « {autre.Name} » existe déjà. Choisissez un autre nom : " +
                         "les dossiers de factures et de photos portent le nom du bâtiment.");
                     nameOfTheBuiding.ApplySave(ancienNom);
@@ -619,7 +652,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
 
             if (!DossiersDonnees.RenommerBatiment(ancienNom, nouveauNom, out string errRenom))
             {
-                UndoToast.Instance?.ShowInfo(
+                ConfirmDialog.Erreur(
                     $"Renommage impossible ({errRenom}). Fermez les fichiers ouverts de ce bâtiment et réessayez.");
                 nameOfTheBuiding.ApplySave(ancienNom);
                 return;

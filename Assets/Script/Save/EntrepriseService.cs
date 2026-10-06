@@ -94,7 +94,7 @@ public static class EntrepriseService
         if (dejaOccupe)
         {
             Debug.LogError($"[EntrepriseService] {cible} contient déjà une entreprise — création annulée.");
-            UndoToast.Instance?.ShowInfo(
+            ConfirmDialog.Erreur(
                 "Ce dossier contient déjà une entreprise. Utilisez « Ouvrir » pour la charger, " +
                 "ou choisissez un dossier vide pour en créer une nouvelle.");
             return false;

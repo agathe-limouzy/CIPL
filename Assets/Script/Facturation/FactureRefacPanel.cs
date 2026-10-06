@@ -47,7 +47,7 @@ public class FactureRefacPanel : MonoBehaviour
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _origineDD;
     GameObject _origineBox;   // « Avoir sur la facture n° » : visible sur un avoir seulement
     FactureEtat _ligneCiblee;   // ligne du suivi cliquée : elle désigne la facture (ses charges) à ouvrir
-    Toggle _retard, _pj, _deduit;
+    Toggle _retard, _pj, _deduit, _prorata;
     UIDropdown _mentionTva;
     string _autoSomme;
 
@@ -178,6 +178,15 @@ public class FactureRefacPanel : MonoBehaviour
         var g = UIFactory.Section(content, "Charges à refacturer", CoCharge, CoChargeL);
         UIFactory.Text(g.transform, "Cochez une ou plusieurs charges : elles partent sur la même facture. "
             + "Montant HT = quote-part du locataire (modifiable).", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        // Arrivée ou départ en cours d'année (décision du 01/10) : au prorata des jours de
+        // présence, ou en entier quand les locataires s'arrangent entre eux. Visible
+        // seulement si une charge proposée tombe dans une année incomplète.
+        _prorata = UIFactory.Toggle(g.transform,
+            "Au prorata de sa présence dans l'année (arrivée ou départ en cours d'année) — décochez pour refacturer en entier", true);
+        _prorata.onValueChanged.AddListener(_ =>
+        {
+            foreach (var l in _lignes) l.inp.text = Part(l.c).ToString("0.00", CultureInfo.InvariantCulture);
+        });
         _chargesBox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "ChargesBox").transform;
         _tHT  = MontRow(g, "Total HT");
         _tTVA = MontRow(g, "TVA 20 %");
@@ -343,8 +352,10 @@ public class FactureRefacPanel : MonoBehaviour
     {
         _lignes.Clear();
         foreach (Transform t in _chargesBox) Destroy(t.gameObject);
+        _prorata.SetIsOnWithoutNotify(true);
 
         var charges = ImpayeesCharges();
+        _prorata.gameObject.SetActive(charges.Any(c => ListesCharges.PresencePartielle(_loc, c)));
         // Les charges de la facture cliquée sont REMISES dans la liste : déjà
         // refacturées, `ImpayeesCharges` les avait justement écartées.
         var cochees = ChargesDeLaFacture(_ligneCiblee);
@@ -388,10 +399,15 @@ public class FactureRefacPanel : MonoBehaviour
     }
 
     /// Montant proposé : la part déjà facturée (HT) pour une charge d'une facture
-    /// rouverte, sinon la quote-part du locataire.
+    /// rouverte, sinon la quote-part du locataire (Part).
     float MontantPropose(ChargeBatiment c)
         => FacturationSuivi.EstDejaEmise(_loc, "refac-" + c.id, out var rec) && rec.montant != 0f
-           ? Mathf.Round(rec.montant / 1.2f * 100f) / 100f : QuotePart(c);
+           ? Mathf.Round(rec.montant / 1.2f * 100f) / 100f : Part(c);
+
+    /// Quote-part, au prorata de sa présence dans l'année si la case est cochée. Changer
+    /// la case recalcule toutes les lignes avec elle, facture rouverte comprise.
+    float Part(ChargeBatiment c)
+        => _prorata.isOn ? ListesCharges.QuotePartAuProrata(c, _loc, _bat) : QuotePart(c);
 
     /// Charges cochées et leur montant HT, dans l'ordre de la liste.
     List<(ChargeBatiment c, float ht)> Selection()
@@ -482,7 +498,7 @@ public class FactureRefacPanel : MonoBehaviour
         float ht = Selection().Sum(x => x.ht);
         _tHT.text  = $"{ht:N2} €";
         _tTVA.text = $"{ht * .2f:N2} €";
-        _tTTC.text = $"{ht * 1.2f:N2} €" + (ht < -0.005f ? "  ⚠ avoir (remboursement au locataire)" : "");
+        _tTTC.text = $"{ht * 1.2f:N2} €" + (ht < -0.005f ? "  — avoir (remboursement au locataire)" : "");   // pas de « ⚠ » : absent de la police
         _origineBox.SetActive(ht < -0.005f);
         RefreshSommeDefault();   // la phrase suit le signe du total
     }
@@ -606,7 +622,7 @@ public class FactureRefacPanel : MonoBehaviour
         var d = BuildData();
         string png = Path.Combine(FactureDir(), "apercu_refac.png");
         if (FacturePdfService.GeneratePreviewPng(d, png, out string err)) ShowPreview(png);
-        else UndoToast.Instance?.ShowInfo("Échec de l'aperçu : " + err);
+        else ConfirmDialog.Erreur("Échec de l'aperçu : " + err);
     }
 
     void SauvegarderEtEnvoyer()
@@ -619,7 +635,7 @@ public class FactureRefacPanel : MonoBehaviour
         // Une facture neuve, ou la correction d'UNE facture existante avec toutes ses
         // charges — `key` est la ligne qui porte la facture.
         string refus = Regroupement(_loc, sel.Select(x => x.c).ToList(), out string key);
-        if (refus != null) { UndoToast.Instance?.ShowInfo(refus); return; }
+        if (refus != null) { ConfirmDialog.Erreur(refus); return; }
         var d = BuildData();
         string dir = FactureDir();
         DateTime dt = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
@@ -637,7 +653,7 @@ public class FactureRefacPanel : MonoBehaviour
 
         if (!FacturePdfService.GeneratePdf(d, pdf, out string err))
         {
-            UndoToast.Instance?.ShowInfo("Échec génération PDF : " + err);
+            ConfirmDialog.Erreur("Échec génération PDF : " + err);
             return;
         }
 
@@ -657,13 +673,13 @@ public class FactureRefacPanel : MonoBehaviour
         string dest = (_emailEnvoi.text ?? "").Trim();
         if (string.IsNullOrWhiteSpace(dest))
         {
-            UndoToast.Instance?.ShowInfo("Aucune adresse email pour ce locataire. "
+            ConfirmDialog.Erreur("Aucune adresse email pour ce locataire. "
                 + "Rien n'a été envoyé ; le PDF est enregistré.");
             return;
         }
 
         string manque = EmailService.CeQuiManque();
-        if (manque != null) { UndoToast.Instance?.ShowInfo(manque + " Le PDF est enregistré."); return; }
+        if (manque != null) { ConfirmDialog.Erreur(manque + " Le PDF est enregistré."); return; }
 
         var ctx = BuildContext();
         string objet = FactureVarResolver.Resolve(
@@ -674,7 +690,7 @@ public class FactureRefacPanel : MonoBehaviour
         // Sans confirmation disponible, rien ne part.
         if (ConfirmDialog.Instance == null)
         {
-            UndoToast.Instance?.ShowInfo("Confirmation indisponible : rien n'a été envoyé. "
+            ConfirmDialog.Erreur("Confirmation indisponible : rien n'a été envoyé. "
                 + "Le PDF est enregistré.");
             return;
         }
@@ -705,7 +721,7 @@ public class FactureRefacPanel : MonoBehaviour
 
         if (!envoi.Succes)
         {
-            UndoToast.Instance?.ShowInfo("Envoi échoué — " + envoi.Erreur
+            ConfirmDialog.Erreur("Envoi échoué — " + envoi.Erreur
                 + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : tu peux réessayer.");
             yield break;
         }
@@ -780,7 +796,7 @@ public class FactureRefacPanel : MonoBehaviour
             if (_viewer != null && tex.height > 0) _viewer.SetAspect((float)tex.width / tex.height);
             if (_previewHint != null) _previewHint.gameObject.SetActive(false);
         }
-        catch (Exception e) { UndoToast.Instance?.ShowInfo("Aperçu illisible : " + e.Message); }
+        catch (Exception e) { ConfirmDialog.Erreur("Aperçu illisible : " + e.Message); }
     }
 
     // ── Sauvegarde ─────────────────────────────────────────────────────────────

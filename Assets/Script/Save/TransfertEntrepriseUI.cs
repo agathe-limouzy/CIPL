@@ -50,7 +50,7 @@ public static class TransfertEntrepriseUI
     {
         TransfertEntreprise.Rapport a;
         try { a = TransfertEntreprise.Apercu(bat, loc, dest.racine); }
-        catch (Exception e) { Info($"Transfert impossible : {e.Message}"); return; }
+        catch (Exception e) { ConfirmDialog.Erreur($"Transfert impossible : {e.Message}"); return; }
 
         string quoi;
         if (loc == null)
@@ -72,7 +72,7 @@ public static class TransfertEntrepriseUI
             + (a.BatimentExistant ? $"\nLa version actuelle dans {dest.nom} est d'abord copiée dans sa corbeille." : "")
             + "\n\nLes RIB et textes de facture sont propres à chaque entreprise : à re-choisir à la prochaine facture.";
 
-        if (ConfirmDialog.Instance == null) { Info("Confirmation indisponible : rien n'a été transféré."); return; }
+        if (ConfirmDialog.Instance == null) { ConfirmDialog.Erreur("Confirmation indisponible : rien n'a été transféré."); return; }
         ConfirmDialog.Instance.Show("Transférer vers " + dest.nom + " ?", detail, executer, "Transférer");
     }
 
@@ -83,7 +83,7 @@ public static class TransfertEntrepriseUI
         BatimentManager.Instance.SaveBatiment(bat);   // l'état affiché est celui qui part
 
         var r = TransfertEntreprise.TransfererBatiment(bat, origine, dest.racine);
-        if (!r.Succes) { Info($"Transfert annulé : {r.Erreur}. Rien n'a été retiré de {nomOrigine}."); return; }
+        if (!r.Succes) { ConfirmDialog.Erreur($"Transfert annulé : {r.Erreur}. Rien n'a été retiré de {nomOrigine}."); return; }
 
         // Retrait de l'origine par le chemin de suppression existant : onglet, JSON,
         // dossier mis en corbeille.
@@ -100,7 +100,7 @@ public static class TransfertEntrepriseUI
         BatimentManager.Instance.SaveBatiment(bat);
 
         var r = TransfertEntreprise.TransfererLocataire(bat, loc, origine, dest.racine);
-        if (!r.Succes) { Info($"Transfert annulé : {r.Erreur}. Rien n'a été retiré de {nomOrigine}."); return; }
+        if (!r.Succes) { ConfirmDialog.Erreur($"Transfert annulé : {r.Erreur}. Rien n'a été retiré de {nomOrigine}."); return; }
 
         string dossier = Path.Combine(TransfertEntreprise.Dossier(origine, bat.Name), DossiersDonnees.NomDossier(loc.Name));
         bp.DeleteLocataire(loc.id);   // retire la fiche et sauvegarde le bâtiment
@@ -108,7 +108,7 @@ public static class TransfertEntrepriseUI
         catch (Exception e)
         {
             Debug.LogError($"[Transfert] Dossier de « {nom} » resté dans {nomOrigine} : {e.Message}");
-            Info($"« {nom} » transféré vers {dest.nom}, mais son dossier n'a pas pu être mis en corbeille ({e.Message}).");
+            ConfirmDialog.Erreur($"« {nom} » transféré vers {dest.nom}, mais son dossier n'a pas pu être mis en corbeille ({e.Message}).");
             return;
         }
         Info($"« {nom} » transféré vers {dest.nom}. Son dossier d'origine est dans la corbeille de {nomOrigine}.");
@@ -119,7 +119,7 @@ public static class TransfertEntrepriseUI
     static void Choisir(string titre, Action<Entreprise> onChoix)
     {
         var autres = EntrepriseService.All().Where(e => !EntrepriseService.EstActive(e)).ToList();
-        if (autres.Count == 0) { Info("Aucune autre entreprise : créez-en une depuis le menu Entreprises."); return; }
+        if (autres.Count == 0) { ConfirmDialog.Erreur("Aucune autre entreprise : créez-en une depuis le menu Entreprises."); return; }
 
         // Une fiche en cours de modification serait transférée sans ses dernières saisies.
         FermetureGuard.ConfirmerPerteSaisies("Transférer", () =>

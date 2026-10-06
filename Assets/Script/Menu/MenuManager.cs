@@ -236,6 +236,13 @@ public class MenuManager : MonoBehaviour
     }
 
 
+    /// Montre ou masque un onglet sans le détruire (locataire archivé : sa fiche reste
+    /// ouvrable depuis le filtre « Anciens locataires »).
+    public void SetTabVisible(PrefabBatLoc prefab, bool on)
+    {
+        if (prefab != null && dictionnaryMenu.TryGetValue(prefab, out var tab)) tab.gameObject.SetActive(on);
+    }
+
     public void UpdateTabLabel(PrefabBatLoc batiment, string newLabel)
     {
 

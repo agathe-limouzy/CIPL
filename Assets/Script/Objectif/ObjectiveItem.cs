@@ -141,7 +141,7 @@ public class ObjectiveItem : MonoBehaviour
     {
         Objective.ObjectiveStatus.AFaire => "À faire",
         Objective.ObjectiveStatus.EnCours => "En cours",
-        Objective.ObjectiveStatus.Fait => "✓ Fait",
+        Objective.ObjectiveStatus.Fait => "Fait",   // pas de « ✓ » : absent de la police
         Objective.ObjectiveStatus.Obligatoire => "Obligatoire",
         Objective.ObjectiveStatus.Rappel => "Rappel",
         _ => ""

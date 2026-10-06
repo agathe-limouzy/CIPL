@@ -107,7 +107,7 @@ Les montants attendus supposent que **nous sommes le 30/09/2026**.
   → Le document a le **même format qu'une facture de refacturation** :
   - « FACTURE : n° », titre **« Dépôt de garantie »** ;
   - un tableau avec la ligne « Dépôt de garantie — 1 terme de loyer TTC · 3 600,00 € » ;
-  - Total H.T. 3 600,00 €, « TVA — dépôt de garantie non soumis · 0,00 € », Total T.T.C. 3 600,00 € ;
+  - une seule ligne « **Total** » 3 600,00 € — aucune ligne de TVA (changé le 02/10 : un dépôt n'est pas soumis à la TVA) ;
   - puis la phrase de règlement et le RIB.
   
   **Fermez sans émettre.**
@@ -250,7 +250,7 @@ Les montants attendus supposent que **nous sommes le 30/09/2026**.
 - [ ] **J8** Avoir : ajoutez une charge « Avoir eau » à **-500** (2026, Test Avenant). Rouvrez-la dans l'onglet Charges : le coût affiche bien **-500** (et non vide).
   
   Refacturation → cochez « Avoir eau » (-500,00).
-  → Total TTC **-600,00 €  ⚠ avoir**, phrase de règlement « SOMME QUI VOUS SERA REMBOURSÉE », et un menu « **Avoir sur la facture n°** » apparaît : il liste les factures déjà émises de Test Avenant (Jardin + Ménage n'y figure qu'une fois). Choisissez la refacturation de l'eau (J3).
+  → Total TTC **-600,00 €  — avoir (remboursement au locataire)**, phrase de règlement « SOMME QUI VOUS SERA REMBOURSÉE », et un menu « **Avoir sur la facture n°** » apparaît : il liste les factures déjà émises de Test Avenant (Jardin + Ménage n'y figure qu'une fois). Choisissez la refacturation de l'eau (J3).
   
   **Générer facture**.
   → Titre **« AVOIR : n° »**, juste dessous « **Avoir sur la facture n° …** » (celle choisie), « Avoir sur refacturation : Avoir eau », montants négatifs.
@@ -300,7 +300,7 @@ Préparé le 01/10. Ce bâtiment remplace la saisie des sections A à J : on va 
 - [ ] **L5 · E · Dépôt à initialiser**
   - bandeau « **4 Dépôt de garantie** » ;
   - carte Dépôt → Initialiser : **1** période, « **Pas encore demandé** » → ligne « Dépôt de garantie » **2 700,00 €** « À faire » ;
-  - Générer → aperçu au **format refacturation** (« TVA — dépôt de garantie non soumis »). Fermez sans émettre.
+  - Générer → aperçu au **format refacturation**, une seule ligne « **Total** », **aucune ligne de TVA** (02/10). Le libellé garde « termes de loyer TTC ». Fermez sans émettre.
 - [ ] **L6 · F · Suivi des refacturations déjà émises** (suivi, année **2026**)
   - « Refacturation : Électricité… » 360,00 en **Impayé** rouge, avec un bouton « Rappel » : facture échue depuis plus de 15 jours ;
   - « **Avoir : Avoir électricité 2025** » -180,00, également échu, mais **« Envoyé »**, sans bouton « Rappel » : un avoir ne passe jamais « Impayé » ;
@@ -315,15 +315,15 @@ Préparé le 01/10. Ce bâtiment remplace la saisie des sections A à J : on va 
   - la liste ne propose plus que les charges **non refacturées** : Entretien espaces verts 2025 et Avoir eau 2025 (**-500,00**). Aucune n'est cochée ;
   - cochez **Entretien** → la case « **Déduite des provisions** » apparaît (F a une provision) ;
   - cochez aussi **Avoir eau 2025** → **Générer facture** : deux lignes (1 200,00 et **-500,00**, la ligne négative est bien imprimée), Total HT 700,00. C'est une facture : titre « FACTURE » ;
-  - décochez Entretien (seul l'avoir reste) → Total TTC **-600,00 €  ⚠ avoir**, phrase « **SOMME QUI VOUS SERA REMBOURSÉE** » ;
+  - décochez Entretien (seul l'avoir reste) → Total TTC **-600,00 €  — avoir (remboursement au locataire)**, phrase « **SOMME QUI VOUS SERA REMBOURSÉE** » ;
   - le menu « **Avoir sur la facture n°** » apparaît. Il propose 09004 (Jardin +1, une seule fois), 09003 (Eau) et 08001 (Électricité), mais **pas l'avoir 08002**. Choisissez 09003 ;
   - **Générer facture** : « **AVOIR : n°** », juste dessous « **Avoir sur la facture n° 2026/09003** », « Avoir sur refacturation : Avoir eau 2025 », montants négatifs. Fermez sans émettre.
   - onglet Charges du bâtiment : rouvrez « Avoir eau 2025 », le coût affiche **-500** (et non vide). Fermez sans enregistrer.
 - [ ] **L9 · Régul 2025 qui rembourse le locataire** (Régularisation des charges, année **2025**)
   - charges : « Entretien espaces verts 2025 » 1 200,00, « Avoir eau 2025 » -500,00, puis « **Eau 2025 · déjà refacturée** » 800,00 en gris. Électricité, Jardin et Ménage, refacturés sans la case « Déduite », n'apparaissent pas ;
-  - Total des charges **1 500,00**, Provisions déjà versées **2 000,00** (500 × 4), « Charges déjà refacturées (réglées à part) » **800,00**, Solde HT **-1 300,00  ⚠ trop-perçu (avoir)** ;
-  - le menu « Avoir sur la facture n° » apparaît : choisissez 08001 ;
-  - **Générer facture** : « **AVOIR : n°** », « Avoir sur la facture n° 2026/08001 », « Montant à vous rembourser -1 300,00 », « SOMME QUI VOUS SERA REMBOURSÉE ». La page 2 liste l'eau « (déjà refacturée) » et la ligne « Charges déjà refacturées » sous les provisions. Fermez sans émettre.
+  - Total des charges **1 500,00**, Provisions déjà versées **2 000,00** (500 × 4), « Charges déjà refacturées (réglées à part) » **800,00**, Solde HT **-1 300,00  — trop-perçu (avoir)** ;
+  - **pas** de menu « Avoir sur la facture n° » sur la régul (retiré le 05/10 : une régul solde les provisions de l'année, elle ne corrige pas une facture précise ; il reste sur la refacturation) ;
+  - **Générer facture** : « **AVOIR : n°** », sans ligne « Avoir sur la facture », « Montant à vous rembourser -1 300,00 », « SOMME QUI VOUS SERA REMBOURSÉE ». La page 2 liste l'eau « (déjà refacturée) » et la ligne « Charges déjà refacturées » sous les provisions. Fermez sans émettre.
 - [ ] **L11 · G · Loyer selon le CA** *(Internet)* — bail depuis le 01/01/2025, loyer de départ 12 000 €, 8 % du CA HT entre 10 000 et 20 000 €, CA 2025 déjà déclaré : 150 000 €
   - bandeau « **3 Loyer** ». Carte Loyer → **Initialiser** : « Révision du loyer » cochée, type « **Selon le chiffre d'affaires** » (3e choix du menu, après indice et paliers) → **Initialiser** ;
   - l'écran « **Initialisation du loyer selon le CA** » s'ouvre. Sous « Loyer de départ », au même format : **Loyer minimum 10000 €**, **Loyer maximum 20000 €**, **Part du chiffre d'affaires HT 8 %**. Puis type d'indice, trimestre de référence et date de révision ;
@@ -344,7 +344,83 @@ Préparé le 01/10. Ce bâtiment remplace la saisie des sections A à J : on va 
   - remettez la date de révision au **01/01/2026**, saisissez **100000** → « Loyer retenu : **le minimum** (% du CA en dessous) » (8 000 € est sous le minimum) ;
   - recommencez avec **150000** (date remise au 01/01/2026) → loyer **12 000,00 €** (entre les bornes). « Prochaine révision » passe au 01/01/2027, et le champ demande alors le CA 2026 ;
   - Facturer le loyer : 4e trimestre 2025 = **3000.00** (loyer de départ, avant la révision), 1er trimestre 2026 = **3000.00** (12 000 / 4, après la révision). Fermez sans émettre.
-- [ ] **L10 · Nettoyage** : supprimez le bâtiment **TEST Nouveautés**.
+- [ ] **L10 · Nettoyage** : supprimez le bâtiment **TEST Nouveautés** — **seulement après la section M**, qui s'en sert.
+
+## M. Départ du locataire — « TEST Nouveautés » (refait le 02/10 : bouton et bandeau)
+
+Le départ se fait maintenant par le bouton **« Départ du locataire »** de l'en-tête de la fiche, puis un **bandeau de six étapes** (Départ · Dernier loyer · État des lieux · Décompte de sortie · Régul de sortie · Archiver) jusqu'à l'archivage. « Modifier » (section Bail) ne saisit plus le départ : la section Bail l'affiche seulement. Toujours **sans rien émettre**.
+
+C aujourd'hui (essais du 02/10) : bail au 01/01/2026, dernier jour déjà saisi au **15/09/2026**, délai **1** mois, dépôt 3 600 €, pas de provision, aucune facture.
+
+- [ ] **M1 · Locataire sans départ** (fiche **A**) : dans l'en-tête, « **Départ du locataire** » juste avant « Transférer » ; pas de bandeau ; section Bail sans ligne de départ. Cliquez sur Modifier : le bouton disparaît pendant la saisie, et la section Bail n'a **plus** de case « Départ du locataire ». Annulez.
+- [ ] **M2 · Bandeau de C** : en-tête « **Départ en cours** » ; sous l'en-tête, « **Départ de C · dernier jour le 15/09/2026** », six étapes : « Départ : fait » (vert), « 2 Dernier loyer » en **ambre** (étape en cours), « Régul de sortie : fait » (C n'a pas de provision), les autres en blanc. Consigne « Étape 2 — Dernier loyer : facturez la dernière période… », bouton « **Continuer** ».
+- [ ] **M3 · Fenêtre « Départ du locataire »** (bouton « Départ en cours », ou étapes 1 et 3 du bandeau)
+  - dernier jour **15/09/2026**, restitution **1** mois, « Dépôt à restituer avant le **15/10/2026** » (la date suit la saisie : mettez 2 → 15/11, remettez 1) ;
+  - refus à « Enregistrer » : dernier jour vide → « saisissez une date » ; délai **30** → « entre 1 et 24 » ;
+  - « État des lieux de sortie » : **Non, pas d'état des lieux** → le bloc date + PDF disparaît → **Enregistrer** : étape 3 « État des lieux : fait », section Bail « Départ le 15/09/2026 · pas d'état des lieux · dépôt à restituer avant le 15/10/2026 » ;
+  - rouvrez, **Oui**, date **15/09/2026** → Enregistrer : l'étape 3 redevient à faire (« joignez le PDF… ») ; rouvrez → « **Joindre…** » un PDF → son nom s'affiche, ligne « **État des lieux :** nom.pdf » sous le bail, étape 3 ✓.
+- [ ] **M4 · Continuer** → « Facturer le loyer » sur le **premier loyer 2026 encore à facturer** (C n'en a aucun : 1er trimestre). Choisissez le **3e trimestre 2026** = **2510.87** (77 jours sur 92). Fermez sans émettre. Le suivi 2026 : 4e trimestre « **Hors bail** ».
+- [ ] **M5 · Liste et alertes** : résumé du bâtiment → C **en bas**, grisé, « **Parti le 15/09/2026** » ; « À traiter » → « **Rest. dépôt** » pour C (Attention) ; plus de « Fin de bail » ni de « Résiliation » pour C.
+- [ ] **M6 · Décompte de sortie de C** (étape **4** du bandeau, cliquable)
+  - carte **Facturation** : le 4e bouton s'appelle « **Décompte de sortie** », avec la pastille « ! » (restitution due avant le 15/10). Carte **Dépôt** : « Réviser » est **grisé**, plus de badge « Révision à faire » ;
+  - suivi 2026 : une ligne « **Décompte de sortie (restitution du dépôt)** » à l'échéance **15/10/2026**, bouton « Générer » (il ouvre le même écran) ;
+  - étape 4 du bandeau (ou bouton de la carte) → écran « **Décompte de sortie · C · …** ». À la place de la carte du dépôt : « Dépôt de garantie détenu » **3600.00**, « Aucune somme due » (C n'a pas de facture), totaux : Dépôt de garantie **-3 600,00 €**, Solde **-3 600,00 € — à rembourser au locataire (avoir)**. Pas de « Mention TVA » ;
+  - « + Ajouter une retenue » : « Réparation porte », **500** → Solde **-3 100,00 €** ; **Générer facture** : une seule ligne « **Total** » -3 100,00 — **aucune information de TVA** (ni HT, ni TVA, ni mention) ;
+  - cochez **TVA** sur la retenue → Retenues « 500,00 € HT (+ TVA 100,00 €) », Solde **-3 000,00 €**, le choix « Mention TVA » apparaît ; **Générer facture** : titre « **AVOIR** », sous-titre « Décompte de sortie — état des lieux du 15/09/2026 » (si la date est saisie), lignes « Dépôt de garantie restitué -3 600,00 », « Retenue — Réparation porte (HT, TVA 20 %) 500,00 », Total HT -3 100,00, « TVA 20 % (retenues soumises) » 100,00, TTC **-3 000,00**, « SOMME QUI VOUS SERA REMBOURSÉE ». « − » retire la ligne. Fermez **sans émettre**.
+- [ ] **M7 · Annuler le départ** : « Départ en cours » → « **Annuler le départ** » → confirmation → le bandeau disparaît, le bouton redevient « Départ du locataire », la section Bail n'affiche plus de départ, C revient dans la liste normale. (Refusé si le décompte avait été émis.) Ressaisissez ensuite le départ au 15/09/2026 si vous continuez.
+- [ ] **M8 · Sommes dues reprises** (facultatif, sur **F** qui a des factures) : « Départ du locataire » → dernier jour **30/09/2026**, « Non, pas d'état des lieux » → Enregistrer → étape 4 du bandeau → Décompte de sortie : les factures dues de F (Envoyé / Impayé — 08001 Électricité, l'avoir 08002 à -180, 09003, 09004 « Jardin et Ménage » en une ligne) sont **cochées** ; Solde = somme des cochées − **7 200** ; décocher une facture la retire du solde. Générer : une ligne par facture reprise, « Facture n° … — … ». Fermez sans émettre, puis « Annuler le départ » de F.
+- *(L'archivage — étape 6, « Archiver », puis « Archivé · Réactiver » dans l'en-tête — demande des factures réellement émises et payées : il sera vérifié lors d'un vrai départ, ou plus tard sur ces données.)*
+
+## N. Cas test complet — « H · Départ complet » (02/10)
+
+Un locataire préparé pour passer **les six étapes du départ jusqu'à l'archivage**. Il est créé par script (Claude, Unity **hors Play**) dans TEST Nouveautés :
+- loyer 12 000 €/an HT au trimestre, provisions 300 €/trim, dépôt **3 600 €**, bail depuis le 01/01/2025 ;
+- **parti le 15/05/2025**, délai de restitution 2 mois → dépôt à rendre avant le **15/07/2025** (dépassé) ;
+- 1er trimestre 2025 payé ; **2e trimestre 2025 émis en entier** (3 000 € HT au lieu de 3 000 × 45/91 = **1 483,52**), 3 960 € TTC, impayé ;
+- régul 2025 due le **31/03/2026** (passée) ; une charge « **Eau 2025 (test H)** » de 1 200 €, pour H seul.
+
+**Pour émettre** (corriger le loyer, décompte, régul), l'application exige l'email du locataire : mettez **votre propre adresse** dans la fiche H (Modifier → General). Les trois factures partiront vers vous. Sans email, faites tout jusqu'à l'aperçu (« Générer facture ») et sautez N5-N8 côté émission.
+
+- [ ] **N0 · Préparation** : Unity hors Play → je lance le script de création → lancez le Play, DemoCIPL, TEST Nouveautés.
+- [ ] **N1 · Liste du bâtiment** : H en bas, grisé, « **Parti le 15/05/2025** ».
+- [ ] **N2 · Accueil** : « À traiter » montre pour H trois lignes — « **Rest. dépôt** » (rouge, URGENT), « **Régul.** » (rouge, URGENT), « **Facturer** » (loyer à corriger). Créances : loyer 2e trimestre 2025, **3 960,00 €**, Impayé.
+- [ ] **N3 · Fiche H**
+  - en-tête « **Départ en cours** » ; bandeau « Départ de H · Départ complet · dernier jour le 15/05/2025 » : « Départ : fait », « **2 Dernier loyer** » en ambre, étapes 3, 4, 5 à faire, « 6 Archiver » grisé ;
+  - consigne : « Étape 2 — Dernier loyer : « Loyer 2e trimestre 2025 » a été émis en entier, corrigez-le au prorata. » ;
+  - section Bail : « Départ le 15/05/2025 · état des lieux à faire · dépôt à restituer avant le 15/07/2025 » ;
+  - carte Facturation : 3 alertes en tête (restitution URGENT, régul de sortie URGENT, loyer à corriger) ; 4e bouton « **Décompte de sortie** » avec pastille ; carte Dépôt : « Réviser » grisé.
+- [ ] **N4 · Suivi** — 2025 : 1er trimestre Payé, 2e trimestre **Impayé 3 960,00**, 3e et 4e « Hors bail », « Régularisation des charges 2025 » À faire (31/03/2026), « **Décompte de sortie (restitution du dépôt)** » À faire (15/07/2025). 2026 : loyers « Hors bail », pas de régul 2026.
+- [ ] **N5 · Étape 2, corriger le dernier loyer** *(1er essai le 05/10 : correct, mais les alertes de la carte Facturation restaient figées après l'émission — corrigé. H a été remis à l'état d'avant N5 le 05/10 à 16 h 24, cette fois avec le vrai PDF de la facture d'origine : dans le suivi, la ligne du 2e trimestre propose « PDF · **Corriger** · Rappel » ; « PDF » montre la facture d'origine à 3 960,00 €. Après la correction, l'alerte « montant à corriger » doit disparaître **tout de suite** de la carte Facturation, sans rouvrir la fiche)* : **Continuer** → « Facturer le loyer », 2e trimestre 2025 : loyer **1483.52**, provision 300.00 → TTC **2 140,22 €**. Générer facture, puis « Sauvegarder et envoyer ». Suivi : « Loyer 2e trimestre 2025 — corrigée(1) », **2 140,22** ; bandeau « Dernier loyer : fait » ; l'alerte « montant à corriger » disparaît.
+- [ ] **N6 · Étape 3, état des lieux** : Continuer (ou l'étape 3) → fenêtre « Départ du locataire » → Oui, date **15/05/2025** → Enregistrer : l'étape 3 reste à faire, « joignez le PDF de l'état des lieux du 15/05/2025 » ; rouvrez → « Joindre… » un PDF → « État des lieux : fait », ligne « État des lieux : … » sous le bail.
+- [ ] **N7 · Étape 4, décompte de sortie** : Continuer → dépôt détenu **3600.00**, sommes dues : « 2025/04802 · Loyer 2e trimestre 2025 — corrigée(1) · 2 140,22 € » **cochée** (3 960 si N5 n'a pas été émis) ; « + Ajouter une retenue » « Nettoyage », **200**, sans TVA → Solde **-1 259,78 € — à rembourser (avoir)**. Générer : « AVOIR », un seul « Total » -1 259,78, aucune TVA. Sauvegarder et envoyer (confirmation « Remboursement au locataire ») → le loyer du 2e trimestre passe **Payé** (soldé par le dépôt), « Décompte de sortie : fait », l'alerte de restitution disparaît. « Départ en cours » → « Annuler le départ » est maintenant **refusé** (décompte émis).
+- [ ] **N8 · Étape 5, régul de sortie** : Continuer → régularisation 2025 : « Eau 2025 (test H) » **443,84** (1 200 × 135/365), provisions déjà versées **600,00** (300 × 2 trimestres facturés, et non 4), solde HT **-156,16 — trop-perçu (avoir)**, TVA -31,23, TTC **-187,39**. Générer, puis Sauvegarder et envoyer → « Régul de sortie : fait ».
+- [ ] **N9 · Étape 6, archiver** : le bandeau dit « **Pas encore archivable** : avoir n° … « Décompte de sortie » à rembourser (1 259,78 €), puis à passer « Payé » · avoir n° … « Régularisation… » à rembourser (187,39 €)… » tant que les deux avoirs ne sont pas remboursés — dans le suivi, passez-les « **Payé** » (menu de la pastille). L'étape 6 devient ambre, le bouton dit « **Archiver** » → clic : retour au résumé, « « H · Départ complet » est archivé… », H n'est plus dans la liste ; la case « **Anciens locataires (1)** » le fait réapparaître (badge « Archivé ») ; plus aucune alerte pour H.
+- [ ] **N10 · Réactiver** : ouvrez H depuis « Anciens locataires » → en-tête « **Archivé · Réactiver** » → confirmation → H revient dans la liste, bandeau complet (tout ✓, « Archiver » à refaire).
+- [ ] **N11 · Nettoyage** : supprimez H (ou gardez-le pour la suite).
+
+## O. Un locataire en remplace un autre — « TEST Nouveautés » (06/10)
+
+Deux cas, en plus du départ sans successeur (§N). **N'émettez rien.** *(Validé en Play le 06/10.)*
+
+- [ ] **O0 · La fenêtre** : fiche B → en-tête « **Départ du locataire** » (il n'y a plus de bouton « Cession du bail ») → bandeau ambre plein, coins arrondis en haut comme « Paliers » ou « Révision du dépôt », titre sur une ligne (« … » si trop long). En tête : menu déroulant « **Type de départ** » sur *Le locataire part, le lot reste libre* ; ouvert, il propose aussi *Il part, un nouveau locataire reprend le lot* et *Cession du bail*.
+- [ ] **O1 · Cession du bail (B)** : dans « Type de départ », choisissez « **Cession du bail** » → les champs du départ disparaissent, le titre devient « Cession du bail — … », le bouton « **Enregistrer la cession** ». La fenêtre demande la date, le nouveau titulaire, SIRET, email, adresse de facturation ; revenir sur « Le locataire part » remet les champs du départ.
+  - Nom vide ou « Nouveau » → refusé ; nom d'un autre locataire du bâtiment (ex. le nom exact de A) → refusé ; date avant le début du bail → refusé. Chaque refus s'affiche **au centre** (fenêtre « Attention », bouton « OK »), et non plus en bas de l'écran ; un enregistrement réussi reste annoncé en bas.
+  - Date **01/07/2026**, nom « **B bis · Cessionnaire** », adresse « 1 rue du Test » → Enregistrer : l'onglet et la fiche prennent le nouveau nom ; sous les dates du bail : « **Cédé par** <ancien nom de B> **le 01/07/2026** » ; loyer, dépôt, suivi et factures **inchangés** (pas de prorata, pas de nouvelle facture).
+  - Facturer le loyer → Générer l'aperçu : le destinataire est « B bis · Cessionnaire », 1 rue du Test. Fermez sans émettre.
+  - Pour revenir en arrière : nouvelle cession vers l'ancien nom de B (une cession faite n'a pas d'annulation).
+- [ ] **O1b · Cession à une date future (F)** : fiche F → « Départ du locataire » → « Cession du bail », date **01/12/2026**, nom « **F bis · Futur** » → Enregistrer la cession : message « Cession enregistrée : « F bis · Futur » reprendra le bail le 01/12/2026… » ; la fiche, l'onglet et les factures restent au nom de **F** ; sous les dates du bail : « **Cession prévue le 01/12/2026 à F bis · Futur** ».
+  - Rouvrez « Départ du locataire » : le type est déjà « Cession du bail », les champs sont remplis ; « **Annuler la cession prévue** » → la ligne « Cession prévue » disparaît, F reste le locataire.
+  - (Le changement le jour venu se fait au lancement de l'application : vérifié par le test `Une_cession_future_attend_son_jour`.)
+- [ ] **O2 · Remplacement sans cession (A)** : fiche A → « Départ du locataire » → type « **Il part, un nouveau locataire reprend le lot** », dernier jour **30/06/2026**, « Non, pas d'état des lieux » → Enregistrer. (Rouvrir la fenêtre d'un départ déjà saisi ne propose plus la cession.)
+  - A passe « Départ en cours » ; un **nouvel onglet** s'ouvre en création : même **lot** et même **surface** que A, début du bail **01/07/2026** ; message « Nouveau locataire du lot … : saisissez son nom et la fin de son bail… ».
+  - Nom « **A2 · Remplaçant** », fin du bail au choix → Sauvegarder : le parcours de création continue (loyer, puis dépôt) comme pour tout nouveau locataire.
+  - Suivi de A : 3e trimestre 2026 « **Hors bail** » ; de A2 : 2e trimestre 2026 « Hors bail », 3e trimestre facturable en entier.
+  - Ensuite : supprimez A2, puis « Annuler le départ » de A.
+- *(Le partage des charges entre l'ancien et le nouvel occupant d'un lot — chacun au prorata de ses jours, le lot compté une fois — est vérifié par les tests `Un_lot_qui_change_d_occupant…` et `Le_remplacant_reprend…` : les charges de TEST Nouveautés sont de 2025, réservées à F.)*
+
+## P. Refacturation au prorata — « TEST Nouveautés » (06/10) *(validé en Play le 06/10)*
+
+- [ ] **P1 · C, parti le 15/09/2026** : dans le bâtiment, ajoutez une charge « **Taxe test 2026** », **1 200 €**, datée du **01/10/2026**, pour **C seul**. Fiche C → carte Facturation → Refacturer : sous l'explication, la case « **Au prorata de sa présence dans l'année…** » est visible et **cochée** ; cochez la charge → montant **848.22** (1 200 × 258/365, du 01/01 au 15/09). Décochez la case → **1200.00** ; recochez → 848.22. Un locataire présent toute l'année (F) n'a pas la case. Fermez sans émettre, puis supprimez la charge.
 
 ---
 

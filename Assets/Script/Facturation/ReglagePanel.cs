@@ -182,7 +182,7 @@ public class ReglagePanel : MonoBehaviour
             + "OVH : ssl0.ovh.net  ·  Free : smtp.free.fr  ·  Orange : smtp.orange.fr",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
         UIFactory.Text(smtpBody.transform,
-            "⚠ Gmail et Outlook exigent un mot de passe d'application (créé dans les réglages de "
+            "Attention : Gmail et Outlook exigent un mot de passe d'application (créé dans les réglages de "
             + "sécurité du compte), pas le mot de passe habituel. Sur Microsoft 365, SMTP AUTH est "
             + "souvent à activer côté administrateur. Le port 465 n'est pas géré : utilise 587.",
             UITheme.Role.Aide, UITheme.Alerte);
@@ -246,7 +246,7 @@ public class ReglagePanel : MonoBehaviour
         {
             _testInfo.color = UITheme.Alerte;
             _testInfo.text = envoi.Erreur;
-            UndoToast.Instance?.ShowInfo("Échec du test d'envoi — détail sous le bouton.");
+            ConfirmDialog.Erreur("Échec du test d'envoi — détail sous le bouton.");
         }
     }
 
@@ -308,7 +308,7 @@ public class ReglagePanel : MonoBehaviour
                 ReglageService.Save();
                 RefreshLogo();
             }
-            catch (Exception e) { UndoToast.Instance?.ShowInfo("Logo : " + e.Message); }
+            catch (Exception e) { ConfirmDialog.Erreur("Logo : " + e.Message); }
         }
 #endif
     }

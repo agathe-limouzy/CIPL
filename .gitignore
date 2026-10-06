@@ -157,3 +157,6 @@ pennylane_secrets.dat
 .env
 .env.*
 !.env.example
+
+# graphify : graphe du code régénéré en local (hooks git), pas versionné
+graphify-out/

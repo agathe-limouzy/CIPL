@@ -86,6 +86,12 @@ public class FactureInfo
     public string depotRembourse;   // nous devons un remboursement au locataire
     public string depotEquilibre;   // dépôt déjà au bon montant, rien à régler
 
+    // Décompte de sortie (FactureDepotPanel en mode sortie, voir DepartLocataire) :
+    // dépôt détenu, retenues, et clés des créances reprises — pour rouvrir et corriger.
+    public float depotDetenu;
+    public System.Collections.Generic.List<RetenueSortie> retenuesSortie = new System.Collections.Generic.List<RetenueSortie>();
+    public System.Collections.Generic.List<string> creancesReprises = new System.Collections.Generic.List<string>();
+
     // Montants (pré-remplis depuis le locataire, éditables et mémorisés).
     public float loyerMontant;      // loyer HT de la période
     public float provisionMontant;  // provision pour charges de la période

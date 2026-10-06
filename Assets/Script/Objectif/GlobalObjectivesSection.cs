@@ -106,7 +106,7 @@ public class GlobalObjectivesSection : MonoBehaviour
         if (txtTotalActifs != null)
             txtTotalActifs.text = $"{actifs} objectif{(actifs > 1 ? "s" : "")} actif{(actifs > 1 ? "s" : "")}";
         if (txtUrgents != null)
-            txtUrgents.text = urgents > 0 ? $"⚠ {urgents} obligatoire{(urgents > 1 ? "s" : "")}" : "";
+            txtUrgents.text = urgents > 0 ? $"Urgent : {urgents} obligatoire{(urgents > 1 ? "s" : "")}" : "";
 
         emptyText?.SetActive(filtered.Count == 0);
 

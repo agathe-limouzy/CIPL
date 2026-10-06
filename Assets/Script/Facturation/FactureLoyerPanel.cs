@@ -411,7 +411,7 @@ public class FactureLoyerPanel : MonoBehaviour
         var d = BuildData();
         string png = Path.Combine(FactureDir(), "apercu.png");
         if (FacturePdfService.GeneratePreviewPng(d, png, out string err)) ShowPreview(png);
-        else UndoToast.Instance?.ShowInfo("Échec de l'aperçu : " + err);
+        else ConfirmDialog.Erreur("Échec de l'aperçu : " + err);
     }
 
     // « Sauvegarder et envoyer » : mémorise + génère le PDF au visuel réel (local),
@@ -439,7 +439,7 @@ public class FactureLoyerPanel : MonoBehaviour
 
         if (!FacturePdfService.GeneratePdf(d, pdf, out string err))
         {
-            UndoToast.Instance?.ShowInfo("Échec génération PDF : " + err);
+            ConfirmDialog.Erreur("Échec génération PDF : " + err);
             return;
         }
 
@@ -471,13 +471,13 @@ public class FactureLoyerPanel : MonoBehaviour
         string dest = (_emailEnvoi.text ?? "").Trim();
         if (string.IsNullOrWhiteSpace(dest))
         {
-            UndoToast.Instance?.ShowInfo("Aucune adresse email pour ce locataire. "
+            ConfirmDialog.Erreur("Aucune adresse email pour ce locataire. "
                 + "La facture n'a pas été envoyée ; le PDF est enregistré.");
             return;
         }
 
         string manque = EmailService.CeQuiManque();
-        if (manque != null) { UndoToast.Instance?.ShowInfo(manque + " Le PDF est enregistré."); return; }
+        if (manque != null) { ConfirmDialog.Erreur(manque + " Le PDF est enregistré."); return; }
 
         var ctx = BuildContext();
         string objet = FactureVarResolver.Resolve(
@@ -489,7 +489,7 @@ public class FactureLoyerPanel : MonoBehaviour
         // confirmé vaut moins qu'un PDF enregistré qu'on renverra plus tard.
         if (ConfirmDialog.Instance == null)
         {
-            UndoToast.Instance?.ShowInfo("Confirmation indisponible : rien n'a été envoyé. "
+            ConfirmDialog.Erreur("Confirmation indisponible : rien n'a été envoyé. "
                 + "Le PDF est enregistré.");
             return;
         }
@@ -551,7 +551,7 @@ public class FactureLoyerPanel : MonoBehaviour
 
         if (!envoi.Succes)
         {
-            UndoToast.Instance?.ShowInfo("Envoi échoué — " + envoi.Erreur
+            ConfirmDialog.Erreur("Envoi échoué — " + envoi.Erreur
                 + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : tu peux réessayer.");
             yield break;
         }
@@ -573,7 +573,7 @@ public class FactureLoyerPanel : MonoBehaviour
 
         if (!depot.Succes)
         {
-            UndoToast.Instance?.ShowInfo(depot.Erreur + " Le PDF est enregistré, rien n'est consommé : tu peux réessayer.");
+            ConfirmDialog.Erreur(depot.Erreur +" Le PDF est enregistré, rien n'est consommé : tu peux réessayer.");
             yield break;
         }
 
@@ -593,6 +593,10 @@ public class FactureLoyerPanel : MonoBehaviour
         string message = FactureEmission.Enregistrer(_loc, key, "Loyer", emission,
             d.subtitle, fl.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
             _loc.factureLoyer, "Facture", envoye);
+        // Loyer HT facturé, mémorisé sur la ligne : un départ saisi après coup repère
+        // ainsi une période facturée en entier (DepartLocataire.LoyerACorriger).
+        var ligne = _loc.facturesEtat?.Find(x => x.key == key);
+        if (ligne != null) ligne.loyerHT = d.totalPeriode;
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
@@ -627,7 +631,7 @@ public class FactureLoyerPanel : MonoBehaviour
             if (_viewer != null && tex.height > 0) _viewer.SetAspect((float)tex.width / tex.height);
             if (_previewHint != null) _previewHint.gameObject.SetActive(false);
         }
-        catch (Exception e) { UndoToast.Instance?.ShowInfo("Aperçu illisible : " + e.Message); }
+        catch (Exception e) { ConfirmDialog.Erreur("Aperçu illisible : " + e.Message); }
     }
 
     static string Sanitize(string s) => DossiersDonnees.NomFichier(s);

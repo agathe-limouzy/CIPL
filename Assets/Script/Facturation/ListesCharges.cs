@@ -86,17 +86,45 @@ public static class ListesCharges
     {
         if (c == null || loc == null) return 0f;
         if (c.ratios == null || c.ratios.Count == 0) return c.cout;
-        float sum = 0f, mine = -1f;
+        // Un lot compte UNE fois au dénominateur (décision du 06/10) : quand un locataire en
+        // remplace un autre sur le même lot en cours d'année, leurs deux parts ne doivent
+        // pas s'additionner — sinon les autres lots paieraient moins (A 400 au lieu de 600).
+        // Les occupants successifs se partagent la part du lot au prorata de leurs jours
+        // (QuotePartAuProrata). Lot 0 = non renseigné : compté par locataire, comme avant.
+        // ponytail: deux locataires simultanés sur un même numéro de lot seraient fusionnés ;
+        // vérifier le chevauchement des baux si ce cas apparaît.
+        float mine = -1f;
+        var parLot = new Dictionary<string, float>();
         foreach (var r in c.ratios)
         {
             if (r == null) continue;
             var l = bat?.locataireDuBatiment?.Find(x => x.id == r.locataireId);
+            // Locataire supprimé (ex. remplaçant abandonné) : sa part ne compte plus.
+            if (l == null && bat?.locataireDuBatiment != null) continue;
             if (l != null && !ConcerneParListe(l, c.listeId)) continue;
-            sum += r.part;
+            string cle = l != null && l.lotBatiment > 0 ? "lot:" + l.lotBatiment : "loc:" + r.locataireId;
+            parLot[cle] = parLot.TryGetValue(cle, out var p) ? Math.Max(p, r.part) : r.part;
             if (r.locataireId == loc.id) mine = r.part;
         }
+        float sum = parLot.Values.Sum();
         return mine < 0f || sum <= 0f ? 0f : c.cout * mine / sum;
     }
+
+    /// Quote-part au prorata des jours de présence dans l'année de la charge (décision du
+    /// 01/10, arrivée comme départ) : eau 2026 de 1 000 € pour un départ le 15/05 →
+    /// 1 000 × 135/365 = 369,86. Toujours sur la régul ; au choix sur la refacturation.
+    /// Un locataire présent toute l'année paie sa quote-part entière.
+    public static float QuotePartAuProrata(ChargeBatiment c, Locataire loc, Batiment bat)
+    {
+        float q = QuotePart(c, loc, bat);
+        if (!FacturationSuivi.TryEcheance(c?.dateISO, out var d)) return q;
+        return (float)Math.Round(q * Loyers.FractionPresence(loc, d.Year), 2);
+    }
+
+    /// Le locataire n'a pas été là toute l'année de la charge (arrivée ou départ en cours
+    /// d'année) : la refacturation propose alors le choix prorata / en entier.
+    public static bool PresencePartielle(Locataire loc, ChargeBatiment c)
+        => FacturationSuivi.TryEcheance(c?.dateISO, out var d) && Loyers.FractionPresence(loc, d.Year) < 0.9999;
 
     /// Charges d'une liste qui concernent vraiment ce locataire : désigné (ou « tous »),
     /// quote-part non nulle, datées à partir du début de son bail. Avec

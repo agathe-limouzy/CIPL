@@ -25,9 +25,20 @@ public class ConfirmDialog : MonoBehaviour
         gameObject.SetActive(false);
     }
 
+    /// Erreur à lire (retour du 06/10 : « pour un panel qui remonte une erreur il le faut
+    /// plus voyant, centré ») : cette fenêtre, un seul bouton « OK ». Les informations et
+    /// changements de statut restent en bas (UndoToast.ShowInfo).
+    public static void Erreur(string message)
+    {
+        if (Instance == null) { UndoToast.Instance?.ShowInfo(message); return; }
+        Instance.Show("Attention", message, null, "OK");
+        if (Instance.btnAnnuler != null) Instance.btnAnnuler.gameObject.SetActive(false);
+    }
+
     /// `confirmLabel` : libellé du bouton de validation (par défaut « Supprimer »).
     public void Show(string titre, string message, Action onConfirm, string confirmLabel = null)
     {
+        if (btnAnnuler != null) btnAnnuler.gameObject.SetActive(true);   // masqué par Erreur
         _onConfirm = onConfirm;
         txtTitre.text = titre;
         txtMessage.text = message;

@@ -109,10 +109,18 @@ public static class FacturationSuivi
                     ListesCharges.Libelle(listeId, year), ech, 0f));
             }
 
-        // Révision du dépôt de garantie (si la date limite tombe cette année).
-        if (loc.depotDeGarantie > 0f && TryEcheance(loc.dateRevisionDepotISO, out var dd) && dd.Year == year)
+        // Révision du dépôt de garantie (si la date limite tombe cette année). Plus
+        // après le départ — le dépôt sera rendu —, sauf si elle a déjà été touchée.
+        if (loc.depotDeGarantie > 0f && TryEcheance(loc.dateRevisionDepotISO, out var dd) && dd.Year == year
+            && (!(avecSortie && dd.Date > sortie.Date)
+                || stored.Any(x => x.key == $"depot-{year}" && !string.IsNullOrEmpty(x.statut))))
             res.Add(Fusion(stored, $"depot-{year}", "Depot",
                 "Révision du dépôt de garantie", dd, 0f));
+
+        // Décompte de sortie (restitution du dépôt), à la date limite de restitution.
+        if (loc.depotDeGarantie > 0f && DepartLocataire.EcheanceRestitution(loc, out var er) && er.Year == year)
+            res.Add(Fusion(stored, DepartLocataire.CleDecompte, "Depot",
+                "Décompte de sortie (restitution du dépôt)", er, 0f));
 
         // Refacturations enregistrées de l'année (créées à la demande), et dépôt de
         // garantie initial (créé à l'initialisation du dépôt).
@@ -194,7 +202,7 @@ public static class FacturationSuivi
     {
         key = r.key, type = r.type, libelle = r.libelle, echeanceISO = r.echeanceISO,
         statut = r.statut, numero = r.numero, pdfPath = r.pdfPath, dateEnvoiISO = r.dateEnvoiISO,
-        montant = r.montant, ribId = r.ribId, ribNom = r.ribNom, corrections = r.corrections,
+        montant = r.montant, loyerHT = r.loyerHT, ribId = r.ribId, ribNom = r.ribNom, corrections = r.corrections,
         dernierRappelISO = r.dernierRappelISO
     };
 
@@ -529,21 +537,26 @@ public static class FacturationSuivi
         {
             if (bp == null || bp.listLocataire == null) continue;
             foreach (var loc in bp.listLocataire)
-            {
-                if (loc?.facturesEtat == null) continue;
-                foreach (var r in loc.facturesEtat)
-                {
-                    var e = EtatDe(r);
-                    if (e != Etat.Envoye && e != Etat.Impaye) continue;
-                    // Une facture portée par plusieurs lignes (même PDF : refacturation de
-                    // plusieurs charges, régul regroupée) est UNE créance, à son total.
-                    // `rec` est une copie : l'accueil ne fait que la lire.
-                    int i = string.IsNullOrEmpty(r.pdfPath) ? -1
-                          : res.FindIndex(x => x.loc == loc && x.rec.pdfPath == r.pdfPath);
-                    if (i >= 0) res[i].rec.montant += r.montant;
-                    else res.Add(new Due { bp = bp, loc = loc, rec = CopieDe(r), etat = e });
-                }
-            }
+                foreach (var r in DuesDe(loc))
+                    res.Add(new Due { bp = bp, loc = loc, rec = r, etat = EtatDe(r) });
+        }
+        return res;
+    }
+
+    /// Factures dues (Envoyé ou Impayé) d'un locataire. Une facture portée par plusieurs
+    /// lignes (même PDF : refacturation de plusieurs charges, régul regroupée) est UNE
+    /// créance, à son total. Ce sont des copies : on ne fait que les lire.
+    public static List<FactureEtat> DuesDe(Locataire loc)
+    {
+        var res = new List<FactureEtat>();
+        if (loc?.facturesEtat == null) return res;
+        foreach (var r in loc.facturesEtat)
+        {
+            var e = EtatDe(r);
+            if (e != Etat.Envoye && e != Etat.Impaye) continue;
+            int i = string.IsNullOrEmpty(r.pdfPath) ? -1 : res.FindIndex(x => x.pdfPath == r.pdfPath);
+            if (i >= 0) res[i].montant += r.montant;
+            else res.Add(CopieDe(r));
         }
         return res;
     }
