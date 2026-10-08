@@ -367,8 +367,48 @@ public class BatimentSummaryView : MonoBehaviour
         _countBadge = badge.gameObject;
 
         // Marges outer déjà fournies par le VLG racine (28/16) → pas de double indent.
-        var rows = UIFactory.VBox(_aTraiterCard, 4, 0, 0, 2, 4, "Rows");
+        // En-têtes de colonnes fixes, puis les lignes dans un défilement plafonné (07/10 : avec
+        // tous les objectifs non faits, la carte agrandissait tout le résumé).
+        _tuilesATraiter = new TuilesATraiter(_aTraiterCard, RefreshATraiter);   // tuiles de filtre (07/10)
+        _aTraiterEntete = UIFactory.VBox(_aTraiterCard, 0, 0, 0, 2, 0, "Entete").transform;
+        var defil = UIFactory.Rect("RowsDefilement", _aTraiterCard);
+        _aTraiterDefil = defil.gameObject.AddComponent<ScrollRect>();
+        _aTraiterDefil.horizontal = false; _aTraiterDefil.vertical = true; _aTraiterDefil.scrollSensitivity = 28;
+        _aTraiterDefil.movementType = ScrollRect.MovementType.Clamped;
+        _aTraiterHauteur = UIFactory.LE(defil.gameObject, minH: ATRAITER_MAX, prefH: ATRAITER_MAX, flexH: 0);
+        var viewport = UIFactory.Rect("Viewport", defil);
+        UIFactory.Stretch(viewport);
+        viewport.gameObject.AddComponent<RectMask2D>();
+        var rows = UIFactory.VBox(viewport, 4, 0, 0, 0, 4, "Rows");
+        var crt = (RectTransform)rows.transform;
+        crt.anchorMin = new Vector2(0, 1); crt.anchorMax = new Vector2(1, 1); crt.pivot = new Vector2(.5f, 1);
+        crt.offsetMin = Vector2.zero; crt.offsetMax = Vector2.zero;
+        rows.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        _aTraiterDefil.viewport = viewport; _aTraiterDefil.content = crt;
         _aTraiterRows = rows.transform;
+    }
+
+    const float ATRAITER_MAX = 300f;   // environ 8 lignes, puis la liste défile
+    TuilesATraiter _tuilesATraiter;
+    Transform _aTraiterEntete;
+    ScrollRect _aTraiterDefil;
+    LayoutElement _aTraiterHauteur;
+
+    // Hauteur de la liste = son contenu, plafonnée ; défilement coupé quand tout tient (la
+    // molette fait alors défiler le résumé). Mesurée à l'image suivante, largeur connue.
+    System.Collections.IEnumerator AjusterATraiter()
+    {
+        yield return null;
+        if (_aTraiterRows == null || _aTraiterHauteur == null) yield break;
+        var rt = (RectTransform)_aTraiterRows;
+        LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+        float contenu = LayoutUtility.GetPreferredHeight(rt);
+        _aTraiterDefil.enabled = contenu > ATRAITER_MAX + 1f;
+        if (!_aTraiterDefil.enabled) rt.anchoredPosition = Vector2.zero;
+        float h = Mathf.Min(contenu, ATRAITER_MAX);
+        if (Mathf.Abs(_aTraiterHauteur.preferredHeight - h) < 1f) yield break;
+        _aTraiterHauteur.minHeight = _aTraiterHauteur.preferredHeight = h;
+        LayoutRebuilder.MarkLayoutForRebuild((RectTransform)_aTraiterCard);
     }
 
     // « À traiter » (gauche) + « Locataires » (droite) sur une même rangée.
@@ -418,10 +458,15 @@ public class BatimentSummaryView : MonoBehaviour
         if (utile)
         {
             foreach (Transform c in _aTraiterRows) Destroy(c.gameObject);
+            if (_aTraiterEntete != null) foreach (Transform c in _aTraiterEntete) Destroy(c.gameObject);
             if (_countTxt != null) _countTxt.text = alertes.Count.ToString();
             if (_countBadge != null) _countBadge.SetActive(alertes.Count > 0);
             ATraiterHeader();
-            foreach (var a in alertes) ATraiterRow(a);
+            var auj = DateTime.Today;
+            _tuilesATraiter?.Maj(alertes, auj);
+            foreach (var a in alertes)
+                if (_tuilesATraiter == null || _tuilesATraiter.Garde(a, auj)) ATraiterRow(a);
+            if (isActiveAndEnabled) StartCoroutine(AjusterATraiter());
         }
     }
 
@@ -458,7 +503,7 @@ public class BatimentSummaryView : MonoBehaviour
     // Locataire 170 droite ; rôle En-tête (colonne « Bâtiment » retirée : un seul bâtiment).
     void ATraiterHeader()
     {
-        var hb = UIFactory.HBox(_aTraiterRows, 10, false, "ColHeader");
+        var hb = UIFactory.HBox(_aTraiterEntete != null ? _aTraiterEntete : _aTraiterRows, 10, false, "ColHeader");
         hb.padding = new RectOffset(4, 8, 0, 0);
         hb.childControlWidth = true; hb.childForceExpandWidth = false;
         hb.childControlHeight = true; hb.childForceExpandHeight = false;
@@ -487,6 +532,25 @@ public class BatimentSummaryView : MonoBehaviour
         return null;
     }
 
+    // Clic sur une ligne de « À traiter » (retour du 06/10 : tout ouvrait la vue locataire,
+    // même un objectif du bâtiment). Objectif → sa fiche puis sa fenêtre ; sinon la fiche
+    // du locataire concerné, ou celle du bâtiment.
+    void OuvrirAlerte(HomeAlert a)
+    {
+        if (_bp == null || a == null) return;
+        if (a.kind == HomeAlert.Kind.Objectif && a.objectif != null)
+        {
+            ObjectifPanel.OuvrirAlerte(a);
+            return;
+        }
+        if (a.locataire != null && _bp.dictionnairelocataire.TryGetValue(a.locataire, out var lp) && lp != null)
+        {
+            _bp.ShowLocataireView();
+            _bp.menulocataire.OnSelect(lp);
+        }
+        else _bp.ShowFiche();
+    }
+
     void ATraiterRow(HomeAlert a)
     {
         // Visuel IDENTIQUE au « À traiter » du menu : on réutilise le même prefab de ligne.
@@ -497,7 +561,7 @@ public class BatimentSummaryView : MonoBehaviour
             var ui = go.GetComponent<HomeAlertRowUI>();
             if (ui != null)
             {
-                ui.Setup(a, _ => _bp?.ShowLocataireView());
+                ui.Setup(a, OuvrirAlerte);
                 if (ui.txtBatiment != null) ui.txtBatiment.gameObject.SetActive(false);   // colonne Bâtiment inutile
             }
             return;
@@ -657,8 +721,8 @@ public class BatimentSummaryView : MonoBehaviour
         if (items != null)
             foreach (var o in items)
             {
-                if (o.status == Objective.ObjectiveStatus.Fait) continue;
-                if (o.status == Objective.ObjectiveStatus.Obligatoire) obligatoires++;
+                if (o.Fait) continue;
+                if (o.importance == Objective.Importance.Obligatoire) obligatoires++;
                 else aFaire++;
             }
 

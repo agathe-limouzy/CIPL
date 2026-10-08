@@ -88,7 +88,9 @@
       "Bash(claude --version)",
       "Bash(claude plugin *)",
       "Bash(rm -v 'C:\\\\Users\\\\agath/.claude/skills/agent-skills/.claude/commands/webperf.md' 'C:\\\\Users\\\\agath/.claude/skills/agent-skills/agents/web-performance-auditor.md')",
-      "Bash(git -C 'C:\\\\Users\\\\agath/.claude/skills/agent-skills' status --short)"
+      "Bash(git -C 'C:\\\\Users\\\\agath/.claude/skills/agent-skills' status --short)",
+      "mcp__visualize__read_me",
+      "mcp__visualize__show_widget"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 /// État mémorisé d'une facture dans le suivi (une ligne « touchée » : générée,
 /// envoyée, payée ou forcée à la main). Les lignes non touchées (À venir / À faire)
@@ -20,4 +21,15 @@ public class FactureEtat
     public string ribNom;       // libellé du RIB (pour affichage / filtre)
     public int corrections;     // nb de fois où la facture a été refaite/corrigée (0 = originale)
     public string dernierRappelISO; // date du dernier rappel d'échéance envoyé (impayé)
+    // Paiements reçus (paiement partiel, 08/10). Portés par la première ligne d'une facture
+    // (voir FacturationSuivi.Porteuse). Absent des anciens fichiers = rien de reçu.
+    public List<Versement> versements = new List<Versement>();
+}
+
+/// Un paiement reçu sur une facture.
+[Serializable]
+public class Versement
+{
+    public string dateISO;   // "yyyy-MM-dd"
+    public float montant;
 }

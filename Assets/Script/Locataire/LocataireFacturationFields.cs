@@ -34,7 +34,7 @@ public class LocataireFacturationFields : MonoBehaviour
     Transform _alertesBox;
 
     // Cartes créées par ce script (pour la réorganisation des colonnes).
-    Transform _depotSection, _facturationSection, _facturationBody;
+    Transform _depotSection;
     // Coquille de section de scène (« Autre ») réutilisée pour cloner Dépôt / Facturation / Suivi.
     Transform _sectionTemplate;
 
@@ -84,11 +84,12 @@ public class LocataireFacturationFields : MonoBehaviour
         // ── Dépôt de garantie : carte dédiée ────────────────────────────────
         BuildDepotCard();
 
-        // ── Facturation : boutons (bas de la colonne gauche) ────────────────
-        BuildFacturationButtons();
-
         // ── Suivi de facturation : bandeau pleine largeur en bas de la fiche ─
         BuildSuiviBand();
+
+        // ── Facturation : alertes + 4 boutons en tête du suivi (07/10 : la carte
+        //    « Facturation » est supprimée, la place va aux objectifs) ──────────
+        BuildFacturationButtons();
 
         // ── Réorganisation des colonnes (croquis utilisatrice) ──────────────
         ReorganizeColumns();
@@ -243,17 +244,36 @@ public class LocataireFacturationFields : MonoBehaviour
         if (loyer != null) loyer.SetSiblingIndex(1);
         if (_depotSection != null) _depotSection.SetSiblingIndex(2);
 
-        // Colonne droite : Bail, Commentaire, Objectif, Facturation.
+        // Deux colonnes à parts égales : réparties d'après leur largeur préférée, elles
+        // bougeaient dès qu'une section changeait de contenu (retour du 07/10). Le minimum
+        // reste celui du contenu (Loyer : 504).
+        UIFactory.LE(colone1.gameObject, prefW: 0, flexW: 1);
+        UIFactory.LE(colone2.gameObject, prefW: 0, flexW: 1);
+
+        // Même hauteur (demande du 07/10) : la rangée étire ses deux colonnes à la plus haute,
+        // et dans chacune la DERNIÈRE section prend le reste (Dépôt à gauche, Objectif à droite) ;
+        // les autres gardent leur hauteur.
+        var hRow = rowColonnes.GetComponent<HorizontalLayoutGroup>();
+        if (hRow != null) hRow.childForceExpandHeight = true;
+        EtirerDerniere(colone1, _depotSection);
+        EtirerDerniere(colone2, objectif);
+
+        // Colonne droite : Bail, Commentaire, Objectif (la facturation est dans le suivi).
         if (bail != null) bail.SetParent(colone2, false);
         if (comment != null) comment.SetParent(colone2, false);
-        if (_facturationSection != null) _facturationSection.SetParent(colone2, false);
         int idx = 0;
         if (bail != null) bail.SetSiblingIndex(idx++);
         if (comment != null) comment.SetSiblingIndex(idx++);
         if (objectif != null) objectif.SetSiblingIndex(idx++);
-        if (_facturationSection != null) _facturationSection.SetSiblingIndex(idx++);
 
         EnlargeCommentaire();
+    }
+
+    static void EtirerDerniere(Transform colonne, Transform derniere)
+    {
+        if (colonne == null || derniere == null) return;
+        foreach (Transform s in colonne)
+            UIFactory.LE(s.gameObject, flexH: s == derniere ? 1 : 0);
     }
 
     // Agrandit la zone de commentaire : le champ a un enfant « Content » (à hauteur
@@ -293,43 +313,30 @@ public class LocataireFacturationFields : MonoBehaviour
         var titre = sectionRoot.Find("titre");
         _suiviInline = sectionRoot.gameObject.AddComponent<LocataireSuiviInline>();
         _suiviInline.Setup(_fiche, body, titre);
+        _suiviBody = body;
     }
+    Transform _suiviBody;
 
-    // Carte « Facturation » en bas de la colonne gauche : un bouton par type.
-    // Loyer actif ; les autres à venir.
+    // Actions de facturation en tête du « Suivi de facturation » (07/10, demande de
+    // l'utilisatrice : la carte « Facturation » de la colonne droite est supprimée et sa
+    // place va aux objectifs) : alertes d'échéance puis les 4 boutons sur une ligne.
     void BuildFacturationButtons()
     {
-        if (_fiche.emailLocataireTxt == null) return;
-        var generalContent = _fiche.emailLocataireTxt.transform.parent;   // General/Content
-        var generalSection = generalContent.parent;                       // section General
-        var colone1 = generalSection != null ? generalSection.parent : null;
-        if (colone1 == null) return;
+        if (_suiviBody == null) return;
+        var body = UIFactory.VBox(_suiviBody, 8, 14, 14, 10, 4, "FacturationActions").transform;
+        body.SetSiblingIndex(0);   // au-dessus du tableau du suivi
 
-        // Coquille = clone de section de scène (liseré + bande + icône sec_file).
-        var body = CloneSection(colone1, "Facturation", MoneyAccent, MoneyClair, "sec_file", out var sectionRoot);
-        if (body == null) return;
-        _facturationSection = sectionRoot;
-        _facturationBody = body;
-        sectionRoot.SetAsLastSibling();
-        var bodyVlg = body.GetComponent<VerticalLayoutGroup>();
-        if (bodyVlg != null) { bodyVlg.padding = new RectOffset(14, 14, 8, 12); bodyVlg.spacing = 8; }
-
-        // Alertes d'échéance (en haut de la carte).
+        // Alertes d'échéance.
         var alertesWrap = UIFactory.VBox(body, 6, 0, 0, 0, 0, "AlertesBox");
         _alertesBox = alertesWrap.transform;
 
-        // (Le suivi de facturation est désormais affiché en bandeau pleine largeur
-        //  en bas de la fiche — voir BuildSuiviBand.) Les 4 actions en grille 2×2.
         var row1 = UIFactory.HBox(body, 8, false, "FactRow1");
         row1.childControlWidth = true; row1.childForceExpandWidth = true; row1.childControlHeight = true;
         var bLoyer = GridBtn(row1.transform, "Facturer le loyer", UITheme.Primaire, () => FactureLoyerPanel.OpenLoyer(_fiche));
         var bRegul = GridBtn(row1.transform, "Régularisation des charges", FactAccent, () => FactureRegulPanel.OpenRegul(_fiche));
-
-        var row2 = UIFactory.HBox(body, 8, false, "FactRow2");
-        row2.childControlWidth = true; row2.childForceExpandWidth = true; row2.childControlHeight = true;
-        GridBtn(row2.transform, "Refacturation d'une charge", HexC("#7A5AA6"), () => FactureRefacPanel.OpenRefac(_fiche));
+        GridBtn(row1.transform, "Refacturation d'une charge", HexC("#7A5AA6"), () => FactureRefacPanel.OpenRefac(_fiche));
         // Une fois le départ saisi, ce bouton ouvre le décompte de sortie (libellé : RefreshAlertes).
-        var bDepot = GridBtn(row2.transform, "Révision du dépôt (facture)", DepotAccent, () => FactureDepotPanel.OpenDepot(_fiche));
+        var bDepot = GridBtn(row1.transform, "Révision du dépôt (facture)", DepotAccent, () => FactureDepotPanel.OpenDepot(_fiche));
         _btnDepotFactLbl = bDepot.GetComponentInChildren<TMP_Text>(true);
 
         // Pastilles de rappel (coin haut-droit) affichées quand l'échéance est due.

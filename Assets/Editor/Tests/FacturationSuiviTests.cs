@@ -27,6 +27,79 @@ public class FacturationSuiviTests
         return loc;
     }
 
+    // ── Paiements partiels (08/10) ───────────────────────────────────────────
+
+    [Test]
+    public void Un_paiement_partiel_laisse_le_reste_du()
+    {
+        var loc = LocataireAvecFactureEmise(Iso(-2));   // 3 000 €, envoyée
+        var rec = loc.facturesEtat.Find(x => x.key == Key);
+        rec.versements.Add(new Versement { dateISO = Iso(-1), montant = 1000f });
+        rec.versements.Add(new Versement { dateISO = Iso(0), montant = 500f });
+
+        FacturationSuivi.Solde(loc, Key, out float total, out float paye);
+        Assert.That(total, Is.EqualTo(3000f));
+        Assert.That(paye, Is.EqualTo(1500f));
+        Assert.That(FacturationSuivi.EtatAffiche(loc, rec), Is.EqualTo(FacturationSuivi.Etat.Partiel));
+        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.Envoye), "Partiel n'est qu'un affichage");
+
+        var dues = FacturationSuivi.DuesDe(loc);
+        Assert.That(dues, Has.Count.EqualTo(1));
+        Assert.That(dues[0].montant, Is.EqualTo(1500f), "créances, décompte, archivage : le reste");
+    }
+
+    [Test]
+    public void Une_facture_partielle_echue_affiche_partiel_mais_reste_impayee()
+    {
+        // Retour du 08/10 : la pastille dit « Partiel » dès qu'un versement existe ; l'état
+        // réel reste Impayé (Créances, filtre, rappel).
+        var loc = LocataireAvecFactureEmise(Iso(-20));   // échéance + 15 j dépassée
+        var rec = loc.facturesEtat.Find(x => x.key == Key);
+        rec.versements.Add(new Versement { dateISO = Iso(-5), montant = 1000f });
+        Assert.That(FacturationSuivi.EtatAffiche(loc, rec), Is.EqualTo(FacturationSuivi.Etat.Partiel));
+        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.Impaye));
+        Assert.That(FacturationSuivi.DuesDe(loc)[0].montant, Is.EqualTo(2000f));
+    }
+
+    [Test]
+    public void Le_statut_suit_les_versements()
+    {
+        // Tout réglé → Payé ; on retire un versement → Envoyé ; un « Payé » mis à la main
+        // sans versement n'est pas défait en rouvrant la fenêtre.
+        Assert.That(FacturationSuivi.StatutApresVersements("Envoye", 3000f, 1500f, 3000f), Is.EqualTo("Paye"));
+        Assert.That(FacturationSuivi.StatutApresVersements("Impaye", 3000f, 0f, 1000f), Is.EqualTo("Impaye"));
+        Assert.That(FacturationSuivi.StatutApresVersements("Paye", 3000f, 3000f, 2000f), Is.EqualTo("Envoye"));
+        Assert.That(FacturationSuivi.StatutApresVersements("Paye", 3000f, 0f, 0f), Is.EqualTo("Paye"));
+    }
+
+    [Test]
+    public void Un_versement_doit_etre_positif_et_ne_pas_depasser_le_reste()
+    {
+        Assert.That(FacturationSuivi.VerifierVersement(0f, 500f), Is.Not.Null);
+        Assert.That(FacturationSuivi.VerifierVersement(600f, 500f), Does.Contain("500,00"));
+        Assert.That(FacturationSuivi.VerifierVersement(500f, 500f), Is.Null);
+    }
+
+    [Test]
+    public void Une_facture_sur_plusieurs_lignes_porte_ses_versements_sur_la_premiere()
+    {
+        // Régul regroupée : deux lignes, un seul PDF, une seule créance.
+        var loc = LocataireAvecFactureEmise(Iso(-2));
+        var premiere = loc.facturesEtat[0];
+        loc.facturesEtat.Add(new FactureEtat { key = "regul-b", type = "Loyer", statut = "Envoye",
+            echeanceISO = premiere.echeanceISO, pdfPath = premiere.pdfPath, montant = 1000f });
+        premiere.versements.Add(new Versement { dateISO = Iso(0), montant = 1000f });
+
+        Assert.That(FacturationSuivi.Porteuse(loc, "regul-b"), Is.SameAs(premiere));
+        FacturationSuivi.Solde(loc, "regul-b", out float total, out float paye);
+        Assert.That(total, Is.EqualTo(4000f));
+        Assert.That(paye, Is.EqualTo(1000f));
+        Assert.That(FacturationSuivi.EtatAffiche(loc, loc.facturesEtat[1]), Is.EqualTo(FacturationSuivi.Etat.Partiel));
+        var dues = FacturationSuivi.DuesDe(loc);
+        Assert.That(dues, Has.Count.EqualTo(1));
+        Assert.That(dues[0].montant, Is.EqualTo(3000f));
+    }
+
     // ── H2-bis : les quatre états « émise » ─────────────────────────────────
 
     [Test]

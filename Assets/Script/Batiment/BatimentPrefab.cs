@@ -248,8 +248,18 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         }
         if (archives > 0)
         {
-            var t = UIFactory.Toggle(locataireRowContainer, $"Anciens locataires ({archives})", _voirAnciens);
-            t.onValueChanged.AddListener(v => { _voirAnciens = v; RebuildLocataireRows(); });
+            // Bouton pastille (maquette validée le 07/10) : la case ronde du Toggle débordait
+            // sur le bord de la carte. Clair fermé, foncé ouvert (▸ / ▾ absents de la police :
+            // texte et « › » à la place).
+            var ligne = UIFactory.HBox(locataireRowContainer, 0, false, "AnciensLocataires");
+            ligne.padding = new RectOffset(4, 0, 4, 2);
+            var b = UIFactory.Button(ligne.transform, _voirAnciens ? $"Masquer les anciens ({archives})" : $"Anciens locataires ({archives}) ›",
+                _voirAnciens ? UITheme.Primaire : (Color)new Color32(0xF1, 0xEF, 0xE8, 0xFF),
+                _voirAnciens ? Color.white : UITheme.TexteSecondaire, 32, UITheme.Role.Action, false);
+            b.image.pixelsPerUnitMultiplier = 2.5f;
+            UIFactory.Border(b.gameObject);
+            UIFactory.LargeurDuTexte(b);
+            b.onClick.AddListener(() => { _voirAnciens = !_voirAnciens; RebuildLocataireRows(); });
         }
     }
 
@@ -340,7 +350,8 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     {
         if (list?.items == null) return false;
         foreach (var o in list.items)
-            if (o.status == Objective.ObjectiveStatus.Obligatoire) return true;
+            if (!o.Fait && (o.importance == Objective.Importance.Obligatoire
+                            || Objectifs.Etat(o, System.DateTime.Today) == Objectifs.EtatEcheance.EnRetard)) return true;
         return false;
     }
 

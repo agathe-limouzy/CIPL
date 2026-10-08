@@ -11,7 +11,8 @@ public static class FacturationSuivi
 {
     // Cloture / Franchise / HorsBail : statuts transitoires (jamais stockés), lignes
     // grisées et non actionnables — voir EstGrisee.
-    public enum Etat { AVenir, AFaire, AttenteEnvoi, Envoye, Impaye, Paye, Cloture, Franchise, HorsBail }
+    // Partiel : affichage seulement (EtatAffiche), une facture due réglée en partie.
+    public enum Etat { AVenir, AFaire, AttenteEnvoi, Envoye, Impaye, Paye, Cloture, Franchise, HorsBail, Partiel }
 
     /// Ligne sans facture attendue : période reprise, en franchise ou avant le bail.
     public static bool EstGrisee(Etat e) => e == Etat.Cloture || e == Etat.Franchise || e == Etat.HorsBail;
@@ -203,7 +204,8 @@ public static class FacturationSuivi
         key = r.key, type = r.type, libelle = r.libelle, echeanceISO = r.echeanceISO,
         statut = r.statut, numero = r.numero, pdfPath = r.pdfPath, dateEnvoiISO = r.dateEnvoiISO,
         montant = r.montant, loyerHT = r.loyerHT, ribId = r.ribId, ribNom = r.ribNom, corrections = r.corrections,
-        dernierRappelISO = r.dernierRappelISO
+        dernierRappelISO = r.dernierRappelISO,
+        versements = r.versements != null ? new List<Versement>(r.versements) : new List<Versement>()
     };
 
     // ── État d'une ligne ────────────────────────────────────────────────────────
@@ -275,8 +277,63 @@ public static class FacturationSuivi
             case Etat.Cloture: return "Clôturé";
             case Etat.Franchise: return "Franchise";
             case Etat.HorsBail: return "Hors bail";
+            case Etat.Partiel: return "Partiel";
         }
         return "";
+    }
+
+    // ── Paiements partiels (08/10) ──────────────────────────────────────────────
+    // Les versements d'une facture vivent sur sa ligne « porteuse » : la première de
+    // MemeFacture (une régul regroupée a plusieurs lignes pour un seul PDF), sinon la
+    // ligne elle-même. Tout réglé → la facture passe « Payé » (StatutApresVersements).
+
+    /// Somme des versements portés par une ligne.
+    public static float Paye(FactureEtat f) => f?.versements?.Sum(v => v.montant) ?? 0f;
+
+    /// Ligne stockée qui porte les versements de la facture `key`.
+    public static FactureEtat Porteuse(Locataire loc, string key)
+    {
+        var meme = MemeFacture(loc, key);
+        return meme.Count > 0 ? meme[0] : loc?.facturesEtat?.FirstOrDefault(x => x.key == key);
+    }
+
+    /// Montant de la facture (toutes ses lignes) et ce qui en a été versé.
+    public static void Solde(Locataire loc, string key, out float total, out float paye)
+    {
+        var meme = MemeFacture(loc, key);
+        var rec = Porteuse(loc, key);
+        total = meme.Count > 0 ? meme.Sum(x => x.montant) : rec?.montant ?? 0f;
+        paye = Paye(rec);
+    }
+
+    /// État affiché : « Partiel » dès qu'une facture due (envoyée ou impayée) est réglée en
+    /// partie (retour du 08/10). L'état réel reste `EtatDe` : une partielle échue compte
+    /// toujours dans les impayés (Créances, filtre, rappel d'échéance).
+    public static Etat EtatAffiche(Locataire loc, FactureEtat f)
+    {
+        var e = EtatDe(f);
+        if (e != Etat.Envoye && e != Etat.Impaye) return e;
+        Solde(loc, f.key, out _, out float paye);
+        return paye > 0f ? Etat.Partiel : e;
+    }
+
+    /// Statut après une saisie de versements : tout réglé → « Payé » ; une facture payée
+    /// dont on retire un versement redevient « Envoyé » (puis Impayé si l'échéance est
+    /// passée) ; sinon inchangé — un « Payé » mis à la main sans versement reste payé.
+    public static string StatutApresVersements(string statut, float total, float payeAvant, float payeApres)
+    {
+        if (total > 0f && payeApres >= total - 0.005f) return "Paye";
+        if (statut == "Paye" && payeApres < payeAvant - 0.005f) return "Envoye";
+        return statut;
+    }
+
+    /// Contrôle d'un nouveau versement : message d'erreur, ou null s'il est accepté.
+    public static string VerifierVersement(float montant, float reste)
+    {
+        if (montant <= 0f) return "Montant du versement : un nombre supérieur à 0.";
+        if (montant > reste + 0.005f)
+            return $"Le versement dépasse le reste à payer ({reste.ToString("#,##0.00", FacturePdfService.FrCulture)} €).";
+        return null;
     }
 
     // ── Écriture ────────────────────────────────────────────────────────────────
@@ -546,6 +603,8 @@ public static class FacturationSuivi
     /// Factures dues (Envoyé ou Impayé) d'un locataire. Une facture portée par plusieurs
     /// lignes (même PDF : refacturation de plusieurs charges, régul regroupée) est UNE
     /// créance, à son total. Ce sont des copies : on ne fait que les lire.
+    /// Montant = le RESTE à payer (08/10) : versements déduits — créances, décompte de
+    /// sortie et archivage comptent ce qui est encore dû.
     public static List<FactureEtat> DuesDe(Locataire loc)
     {
         var res = new List<FactureEtat>();
@@ -558,6 +617,7 @@ public static class FacturationSuivi
             if (i >= 0) res[i].montant += r.montant;
             else res.Add(CopieDe(r));
         }
+        foreach (var d in res) d.montant -= Paye(d);   // la copie de la porteuse a ses versements
         return res;
     }
 

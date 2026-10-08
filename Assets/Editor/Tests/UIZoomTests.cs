@@ -45,6 +45,38 @@ public class UIZoomTests
         Assert.That(UIZoom.Borner(float.NaN), Is.EqualTo(1f), "NaN");
     }
 
+    /// Menus déroulants au zoom 175 % (07/10) : PlacePopup posait la position du champ en
+    /// pixels d'écran comme si c'étaient des unités d'interface ; le menu partait en haut à
+    /// droite. Il doit s'ouvrir collé sous son champ, quelle que soit l'échelle du canevas.
+    [Test]
+    public void Un_menu_deroulant_s_ouvre_sous_son_champ_au_zoom_175()
+    {
+        var racine = new GameObject("RacineZoom", typeof(RectTransform));
+        try
+        {
+            var rr = (RectTransform)racine.transform;
+            rr.sizeDelta = new Vector2(1097f, 617f);           // 1920 × 1080 à 175 %
+            rr.localScale = Vector3.one * 1.75f;              // échelle d'un canevas zoomé
+            var voile = UIFactory.Rect("Voile", racine.transform);
+            UIFactory.Stretch(voile);
+            var champ = UIFactory.Rect("Champ", racine.transform);
+            champ.anchorMin = champ.anchorMax = new Vector2(.5f, .5f);
+            champ.sizeDelta = new Vector2(280, 44);
+            champ.anchoredPosition = new Vector2(-100, 20);
+            var menu = UIFactory.Rect("Menu", voile);
+            menu.anchorMin = menu.anchorMax = Vector2.zero;
+            menu.sizeDelta = new Vector2(280, 120);
+
+            UIFactory.PlacePopup(menu, champ, 6f);
+
+            var c = new Vector3[4]; champ.GetWorldCorners(c);
+            var m = new Vector3[4]; menu.GetWorldCorners(m);
+            Assert.That(Vector3.Distance(m[1], c[0]), Is.LessThan(0.5f),
+                $"le haut-gauche du menu {m[1]} doit être au bas-gauche du champ {c[0]}");
+        }
+        finally { Object.DestroyImmediate(racine); }
+    }
+
     [Test]
     public void Tous_les_paliers_proposes_sont_valides()
     {

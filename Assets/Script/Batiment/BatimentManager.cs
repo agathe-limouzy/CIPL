@@ -346,6 +346,11 @@ public class BatimentManager : MonoBehaviour
                     // Charges au format « facturée pour tous » → par locataire, d'après
                     // le suivi. Avant la création de la fiche : elle travaille sur une copie.
                     bool reconstitue = ChargeBatiment.Reconstituer(data);
+                    // Objectifs à l'ancien format (un seul statut) → importance + avancement.
+                    // En mémoire seulement : écrits au prochain enregistrement du bâtiment.
+                    Objectifs.Migrer(data.objectifs);
+                    if (data.locataireDuBatiment != null)
+                        foreach (var l in data.locataireDuBatiment) Objectifs.Migrer(l?.objectifs);
                     // Loyer à paliers : le loyer courant suit le palier du jour. Cession
                     // prévue dont le jour est arrivé : la fiche change de titulaire.
                     bool cede = false;

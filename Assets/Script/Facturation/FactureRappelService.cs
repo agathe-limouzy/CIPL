@@ -31,7 +31,8 @@ public static class FactureRappelService
             if (!string.IsNullOrEmpty(email))
             {
                 string sujet = $"Rappel — {l.libelle} — échéance dépassée";
-                string corps = BuildCorps(l, echeance);
+                FacturationSuivi.Solde(loc, l.key, out float total, out float paye);
+                string corps = BuildCorps(l, echeance, total, paye);
                 Application.OpenURL($"mailto:{email}?subject={Esc(sujet)}&body={Esc(corps)}");
             }
             FacturationSuivi.MarquerRappel(loc, l.key);
@@ -48,12 +49,13 @@ public static class FactureRappelService
             Confirmer();
     }
 
-    static string BuildCorps(FactureEtat l, string echeance)
+    static string BuildCorps(FactureEtat l, string echeance, float total, float paye)
     {
         var R = ReglageService.Current;
         string signature = R != null && R.smtp != null && !string.IsNullOrWhiteSpace(R.smtp.fromName)
             ? R.smtp.fromName : "GROUPE CIPL";
-        string montant = l.montant > 0f ? l.montant.ToString("#,##0.00", Fr) + " €" : "";
+        if (total <= 0f) total = l.montant;
+        string montant = total > 0f ? total.ToString("#,##0.00", Fr) + " €" : "";
 
         var sb = new StringBuilder();
         sb.AppendLine("Bonjour,");
@@ -61,7 +63,12 @@ public static class FactureRappelService
         sb.Append($"Sauf erreur de notre part, la facture « {l.libelle} »");
         if (!string.IsNullOrEmpty(l.numero)) sb.Append($" (n° {l.numero})");
         if (!string.IsNullOrEmpty(montant)) sb.Append($", d'un montant de {montant},");
-        sb.AppendLine($" échue le {echeance}, demeure impayée à ce jour.");
+        // Paiement partiel (08/10) : le rappel réclame le reste, pas le total.
+        if (paye > 0f && paye < total)
+            sb.AppendLine($" échue le {echeance}, n'a été réglée qu'en partie : il reste "
+                + $"{(total - paye).ToString("#,##0.00", Fr)} € à payer.");
+        else
+            sb.AppendLine($" échue le {echeance}, demeure impayée à ce jour.");
         sb.AppendLine();
         sb.AppendLine("Nous vous remercions de bien vouloir procéder à son règlement dans les meilleurs délais.");
         if (R != null && !string.IsNullOrWhiteSpace(R.phraseRetard))

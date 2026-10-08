@@ -344,7 +344,7 @@ public static class DepartPanel
 
     // Bandeau plein en tête, coins arrondis en haut, comme les modales Loyer, Dépôt et
     // Paliers (retour du 06/10 : l'ancien bandeau était une pastille et le titre débordait).
-    static TMP_Text Entete(Transform carte, string texte, Color fond)
+    internal static TMP_Text Entete(Transform carte, string texte, Color fond)
     {
         var header = UIFactory.Panel("Header", carte, fond);
         var haut = Resources.FindObjectsOfTypeAll<Sprite>().FirstOrDefault(sp => sp != null && sp.name == "RoundedTop");

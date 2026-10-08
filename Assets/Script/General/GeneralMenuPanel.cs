@@ -578,19 +578,35 @@ public class GeneralMenuPanel : MonoBehaviour
 
     // ── Zone « À traiter » ────────────────────────────────────────────────────
 
+    private TuilesATraiter _tuilesATraiter;
+
     private void BuildAlertes()
     {
         foreach (var r in _alertRows) Destroy(r);
         _alertRows.Clear();
 
-        var alertes = HomeAlertCollector.Collect(batimentManager.BatimentPrefab);
+        var toutes = HomeAlertCollector.Collect(batimentManager.BatimentPrefab);
 
-        if (txtNbAlertes != null) txtNbAlertes.text = alertes.Count.ToString();
-        txtAucuneAlerte?.SetActive(alertes.Count == 0);
-        alertesSection?.SetActive(alertes.Count > 0);
+        if (txtNbAlertes != null) txtNbAlertes.text = toutes.Count.ToString();
+        txtAucuneAlerte?.SetActive(toutes.Count == 0);
+        alertesSection?.SetActive(toutes.Count > 0);
 
         // Tant que le prefab/conteneur ne sont pas câblés, on n'instancie rien.
         if (alertRowPrefab == null || alertesContainer == null) return;
+
+        // Tuiles de filtre (07/10), au-dessus des en-têtes de colonnes (« ColHeader » de la
+        // scène) et de la liste défilante, construites une fois.
+        if (_tuilesATraiter == null)
+        {
+            var defil = alertesContainer.GetComponentInParent<ScrollRect>(true);
+            var hote = defil != null ? defil.transform : alertesContainer;
+            _tuilesATraiter = new TuilesATraiter(hote.parent, BuildAlertes);
+            var avant = hote.parent.Find("ColHeader") ?? hote;
+            _tuilesATraiter.Racine.SetSiblingIndex(avant.GetSiblingIndex());
+        }
+        var auj = System.DateTime.Today;
+        _tuilesATraiter.Maj(toutes, auj);
+        var alertes = toutes.Where(a => _tuilesATraiter.Garde(a, auj)).ToList();
 
         int n = Mathf.Min(alertes.Count, maxAlertesAffichees);
         for (int i = 0; i < n; i++)
@@ -607,6 +623,12 @@ public class GeneralMenuPanel : MonoBehaviour
     private void OuvrirAlerte(HomeAlert alerte)
     {
         Hide();
+        // Un objectif : sa fiche (bâtiment ou locataire), puis sa fenêtre (retour du 06/10).
+        if (alerte.kind == HomeAlert.Kind.Objectif && alerte.objectif != null)
+        {
+            ObjectifPanel.OuvrirAlerte(alerte);
+            return;
+        }
         menuManager.OnSelect(alerte.batiment);
         if (alerte.locataire != null &&
             alerte.batiment.dictionnairelocataire.TryGetValue(alerte.locataire, out var locPrefab))

@@ -96,6 +96,12 @@ public static class DossiersDonnees
     public static string DossierBail(string nomBatiment, string nomLocataire)
         => Path.Combine(DossierLocataire(nomBatiment, nomLocataire), "Bail");
 
+    /// Documents joints aux objectifs : « Objectifs » du locataire, ou du bâtiment pour
+    /// un objectif de bâtiment. Seuls les noms de fichier sont enregistrés (comme le bail).
+    public static string DossierObjectifs(string nomBatiment, string nomLocataire)
+        => Path.Combine(string.IsNullOrEmpty(nomLocataire) ? DossierBatiment(nomBatiment)
+                                                           : DossierLocataire(nomBatiment, nomLocataire), "Objectifs");
+
     /// Chemin d'un document du bail tel qu'enregistré : un nom de fichier (rangé dans
     /// DossierBail), ou un chemin complet hérité de l'ancien format.
     public static string CheminDocumentBail(string nomBatiment, string nomLocataire, string stocke)

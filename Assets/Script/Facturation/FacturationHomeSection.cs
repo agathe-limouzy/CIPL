@@ -220,7 +220,7 @@ public class FacturationHomeSection : MonoBehaviour
                 Cell(row, Montant(e.rec.montant), WMont, true, UITheme.TextePrincipal, false);
                 Cell(row, "", WGap, false, UITheme.TexteSecondaire, false);
                 CellBank(row, e.rec.ribNom, WBank);
-                Pill(row, e.etat, WEtat);
+                Pill(row, FacturationSuivi.EtatAffiche(e.loc, e.rec), WEtat);   // « Partiel » (08/10) ; montant = le reste
             }
         }
     }
@@ -390,8 +390,10 @@ public class FacturationHomeSection : MonoBehaviour
     static string EchStr(string iso) => DateTime.TryParse(iso, out var d) ? d.ToString("dd/MM/yyyy") : "—";
     static DateTime Ech(string iso) => DateTime.TryParse(iso, out var d) ? d : DateTime.MaxValue;
 
-    static Color EtatBg(FacturationSuivi.Etat e) => e == FacturationSuivi.Etat.Impaye ? Hex("#FCEBEB") : Hex("#E6F1FB");
-    static Color EtatFg(FacturationSuivi.Etat e) => e == FacturationSuivi.Etat.Impaye ? Hex("#A32D2D") : Hex("#185FA5");
+    static Color EtatBg(FacturationSuivi.Etat e) => e == FacturationSuivi.Etat.Impaye ? Hex("#FCEBEB")
+        : e == FacturationSuivi.Etat.Partiel ? Hex("#FFE8D6") : Hex("#E6F1FB");
+    static Color EtatFg(FacturationSuivi.Etat e) => e == FacturationSuivi.Etat.Impaye ? Hex("#A32D2D")
+        : e == FacturationSuivi.Etat.Partiel ? Hex("#B4520A") : Hex("#185FA5");
 
     // Couleur de pastille par banque (banques connues, sinon dérivée du nom).
     static Color BankColor(string bank)

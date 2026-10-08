@@ -227,6 +227,13 @@ public class LocatairePrefab : PrefabBatLoc
         save.onClick.AddListener(() => SaveLocataire());
         modifyBatiment.onClick.AddListener(() => Modify());
         objectivesManager.AddNeObjectif.AddListener(() => updateListObjectif());
+        // Objectifs du locataire : la liste de la fiche EST celle du locataire (comme
+        // BatimentPrefab). Sans ce chargement, la fiche partait d'une liste vide et
+        // updateListObjectif la recopiait sur le locataire : ajouter un objectif depuis la
+        // fiche effaçait les autres (constaté le 06/10).
+        if (newLocataire.objectifs == null) newLocataire.objectifs = new ObjectiveList();
+        if (newLocataire.objectifs.items == null) newLocataire.objectifs.items = new List<Objective>();
+        objectivesManager.LoadObjectives(newLocataire.objectifs);
         pappersBtn.onClick.RemoveAllListeners();
         pappersBtn.onClick.AddListener(OnPappersClick);
         // Le bouton « résumé société » a disparu : le résumé se met à jour seul au

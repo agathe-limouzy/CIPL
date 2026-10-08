@@ -338,8 +338,9 @@ public class LocataireSuiviInline : MonoBehaviour
             i++;
             var lgn = l;
             var row = Ligne(prefab, cv.transform);
-            row.Setup(Libelle(l), Ech(l.echeanceISO), Montant(l.montant), couleurs,
-                FacturationSuivi.EtatLibelle(etat), EtatBg(etat), EtatFg(etat),
+            var affiche = FacturationSuivi.EtatAffiche(_loc, l);   // « Partiel » : réglée en partie (08/10)
+            row.Setup(Libelle(l), Ech(l.echeanceISO), MontantLigne(l, etat), couleurs,
+                FacturationSuivi.EtatLibelle(affiche), EtatBg(affiche), EtatFg(affiche),
                 // Ligne grisée (reprise, franchise, hors bail) : pastille statique, aucune action.
                 !clot, () => OpenStatutMenu(lgn, (RectTransform)row.pastille.transform),
                 Actions(l, etat));
@@ -436,6 +437,22 @@ public class LocataireSuiviInline : MonoBehaviour
             _fiche.RafraichirAlertesFacturation();
         };
         MenuItem(vlg.transform, "Payé", () => set("Paye"));
+        // Paiement partiel (08/10) : les versements d'une facture émise.
+        var etatLigne = FacturationSuivi.EtatDe(ligne);
+        FacturationSuivi.Solde(_loc, ligne.key, out float total, out float paye);
+        if (total > 0f && FacturationSuivi.Porteuse(_loc, ligne.key) != null
+            && (etatLigne == FacturationSuivi.Etat.Envoye || etatLigne == FacturationSuivi.Etat.Impaye
+                || (etatLigne == FacturationSuivi.Etat.Paye && paye > 0f)))
+            MenuItem(vlg.transform, "Paiement partiel…", () =>
+            {
+                Destroy(scrim.gameObject);
+                VersementsPanel.Ouvrir(_fiche, ligne, () =>
+                {
+                    RebuildTable();
+                    _fiche.RefreshParcours();
+                    _fiche.RafraichirAlertesFacturation();
+                });
+            });
         MenuItem(vlg.transform, "Impayé", () => set("Impaye"));
         MenuItem(vlg.transform, "Envoyé", () => set("Envoye"));
         MenuItem(vlg.transform, "À faire", () => set("AFaire"));
@@ -482,6 +499,16 @@ public class LocataireSuiviInline : MonoBehaviour
     }
 
     static string Montant(float v) => v > 0f ? v.ToString("#,##0.00", Fr) + " €" : "—";
+
+    // Réglée en partie (08/10) : « reste 200,00 € », puis « sur 1 000,00 € » en petit — sur
+    // une seule ligne, le texte (209 px) débordait la colonne de 140 ; deux lignes tiennent
+    // dans la hauteur de ligne (33 px sur 46).
+    string MontantLigne(FactureEtat l, FacturationSuivi.Etat etat)
+    {
+        FacturationSuivi.Solde(_loc, l.key, out float total, out float paye);
+        if (paye <= 0f || etat == FacturationSuivi.Etat.Paye) return Montant(l.montant);
+        return $"reste {Montant(total - paye)}\n<size=80%><color=#888780>sur {Montant(total)}</color></size>";
+    }
     static string Ech(string iso) => DateTime.TryParse(iso, out var d) ? d.ToString("dd/MM/yyyy") : "—";
 
     static Color EtatBg(FacturationSuivi.Etat e)
@@ -493,6 +520,7 @@ public class LocataireSuiviInline : MonoBehaviour
             case FacturationSuivi.Etat.AttenteEnvoi: return Hex("#EDE8F6");
             case FacturationSuivi.Etat.Envoye: return Hex("#E6F1FB");
             case FacturationSuivi.Etat.Impaye: return Hex("#FCEBEB");
+            case FacturationSuivi.Etat.Partiel: return Hex("#FFE8D6");
             case FacturationSuivi.Etat.Cloture:
             case FacturationSuivi.Etat.Franchise:
             case FacturationSuivi.Etat.HorsBail: return Hex("#ECEAE3");
@@ -509,6 +537,7 @@ public class LocataireSuiviInline : MonoBehaviour
             case FacturationSuivi.Etat.AttenteEnvoi: return Hex("#6A5AA0");
             case FacturationSuivi.Etat.Envoye: return Hex("#185FA5");
             case FacturationSuivi.Etat.Impaye: return Hex("#A32D2D");
+            case FacturationSuivi.Etat.Partiel: return Hex("#B4520A");
             case FacturationSuivi.Etat.Cloture:
             case FacturationSuivi.Etat.Franchise:
             case FacturationSuivi.Etat.HorsBail: return Hex("#9B9A94");

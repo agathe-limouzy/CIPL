@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using TMPro;
 using UnityEngine;
@@ -263,14 +264,71 @@ public class LoyerSummaryUI : MonoBehaviour
 
     private TMP_Text Row(Transform parent, string label) => Row(parent, label, out _);
 
+    // Libellé à sa largeur (il ne rétrécit plus), valeur qui prend le reste et passe à la
+    // ligne. Avant (07/10, zoom 175 %) : les deux rétrécissaient et la valeur, alignée à droite
+    // sans retour à la ligne, recouvrait le libellé (« Mois facturés » / « Janvier · Avril… »).
+    private const float VALEUR_MIN = 110f;
+    private readonly List<TMP_Text> _libelles = new List<TMP_Text>();
+
     private TMP_Text Row(Transform parent, string label, out GameObject rowGO)
     {
         var h = UIFactory.HBox(parent, 8, false, "Row");
+        h.childAlignment = TextAnchor.UpperLeft;   // valeur sur plusieurs lignes : libellé en face de la 1re
         UIFactory.LE(h.gameObject, minH: 24);
         rowGO = h.gameObject;
         var l = UIFactory.Text(h.transform, label, UITheme.Role.Libelle, UITheme.TexteSecondaire);
-        UIFactory.LE(l.gameObject, flexW: 1);
-        return UIFactory.Text(h.transform, "—", UITheme.Role.Libelle, UITheme.TextePrincipal, true, TextAlignmentOptions.Right);
+        l.enableWordWrapping = false;
+        UIFactory.LE(l.gameObject, flexW: 0);
+        _libelles.Add(l);   // largeur posée par MesurerLibelles, une fois la fiche affichée
+        var v = UIFactory.Text(h.transform, "—", UITheme.Role.Libelle, UITheme.TextePrincipal, true, TextAlignmentOptions.TopRight);
+        v.enableWordWrapping = true;
+        UIFactory.LE(v.gameObject, minW: 0, flexW: 1);
+        return v;
+    }
+
+    // La fiche est construite INACTIVE : un texte TMP n'y a pas encore sa police, et le
+    // mesurer à la construction levait une NullReferenceException qui faisait échouer le
+    // chargement de tous les bâtiments ayant des locataires (07/10). On mesure donc à
+    // l'image qui suit l'affichage, et seulement si tout est prêt ; sinon on réessaiera.
+    private void OnEnable() => DemanderMesure();
+
+    // Appelé à l'affichage et après chaque rafraîchissement : des lignes (franchise, départ,
+    // CA, régul) n'apparaissent qu'avec certaines données, on mesure celles qui sont visibles.
+    private void DemanderMesure()
+    {
+        if (_libelles.Count > 0 && isActiveAndEnabled) StartCoroutine(MesurerApres());
+    }
+
+    private System.Collections.IEnumerator MesurerApres()
+    {
+        yield return null;
+        MesurerLibelles();
+    }
+
+    private void MesurerLibelles()
+    {
+        try
+        {
+            float max = 0f;
+            foreach (var l in _libelles)
+            {
+                var le = l != null ? l.GetComponent<LayoutElement>() : null;
+                if (le == null) continue;
+                // Seulement un libellé affiché, police prête : ailleurs la mesure est fausse ou plante.
+                if (le.minWidth < 1f && l.font != null && l.isActiveAndEnabled)
+                    le.minWidth = le.preferredWidth = Mathf.Ceil(l.preferredWidth);
+                if (l.isActiveAndEnabled) max = Mathf.Max(max, le.minWidth);
+            }
+            // Vrai minimum du bloc (libellé le plus long + une valeur) : ColonnesAdaptatives
+            // empile les colonnes de la fiche d'après les minimums annoncés ; 200 était trop peu.
+            var rle = _recapGO != null ? _recapGO.GetComponent<LayoutElement>() : null;
+            if (rle != null && max > 0f) rle.minWidth = Mathf.Max(200f, max + 8f + VALEUR_MIN + 14f);
+        }
+        catch (System.Exception e)
+        {
+            // Un défaut d'affichage ne doit jamais bloquer la fiche : on garde l'ancien rendu.
+            Debug.LogWarning($"[LoyerSummaryUI] Mesure des libellés impossible : {e.Message}");
+        }
     }
 
     private void UpdateRecap(Locataire loc)
@@ -339,6 +397,8 @@ public class LoyerSummaryUI : MonoBehaviour
                     ? dr.ToString("dd/MM/yyyy") : "—";
                 return ListesCharges.Specifiques().Count == 0 ? d : $"{ListesCharges.Nom(id)} : {d}";
             }));
+
+        DemanderMesure();   // des lignes viennent peut-être d'apparaître
     }
 
     private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
@@ -440,6 +500,7 @@ public class LoyerSummaryUI : MonoBehaviour
         {
             _recapGO.transform.SetParent(cols.transform, false);
             var rle = _recapGO.GetComponent<LayoutElement>() ?? _recapGO.AddComponent<LayoutElement>();
+            // Minimum provisoire : MesurerLibelles le remplace par le vrai, fiche affichée.
             rle.flexibleWidth = 1.05f; rle.minWidth = 200;
             var sep = _recapGO.transform.Find("Sep");
             if (sep != null) sep.gameObject.SetActive(false);

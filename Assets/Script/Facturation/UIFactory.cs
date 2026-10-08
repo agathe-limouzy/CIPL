@@ -55,16 +55,22 @@ public static class UIFactory
         LayoutRebuilder.ForceRebuildLayoutImmediate(popup);
         float h = popup.rect.height;
         var c = new Vector3[4]; anchor.GetWorldCorners(c);   // 0=bas-gauche · 1=haut-gauche
-        bool enBas = (c[0].y - h) >= margin;                 // assez de place sous l'ancre ?
+        // Coins de l'ancre dans le repère du parent du menu, mesurés depuis son coin bas-gauche
+        // (l'ancrage du menu). Les coins « monde » sont en pixels d'écran : les poser tels quels
+        // ne tombait juste qu'au zoom 100 % ; à 175 % le menu partait en haut à droite (07/10).
+        var parent = (RectTransform)popup.parent;
+        Vector2 basGauche = (Vector2)parent.InverseTransformPoint(c[0]) - parent.rect.min;
+        Vector2 hautGauche = (Vector2)parent.InverseTransformPoint(c[1]) - parent.rect.min;
+        bool enBas = (basGauche.y - h) >= margin;            // assez de place sous l'ancre ?
         if (enBas)
         {
             popup.pivot = new Vector2(0f, 1f);               // haut-gauche du menu…
-            popup.anchoredPosition = new Vector2(c[0].x, c[0].y);   // …au bas-gauche de l'ancre
+            popup.anchoredPosition = basGauche;              // …au bas-gauche de l'ancre
         }
         else
         {
             popup.pivot = new Vector2(0f, 0f);               // bas-gauche du menu…
-            popup.anchoredPosition = new Vector2(c[1].x, c[1].y);   // …au haut-gauche de l'ancre
+            popup.anchoredPosition = hautGauche;             // …au haut-gauche de l'ancre
         }
     }
 
