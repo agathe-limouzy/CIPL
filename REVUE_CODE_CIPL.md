@@ -128,6 +128,117 @@ Sujet choisi par l'utilisatrice : le module de l'app. Diagnostic présenté (4 s
       - Compilé, **401 tests EditMode verts** (08/10).
     - **Paiement partiel d'une facture** (08/10, maquettes validées : versements datés + état « Partiel ») — détail dans FACTURATION §16.2. Modèle : `FactureEtat.versements` (`Versement` : `dateISO`, `montant`), sur la ligne porteuse (`FacturationSuivi.Porteuse`). Règles testées dans `FacturationSuivi` : `Solde`, `EtatAffiche` (« Partiel » = affichage dès qu'une facture envoyée ou impayée a un versement — retour du 08/10 ; `EtatDe` inchangé), `StatutApresVersements`, `VerifierVersement` ; `DuesDe` renvoie le **reste** (Créances, décompte de sortie, archivage). Écran : `VersementsPanel` (nouveau), entrée « Paiement partiel… » du menu d'état (`LocataireSuiviInline`), montant « reste X / sur Y » sur deux lignes (une seule ligne : 209 px pour une colonne de 140), pastille Partiel aussi dans Créances, rappel d'échéance qui réclame le reste. `DepartPanel.Entete` passe `internal` (réutilisé). 5 tests, **406 verts**. Vérifié en Play : fenêtre ouverte sur le loyer d'août de Starbucks Coffee (rivoli), saisie « 4 000,50 » lue, reste recalculé, « Annuler » n'écrit rien. Retours du 08/10 : pastille « Partiel » aussi pour une partielle échue (l'état réel reste Impayé) ; « Retirer » devenu un vrai bouton (fond rouge pâle + bordure : en texte seul on ne le voyait pas). Parcours T **validé en Play le 08/10**, 406 tests verts.
       - **Résumé du bâtiment** : la carte « À traiter » affichait toutes les alertes sans limite (16 avec les objectifs de TEST Objectifs), et agrandissait tout le résumé. En-têtes fixes, puis lignes dans un défilement plafonné à 300 (~8 lignes), réduit au contenu sinon, défilement coupé quand tout tient (`BatimentSummaryView.AjusterATraiter`).
+- **Fin de session (09/10)** : objectifs (parcours Q, R, S) et paiement partiel (parcours T) **validés en Play** ; **406 tests EditMode verts**. Bâtiment de test « TEST Objectifs » supprimé à la demande de l'utilisatrice : dossier et JSON (+ `.bak`) rangés dans `corbeille_batiments/17400c321cb34390b362343ede8c4605_TEST Objectifs/` (récupérable). Restent les 4 bâtiments DemoCIPL (rivoli, Parc Tertiaire Sud, Auterive, Le Hangar). Commit à faire par l'utilisatrice.
+
+### Session du 09/10 — conception du mode multi-utilisateur (aucun code)
+- **Livrable** : `CONCEPTION_MULTIUTILISATEUR.md`. Il couvre les décisions validées, l'architecture cloud (SaaS, UE), le modèle serveur (bâtiment et locataires sur des lignes séparées, avec une version), les verrous par fiche, la table « écran → verrou » de tous les appelants de `SaveBatiment` et `SaveAfterModifyToDoListLocataire`, les documents (cloud de référence, modes « Drive partagé » et « Sur chaque PC »), les parcours, les 6 maquettes (5 validées en session, Réglages › Documents choisie en aperçu), le découpage en 9 étapes et les risques.
+- **Constats du code qui bloquent le multi-utilisateur** : on enregistre toujours le bâtiment entier ; `SauvegardeDeFermeture` réécrit tout à la fermeture ; `LoadAll` écrit au chargement (`Reconstituer`, `EffectuerCession`) ; les documents restent sur un seul PC.
+- **Simplification à noter** : la numérotation des factures n'a pas besoin d'une fonction serveur. `factureSeq` est par locataire et l'émission se fait sous le verrou du locataire, avec contrôle de version.
+- **Prochaine étape** : l'étape 1, l'essai technique. L'utilisatrice crée le compte du service cloud, puis on teste dans Unity 2023.2 un appel REST et un abonnement temps réel. Aucun fichier .cs ni de données n'a été modifié : les 406 tests restent tels quels.
+
+### Session du 11/10 — flows technique et UX/UI : connexion, paramètres, abonnement (aucun code)
+- **Livrable** : `FLOW_MULTIUTILISATEUR.drawio`, en 7 pages, dans le style du diagramme IfreightOS de l'utilisatrice : technique en parallélogrammes, rectangles et losanges sur des zones colorées ; écrans en fil de fer beige et turquoise, avec « <-- » et des nuages pour les règles. Il se rouvre et se modifie dans draw.io (Fichier › Ouvrir, ou Importer dans son diagramme). Il a été généré par un script et vérifié page par page dans la visionneuse draw.io (aucun lien cassé, flèches qui ne traversent pas les écrans).
+- **Décisions** : CONCEPTION_MULTIUTILISATEUR.md §13. En résumé : inscription libre avec SIRET vérifié (Pappers, sur le serveur) ; essai de 14 jours sans carte ; collaborateurs sur invitation seulement ; liens des e-mails qui ouvrent CIPL (`cipl://`, via une page relais) ; paiement Stripe dans l'application ; une seule offre avec -30 % sur chaque entreprise en plus ; un groupe et une facture ; une personne = une licence pour tout le groupe ; abonnement expiré = lecture seule + export ; Réglages en onglets, plus un menu compte (initiales en haut à droite) ; RIB, logo et suppression d'une liste de charges réservés à l'admin.
+- **Source** : le diagramme de référence exporté par l'utilisatrice est `CIPL_Git/IfreightOS_Tech.drawio.xml`, hors du dépôt.
+- **Retours du 12/10, intégrés au .drawio et à CONCEPTION §13** :
+  - inscription « Société ou particulier » : un particulier n'a pas de SIRET et son entreprise s'appelle « Patrimoine de Jean Martin » ; on garde le mot « entreprise » ;
+  - plus de choix de dossier au premier lancement : en mode Drive, CIPL retrouve seul le dossier partagé grâce à un repère `CIPL_entreprise.json` (écran seulement si introuvable) ; en mode « Dans CIPL », le dossier est créé sans question ;
+  - Réglages › Documents refait en deux blocs : « Rangement des documents » et « Sur cet ordinateur ».
+
+### Session du 12/10 — étape 1 : essai technique cloud (code écrit, à valider avec un projet Supabase)
+- **Décisions** : Supabase, région Paris ; adresse et clé publique du projet dans `cipl_app_secrets.dat` (`ReglageService.Get/SetCloudUrl`, `Get/SetCloudCle`) ; essai des 4 points (connexion, verrou, temps réel, lien cipl://) ; fondations gardées, rien n'est branché dans l'application.
+- **Serveur** : `Serveur/essai_supabase.sql` (à coller par l'utilisatrice). Tables `essai_verrous` (clé primaire = la fiche) et `essai_fiches`, en lecture seule par RLS. Fonctions `essai_prendre_verrou` (prise, signal de vie, reprise après 2 min sans signal ; arbitrage par la clé primaire) et `essai_liberer_verrou`. Les deux tables sont publiées en temps réel.
+- **Code** (`Assets/Script/Cloud/`) :
+  - `CloudClient` : REST par UnityWebRequest en async (connexion, renouvellement, fonctions SQL, tables PostgREST), plus la lecture des réponses ;
+  - `TempsReel` : ClientWebSocket au protocole Phoenix, avec file `Recus` lue sur le fil principal et battement toutes les 25 s ;
+  - `LienCipl` : analyse de `cipl://type?jeton=…` et commandes reg.exe sur HKCU ;
+  - `LienCiplRecepteur` : build seulement ; déclare cipl://, garde le verrou d'instance `cipl_instance.lock`, et une 2e fenêtre lancée par un lien dépose ce lien dans `cipl_lien_entrant.txt` puis s'arrête avant le chargement de la scène ;
+  - `RegleVerrou` : libellé, expiration, temps restant.
+
+  Fenêtre `Assets/Editor/EssaiCloudWindow.cs` (menu **CIPL › Essai cloud (étape 1)**) : deux sessions côte à côte, journal recopié dans la console sous `[EssaiCloud]`. Le projet a sa propre classe `MenuItem` : il faut écrire `UnityEditor.MenuItem` en entier.
+- **Tests** : `CloudTests` (15 tests), **421 tests EditMode verts**. Le filtre `testClass` ne trouve pas `CloudTests` (comme pour d'autres classes) ; c'est la suite complète qui a tourné.
+- **Reste à faire** : parcours **U** (U0 = création du projet Supabase et des 2 comptes de test par l'utilisatrice), puis U7 dans un build. Ensuite, l'étape 2 (connexion et lecture seule depuis le cloud).
+- **Résultats du 12/10 (projet Supabase `CIPL_app`, réf. `ehxskfjmiioesmipzsad`, Paris), avec deux vrais comptes** :
+  - connexion OK ;
+  - verrou obtenu en 62 à 424 ms ; refus de la 2e session en 114 ms, avec « En cours de modification par Marie Dupont (facturation) depuis 14 h 58 » ; reprise après libération ;
+  - temps réel : chaque modification reçue par les deux sessions en **223 à 555 ms** ;
+  - version périmée refusée, rien d'écrit.
+
+  Ajouts faits pendant l'essai :
+  - `CloudClient.AdresseProjet` : l'utilisatrice avait collé l'adresse du tableau de bord, elle est maintenant convertie en `https://<id>.supabase.co` (avec un test) ;
+  - la fenêtre empile les sessions quand elle est étroite et défile ;
+  - les montants s'affichent en fr-FR.
+
+  **422 tests verts.**
+- **U4 validé (12/10)**, dans les deux sens : Marie reprend la fiche que Paul n'a jamais libérée (expirée à 15:03:50) ; Paul reprend celle de Marie (expirée à 15:12:10) ; le signal de vie prolonge le verrou. Le temps réel diffuse aussi les verrous (« verrou de volteo — Paul Lefèvre »).
+- **Correctif SQL** : une session qui reprend SA fiche après expiration gardait l'heure de départ (« depuis 14 h 59 »). `pris_le` repart maintenant de `now()` si le verrou avait expiré. Il faut repasser le script dans Supabase pour l'appliquer (`create or replace`, données intactes).
+- **U7 validé (12/10)** : le build `Build\CIPL Demo 2\CIPL_Test.exe` a inscrit `HKCU\Software\Classes\cipl\shell\open\command` = `"…\CIPL_Test.exe" "%1"`, et le lien a été reçu (boîte aux lettres vidée). **Étape 1 terminée : les 4 risques techniques sont levés.**
+- **Étape 2 (12/10, code écrit, PAS encore testé en Play)**. Décisions :
+  - plus de mode local ;
+  - lecture seule jusqu'à l'étape 4 (`SaveBatiment` refuse avec un message) ;
+  - import proposé seulement si le cloud est vide (ou s'il y a un import à reprendre), sous le même nom ;
+  - repère `CIPL_entreprise.json` déposé dans le dossier source ;
+  - jeton gardé chiffré DPAPI, avec « Rester connecté(e) » coché par défaut ;
+  - membre ajouté par SQL en attendant les invitations ;
+  - documents d'un accès retiré : gardés sur le PC, plus mis à jour.
+
+  Fichiers :
+  - `Serveur/etape2_supabase.sql` (à passer dans Supabase) ;
+  - `Cloud/` : `Dpapi`, `SessionCloud`, `DonneesCloud`, `ImportLocal`, `EcransCloud`, `DemarrageCloud`, et `CloudClient.Inserer` ;
+  - `BatimentManager` : Start lance `DemarrageCloud`, plus `Vider`, `Installer`, et les gardes de lecture seule (l'ancien démarrage est dans `DemarrageLocal`) ;
+  - `EntrepriseBootstrap` : bouton « Compte », « Sauvegardes » masqué.
+
+  Écarts aux maquettes : pastille « lecture seule » en bas à gauche, bouton Compte au pied de l'accueil (initiales prévues à l'étape 9). **428 tests verts.**
+- **Étape 2 validée en Play (12/10)**, parcours V1 à V7 :
+  - connexion ;
+  - import de « Démo CIPL » seule (repère `1e8848f1-…`, `complet=true`), « Mon entreprise » non touchée ;
+  - 4 bâtiments installés depuis le cloud, sans exception ;
+  - message de lecture seule ;
+  - menu Compte, changer d'entreprise, déconnexion ;
+  - connexion gardée (`cipl_session.dat` chiffré).
+
+  Projet Supabase : `etape2_supabase.sql` passé, et l'essai de l'étape 1 relancé avec le correctif de `pris_le`. **V8 validé** : le 2e compte, ajouté par le bloc SQL, voit Démo CIPL. L'exemple du script portait `DemoCIPL` au lieu de `Démo CIPL`, d'où un « entreprise introuvable » : c'est corrigé. **Étapes 2 et 3 terminées.**
+- **Étape 4, décisions du 12/10** (en cours) : découpage **4a puis 4b**.
+  - **4a** :
+    - enregistrement dans le cloud (fin de la lecture seule) : `SaveBatiment` envoie seulement les fiches changées, par comparaison avec le dernier état lu, et dans une file d'attente ;
+    - contrôle de version et vérification du verrou **sur le serveur**, dans les fonctions `enregistrer_*` et `supprimer_*` ;
+    - verrou au clic « Modifier » (bâtiment ou locataire), renouvelé toutes les 30 s pendant la saisie, libéré quand la fiche sort de saisie ;
+    - actions en un clic refusées par le serveur si la fiche est prise ;
+    - bandeau « En cours de modification par… » sur la fiche (verrous relus toutes les 10 s en attendant le temps réel), et refus au clic ;
+    - **nom affiché demandé à la première ouverture** d'une entreprise (`membres.nom_affiche`), l'e-mail sinon.
+  - **4b** : verrous de Facturation, Loyer, Dépôt et charges, refacturation multi-fiches, « Toujours là ? » après 15 min, « Forcer la libération ».
+  - L'envoi automatique des factures et Pappers restent suspendus (étape 7).
+- **4a, code écrit le 12/10, validé en Play le 13/10 (parcours W1 à W6, éditeur + build à deux comptes)** :
+  - `Serveur/etape4_supabase.sql` (à passer) : table `verrous` ; fonctions `prendre_verrou`, `liberer_verrou`, `enregistrer_batiment` et `enregistrer_locataire` (refus `verrou` ou `version`), `supprimer_fiche`, `mon_nom`, `mon_nom_saisi`, `definir_mon_nom`.
+  - `Cloud/EcritureCloud.cs` :
+    - cache du dernier état du serveur (JSON et version par fiche) ;
+    - `Differences` : seules les fiches changées partent, le bâtiment d'abord ;
+    - file d'attente d'envoi ; refus → message, puis `DemarrageCloud.Recharger` ;
+    - `ModifierSiLibre` : verrou avant le passage en saisie ;
+    - gardien : signal de vie à 30 s, libération quand la fiche n'est plus `EnEdition`, bandeaux mis à jour toutes les 10 s par lecture de `verrous` ;
+    - `VerifierNom`.
+  - Branchements :
+    - `SaveBatiment` (cloud → `EcritureCloud.Enregistrer`), `DeleteBatiment` ;
+    - les deux boutons « Modifier » (`BatimentPrefab:404`, `LocatairePrefab:228`) ;
+    - `SessionCloud.LectureSeule` = faux ;
+    - `EcransCloud.DemanderNom`, `CloudClient.FonctionJson`.
+  - **435 tests verts.**
+  - Test à deux : l'éditeur (compte 1) et un build (compte 2), à reconstruire pour y mettre le nouveau code.
+  - **13/10, premier Play** :
+    - SQL passé ; ouverture avec le compte B, 4 bâtiments affichés.
+    - Puis « Se déconnecter », connexion du compte A, saisie du nom : la seconde ouverture, faite pendant que l'accueil était affiché, a vidé l'écran (« 4 bâtiments · 0 locataire », sans aucune fiche).
+    - Cause : recharger pendant que l'accueil est affiché construit les fiches sous un parent caché. `UIFactory.Button` comptait sur `Selectable.Awake` pour relier `targetGraphic`, mais Awake ne tourne pas sous un parent inactif. `b.image` restait donc nul (`TuilesATraiter`, HomeAlert.cs:110), et chaque bâtiment levait une exception.
+    - Correction : `targetGraphic = img` explicite dans `UIFactory.Button` et `UIFactory.Input`. Le test `CloudEcritureTests.Un_bouton_construit_sous_un_parent_cache_a_son_image` le vérifie.
+    - `Installer` journalise désormais la pile de l'exception.
+    - Le même plantage touchait « Se déconnecter », « Changer d'entreprise » et `Recharger` (refus du serveur). **436 tests verts.**
+    - Les données du serveur sont intactes : tout en version 1, aucun verrou.
+- **Prochaine étape : la 4b** (CONCEPTION §11, ligne 4) :
+  - verrous des écrans Facturation, Loyer, Dépôt et charges (table §6.3) ;
+  - refacturation multi-fiches : refus si un locataire concerné est pris ;
+  - « Toujours là ? » après 15 min d'inactivité ;
+  - « Forcer la libération » (admin).
+
+  Dans CIPL, l'envoi automatique des factures et Pappers restent suspendus jusqu'à l'étape 7.
 
 ### Où en est le chantier au 29/09 (soir) — **310 tests EditMode verts**
 

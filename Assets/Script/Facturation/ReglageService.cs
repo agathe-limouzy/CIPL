@@ -162,6 +162,13 @@ public static class ReglageService
     public static string GetMapboxToken() => ReadSecretFrom(AppSecretsPath, "mapbox_token");
     public static bool SetMapboxToken(string v) => WriteSecretTo(AppSecretsPath, "mapbox_token", v);
 
+    // Projet cloud (Supabase) : adresse et clé PUBLIQUE de l'app (publishable key).
+    // Au niveau application, pour basculer d'un projet de test au projet réel sans recompiler.
+    public static string GetCloudUrl() => ReadSecretFrom(AppSecretsPath, "cloud_url").Trim().TrimEnd('/');
+    public static bool SetCloudUrl(string v) => WriteSecretTo(AppSecretsPath, "cloud_url", (v ?? "").Trim().TrimEnd('/'));
+    public static string GetCloudCle() => ReadSecretFrom(AppSecretsPath, "cloud_cle").Trim();
+    public static bool SetCloudCle(string v) => WriteSecretTo(AppSecretsPath, "cloud_cle", (v ?? "").Trim());
+
     private static string ReadSecret(string key) => ReadSecretFrom(SecretsPath, key);
 
     private static string ReadSecretFrom(string chemin, string key)

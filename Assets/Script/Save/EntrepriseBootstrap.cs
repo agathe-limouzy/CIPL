@@ -21,11 +21,15 @@ public static class EntrepriseBootstrap
         clone.name = "BtnEntreprises";
         clone.transform.SetSiblingIndex(src.transform.GetSiblingIndex());   // avant « Charger une save »
 
+        // Étape 2 (cloud) : « Compte » remplace « Entreprises » (changer d'entreprise, se
+        // déconnecter), et « Sauvegardes » est masqué : il rechargerait des fichiers locaux.
+        // Les initiales en haut à droite et les onglets de Réglages viendront à l'étape 9.
         var btn = clone.GetComponent<Button>();
         btn.onClick.RemoveAllListeners();
-        btn.onClick.AddListener(EntreprisePanel.OpenPanel);
+        btn.onClick.AddListener(DemarrageCloud.MenuCompte);
 
         var label = clone.GetComponentInChildren<TMP_Text>(true);
-        if (label != null) label.text = "Entreprises";
+        if (label != null) label.text = "Compte";
+        src.gameObject.SetActive(false);
     }
 }

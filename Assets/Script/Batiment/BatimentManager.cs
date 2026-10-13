@@ -36,6 +36,16 @@ public class BatimentManager : MonoBehaviour
         // après la construction des écrans les obligerait à se recalculer.
         UIZoom.Appliquer();
 
+        // Étape 2 du multi-utilisateur (CONCEPTION_MULTIUTILISATEUR.md) : les données viennent
+        // du cloud, en lecture seule. Sauvegarde au démarrage, purge, migration des dossiers,
+        // envoi automatique des factures et Pappers sont suspendus : ils écrivent, et rien ne
+        // doit l'être avant l'étape 4. Le chemin local ci-dessous n'est plus appelé.
+        DemarrageCloud.Lancer(this);
+    }
+
+    /// Ancien démarrage local, gardé jusqu'à l'étape 4 (écriture dans le cloud).
+    void DemarrageLocal()
+    {
         BackupService.RunStartupBackup();
         PhotoService.PurgerCorbeille();   // photos supprimées il y a plus de 7 jours
         LoadAll();
@@ -84,6 +94,7 @@ public class BatimentManager : MonoBehaviour
     /// modification, pas le fichier.
     public void SauvegardeDeFermeture()
     {
+        if (SessionCloud.Active) return;   // données du cloud : rien à réécrire sur ce PC
         if (_batiments == null || _batiments.Count == 0) return;
 
         string racine = SaveLocationService.GetSaveRoot();
@@ -163,10 +174,15 @@ public class BatimentManager : MonoBehaviour
             Destroy(tab.gameObject);
         }
 
-        // Supprime le fichier JSON
-        string path = GetFilePath(id);
-        if (File.Exists(path))
-            File.Delete(path);
+        if (SessionCloud.Active)
+            EcritureCloud.SupprimerBatiment(id, nom);   // refusé par le serveur si la fiche est prise
+        else
+        {
+            // Supprime le fichier JSON
+            string path = GetFilePath(id);
+            if (File.Exists(path))
+                File.Delete(path);
+        }
 
         // Le dossier du bâtiment (photos, factures, charges) est DÉPLACÉ en corbeille,
         // pas laissé en place : un dossier orphelin faisait ensuite échouer tout
@@ -258,12 +274,27 @@ public class BatimentManager : MonoBehaviour
     /// croire à une sauvegarde qui n'a pas eu lieu.
     public bool SaveBatiment(Batiment data)
     {
+        // Étape 2 : lecture seule sur le cloud. Rien n'est écrit, ni ici ni sur le serveur,
+        // et on le dit (une fois par série d'appels : un écran enregistre souvent plusieurs fois).
+        if (SessionCloud.LectureSeule)
+        {
+            if (Time.realtimeSinceStartup - _dernierAvisLectureSeule > 3f)
+                ConfirmDialog.Erreur("Lecture seule pendant la construction : vos modifications ne sont pas enregistrées.");
+            _dernierAvisLectureSeule = Time.realtimeSinceStartup;
+            return false;
+        }
+
         // Synchronise la liste en mémoire : les prefabs travaillent sur des
         // copies (clone JSON) — sans ça, Batiments reste périmée et le menu
         // home (objectifs, stats) ne voit pas les changements.
         int idx = _batiments.FindIndex(b => b.id == data.id);
         if (idx >= 0) _batiments[idx] = data;
         else _batiments.Add(data);
+
+        // Étape 4a : sur le cloud, seules les fiches changées partent (EcritureCloud), dans
+        // l'ordre ; un refus du serveur (version dépassée, fiche prise) est affiché puis la
+        // fiche est relue. Plus aucun batiment_*.json n'est écrit sur ce PC.
+        if (SessionCloud.Active) { EcritureCloud.Enregistrer(data); return true; }
 
         Directory.CreateDirectory(SaveFolder);
         string json = JsonUtility.ToJson(data, prettyPrint: true);
@@ -279,6 +310,57 @@ public class BatimentManager : MonoBehaviour
 
         Debug.Log($"[BatimentManager] Sauvegardé → {GetFilePath(data.id)}");
         return true;
+    }
+
+    float _dernierAvisLectureSeule = -10f;
+
+    // ── Cloud : vider l'écran et installer les bâtiments lus (étape 2) ─────────
+
+    /// Retire toutes les fiches et onglets (changement d'entreprise, déconnexion).
+    public void Vider()
+    {
+        foreach (var prefab in BatimentPrefab)
+        {
+            if (prefab == null) continue;
+            menuManager.RemoveTabAndBuilding(prefab);
+            Destroy(prefab.gameObject);
+        }
+        BatimentPrefab.Clear();
+        _batiments.Clear();
+        foreach (Transform child in batimentsContainer) Destroy(child.gameObject);
+        PhotoService.ViderCache();
+    }
+
+    /// Crée les fiches et onglets des bâtiments lus sur le cloud, avec les mêmes mises à
+    /// niveau en mémoire que LoadAll. Sans cession ni écriture : on est en lecture seule.
+    public void Installer(List<Batiment> batiments)
+    {
+        foreach (var data in batiments)
+        {
+            try
+            {
+                ChargeBatiment.Reconstituer(data);
+                Objectifs.Migrer(data.objectifs);
+                if (data.locataireDuBatiment != null)
+                    foreach (var loc in data.locataireDuBatiment)
+                    {
+                        Objectifs.Migrer(loc?.objectifs);
+                        if (loc != null) Loyers.Actualiser(loc, DateTime.Today);
+                    }
+                _batiments.Add(data);
+                var prefab = SpawnPrefabInPanel(data, batimentsContainerPanel, false);
+                BatimentPrefab.Add(prefab);
+                menuManager.CreateTab(prefab);
+                prefab.RefreshBatimentTabAlert();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[BatimentManager] Bâtiment du cloud non affiché : {data?.Name} — {e.Message}");
+                Debug.LogException(e);   // la pile : sans elle, la cause du 13/10 était introuvable
+            }
+        }
+        if (BatimentPrefab.Count > 0) menuManager.OnSelect(BatimentPrefab[0]);
+        Debug.Log($"[BatimentManager] {_batiments.Count} bâtiment(s) installé(s) depuis le cloud");
     }
 
     public void SaveAll()

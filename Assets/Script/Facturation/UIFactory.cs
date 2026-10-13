@@ -152,6 +152,7 @@ public static class UIFactory
     {
         var img = Panel("Button", parent, bg);
         var btn = img.gameObject.AddComponent<Button>();
+        btn.targetGraphic = img;   // sous un parent inactif, Awake ne le fait pas : `image` restait nul
         LE(img.gameObject, minH: height, prefH: height);
         var t = Text(img.transform, label, fontSize, fg, bold, TextAlignmentOptions.Center);
         Stretch((RectTransform)t.transform, 10, 0, 10, 0);
@@ -186,6 +187,7 @@ public static class UIFactory
         var img = Panel("Input", parent, Color.white);
         Border(img.gameObject, UITheme.Bordure);
         var input = img.gameObject.AddComponent<TMP_InputField>();
+        input.targetGraphic = img;   // idem Button : sinon nul sous un parent inactif
         LE(img.gameObject, minH: height, prefH: height);
 
         var area = Rect("Text Area", img.transform);

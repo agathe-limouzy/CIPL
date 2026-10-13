@@ -487,3 +487,49 @@ Deux cas, en plus du départ sans successeur (§N). **N'émettez rien.** *(Valid
 - [x] **T8 · Annuler** : ajouter un versement puis « Annuler » → rien n'a changé.
 
 **Résultat** : tout est coché ? Le module est validé en Play. Sinon, donnez-moi le numéro de l'étape et ce que vous avez vu (une capture aide beaucoup).
+
+## U. Essai technique cloud (12/10) — connexion, verrou, temps réel, lien cipl:// *(hors Play, dans l'éditeur ; U7 dans un build)*
+
+Rien ne touche aux vraies données : l'essai n'utilise que deux tables d'essai sur Supabase (`essai_fiches`, `essai_verrous`) et la fiche fictive « volteo ». Le journal de la fenêtre est aussi écrit dans la console Unity (`[EssaiCloud]`), je peux donc le relire moi-même.
+
+*Validé le 12/10 avec deux vrais comptes : U0 à U6 (verrou refusé en 114 ms, changements reçus en 86 à 555 ms, reprise automatique après 2 min), puis U7 dans un build. **Étape 1 terminée.***
+
+- [x] **U0 · Préparer Supabase (à faire par vous, une fois)** :
+  1. Sur supabase.com, créez un compte, puis « New project » : nom `cipl-essai`, région **West EU (Paris)**, et un mot de passe de base de données (gardez-le pour vous).
+  2. Project Settings › API Keys (ou bouton « Connect ») : copiez l'**adresse du projet** (`https://xxxx.supabase.co`) et la **Publishable key** (`sb_publishable_…`). Pas la « secret key ».
+  3. SQL Editor › New query : collez tout `Serveur/essai_supabase.sql`, puis Run → « Success. No rows returned ».
+  4. Authentication › Users › Add user › Create new user : deux comptes de test (par exemple `marie.essai@…` et `paul.essai@…`), un mot de passe chacun, et cochez **Auto Confirm User**.
+- [x] **U1 · Ouvrir l'essai** : menu **CIPL › Essai cloud (étape 1)**. Collez l'adresse et la clé, puis « Enregistrer l'adresse et la clé » → journal « Adresse et clé enregistrées ».
+- [x] **U2 · Connexion** : Session A, e-mail et mot de passe de Marie, puis « Se connecter » → « Session A : connectée (…), jeton valable jusqu'à HH:MM:SS » (environ 1 h plus tard). Même chose en Session B avec Paul. Avec un mauvais mot de passe → « connexion refusée — HTTP 400 Invalid login credentials ». « Renouveler le jeton » → nouvelle heure d'expiration.
+- [x] **U3 · Verrou** : A « Prendre » → « verrou **OBTENU** sur Volteo ». B « Prendre » → « verrou **REFUSÉ** — En cours de modification par Marie Dupont (facturation) depuis 14 h 32 ». A « Libérer », puis B « Prendre » → obtenu.
+- [x] **U4 · Libération seule après 2 min** *(validé le 12/10 dans les deux sens : Marie reprend la fiche abandonnée par Paul, puis Paul celle de Marie ; le signal de vie prolonge bien le verrou)* : B détient la fiche. Ne touchez plus à B : sous B, le compte à rebours descend de 2:00 à « expiré ». Alors A « Prendre » → **OBTENU**. Variante : B « Signal de vie » remet le compte à rebours à 2:00.
+- [x] **U5 · Temps réel** : A « Écouter » → « abonnée aux changements de essai_fiches et essai_verrous ». B « Loyer + 100 € » → chez B « loyer 24 000 € → 24 100 € (version 2) », et chez A « **REÇOIT** : Volteo mis à jour par Paul Lefèvre — loyer 24 100 € (version 2) — reçu **N ms** après l'envoi ». On attend moins de 1 000 ms. Aussi : B « Prendre » → A reçoit « verrou de volteo — Paul Lefèvre (facturation) ». Et une modification faite à la main dans Supabase (Table Editor › essai_fiches › loyer) arrive aussi chez A.
+- [x] **U6 · Contrôle de version** : B « Version périmée » → « écriture **REFUSÉE** — … Rien n'a été écrit », et A ne reçoit rien.
+- [x] **U7 · Lien cipl:// (build)** *(validé le 12/10 avec `Build\CIPL Demo 2\CIPL_Test.exe` : protocole inscrit dans HKCU, lien reçu)* : File › Build Settings › Build, dans le dossier `Build`. Lancez `CIPL.exe` une fois (il déclare cipl:// pour votre session Windows ; n'utilisez pas « Tout envoyer » si la fenêtre des factures s'ouvre). Laissez-le ouvert, puis Windows + R : `cipl://invitation?jeton=Essai12345` → Entrée. Dans la fenêtre déjà ouverte, message en bas « Lien reçu : invitation (jeton Essai1…) », et **aucune 2e fenêtre** ne reste ouverte. Fermez CIPL, refaites Windows + R : CIPL s'ouvre et affiche le même message.
+- [ ] **U8 · Nettoyage (facultatif)** : section NETTOYAGE en bas du script SQL, ou on garde les tables pour l'étape 2. Pour retirer cipl:// de Windows : `reg delete HKCU\Software\Classes\cipl /f`.
+
+**Résultat** : notez le numéro de l'étape qui ne passe pas et le message du journal. Je peux aussi le relire directement dans la console Unity.
+
+## V. Étape 2 : connexion, import et lecture depuis le cloud (12/10) *(validé en Play le 12/10, V1 à V8)*
+
+Préalable : `Serveur/etape2_supabase.sql` passé dans Supabase (SQL Editor › Run). CIPL démarre maintenant **sur le cloud, en lecture seule** jusqu'à l'étape 4.
+
+- [x] **V1 · Connexion** : lancer le Play → écran « CIPL — Connexion » à la place de l'accueil. E-mail, mot de passe, « Rester connecté(e) » coché, puis « Se connecter ». Un mauvais mot de passe donne le message au centre « E-mail ou mot de passe incorrect ».
+- [x] **V2 · Import (cloud vide)** : écran « Bienvenue sur CIPL en ligne », avec les entreprises de ce PC (aucune cochée). Cocher **Démo CIPL** seulement (pas « Mon entreprise »), puis « Importer » → progression « bâtiment 1 / 4… », puis « Démo CIPL importée : 4 bâtiment(s) ». Le dossier de Démo CIPL reçoit le repère `CIPL_entreprise.json` ; rien d'autre n'est modifié sur le PC.
+- [x] **V3 · Lecture** : CIPL ouvre directement Démo CIPL (seule entreprise), avec les 4 onglets rivoli, Parc Tertiaire Sud, Auterive et Le Hangar. Pastille en bas à gauche « Démo CIPL · cloud · lecture seule ». Plus de fenêtre « factures à envoyer » (suspendue en lecture seule).
+- [x] **V4 · Lecture seule** : une fiche › Modifier › Enregistrer → message au centre « Lecture seule pendant la construction : vos modifications ne sont pas enregistrées. »
+- [x] **V5 · Compte** : Accueil › « Compte » → e-mail, « Démo CIPL · Admin ». « Changer d'entreprise » → écran « Choisir l'entreprise ».
+- [x] **V6 · Se déconnecter** : retour à l'écran de connexion.
+- [x] **V7 · Connexion gardée** : arrêter puis relancer le Play (après s'être reconnecté avec la case cochée) → pas de mot de passe demandé.
+- [x] **V8 · 2e compte** *(validé le 12/10 : agathe.limouzy@cipl.fr voit Démo CIPL)* : dans `etape2_supabase.sql`, bloc « AJOUTER UN MEMBRE » : mettre l'e-mail du 2e compte et **`Démo CIPL`** comme nom, retirer les `--`, puis Run. Se déconnecter dans CIPL, se connecter avec le 2e compte → il voit Démo CIPL (« Utilisateur »), sans écran d'import.
+
+## W. Étape 4a : enregistrement sur le cloud et verrou des fiches (13/10) *(validé en Play le 13/10, W1 à W6)*
+
+Préalable : `Serveur/etape4_supabase.sql` passé dans Supabase (SQL Editor › Run). Les modifications sont maintenant **enregistrées sur le cloud** ; plus de lecture seule.
+
+- [x] **W1 · Votre nom** : première ouverture avec un compte sans nom → fenêtre « Votre nom », saisir, Valider → les 4 onglets, pastille « Démo CIPL · cloud ».
+- [x] **W2 · Reconnexion** *(défaut du 13/10 : écran vide « 4 bâtiments · 0 locataire »)* : Accueil › Compte › Se déconnecter, se reconnecter avec l'autre compte (saisir son nom si demandé) → les 4 onglets et leurs locataires reviennent, l'accueil compte bien les locataires. Même chose avec Compte › Changer d'entreprise › Démo CIPL.
+- [x] **W3 · Enregistrer** : Le Hangar › Décathlon › Modifier, changer un champ sans conséquence (le téléphone par exemple), Enregistrer → aucun message. Arrêter puis relancer le Play → la modification est toujours là.
+- [x] **W4 · Deuxième poste** : reconstruire le build (il doit contenir le nouveau code), le lancer et s'y connecter avec le compte 2 → Démo CIPL.
+- [x] **W5 · Fiche prise** : dans l'éditeur (compte 1), Décathlon › Modifier, sans enregistrer. Dans le build, sous 10 s, bandeau ambre en haut de la fiche Décathlon « En cours de modification par <nom> … — lecture seule » ; clic sur Modifier → message au centre avec le nom. Un autre locataire du Hangar reste modifiable.
+- [x] **W6 · Fiche libérée** : dans l'éditeur, Enregistrer (ou Annuler) → sous 10 s le bandeau disparaît dans le build, et Modifier y fonctionne.

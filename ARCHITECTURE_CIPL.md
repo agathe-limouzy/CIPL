@@ -73,6 +73,7 @@ Le code se lit en cinq couches. La règle qui les relie est simple : **l'interfa
 | `General/` | Accueil, alertes « À traiter », couleurs et icônes de toute l'app, garde de fermeture | `GeneralMenuPanel`, `HomeAlert` (+ `HomeAlertCollector`), `AppSectionColors`, `FermetureGuard` |
 | `Menu/` | Barre d'onglets (bâtiments, locataires) | `MenuManager`, `MenuItem` |
 | `Save/` | Emplacement des données, dossiers, écriture sûre, sauvegardes, entreprises, migration, transfert | `SaveLocationService`, `DossiersDonnees`, `AtomicFile`, `BackupService`, `EntrepriseService`, `TransfertEntreprise` |
+| `Cloud/` | Multi-utilisateur, **étape 1 (essai technique, non branché dans l'app)** : REST Supabase, temps réel, lien cipl://, règle du verrou. Côté serveur : `Serveur/essai_supabase.sql`. Fenêtre d'essai : CIPL › Essai cloud. Voir `CONCEPTION_MULTIUTILISATEUR.md` | `CloudClient`, `TempsReel`, `LienCipl`, `LienCiplRecepteur`, `RegleVerrou` |
 | `Travaux/`, `Achat/` | Investissements, travaux, tableaux de rentabilité | `RentabiliteGlobaleController`, `TravauxController`, `InvestissementListPanel` |
 | `Objectif/` | Objectifs (par bâtiment, locataire, et global) | `ObjectiveManager`, `GlobalObjectivesSection` |
 | `Maps/` | Carte, géocodage, tuiles, vignettes | `MapController`, `GeoCodingService`, `MapThumbnailService` |

@@ -225,7 +225,7 @@ public class LocatairePrefab : PrefabBatLoc
         Delete.onClick.RemoveAllListeners();
 
         save.onClick.AddListener(() => SaveLocataire());
-        modifyBatiment.onClick.AddListener(() => Modify());
+        modifyBatiment.onClick.AddListener(() => EcritureCloud.ModifierSiLibre(this, "locataire", Modify));   // verrou d'abord (étape 4a)
         objectivesManager.AddNeObjectif.AddListener(() => updateListObjectif());
         // Objectifs du locataire : la liste de la fiche EST celle du locataire (comme
         // BatimentPrefab). Sans ce chargement, la fiche partait d'une liste vide et

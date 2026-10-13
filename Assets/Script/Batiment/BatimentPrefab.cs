@@ -401,7 +401,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         Delete.onClick.RemoveAllListeners();
         objectivesManager.AddNeObjectif.AddListener(() => updateListObjectif());
         save.onClick.AddListener(() => SaveBatiment());
-        modifyBatiment.onClick.AddListener(() => Modify());
+        modifyBatiment.onClick.AddListener(() => EcritureCloud.ModifierSiLibre(this, "batiment", Modify));   // verrou d'abord (étape 4a)
        
 
         if (!NeedToModify)
