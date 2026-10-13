@@ -38,6 +38,7 @@ public class ChargePanel : MonoBehaviour
     Button _chipSurface, _chipEgal, _chipManuel;
 
     Batiment Bat => _bp != null ? _bp.getBatiment() : null;
+    RectTransform _scrim;   // formulaire ouvert tant qu'il existe (verrou du bâtiment, étape 4b)
 
     void Awake()
     {
@@ -61,9 +62,13 @@ public class ChargePanel : MonoBehaviour
             go.transform.SetParent(canvas.rootCanvas.transform, false);
             go.AddComponent<ChargePanel>();
         }
-        Instance._bp = bp;
-        Instance._onSaved = onSaved;
-        Instance.OpenChargeForm(existing);
+        var p = Instance;   // sur le cloud : bâtiment réservé tant que le formulaire est ouvert (étape 4b)
+        EcritureCloud.Reserver(new[] { ("batiment", bp.getID(), bp.getName()) }, "charges", () =>
+        {
+            p._bp = bp;
+            p._onSaved = onSaved;
+            p.OpenChargeForm(existing);
+        }, () => p != null && p._scrim != null, () => { if (p != null && p._scrim != null) Destroy(p._scrim.gameObject); });
     }
 
     // ── Formulaire d'ajout / modification (modale) ─────────────────────────────
@@ -78,6 +83,7 @@ public class ChargePanel : MonoBehaviour
 
         var root = (FindObjectOfType<Canvas>()?.rootCanvas.transform) ?? transform;
         var scrim = UIFactory.Rect("ChargeScrim", root);
+        _scrim = scrim;
         UIFactory.Stretch(scrim);
         scrim.gameObject.AddComponent<Image>().color = new Color(0, 0, 0, 0.45f);
         scrim.SetAsLastSibling();

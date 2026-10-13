@@ -71,12 +71,16 @@ public class FactureDepotPanel : MonoBehaviour
             go.transform.SetParent(canvas.rootCanvas.transform, false);
             go.AddComponent<FactureDepotPanel>();
         }
-        Instance._initial = ligne?.key == FacturationSuivi.CleDepotInitial;
-        // Décompte de sortie : sa ligne du suivi, ou le bouton de la carte une fois le
-        // départ saisi (la révision n'a plus lieu d'être : le dépôt sera rendu).
-        Instance._sortie = ligne != null ? ligne.key == DepartLocataire.CleDecompte
-                                         : !string.IsNullOrEmpty(fiche.GetLocataire()?.dateSortieISO);
-        Instance.OpenFor(fiche);
+        var p = Instance;   // sur le cloud : le locataire est réservé tant que le panneau est ouvert (étape 4b)
+        EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, false), "dépôt", () =>
+        {
+            p._initial = ligne?.key == FacturationSuivi.CleDepotInitial;
+            // Décompte de sortie : sa ligne du suivi, ou le bouton de la carte une fois le
+            // départ saisi (la révision n'a plus lieu d'être : le dépôt sera rendu).
+            p._sortie = ligne != null ? ligne.key == DepartLocataire.CleDecompte
+                                      : !string.IsNullOrEmpty(fiche.GetLocataire()?.dateSortieISO);
+            p.OpenFor(fiche);
+        }, () => p != null && p.gameObject.activeSelf && p._fiche == fiche, () => { if (p != null) p.Close(); });
     }
 
     // Dépôt initial (demandé à l'initialisation du dépôt) : on facture tout le dépôt,

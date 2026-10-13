@@ -65,6 +65,22 @@ public static class EcritureCloud
         return ops;
     }
 
+    /// Après l'installation des fiches : les mises à niveau faites en mémoire au chargement
+    /// (Reconstituer, Migrer, Actualiser) ne sont pas des saisies. Sans ce recalage, le premier
+    /// enregistrement d'un locataire renverrait aussi son bâtiment, refusé si un collègue le tient.
+    public static void Recaler(IDictionary<string, Etat> cache, IEnumerable<Batiment> bats)
+    {
+        foreach (var b in bats.Where(b => b != null))
+        {
+            int vb = cache.TryGetValue(Cle(true, b.id), out var eb) ? eb.Version : 0;
+            var vl = cache.Where(kv => kv.Key.StartsWith("l:") && kv.Value.BatimentId == b.id)
+                          .ToDictionary(kv => kv.Key.Substring(2), kv => kv.Value.Version);
+            Memoriser(cache, b, vb, vl);
+        }
+    }
+
+    public static void Recaler(IEnumerable<Batiment> bats) => Recaler(_cache, bats);
+
     /// Paramètres de enregistrer_batiment / enregistrer_locataire ; le JSON de CIPL part en objet.
     public static string CorpsEnregistrer(string entreprise, Op op, string session)
     {
@@ -183,68 +199,145 @@ public static class EcritureCloud
 
     // ── Verrous ────────────────────────────────────────────────────────────────
 
-    class Tenu { public PrefabBatLoc Fiche; public string Type, Id; public float ProchainSignal; }
+    /// Une réservation : la fiche reste prise tant que `Actif` est vrai (fiche en saisie, écran
+    /// ouvert). Plusieurs réservations peuvent tenir la même fiche (Modifier puis Facturation) :
+    /// elle n'est libérée qu'à la fin de la dernière.
+    class Tenu { public string Type, Id, Nom, Motif; public Func<bool> Actif; public Action Fermer; public float ProchainSignal; }
     static readonly List<Tenu> _tenus = new List<Tenu>();
     [Serializable] class ParamsVerrou { public string p_entreprise, p_type, p_id, p_session, p_motif; }
     [Serializable] class ParamsLiberer { public string p_entreprise, p_type, p_id, p_session; }
+    [Serializable] class ParamsForcer { public string p_entreprise, p_type, p_id; }
 
-    /// « Modifier » : demande le verrou de la fiche, et ne passe en saisie que s'il est obtenu.
-    public static async void ModifierSiLibre(PrefabBatLoc fiche, string type, Action modifier)
+    static bool Tient(string type, string id) => _tenus.Any(t => t.Type == type && t.Id == id);
+
+    /// Fiches d'un écran ouvert depuis un locataire : le locataire, précédé de son bâtiment
+    /// quand l'écran écrit aussi les charges (régularisation, refacturation ; décision du 13/10).
+    public static (string type, string id, string nom)[] Cibles(LocatairePrefab fiche, bool avecBatiment)
     {
-        var e = SessionCloud.Entreprise;
-        string id = fiche != null ? fiche.getID() : null;
-        if (!SessionCloud.Active || e == null || string.IsNullOrEmpty(id)) { modifier(); return; }
-        try
-        {
-            var r = await CloudClient.Fonction(Url, CleApi, await SessionCloud.Jeton(), "prendre_verrou",
-                new ParamsVerrou { p_entreprise = e.id, p_type = type, p_id = id, p_session = SessionId, p_motif = "modification" });
-            if (!r.Ok) { ConfirmDialog.Erreur("Impossible de réserver la fiche : " + r.Erreur); return; }
-            var v = CloudClient.LireVerrou(r.Corps);
-            if (v == null || !v.obtenu)
-            {
-                ConfirmDialog.Erreur($"« {fiche.getName()} » : {RegleVerrou.Libelle(v?.nom, v?.motif, CloudClient.Date(v?.pris_le) ?? DateTime.Now)}.");
-                return;
-            }
-            if (!_tenus.Any(t => t.Type == type && t.Id == id))
-                _tenus.Add(new Tenu { Fiche = fiche, Type = type, Id = id, ProchainSignal = Time.realtimeSinceStartup + 30 });
-            Gardien.Assurer();
-            modifier();
-        }
-        catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Impossible de réserver la fiche : " + ex.Message); }
+        var loc = ("locataire", fiche.getID(), fiche.getName());
+        var bp = fiche.batimentPrefabOrigin;
+        return avecBatiment && bp != null ? new[] { ("batiment", bp.getID(), bp.getName()), loc } : new[] { loc };
     }
 
-    static async void Liberer(Tenu t)
+    /// « Modifier » : demande le verrou de la fiche, et ne passe en saisie que s'il est obtenu.
+    public static void ModifierSiLibre(PrefabBatLoc fiche, string type, Action modifier) =>
+        Reserver(new[] { (type, fiche != null ? fiche.getID() : null, fiche != null ? fiche.getName() : null) },
+                 "modification", modifier, () => fiche != null && fiche.EnEdition);
+
+    /// Réserve les fiches, puis ouvre l'écran ; refus au centre, avec le nom, si l'une est prise
+    /// (rien n'est gardé à moitié). Une fiche que je tiens déjà ne coûte pas d'aller-retour :
+    /// l'écran s'ouvre tout de suite (Révision → Paliers). `fermer` ferme l'écran sans enregistrer
+    /// (« Toujours là ? » sans réponse, libération forcée, rechargement). Hors cloud : ouvre.
+    public static async void Reserver((string type, string id, string nom)[] cibles, string motif,
+                                      Action ouvrir, Func<bool> actif, Action fermer = null)
+    {
+        var e = SessionCloud.Entreprise;
+        var fiches = cibles.Where(c => !string.IsNullOrEmpty(c.id)).ToList();
+        if (!SessionCloud.Active || e == null || fiches.Count == 0) { ouvrir(); return; }
+        var prises = new List<(string type, string id, string nom)>();
+        try
+        {
+            foreach (var c in fiches.Where(c => !Tient(c.type, c.id)).ToList())
+            {
+                var r = await CloudClient.Fonction(Url, CleApi, await SessionCloud.Jeton(), "prendre_verrou",
+                    new ParamsVerrou { p_entreprise = e.id, p_type = c.type, p_id = c.id, p_session = SessionId, p_motif = motif });
+                var v = r.Ok ? CloudClient.LireVerrou(r.Corps) : null;
+                if (v == null || !v.obtenu)
+                {
+                    foreach (var p in prises) Liberer(p.type, p.id);
+                    ConfirmDialog.Erreur(v == null ? "Impossible de réserver la fiche : " + r.Erreur
+                        : $"« {c.nom} » : {RegleVerrou.Libelle(v.nom, v.motif, CloudClient.Date(v.pris_le) ?? DateTime.Now)}.");
+                    return;
+                }
+                prises.Add(c);
+            }
+            float signal = Time.realtimeSinceStartup + 30f;
+            foreach (var c in fiches)
+                _tenus.Add(new Tenu { Type = c.type, Id = c.id, Nom = c.nom, Motif = motif, Actif = actif, Fermer = fermer, ProchainSignal = signal });
+            Gardien.Assurer();
+            ouvrir();
+        }
+        catch (Exception ex)
+        {
+            foreach (var p in prises) if (!Tient(p.type, p.id)) Liberer(p.type, p.id);
+            Debug.LogException(ex);
+            ConfirmDialog.Erreur("Impossible de réserver la fiche : " + ex.Message);
+        }
+    }
+
+    static async void Liberer(string type, string id)
     {
         var e = SessionCloud.Entreprise;
         if (e == null || !SessionCloud.Active) return;
         try
         {
             await CloudClient.Fonction(Url, CleApi, await SessionCloud.Jeton(), "liberer_verrou",
-                new ParamsLiberer { p_entreprise = e.id, p_type = t.Type, p_id = t.Id, p_session = SessionId });
+                new ParamsLiberer { p_entreprise = e.id, p_type = type, p_id = id, p_session = SessionId });
         }
         catch (Exception ex) { Debug.LogWarning("[Verrou] Libération : " + ex.Message); }   // expirera seul après 2 min
     }
 
+    /// Signal de vie. La fiche n'est plus à moi (libération forcée par un admin, ou reprise par
+    /// un collègue après 2 min sans signal) : mes saisies sont annulées.
     static async void Renouveler(Tenu t)
     {
         var e = SessionCloud.Entreprise;
         if (e == null || !SessionCloud.Active) return;
         try
         {
-            await CloudClient.Fonction(Url, CleApi, await SessionCloud.Jeton(), "prendre_verrou",
-                new ParamsVerrou { p_entreprise = e.id, p_type = t.Type, p_id = t.Id, p_session = SessionId, p_motif = "modification" });
+            var r = await CloudClient.Fonction(Url, CleApi, await SessionCloud.Jeton(), "renouveler_verrou",
+                new ParamsVerrou { p_entreprise = e.id, p_type = t.Type, p_id = t.Id, p_session = SessionId, p_motif = t.Motif });
+            if (!r.Ok) return;   // réseau : on réessaie au prochain signal ; le serveur garde la fiche 2 min
+            var v = CloudClient.LireVerrou(r.Corps);
+            if (v == null || v.obtenu || !_tenus.Contains(t)) return;
+            Abandonner(v.motif == RegleVerrou.MotifForce
+                ? $"{v.nom} (admin) a libéré « {t.Nom} » : vos saisies non enregistrées sont annulées."
+                : $"« {t.Nom} » a été reprise par {v.nom} après une coupure : vos saisies non enregistrées sont annulées.");
         }
         catch (Exception ex) { Debug.LogWarning("[Verrou] Signal de vie : " + ex.Message); }
+    }
+
+    /// Ferme les écrans qui tiennent une fiche et relit toute l'entreprise (décision du 13/10) :
+    /// les saisies non enregistrées disparaissent.
+    static void Abandonner(string message, bool choisi = false)
+    {
+        FermerEcrans();
+        if (choisi) UndoToast.Instance?.ShowInfo(message);   // « Annuler et libérer » : c'est voulu
+        else ConfirmDialog.Erreur(message);
+        DemarrageCloud.Recharger();
     }
 
     /// Lance le gardien (bandeaux « En cours de modification par… ») dès l'ouverture d'une entreprise.
     public static void DemarrerGardien() => Gardien.Assurer();
 
-    /// Libère tout (déconnexion, changement d'entreprise).
+    /// Ferme sans enregistrer les écrans qui tiennent une fiche, puis libère tout (rechargement,
+    /// changement d'entreprise, déconnexion) : un écran resté ouvert garderait l'ancienne fiche.
+    public static void FermerEcrans()
+    {
+        foreach (var t in _tenus.ToList())
+            try { t.Fermer?.Invoke(); }
+            catch (Exception ex) { Debug.LogWarning("[Verrou] Fermeture : " + ex.Message); }
+        LibererTout();
+    }
+
     public static void LibererTout()
     {
-        foreach (var t in _tenus.ToList()) Liberer(t);
+        foreach (var t in _tenus.GroupBy(t => (t.Type, t.Id)).Select(g => g.Key)) Liberer(t.Type, t.Id);
         _tenus.Clear();
+    }
+
+    /// Réglages › supprimer une liste de charges écrit TOUS les bâtiments : refusé si l'un est
+    /// pris par quelqu'un, pour ne rien écrire à moitié. Hors cloud : exécute.
+    public static async void SiAucunBatimentPris(IList<Batiment> bats, Action action)
+    {
+        if (!SessionCloud.Active || SessionCloud.Entreprise == null) { action(); return; }
+        var autres = await Gardien.VerrousDesAutres();
+        if (autres == null) { ConfirmDialog.Erreur("Impossible de vérifier les fiches en cours de modification : réessayez."); return; }
+        var pris = autres.FirstOrDefault(v => v.cible_type == "batiment" && bats.Any(b => b.id == v.cible_id));
+        if (pris == null) { action(); return; }
+        string nom = bats.First(b => b.id == pris.cible_id).Name;
+        ConfirmDialog.Erreur($"« {nom} » : {RegleVerrou.Libelle(pris.nom, pris.motif, CloudClient.Date(pris.pris_le) ?? DateTime.Now)}. " +
+                             "Rien n'est modifié : réessayez quand la fiche sera libérée.");
     }
 
     // ── Nom affiché ────────────────────────────────────────────────────────────
@@ -272,7 +365,10 @@ public static class EcritureCloud
     class Gardien : MonoBehaviour
     {
         static Gardien _instance;
-        float _prochainTour, _prochainesBandes;
+        float _prochainTour, _prochainesBandes, _derniereActivite;
+        Vector3 _souris;
+        GameObject _toujoursLa;
+        TMP_Text _texteToujoursLa;
 
         public static void Assurer()
         {
@@ -285,14 +381,23 @@ public static class EcritureCloud
         void Update()
         {
             float now = Time.realtimeSinceStartup;
+            // Activité = un clic, une touche, la molette ou la souris qui bouge, dans CIPL.
+            // Pas pendant « Toujours là ? » : il faut y répondre.
+            if (_toujoursLa == null && (Input.anyKeyDown || Input.mouseScrollDelta != Vector2.zero || Input.mousePosition != _souris))
+                _derniereActivite = now;
+            _souris = Input.mousePosition;
+
             if (now >= _prochainTour)
             {
                 _prochainTour = now + 1f;
                 foreach (var t in _tenus.ToList())
                 {
-                    if (t.Fiche == null || !t.Fiche.EnEdition) { Liberer(t); _tenus.Remove(t); }
+                    bool actif;
+                    try { actif = t.Actif(); } catch (Exception) { actif = false; }
+                    if (!actif) { _tenus.Remove(t); if (!Tient(t.Type, t.Id)) Liberer(t.Type, t.Id); }
                     else if (now >= t.ProchainSignal) { t.ProchainSignal = now + 30f; Renouveler(t); }
                 }
+                SurveillerInactivite(now);
             }
             if (now >= _prochainesBandes && SessionCloud.Active && SessionCloud.Entreprise != null)
             {
@@ -301,47 +406,119 @@ public static class EcritureCloud
             }
         }
 
+        void SurveillerInactivite(float now)
+        {
+            if (_tenus.Count == 0) { _derniereActivite = now; FermerToujoursLa(); return; }
+            var inactif = TimeSpan.FromSeconds(now - _derniereActivite);
+            var fiches = _tenus.Select(t => t.Nom).Distinct().ToList();
+            switch (RegleVerrou.EtatInactivite(inactif))
+            {
+                case RegleVerrou.Presence.Avertir:
+                    if (_toujoursLa == null)
+                    {
+                        var canvas = FindObjectOfType<Canvas>();
+                        if (canvas == null) return;
+                        (_toujoursLa, _texteToujoursLa) = EcransCloud.ToujoursLa(canvas,
+                            continuer: () => _derniereActivite = Time.realtimeSinceStartup,
+                            liberer: () => Abandonner("Saisies annulées, fiche libérée.", choisi: true));
+                    }
+                    var fin = DateTime.Now + (RegleVerrou.Inactivite + RegleVerrou.DelaiReponse - inactif);
+                    _texteToujoursLa.text = EcransCloud.TexteToujoursLa(fiches, RegleVerrou.Restant(fin, DateTime.Now));
+                    break;
+                case RegleVerrou.Presence.Liberer:
+                    FermerToujoursLa();
+                    _derniereActivite = now;
+                    Abandonner($"Sans réponse à « Toujours là ? », vos saisies non enregistrées sur {string.Join(", ", fiches)} " +
+                               "sont annulées et la fiche est libérée.");
+                    break;
+            }
+        }
+
+        void FermerToujoursLa() { if (_toujoursLa != null) Destroy(_toujoursLa); _toujoursLa = null; }
+
         void OnApplicationQuit() => LibererTout();   // au mieux ; sinon les verrous expirent après 2 min
 
-        static async void MettreAJourBandeaux()
+        /// Verrous valables des AUTRES sessions ; null si la lecture échoue.
+        public static async Task<List<LigneVerrou>> VerrousDesAutres()
+        {
+            var e = SessionCloud.Entreprise;
+            if (e == null) return null;
+            var r = await CloudClient.Table("GET", Url, CleApi, await SessionCloud.Jeton(), "verrous",
+                $"entreprise_id=eq.{e.id}&select=cible_type,cible_id,session_id,nom,motif,pris_le,expire_le");
+            if (!r.Ok) return null;
+            var verrous = JsonUtility.FromJson<LignesVerrous>("{\"items\":" + r.Corps + "}")?.items ?? new LigneVerrou[0];
+            return verrous.Where(v => v.session_id != SessionId &&
+                                      (CloudClient.Date(v.expire_le) ?? DateTime.MinValue) >= DateTime.Now).ToList();
+        }
+
+        public static async void MettreAJourBandeaux()
         {
             try
             {
-                var e = SessionCloud.Entreprise;
-                var r = await CloudClient.Table("GET", Url, CleApi, await SessionCloud.Jeton(), "verrous",
-                    $"entreprise_id=eq.{e.id}&select=cible_type,cible_id,session_id,nom,motif,pris_le,expire_le");
-                if (!r.Ok) return;
-                var verrous = JsonUtility.FromJson<LignesVerrous>("{\"items\":" + r.Corps + "}")?.items ?? new LigneVerrou[0];
-                var autres = verrous.Where(v => v.session_id != SessionId &&
-                                                (CloudClient.Date(v.expire_le) ?? DateTime.MinValue) >= DateTime.Now).ToList();
-                foreach (var f in FindObjectsOfType<BatimentPrefab>(true)) Bandeau(f, autres.FirstOrDefault(v => v.cible_type == "batiment" && v.cible_id == f.getID()));
-                foreach (var f in FindObjectsOfType<LocatairePrefab>(true)) Bandeau(f, autres.FirstOrDefault(v => v.cible_type == "locataire" && v.cible_id == f.getID()));
+                var autres = await VerrousDesAutres();
+                if (autres == null) return;
+                foreach (var f in FindObjectsOfType<BatimentPrefab>(true)) Bandeau(f, "batiment", autres.FirstOrDefault(v => v.cible_type == "batiment" && v.cible_id == f.getID()));
+                foreach (var f in FindObjectsOfType<LocatairePrefab>(true)) Bandeau(f, "locataire", autres.FirstOrDefault(v => v.cible_type == "locataire" && v.cible_id == f.getID()));
             }
             catch (Exception ex) { Debug.LogWarning("[Verrou] Bandeaux : " + ex.Message); }
         }
 
-        /// Bandeau ambre posé en haut de la fiche, hors mise en page (n'en décale rien).
-        static void Bandeau(PrefabBatLoc fiche, LigneVerrou v)
+        /// Bandeau ambre posé en haut de la fiche, hors mise en page (n'en décale rien), avec
+        /// « Forcer la libération » pour un admin (maquette 2 du 09/10).
+        static void Bandeau(PrefabBatLoc fiche, string type, LigneVerrou v)
         {
             if (fiche == null) return;
             var existant = fiche.transform.Find("BandeauVerrou");
-            if (v == null) { if (existant != null) Destroy(existant.gameObject); return; }
+            string texte = v == null ? null : RegleVerrou.Libelle(v.nom, v.motif, CloudClient.Date(v.pris_le) ?? DateTime.Now) + " — lecture seule";
+            if (existant != null && existant.GetChild(0).GetComponent<TMP_Text>().text == texte) { existant.SetAsLastSibling(); return; }
+            if (existant != null) { existant.name = "BandeauVerrou (ancien)"; Destroy(existant.gameObject); }
+            if (v == null) return;
 
-            if (existant == null)
+            var brun = new Color32(0x63, 0x38, 0x06, 0xFF);
+            var fond = UIFactory.Panel("BandeauVerrou", fiche.transform, new Color32(0xFA, 0xEE, 0xDA, 0xF5), false);
+            fond.raycastTarget = false;
+            fond.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+            var rt = (RectTransform)fond.transform;
+            rt.anchorMin = new Vector2(0, 1); rt.anchorMax = new Vector2(1, 1); rt.pivot = new Vector2(.5f, 1);
+            rt.sizeDelta = new Vector2(0, 32); rt.anchoredPosition = Vector2.zero;
+            var h = fond.gameObject.AddComponent<HorizontalLayoutGroup>();
+            h.padding = new RectOffset(12, 6, 3, 3); h.spacing = 8; h.childAlignment = TextAnchor.MiddleCenter;
+            h.childControlWidth = true; h.childControlHeight = true;
+            h.childForceExpandWidth = false; h.childForceExpandHeight = true;
+            var t = UIFactory.Text(fond.transform, texte, UITheme.Role.Aide, brun, true, TextAlignmentOptions.Center);
+            UIFactory.LE(t.gameObject, flexW: 1);
+            if (SessionCloud.Entreprise?.EstAdmin == true)
             {
-                var fond = UIFactory.Panel("BandeauVerrou", fiche.transform, new Color32(0xFA, 0xEE, 0xDA, 0xF5), false);
-                fond.raycastTarget = false;
-                fond.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
-                var rt = (RectTransform)fond.transform;
-                rt.anchorMin = new Vector2(0, 1); rt.anchorMax = new Vector2(1, 1); rt.pivot = new Vector2(.5f, 1);
-                rt.sizeDelta = new Vector2(0, 30); rt.anchoredPosition = Vector2.zero;
-                var t = UIFactory.Text(fond.transform, "", UITheme.Role.Aide, new Color32(0x63, 0x38, 0x06, 0xFF), true, TextAlignmentOptions.Center);
-                UIFactory.Stretch((RectTransform)t.transform, 12, 0, 12, 0);
-                existant = fond.transform;
+                var b = UIFactory.Button(fond.transform, "Forcer la libération", Color.white, brun, 26, UITheme.Role.Aide, false);
+                UIFactory.Border(b.gameObject);
+                UIFactory.LargeurDuTexte(b);
+                string id = fiche.getID(), nomFiche = fiche.getName(), detenteur = v.nom;
+                b.onClick.AddListener(() => ConfirmDialog.Instance?.Show("Forcer la libération ?",
+                    $"« {nomFiche} » est en cours de modification par {detenteur}. Ses saisies non enregistrées seront perdues.",
+                    () => Forcer(type, id, nomFiche), "Libérer"));
             }
-            existant.SetAsLastSibling();
-            existant.GetComponentInChildren<TMP_Text>(true).text =
-                RegleVerrou.Libelle(v.nom, v.motif, CloudClient.Date(v.pris_le) ?? DateTime.Now) + " — lecture seule";
+            fond.transform.SetAsLastSibling();
+        }
+
+        static async void Forcer(string type, string id, string nomFiche)
+        {
+            var e = SessionCloud.Entreprise;
+            if (e == null) return;
+            try
+            {
+                var r = await CloudClient.Fonction(Url, CleApi, await SessionCloud.Jeton(), "forcer_liberation",
+                    new ParamsForcer { p_entreprise = e.id, p_type = type, p_id = id });
+                var res = r.Ok ? JsonUtility.FromJson<Resultat>(r.Corps) : null;
+                if (res == null || !res.ok)
+                {
+                    ConfirmDialog.Erreur(res?.refus == "admin" ? "Seul un admin peut forcer la libération d'une fiche."
+                                                               : "Libération impossible : " + r.Erreur);
+                    return;
+                }
+                UndoToast.Instance?.ShowInfo($"« {nomFiche} » est libérée.");
+                MettreAJourBandeaux();
+            }
+            catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Libération impossible : " + ex.Message); }
         }
     }
 }

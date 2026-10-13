@@ -81,6 +81,19 @@ public class CloudEcritureTests
     }
 
     [Test]
+    public void Une_mise_a_niveau_du_chargement_ne_repart_pas_et_les_versions_restent()
+    {
+        var b = Rivoli(out var volteo, out _);
+        var cache = Lu(b);
+        volteo.loyerAnnuel = 24000;   // ex. Loyers.Actualiser : palier du jour, en mémoire
+
+        EcritureCloud.Recaler(cache, new[] { b });
+        Assert.That(EcritureCloud.Differences(b, cache), Is.Empty);
+        Assert.That(cache[EcritureCloud.Cle(true, b.id)].Version, Is.EqualTo(3));
+        Assert.That(cache[EcritureCloud.Cle(false, volteo.id)].Version, Is.EqualTo(7));
+    }
+
+    [Test]
     public void Les_parametres_portent_le_JSON_de_CIPL_en_objet()
     {
         var op = new EcritureCloud.Op { Type = EcritureCloud.TypeOp.Locataire, Id = "l1", BatimentId = "b1", Ordre = 2, Version = 5, Json = "{\"Name\":\"Volteo\"}" };

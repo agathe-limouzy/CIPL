@@ -14,7 +14,7 @@ public static class EcransCloud
     // ── Fondations ─────────────────────────────────────────────────────────────
 
     /// Voile plein écran + carte centrée. `opaque` : cache l'application derrière (connexion).
-    static (RectTransform voile, VerticalLayoutGroup carte) Fenetre(Canvas canvas, string titre, float largeur, bool opaque)
+    static (RectTransform voile, VerticalLayoutGroup carte) Fenetre(Canvas canvas, string titre, float largeur, bool opaque, Color? entete = null)
     {
         var voile = UIFactory.Rect("CloudVoile", canvas.rootCanvas.transform);
         UIFactory.Stretch(voile);
@@ -30,7 +30,7 @@ public static class EcransCloud
         v.childControlWidth = true; v.childControlHeight = true;
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
         cardImg.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        DepartPanel.Entete(v.transform, titre, UITheme.Primaire);
+        DepartPanel.Entete(v.transform, titre, entete ?? UITheme.Primaire);
         return (voile, v);
     }
 
@@ -206,6 +206,32 @@ public static class EcransCloud
         });
         nom.Select();
         return fin.Task;
+    }
+
+    // ── « Toujours là ? » (étape 4b, maquette 3 du 09/10) ──────────────────────
+
+    /// Modale ambre ; le gardien des verrous réécrit le texte chaque seconde (compte à rebours).
+    public static (GameObject voile, TMP_Text texte) ToujoursLa(Canvas canvas, Action continuer, Action liberer)
+    {
+        var (voile, carte) = Fenetre(canvas, "Toujours là ?", 480, false, new Color32(0xBA, 0x75, 0x17, 0xFF));
+        var corps = UIFactory.VBox(carte.transform, 10, 18, 18, 14, 6, "Corps");
+        var texte = UIFactory.Text(corps.transform, "", UITheme.Role.Donnee, UITheme.TextePrincipal);
+        var pied = Pied(carte.transform);
+        var lib = Bouton(pied.transform, "Annuler et libérer", false);
+        var cont = Bouton(pied.transform, "Continuer", true);
+        lib.onClick.AddListener(() => { UnityEngine.Object.Destroy(voile.gameObject); liberer(); });
+        cont.onClick.AddListener(() => { UnityEngine.Object.Destroy(voile.gameObject); continuer(); });
+        return (voile.gameObject, texte);
+    }
+
+    /// « Vous modifiez Volteo sans activité depuis 15 min. … Sans réponse dans 1:45, … »
+    public static string TexteToujoursLa(IList<string> fiches, string restant)
+    {
+        bool une = fiches.Count <= 1;
+        return $"Vous modifiez {string.Join(", ", fiches)} sans activité depuis {(int)RegleVerrou.Inactivite.TotalMinutes} min. "
+             + $"Les autres ne peuvent pas modifier {(une ? "cette fiche" : "ces fiches")}. "
+             + $"Sans réponse dans {restant}, vos saisies non enregistrées seront annulées et "
+             + (une ? "la fiche libérée." : "les fiches libérées.");
     }
 
     // ── 4. Menu compte et pastille ─────────────────────────────────────────────

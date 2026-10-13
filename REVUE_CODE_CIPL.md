@@ -232,13 +232,37 @@ Sujet choisi par l'utilisatrice : le module de l'app. Diagnostic présenté (4 s
     - `Installer` journalise désormais la pile de l'exception.
     - Le même plantage touchait « Se déconnecter », « Changer d'entreprise » et `Recharger` (refus du serveur). **436 tests verts.**
     - Les données du serveur sont intactes : tout en version 1, aucun verrou.
-- **Prochaine étape : la 4b** (CONCEPTION §11, ligne 4) :
-  - verrous des écrans Facturation, Loyer, Dépôt et charges (table §6.3) ;
-  - refacturation multi-fiches : refus si un locataire concerné est pris ;
-  - « Toujours là ? » après 15 min d'inactivité ;
-  - « Forcer la libération » (admin).
-
-  Dans CIPL, l'envoi automatique des factures et Pappers restent suspendus jusqu'à l'étape 7.
+- **4b, code écrit et validé en Play le 13/10** (parcours X1 à X6, éditeur admin + build utilisateur) :
+  - Décisions du 13/10 :
+    - la régularisation et la refacturation réservent le bâtiment ET le locataire ;
+    - une annulation (« Toujours là ? » sans réponse, libération forcée) relit toute l'entreprise.
+  - `Serveur/etape4b_supabase.sql` (à passer) :
+    - `renouveler_verrou` prolonge seulement si la ligne est encore à ma session, sinon dit qui l'a ;
+    - `forcer_liberation` (admin) : la ligne passe au nom de l'admin, motif « libération forcée », déjà expirée.
+  - `EcritureCloud.Reserver(cibles, motif, ouvrir, actif, fermer)` :
+    - une seule entrée pour tous les écrans ; refus au centre si une fiche est prise, rien n'est gardé à moitié ;
+    - une fiche que je tiens déjà s'ouvre sans aller-retour (Révision → Paliers) ;
+    - plusieurs réservations par fiche, libérée à la fin de la dernière.
+  - `ModifierSiLibre` passe par `Reserver`.
+  - Branché dans les méthodes d'ouverture, donc valable quel que soit le chemin (fiche, suivi, « À traiter ») :
+    - verrou du locataire : `FactureLoyerPanel.OpenLoyer` (facturation), `FactureDepotPanel.OpenDepot` (dépôt), `RevisionPanel.Open` et `PaliersPanel.Open` (loyer), `DepartPanel.Ouvrir` (départ, cession comprise) ;
+    - bâtiment + locataire : `FactureRegulPanel.OpenRegul`, `FactureRefacPanel.OpenRefac` ;
+    - verrou du bâtiment : `ChargePanel.OpenForm` (charges), `InvestissementListPanel.OpenAchatForm` / `OpenTravauxForm` (achat, travaux) ;
+    - `ReglagePanel.SupprimerListe` : refusée si un bâtiment est pris (`SiAucunBatimentPris`).
+  - Gardien :
+    - activité = clic, touche, molette ou souris ;
+    - `RegleVerrou.EtatInactivite` : 15 min → « Toujours là ? » (`EcransCloud.ToujoursLa`, compte à rebours 2 min), puis annulation ;
+    - signal de vie par `renouveler_verrou` ; perte de la fiche → annulation avec message ;
+    - bandeau avec « Forcer la libération » pour un admin.
+  - `FermerEcrans` avant chaque rechargement, changement d'entreprise ou déconnexion : un écran resté ouvert écrirait l'ancienne fiche.
+  - `EcritureCloud.Recaler` après `Installer` : les mises à niveau faites en mémoire au chargement ne repartent pas au serveur. Sinon, le premier enregistrement d'un locataire renvoyait aussi son bâtiment, refusé si un collègue le tient.
+  - Pour tester « Toujours là ? », raccourcir en Play : `RegleVerrou.Inactivite = TimeSpan.FromMinutes(1)` (script-execute).
+  - **438 tests verts.**
+  - Reste hors 4b :
+    - `VersementsPanel` et les actions en un clic : sans verrou durable, refusées par le serveur depuis la 4a ;
+    - Réglages encore locaux (étape 9) ;
+    - envoi automatique des factures et Pappers suspendus (étape 7).
+- **Ensuite : l'étape 5** (temps réel : la fiche se rafraîchit seule, « mis à jour par Marie », présence).
 
 ### Où en est le chantier au 29/09 (soir) — **310 tests EditMode verts**
 

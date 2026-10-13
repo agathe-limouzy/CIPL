@@ -83,7 +83,11 @@ public class FactureRegulPanel : MonoBehaviour
             go.transform.SetParent(canvas.rootCanvas.transform, false);
             go.AddComponent<FactureRegulPanel>();
         }
-        Instance.OpenFor(fiche, ligneCiblee);
+        // Sur le cloud : le bâtiment (ses charges) ET le locataire sont réservés tant que le
+        // panneau est ouvert (étape 4b, décision du 13/10).
+        var p = Instance;
+        EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, true), "régularisation", () => p.OpenFor(fiche, ligneCiblee),
+            () => p != null && p.gameObject.activeSelf && p._fiche == fiche, () => { if (p != null) p.Close(); });
     }
 
     void OpenFor(LocatairePrefab fiche, FactureEtat ligneCiblee = null)

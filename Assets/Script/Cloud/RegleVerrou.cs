@@ -15,6 +15,20 @@ public static class RegleVerrou
 
     public static bool Expire(DateTime expireLe, DateTime maintenant) => maintenant > expireLe;
 
+    /// Fiche prise sans un clic ni une touche pendant ce délai : « Toujours là ? ». Modifiable
+    /// pendant le Play pour tester (script-execute), sinon 15 min.
+    public static TimeSpan Inactivite = TimeSpan.FromMinutes(15);
+    public static readonly TimeSpan DelaiReponse = TimeSpan.FromMinutes(2);
+    public const string MotifForce = "libération forcée";   // posé par forcer_liberation (etape4b)
+
+    public enum Presence { Actif, Avertir, Liberer }
+
+    /// 14 min 59 s → Actif ; 15 min → Avertir (reste 2:00) ; 17 min → Liberer.
+    public static Presence EtatInactivite(TimeSpan inactif) =>
+        inactif < Inactivite ? Presence.Actif
+        : inactif < Inactivite + DelaiReponse ? Presence.Avertir
+        : Presence.Liberer;
+
     /// Temps avant que la fiche se libère seule : « 1:45 », ou « expiré ».
     public static string Restant(DateTime expireLe, DateTime maintenant)
     {

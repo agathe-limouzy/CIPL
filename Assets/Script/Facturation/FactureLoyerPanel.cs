@@ -90,7 +90,9 @@ public class FactureLoyerPanel : MonoBehaviour
             go.transform.SetParent(canvas.rootCanvas.transform, false);
             go.AddComponent<FactureLoyerPanel>();
         }
-        Instance.OpenFor(fiche, ligneCiblee);
+        var p = Instance;   // sur le cloud : le locataire est réservé tant que le panneau est ouvert (étape 4b)
+        EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, false), "facturation", () => p.OpenFor(fiche, ligneCiblee),
+            () => p != null && p.gameObject.activeSelf && p._fiche == fiche, () => { if (p != null) p.Close(); });
     }
 
     void OpenFor(LocatairePrefab fiche, FactureEtat ligneCiblee = null)

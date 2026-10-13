@@ -40,14 +40,14 @@ public static class DemarrageCloud
 
     public static async void ChangerEntreprise()
     {
-        EcritureCloud.LibererTout();
+        EcritureCloud.FermerEcrans();
         try { await OuvrirUneEntreprise(forcerChoix: true); }
         catch (Exception e) { Debug.LogException(e); ConfirmDialog.Erreur("Changement d'entreprise impossible : " + e.Message); }
     }
 
     public static void SeDeconnecter()
     {
-        EcritureCloud.LibererTout();
+        EcritureCloud.FermerEcrans();
         SessionCloud.Oublier();
         _bm.Vider();
         EcransCloud.Pastille(Canvas, null);
@@ -138,8 +138,10 @@ public static class DemarrageCloud
         var (bats, erreur) = await EcritureCloud.Charger(e.id);   // avec les versions (étape 4a)
         if (bats == null) { ConfirmDialog.Erreur($"Lecture de « {e.nom} » impossible : {erreur}"); return; }
 
+        EcritureCloud.FermerEcrans();   // un écran resté ouvert écrirait l'ancienne fiche
         _bm.Vider();
         _bm.Installer(bats);
+        EcritureCloud.Recaler(bats);   // les mises à niveau du chargement ne repartent pas au serveur
         _bm.menuManager.OpenGeneralMenu();
         EcritureCloud.DemarrerGardien();
         EcransCloud.Pastille(Canvas, $"{e.nom} · cloud");

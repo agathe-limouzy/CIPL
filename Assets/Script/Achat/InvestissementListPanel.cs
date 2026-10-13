@@ -123,19 +123,25 @@ public class InvestissementListPanel : MonoBehaviour
 
     // Ouvre un formulaire en masquant la carte liste dessous (pas de superposition),
     // puis la ré-affiche quand le formulaire se ferme (sauvegarde ou annulation).
-    private void OpenAchatForm(AchatFinancement a)
+    private void OpenAchatForm(AchatFinancement a) => ReserverBatiment("achat", achatFormPanel.gameObject, () =>
     {
         var card = transform.childCount > 0 ? transform.GetChild(0).gameObject : null;
         if (card != null) card.SetActive(false);
         achatFormPanel.Open(a, OnAchatSaved, () => { if (card != null) card.SetActive(true); });
-    }
+    });
 
-    private void OpenTravauxForm(TravauxFinancement t)
+    private void OpenTravauxForm(TravauxFinancement t) => ReserverBatiment("travaux", travauxFormPanel.gameObject, () =>
     {
         var card = transform.childCount > 0 ? transform.GetChild(0).gameObject : null;
         if (card != null) card.SetActive(false);
         travauxFormPanel.Open(t, OnTravauxSaved, () => { if (card != null) card.SetActive(true); });
-    }
+    });
+
+    // Sur le cloud : le bâtiment est réservé tant que le formulaire est ouvert (étape 4b).
+    void ReserverBatiment(string motif, GameObject form, Action ouvrir) =>
+        EcritureCloud.Reserver(new[] { ("batiment", _batiment.getID(), _batiment.getName()) }, motif, ouvrir,
+            () => form != null && form.activeSelf,
+            () => { if (form != null) form.SetActive(false); if (this != null) gameObject.SetActive(false); });
 
     private void OnAchatSaved(AchatFinancement data)
     {

@@ -193,4 +193,13 @@ public class CloudTests
         Assert.That(RegleVerrou.Restant(expire, expire.AddSeconds(-105)), Is.EqualTo("1:45"));
         Assert.That(RegleVerrou.Restant(expire, expire.AddSeconds(5)), Is.EqualTo("expiré"));
     }
+
+    [Test]
+    public void Quinze_minutes_sans_activite_avertissent_puis_deux_de_plus_liberent()
+    {
+        Assert.That(RegleVerrou.EtatInactivite(TimeSpan.FromSeconds(14 * 60 + 59)), Is.EqualTo(RegleVerrou.Presence.Actif));
+        Assert.That(RegleVerrou.EtatInactivite(TimeSpan.FromMinutes(15)), Is.EqualTo(RegleVerrou.Presence.Avertir));
+        Assert.That(RegleVerrou.EtatInactivite(TimeSpan.FromSeconds(16 * 60 + 59)), Is.EqualTo(RegleVerrou.Presence.Avertir));
+        Assert.That(RegleVerrou.EtatInactivite(TimeSpan.FromMinutes(17)), Is.EqualTo(RegleVerrou.Presence.Liberer));
+    }
 }

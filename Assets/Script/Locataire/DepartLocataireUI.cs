@@ -184,9 +184,17 @@ public static class DepartPanel
 
     public static void Ouvrir(LocatairePrefab fiche)
     {
+        if (fiche == null) return;
+        RectTransform scrim = null;   // sur le cloud : locataire réservé tant que la fenêtre est ouverte (étape 4b)
+        EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, false), "départ", () => scrim = Construire(fiche),
+            () => scrim != null, () => { if (scrim != null) UnityEngine.Object.Destroy(scrim.gameObject); });
+    }
+
+    static RectTransform Construire(LocatairePrefab fiche)
+    {
         var loc = fiche != null ? fiche.GetLocataire() : null;
         var canvas = fiche != null ? fiche.GetComponentInParent<Canvas>() : null;
-        if (loc == null || canvas == null) return;
+        if (loc == null || canvas == null) return null;
 
         var scrim = UIFactory.Rect("DepartScrim", canvas.rootCanvas.transform);
         UIFactory.Stretch(scrim);
@@ -325,6 +333,7 @@ public static class DepartPanel
             if (remplacant()) CreerRemplacant(fiche, loc);
             else UndoToast.Instance?.ShowInfo($"Départ de « {loc.Name} » enregistré.");
         });
+        return scrim;
     }
 
     // Nouvelle fiche sur le même lot, pré-remplie, en création (parcours habituel :

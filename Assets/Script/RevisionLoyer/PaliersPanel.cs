@@ -44,7 +44,10 @@ public class PaliersPanel
         var canvas = ancre != null ? ancre.GetComponentInParent<Canvas>() : null;
         if (canvas == null) canvas = UnityEngine.Object.FindObjectOfType<Canvas>();
         if (loc == null || canvas == null) return;
-        new PaliersPanel(loc, onSaved, canvas.rootCanvas.transform);
+        var root = canvas.rootCanvas.transform;
+        PaliersPanel p = null;   // sur le cloud : locataire réservé tant que l'écran est ouvert (étape 4b)
+        EcritureCloud.Reserver(new[] { ("locataire", loc.id, loc.Name) }, "loyer", () => p = new PaliersPanel(loc, onSaved, root),
+            () => p != null && p._scrim != null, () => p?.Fermer());
     }
 
     PaliersPanel(Locataire loc, Action onSaved, Transform root)

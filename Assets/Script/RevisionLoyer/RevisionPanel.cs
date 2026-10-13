@@ -115,7 +115,11 @@ public class RevisionPanel : MonoBehaviour
 
     public void Open(Locataire loc, Action onSaved) => Open(loc, onSaved, Volet.Indice);
 
-    public void Open(Locataire loc, Action onSaved, Volet volet)
+    public void Open(Locataire loc, Action onSaved, Volet volet) =>   // sur le cloud : locataire réservé (étape 4b)
+        EcritureCloud.Reserver(new[] { ("locataire", loc?.id, loc?.Name) }, "loyer", () => OuvrirLibre(loc, onSaved, volet),
+            () => this != null && gameObject.activeSelf && _loc == loc, () => { if (this != null) gameObject.SetActive(false); });
+
+    void OuvrirLibre(Locataire loc, Action onSaved, Volet volet)
     {
         _loc = loc;
         _onSaved = onSaved;

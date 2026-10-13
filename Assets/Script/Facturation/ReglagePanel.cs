@@ -523,7 +523,8 @@ public class ReglagePanel : MonoBehaviour
             (nb > 0 ? $"Ses {nb} charge(s) passent dans « {ListesCharges.NomGenerale} » : elles restent dans l'historique des charges.\n\n"
                     : "Aucune charge n'est rangée dans cette liste.\n\n")
             + "Les dates et provisions saisies pour elle chez les locataires sont retirées.",
-            () =>
+            // Sur le cloud : refusé si un bâtiment est en cours de modification (étape 4b).
+            () => EcritureCloud.SiAucunBatimentPris(bats, () =>
             {
                 foreach (var b in bats)
                 {
@@ -533,7 +534,7 @@ public class ReglagePanel : MonoBehaviour
                 R.listesCharges.Remove(liste);
                 ReglageService.Save();
                 RebuildListesCharges();
-            }, "Supprimer");
+            }), "Supprimer");
     }
 
     /// Une ligne de la liste : nom, « Renommer », et « Supprimer » si `supprimer`
