@@ -10,7 +10,7 @@ using UnityEngine;
 /// Canal temps réel Supabase (protocole Phoenix sur WebSocket) : reçoit les changements
 /// des tables écoutées. Les messages arrivent sur un fil de fond et attendent dans
 /// `Recus` ; le propriétaire les lit sur le fil principal (Update, EditorApplication.update).
-/// Étape 1 (essai technique) : seule la fenêtre CIPL › Essai cloud l'utilise.
+/// Étape 1 : fenêtre CIPL › Essai cloud. Étape 5 : DirectCloud (fiches des collègues, présence).
 public class TempsReel : IDisposable
 {
     public const string Sujet = "realtime:cipl";
@@ -25,7 +25,11 @@ public class TempsReel : IDisposable
     readonly SemaphoreSlim _envoi = new SemaphoreSlim(1, 1);   // un seul envoi à la fois sur la socket
     int _ref;
 
-    public async Task Demarrer(string projetUrl, string cle, string jeton, params string[] tables)
+    public Task Demarrer(string projetUrl, string cle, string jeton, params string[] tables) =>
+        Demarrer(projetUrl, cle, r => MessageJoin(tables, jeton, r));
+
+    /// `join` : le message d'abonnement, construit avec la référence qu'on lui donne.
+    public async Task Demarrer(string projetUrl, string cle, Func<string, string> join)
     {
         Arreter();
         _cts = new CancellationTokenSource();
@@ -36,10 +40,15 @@ public class TempsReel : IDisposable
         var ws = _ws; var ct = _cts.Token;
         _ = Task.Run(() => Boucle(ws, ct));
         RefAbonnement = Prochain();
-        await Envoyer(MessageJoin(tables, jeton, RefAbonnement));
+        await Envoyer(join(RefAbonnement));
         Etat = "abonnement demandé";
         _ = Task.Run(() => Battre(ct));
     }
+
+    /// Le jeton de connexion expire au bout d'une heure : le nouveau est transmis au canal,
+    /// sans quoi le serveur cesse d'envoyer les changements.
+    public Task EnvoyerJeton(string jeton) =>
+        Envoyer("{\"topic\":\"" + Sujet + "\",\"event\":\"access_token\",\"payload\":{\"access_token\":\"" + jeton + "\"},\"ref\":\"" + Prochain() + "\"}");
 
     public void Arreter()
     {
@@ -127,6 +136,19 @@ public class TempsReel : IDisposable
         });
     }
 
+    /// Étape 5 : abonnement limité aux lignes d'une entreprise (`filtre` = « entreprise_id=eq.<uuid> »).
+    /// Construit à la main : JsonUtility écrirait aussi un filtre vide pour les autres usages.
+    public static string MessageJoinFiltre(string[] tables, string filtre, string jeton, string reference)
+    {
+        var chg = new StringBuilder();
+        foreach (var t in tables)
+            chg.Append(chg.Length > 0 ? "," : "")
+               .Append("{\"event\":\"*\",\"schema\":\"public\",\"table\":\"").Append(t)
+               .Append("\",\"filter\":\"").Append(filtre).Append("\"}");
+        return "{\"topic\":\"" + Sujet + "\",\"event\":\"phx_join\",\"payload\":{\"config\":{\"postgres_changes\":[" + chg +
+               "]},\"access_token\":\"" + jeton + "\"},\"ref\":\"" + reference + "\",\"join_ref\":\"" + reference + "\"}";
+    }
+
     public static string MessageBattement(string reference) =>
         "{\"topic\":\"phoenix\",\"event\":\"heartbeat\",\"payload\":{},\"ref\":\"" + reference + "\"}";
 
@@ -135,6 +157,7 @@ public class TempsReel : IDisposable
     {
         public string id; public double loyer; public string maj_par; public int version;   // essai_fiches
         public string cible, nom, motif, expire_le;                                           // essai_verrous
+        public string entreprise_id, batiment_id, maj_session;                                // étape 5 : batiments, locataires
     }
     [Serializable] public class DonneesChange { public string type, table, commit_timestamp; public Enregistrement record, old_record; }
     [Serializable] public class ReponseServeur { public string reason; }

@@ -19,13 +19,25 @@ public class LocataireRowUI : MonoBehaviour
 
     private const int SEUIL_BIENTOT = 90;   // jours
 
+    // Étape 5 : prénom de la personne qui modifie ce locataire (« Sephora · Odile »). Les
+    // onglets des locataires sont masqués : cette ligne en tient lieu (décision du 14/10).
+    public string LocataireId { get; private set; }
+    string _nom;
+
+    public void SetDetenteur(string prenom)
+    {
+        if (txtNom != null) txtNom.text = _nom + RegleVerrou.Marque(prenom);
+    }
+
     public void Setup(Locataire loc, Action onOpenFiche)
     {
         string nom = string.IsNullOrEmpty(loc.Name) ? "Sans nom" : loc.Name;
+        _nom = nom;
+        LocataireId = loc.id;
 
         if (txtNom != null)
         {
-            txtNom.text = nom;
+            SetDetenteur(EcritureCloud.Detenteur(false, loc.id));
             // Rôle « Nom », comme le nom d'un bâtiment sur sa carte (23/09). Il était
             // à 24 pt parce que l'utilisatrice voulait « les noms des locataires en
             // plus gros » : s'il le faut de nouveau, c'est un rôle distinct à créer

@@ -94,6 +94,25 @@ public class CloudEcritureTests
     }
 
     [Test]
+    public void Une_relecture_remplace_l_etat_du_batiment_sans_toucher_aux_autres()
+    {
+        var b = Rivoli(out var volteo, out var nord);
+        var cache = Lu(b);
+        cache["l:autre"] = new EcritureCloud.Etat { BatimentId = "autre-batiment", Version = 2 };
+
+        b.locataireDuBatiment.Remove(nord);   // Marie a supprimé Atelier Nord, et modifié Volteo
+        var relu = new Dictionary<string, EcritureCloud.Etat>();
+        EcritureCloud.Memoriser(relu, b, 4, new Dictionary<string, int> { { volteo.id, 8 } });
+
+        EcritureCloud.Adopter(cache, b.id, relu, b);
+        Assert.That(cache.ContainsKey(EcritureCloud.Cle(false, nord.id)), Is.False, "sinon on renverrait sa suppression");
+        Assert.That(cache[EcritureCloud.Cle(false, volteo.id)].Version, Is.EqualTo(8));
+        Assert.That(cache[EcritureCloud.Cle(true, b.id)].Version, Is.EqualTo(4));
+        Assert.That(cache.ContainsKey("l:autre"), Is.True);
+        Assert.That(EcritureCloud.Differences(b, cache), Is.Empty);
+    }
+
+    [Test]
     public void Les_parametres_portent_le_JSON_de_CIPL_en_objet()
     {
         var op = new EcritureCloud.Op { Type = EcritureCloud.TypeOp.Locataire, Id = "l1", BatimentId = "b1", Ordre = 2, Version = 5, Json = "{\"Name\":\"Volteo\"}" };

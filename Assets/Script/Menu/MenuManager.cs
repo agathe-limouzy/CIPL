@@ -64,6 +64,36 @@ public class MenuManager : MonoBehaviour
             tab.SetAlert(on);
     }
 
+    // ── Étape 5 : en direct ──────────────────────────────────────────────────
+
+    /// La fiche sélectionnée (elle le reste sous l'accueil, qui ne fait que la masquer).
+    public PrefabBatLoc Actif => _activePrefab;
+
+    /// Prénom de la personne qui modifie la fiche, sur son onglet (null : personne).
+    public void SetDetenteur(PrefabBatLoc prefab, string prenom)
+    {
+        if (prefab != null && dictionnaryMenu.TryGetValue(prefab, out var tab) && tab != null) tab.SetDetenteur(prenom);
+    }
+
+    /// La fiche reconstruite reprend l'onglet de l'ancienne ; elle est montrée si c'était
+    /// elle (sans OnSelect : l'accueil resterait ouvert ou se fermerait), cachée sinon.
+    public void RemplacerFiche(PrefabBatLoc ancien, PrefabBatLoc nouveau)
+    {
+        if (!dictionnaryMenu.TryGetValue(ancien, out var tab))
+        {
+            CreateTab(nouveau);
+            nouveau.gameObject.SetActive(false);
+            return;
+        }
+        dictionnaryMenu.Remove(ancien);
+        dictionnaryMenu[nouveau] = tab;
+        tab._BatLocLinked = nouveau;
+        tab.UpdateLabel(TruncateLabel(nouveau.getName()));
+        bool montre = _activePrefab == ancien;
+        if (montre) _activePrefab = nouveau;
+        nouveau.gameObject.SetActive(montre);
+    }
+
     void Start()
     {
         if (IsMenuBatiment)
@@ -207,8 +237,16 @@ public class MenuManager : MonoBehaviour
     }
 
 
-    public void RemoveTabAndBuilding(PrefabBatLoc batiment)
+    /// `montrerVoisin` faux (étape 5, bâtiment supprimé par un collègue pendant que l'accueil
+    /// est ouvert) : l'onglet disparaît sans rien sélectionner, l'accueil reste à l'écran.
+    public void RemoveTabAndBuilding(PrefabBatLoc batiment, bool montrerVoisin = true)
     {
+        if (!montrerVoisin)
+        {
+            if (batiment != null && dictionnaryMenu.TryGetValue(batiment, out var t)) { Destroy(t.gameObject); dictionnaryMenu.Remove(batiment); }
+            if (_activePrefab == batiment) _activePrefab = null;
+            return;
+        }
         // Onglet à montrer ensuite : le VOISIN dans l'ordre affiché — le précédent,
         // sinon le suivant. On prenait toujours le premier onglet, et rien du tout
         // quand il n'en restait plus : l'écran restait vide.

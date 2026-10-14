@@ -284,6 +284,15 @@ public class BatimentManager : MonoBehaviour
             return false;
         }
 
+        // Étape 5 : écran resté ouvert sur une fiche relue depuis (changement d'un collègue,
+        // rechargement) : il renverrait des locataires périmés avec la version à jour.
+        if (SessionCloud.Active && EcritureCloud.Perime(data))
+        {
+            ConfirmDialog.Erreur($"« {data.Name} » a été mis à jour pendant que cet écran était ouvert : " +
+                                 "cette modification n'est pas enregistrée. Refaites-la sur la fiche à jour.");
+            return false;
+        }
+
         // Synchronise la liste en mémoire : les prefabs travaillent sur des
         // copies (clone JSON) — sans ça, Batiments reste périmée et le menu
         // home (objectifs, stats) ne voit pas les changements.
@@ -319,9 +328,12 @@ public class BatimentManager : MonoBehaviour
     /// Retire toutes les fiches et onglets (changement d'entreprise, déconnexion).
     public void Vider()
     {
+        // Étape 5 : un écran resté ouvert sur ces fiches ne doit plus les enregistrer.
+        foreach (var b in _batiments) EcritureCloud.Perimer(b);
         foreach (var prefab in BatimentPrefab)
         {
             if (prefab == null) continue;
+            EcritureCloud.Perimer(prefab.getBatiment());
             menuManager.RemoveTabAndBuilding(prefab);
             Destroy(prefab.gameObject);
         }
@@ -339,14 +351,7 @@ public class BatimentManager : MonoBehaviour
         {
             try
             {
-                ChargeBatiment.Reconstituer(data);
-                Objectifs.Migrer(data.objectifs);
-                if (data.locataireDuBatiment != null)
-                    foreach (var loc in data.locataireDuBatiment)
-                    {
-                        Objectifs.Migrer(loc?.objectifs);
-                        if (loc != null) Loyers.Actualiser(loc, DateTime.Today);
-                    }
+                MettreANiveau(data);
                 _batiments.Add(data);
                 var prefab = SpawnPrefabInPanel(data, batimentsContainerPanel, false);
                 BatimentPrefab.Add(prefab);
@@ -361,6 +366,65 @@ public class BatimentManager : MonoBehaviour
         }
         if (BatimentPrefab.Count > 0) menuManager.OnSelect(BatimentPrefab[0]);
         Debug.Log($"[BatimentManager] {_batiments.Count} bâtiment(s) installé(s) depuis le cloud");
+    }
+
+    /// Mises à niveau en mémoire faites à chaque lecture (comme LoadAll), sans écriture.
+    static void MettreANiveau(Batiment data)
+    {
+        ChargeBatiment.Reconstituer(data);
+        Objectifs.Migrer(data.objectifs);
+        if (data.locataireDuBatiment != null)
+            foreach (var loc in data.locataireDuBatiment)
+            {
+                Objectifs.Migrer(loc?.objectifs);
+                if (loc != null) Loyers.Actualiser(loc, DateTime.Today);
+            }
+    }
+
+    /// Étape 5 : fiche relue après le changement d'un collègue, reconstruite à la même place
+    /// (onglet, vue et locataire affichés conservés). Faux si le bâtiment est nouveau.
+    public bool Remplacer(Batiment data)
+    {
+        MettreANiveau(data);
+        int idx = _batiments.FindIndex(b => b.id == data.id);
+        if (idx >= 0) { EcritureCloud.Perimer(_batiments[idx]); _batiments[idx] = data; }
+        else _batiments.Add(data);
+
+        int i = BatimentPrefab.FindIndex(p => p != null && p.getID() == data.id);
+        var nouveau = SpawnPrefabInPanel(data, batimentsContainerPanel, false);
+        if (i < 0)
+        {
+            BatimentPrefab.Add(nouveau);
+            menuManager.CreateTab(nouveau);
+            nouveau.gameObject.SetActive(false);   // n'apparaît pas par-dessus la fiche affichée
+            nouveau.RefreshBatimentTabAlert();
+            return false;
+        }
+        var ancien = BatimentPrefab[i];
+        var vue = ancien.Vue();
+        EcritureCloud.Perimer(ancien.getBatiment());
+        nouveau.transform.SetSiblingIndex(ancien.transform.GetSiblingIndex());
+        BatimentPrefab[i] = nouveau;
+        menuManager.RemplacerFiche(ancien, nouveau);
+        nouveau.RetablirVue(vue);
+        Destroy(ancien.gameObject);
+        nouveau.RefreshBatimentTabAlert();
+        return true;
+    }
+
+    /// Étape 5 : bâtiment supprimé par un collègue. Son nom, ou null s'il n'était pas affiché ici.
+    public string Retirer(string id, bool montrerVoisin)
+    {
+        foreach (var b in _batiments) if (b.id == id) EcritureCloud.Perimer(b);
+        _batiments.RemoveAll(b => b.id == id);
+        var p = BatimentPrefab.Find(x => x != null && x.getID() == id);
+        if (p == null) return null;
+        string nom = p.getName();
+        EcritureCloud.Perimer(p.getBatiment());
+        BatimentPrefab.Remove(p);
+        menuManager.RemoveTabAndBuilding(p, montrerVoisin);
+        Destroy(p.gameObject);
+        return nom;
     }
 
     public void SaveAll()

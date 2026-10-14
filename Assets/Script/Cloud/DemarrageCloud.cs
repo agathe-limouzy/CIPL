@@ -40,6 +40,7 @@ public static class DemarrageCloud
 
     public static async void ChangerEntreprise()
     {
+        DirectCloud.Arreter();
         EcritureCloud.FermerEcrans();
         try { await OuvrirUneEntreprise(forcerChoix: true); }
         catch (Exception e) { Debug.LogException(e); ConfirmDialog.Erreur("Changement d'entreprise impossible : " + e.Message); }
@@ -47,6 +48,7 @@ public static class DemarrageCloud
 
     public static void SeDeconnecter()
     {
+        DirectCloud.Arreter();   // avant Oublier : il signale mon départ avec le jeton
         EcritureCloud.FermerEcrans();
         SessionCloud.Oublier();
         _bm.Vider();
@@ -144,6 +146,7 @@ public static class DemarrageCloud
         EcritureCloud.Recaler(bats);   // les mises à niveau du chargement ne repartent pas au serveur
         _bm.menuManager.OpenGeneralMenu();
         EcritureCloud.DemarrerGardien();
+        DirectCloud.Demarrer(e.id);   // étape 5 : changements des collègues, présence
         EcransCloud.Pastille(Canvas, $"{e.nom} · cloud");
         UndoToast.Instance?.ShowInfo($"{e.nom} : {bats.Count} bâtiment(s) lu(s) depuis le cloud.");
     }

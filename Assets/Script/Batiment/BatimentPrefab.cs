@@ -207,6 +207,21 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         return t.Substring(0, Math.Min(2, t.Length)).ToUpper();
     }
 
+    // Étape 5 : reconstruite après le changement d'un collègue, la fiche revient où l'on était.
+
+    /// Vue montrée (0 résumé, 1 fiche, 2 locataires) et locataire sélectionné.
+    public (int vue, string locataireId) Vue() =>
+        (vueLocatairePanel != null && vueLocatairePanel.activeSelf ? 2
+         : summaryView != null && summaryView.gameObject.activeSelf ? 0 : 1,
+         menulocataire != null && menulocataire.Actif != null ? menulocataire.Actif.getID() : null);
+
+    public void RetablirVue((int vue, string locataireId) v)
+    {
+        var loc = dictionnairelocataire.Values.FirstOrDefault(p => p != null && p.getID() == v.locataireId);
+        if (loc != null) menulocataire.OnSelect(loc);
+        if (v.vue == 2) ShowLocataireView(); else if (v.vue == 1) ShowFiche(); else ShowSummary();
+    }
+
     public void ShowLocataireView()
     {
         if (summaryView != null) summaryView.gameObject.SetActive(false);

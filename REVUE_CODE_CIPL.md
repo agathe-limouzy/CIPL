@@ -262,7 +262,38 @@ Sujet choisi par l'utilisatrice : le module de l'app. Diagnostic présenté (4 s
     - `VersementsPanel` et les actions en un clic : sans verrou durable, refusées par le serveur depuis la 4a ;
     - Réglages encore locaux (étape 9) ;
     - envoi automatique des factures et Pappers suspendus (étape 7).
-- **Ensuite : l'étape 5** (temps réel : la fiche se rafraîchit seule, « mis à jour par Marie », présence).
+- **Étape 5 (en direct), code écrit le 13/10, validé en Play le 14/10** (parcours Y1 à Y7, éditeur + build à deux comptes) :
+  - Décisions du 13/10 :
+    - un changement d'un collègue relit et reconstruit la fiche du bâtiment (onglet, vue et locataire affichés conservés) ;
+    - si je travaille dans ce bâtiment, la mise à jour attend que j'aie fini ;
+    - message « mis à jour par Marie » seulement pour le bâtiment affiché ou sur l'accueil ;
+    - « En ligne : (MD) (PL) » au bout de la barre d'onglets ;
+    - prénom de la personne sur l'onglet de la fiche qu'elle modifie.
+  - `Serveur/etape5_supabase.sql` (à passer) :
+    - colonne `maj_session` sur `batiments` et `locataires`, posée par `enregistrer_*` (chacun ignore l'écho de ses enregistrements) ;
+    - table `presences` (`signaler_presence` toutes les 30 s, `quitter_presence`) ;
+    - les quatre tables dans la publication temps réel.
+  - `Cloud/DirectCloud.cs` :
+    - abonnement filtré sur l'entreprise (`TempsReel.MessageJoinFiltre`) ;
+    - `Concerne` : quel bâtiment relire (testé) ;
+    - relecture par `EcritureCloud.ChargerUn` puis `BatimentManager.Remplacer` / `Retirer`, puis `EcritureCloud.Adopter` (cache) ;
+    - attente si `Occupe` : fiche ou écran réservés, envoi en cours, fiche en saisie ;
+    - verrous reçus → bandeaux tout de suite ;
+    - présence ;
+    - entretien du canal : jeton renouvelé transmis, reconnexion puis relecture silencieuse de tout.
+  - Garde-fou : un écran resté ouvert sur une fiche relue depuis ne peut plus l'enregistrer (`EcritureCloud.Perimer` / `Perime`, refus au centre dans `SaveBatiment`). Sinon il renverrait des locataires périmés avec la version à jour.
+  - `MenuManager` : `Actif`, `RemplacerFiche`, `SetDetenteur`, `RemoveTabAndBuilding(…, montrerVoisin)`. `MenuItem.SetDetenteur` écrit « · Marie » en ambre (texte enrichi : pas de place prévue pour une vraie pastille dans l'onglet). `BatimentPrefab.Vue` / `RetablirVue`.
+  - **444 tests verts.**
+  - 14/10, retour sur Y1 : après la fermeture du build, ses initiales restaient environ 2 min 40 dans l'éditeur.
+    - Cause : `quitter_presence` partait en tâche de fond et l'application se fermait avant la réponse.
+    - Correction : `DirectCloud.QuitterAvantFermeture` envoie de façon bloquante, 2 s au plus.
+  - 14/10, « En ligne » mal placé :
+    - Cause : la barre d'onglets ne dimensionne ni ne centre ses enfants (`childControl` faux) ; le bloc gardait 100 × 100 et dépassait dessous. Ensuite, aucune place entre « + » et `BtnQuitter`.
+    - Correction : bloc placé à la main, centré entre « + » et `BtnQuitter`, texte vert clair, initiales seules s'il manque de place. Le « + » passe à 60 px à l'exécution (décision du 14/10).
+  - 14/10, Y6 sans effet : les onglets des locataires sont masqués dans CIPL (`VueLocataire/HeaderLoc`).
+    - Correction (décision du 14/10) : le prénom va sur l'onglet du bâtiment dès qu'on y modifie quelque chose (`RegleVerrou.Detenteurs`) et sur la ligne du locataire du résumé (`LocataireRowUI.SetDetenteur`, repris à chaque reconstruction via `EcritureCloud.Detenteur`).
+  - Console : `[Direct] … en attente, j'y travaille` / `[Direct] … relu (…)`. **445 tests verts.**
+- **Ensuite : l'étape 6** (documents : envoi au cloud, copie locale, corbeille).
 
 ### Où en est le chantier au 29/09 (soir) — **310 tests EditMode verts**
 

@@ -37,7 +37,8 @@ public class MenuItem : MonoBehaviour
         _BatLocLinked = prefabBatLoc;
 
         string nom = prefabBatLoc.getName();
-        tabLabel.text = string.IsNullOrWhiteSpace(nom) ? "Sans nom" : nom;
+        _libelle = string.IsNullOrWhiteSpace(nom) ? "Sans nom" : nom;
+        Afficher();
 
         tabButton.onClick.AddListener(() => MainMenu.OnSelect(_BatLocLinked, this));
 
@@ -60,6 +61,20 @@ public class MenuItem : MonoBehaviour
 
     public void UpdateLabel(string label)
     {
-        tabLabel.text = string.IsNullOrWhiteSpace(label) ? "Sans nom" : label;
+        _libelle = string.IsNullOrWhiteSpace(label) ? "Sans nom" : label;
+        Afficher();
     }
+
+    // Étape 5 (maquette 2 : « Volteo [Marie] ») : prénom de la personne qui modifie la fiche,
+    // en ambre après le nom. Texte enrichi : l'onglet n'a pas de place prévue pour une pastille.
+    string _libelle, _detenteur;
+
+    public void SetDetenteur(string prenom)
+    {
+        if (_detenteur == prenom) return;
+        _detenteur = prenom;
+        Afficher();
+    }
+
+    void Afficher() => tabLabel.text = _libelle + RegleVerrou.Marque(_detenteur);
 }

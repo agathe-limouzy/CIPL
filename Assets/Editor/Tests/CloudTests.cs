@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using NUnit.Framework;
 
 /// Essai technique (étape 1) : tout ce qui se vérifie sans réseau. Les réponses de
@@ -192,6 +193,87 @@ public class CloudTests
         Assert.That(RegleVerrou.Expire(expire, expire.AddSeconds(1)), Is.True);
         Assert.That(RegleVerrou.Restant(expire, expire.AddSeconds(-105)), Is.EqualTo("1:45"));
         Assert.That(RegleVerrou.Restant(expire, expire.AddSeconds(5)), Is.EqualTo("expiré"));
+    }
+
+    // ── Étape 5 : en direct ────────────────────────────────────────────────────
+
+    [Test]
+    public void Prenom_et_initiales_viennent_du_nom_ou_de_l_e_mail()
+    {
+        Assert.That(RegleVerrou.Prenom("Marie Dupont"), Is.EqualTo("Marie"));
+        Assert.That(RegleVerrou.Prenom("agathe.limouzy@cipl.fr"), Is.EqualTo("agathe"), "pas de nom saisi : l'e-mail");
+        Assert.That(RegleVerrou.Initiales("Marie Dupont"), Is.EqualTo("MD"));
+        Assert.That(RegleVerrou.Initiales("Paul"), Is.EqualTo("PA"));
+        Assert.That(RegleVerrou.Initiales("agathe.limouzy@cipl.fr"), Is.EqualTo("AL"));
+    }
+
+    [Test]
+    public void L_onglet_du_batiment_nomme_qui_y_modifie_le_batiment_ou_un_locataire()
+    {
+        var verrous = new[]
+        {
+            ("locataire", "sephora", "Odile Limouzy"),
+            ("batiment", "rivoli", "Marie Dupont"),
+            ("locataire", "decathlon", "Paul Lefèvre"),   // Le Hangar : pas rivoli
+        };
+        var locsRivoli = new HashSet<string> { "sephora", "starbucks" };
+        Assert.That(RegleVerrou.Detenteurs(verrous, "rivoli", locsRivoli), Is.EqualTo("Odile, Marie"));
+        Assert.That(RegleVerrou.Detenteurs(verrous, "auterive", new HashSet<string> { "tereva" }), Is.Null);
+        Assert.That(RegleVerrou.Marque("Odile"), Is.EqualTo(" <color=#BA7517><b>· Odile</b></color>"));
+        Assert.That(RegleVerrou.Marque(null), Is.Empty);
+    }
+
+    [Test]
+    public void En_ligne_hors_moi_signal_recent_une_fois_par_personne()
+    {
+        var t = new DateTime(2026, 10, 13, 14, 0, 0);
+        var presences = new[]
+        {
+            ("moi", "Agathe", t),
+            ("s2", "Marie Dupont", t.AddSeconds(-30)),
+            ("s3", "Marie Dupont", t.AddSeconds(-10)),   // Marie sur un 2e PC
+            ("s4", "Paul Lefèvre", t.AddMinutes(-3)),    // plus de signal depuis 3 min
+        };
+        Assert.That(RegleVerrou.EnLigne(presences, "moi", t), Is.EqualTo(new[] { "Marie Dupont" }));
+    }
+
+    [Test]
+    public void L_abonnement_ne_porte_que_sur_l_entreprise_ouverte()
+    {
+        string m = TempsReel.MessageJoinFiltre(new[] { "batiments", "locataires" }, "entreprise_id=eq.e1", "jwt", "7");
+        StringAssert.Contains("\"event\":\"phx_join\"", m);
+        StringAssert.Contains("{\"event\":\"*\",\"schema\":\"public\",\"table\":\"batiments\",\"filter\":\"entreprise_id=eq.e1\"}", m);
+        StringAssert.Contains("\"table\":\"locataires\",\"filter\":\"entreprise_id=eq.e1\"", m);
+        StringAssert.Contains("\"access_token\":\"jwt\"", m);
+    }
+
+    static TempsReel.DonneesChange Recu(string table, string type, string record, string old) =>
+        TempsReel.Lire("{\"topic\":\"realtime:cipl\",\"event\":\"postgres_changes\",\"payload\":{\"data\":{\"table\":\"" + table +
+                       "\",\"type\":\"" + type + "\",\"commit_timestamp\":\"2026-10-13T12:00:00Z\",\"record\":" + record +
+                       ",\"old_record\":" + old + "},\"ids\":[1]},\"ref\":null}").payload.data;
+
+    static (string, string)? Concerne(TempsReel.DonneesChange d, bool supprimeParMoi = false) =>
+        DirectCloud.Concerne(d, "e1", "moi", l => l == "l1" ? "b1" : null, _ => supprimeParMoi);
+
+    [Test]
+    public void Un_changement_de_collegue_designe_le_batiment_a_relire()
+    {
+        const string volteo = "{\"id\":\"l1\",\"entreprise_id\":\"e1\",\"batiment_id\":\"b1\",\"maj_session\":\"s2\",\"maj_par\":\"Marie Dupont\",\"version\":4,\"data\":{\"Name\":\"Volteo\"}}";
+        Assert.That(Concerne(Recu("locataires", "UPDATE", volteo, "{\"id\":\"l1\",\"entreprise_id\":\"e1\"}")),
+                    Is.EqualTo(("b1", "Marie Dupont")));
+        Assert.That(Concerne(Recu("batiments", "INSERT", "{\"id\":\"b9\",\"entreprise_id\":\"e1\",\"maj_session\":\"s3\",\"maj_par\":\"Paul\"}", "{}")),
+                    Is.EqualTo(("b9", "Paul")));
+        Assert.That(Concerne(Recu("locataires", "DELETE", "{}", "{\"id\":\"l1\",\"entreprise_id\":\"e1\"}")),
+                    Is.EqualTo(("b1", (string)null)), "suppression : le bâtiment est retrouvé par le locataire");
+    }
+
+    [Test]
+    public void Mes_echos_les_autres_entreprises_et_les_verrous_sont_ignores()
+    {
+        Assert.That(Concerne(Recu("locataires", "UPDATE", "{\"id\":\"l1\",\"entreprise_id\":\"e1\",\"batiment_id\":\"b1\",\"maj_session\":\"moi\"}", "{}")), Is.Null);
+        Assert.That(Concerne(Recu("batiments", "UPDATE", "{\"id\":\"b2\",\"entreprise_id\":\"e2\",\"maj_session\":\"s2\"}", "{}")), Is.Null);
+        Assert.That(Concerne(Recu("locataires", "DELETE", "{}", "{\"id\":\"l1\",\"entreprise_id\":\"e1\"}"), supprimeParMoi: true), Is.Null);
+        Assert.That(Concerne(Recu("verrous", "INSERT", "{\"entreprise_id\":\"e1\"}", "{}")), Is.Null);
     }
 
     [Test]

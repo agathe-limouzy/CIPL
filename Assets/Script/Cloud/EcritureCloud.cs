@@ -137,6 +137,56 @@ public static class EcritureCloud
         catch (Exception e) { return (null, "Données illisibles : " + e.Message); }
     }
 
+    // ── Étape 5 : fiches relues pendant qu'un écran était ouvert dessus ─────────
+
+    /// Objets Batiment remplacés par une relecture (changement d'un collègue, rechargement) :
+    /// un écran resté ouvert sur l'ancien ne doit plus rien écrire, sinon il renverrait des
+    /// locataires périmés avec la version à jour et effacerait le travail du collègue.
+    static readonly HashSet<Batiment> _perimes = new HashSet<Batiment>();
+    public static void Perimer(Batiment b) { if (b != null) _perimes.Add(b); }
+    public static bool Perime(Batiment b) => b != null && _perimes.Contains(b);
+
+    /// Fiches que j'ai supprimées : leur écho (sans auteur) ne doit pas passer pour un collègue.
+    static readonly HashSet<string> _supprimesParMoi = new HashSet<string>();
+    public static bool SupprimeParMoi(string id) => id != null && _supprimesParMoi.Contains(id);
+
+    public static string BatimentDuLocataire(string locataireId) =>
+        locataireId != null && _cache.TryGetValue(Cle(false, locataireId), out var e) ? e.BatimentId : null;
+
+    /// Je travaille dans ce bâtiment (fiche ou écran réservés, envoi en cours) : sa relecture attend.
+    public static bool Occupe(string batimentId) =>
+        !_file.IsCompleted
+        || _tenus.Any(t => (t.Type == "batiment" && t.Id == batimentId) || (t.Type == "locataire" && BatimentDuLocataire(t.Id) == batimentId));
+
+    /// Un bâtiment et ses locataires, avec leurs versions (null = supprimé). Le cache n'est
+    /// pas touché : voir Adopter, une fois la fiche reconstruite.
+    public static async Task<(Batiment bat, Dictionary<string, Etat> etat, string erreur)> ChargerUn(string entrepriseId, string batimentId)
+    {
+        string jeton = await SessionCloud.Jeton();
+        string id = Uri.EscapeDataString(batimentId);
+        var rb = await CloudClient.Table("GET", Url, CleApi, jeton, "batiments", $"entreprise_id=eq.{entrepriseId}&id=eq.{id}&select=id,version,data");
+        if (!rb.Ok) return (null, null, rb.Erreur);
+        var rl = await CloudClient.Table("GET", Url, CleApi, jeton, "locataires",
+                                         $"entreprise_id=eq.{entrepriseId}&batiment_id=eq.{id}&select=id,batiment_id,ordre,version,data&order=ordre.asc");
+        if (!rl.Ok) return (null, null, rl.Erreur);
+        var etat = new Dictionary<string, Etat>();
+        try { return (Lire(rb.Corps, rl.Corps, etat).FirstOrDefault(), etat, null); }
+        catch (Exception e) { return (null, null, "Données illisibles : " + e.Message); }
+    }
+
+    /// Le cache prend l'état relu d'un bâtiment (ses anciens locataires en sortent), puis se
+    /// recale sur la fiche reconstruite (mises à niveau du chargement).
+    public static void Adopter(string batimentId, IDictionary<string, Etat> etat, Batiment b) =>
+        Adopter(_cache, batimentId, etat, b);
+
+    public static void Adopter(IDictionary<string, Etat> cache, string batimentId, IDictionary<string, Etat> etat, Batiment b)
+    {
+        foreach (var k in cache.Where(kv => kv.Key == Cle(true, batimentId) || kv.Value.BatimentId == batimentId).Select(kv => kv.Key).ToList())
+            cache.Remove(k);
+        foreach (var kv in etat) cache[kv.Key] = kv.Value;
+        if (b != null) Recaler(cache, new[] { b });
+    }
+
     static Task _file = Task.CompletedTask;   // un enregistrement à la fois, dans l'ordre
 
     public static void Enregistrer(Batiment b) { var avant = _file; _file = Envoyer(avant, b); }
@@ -169,7 +219,7 @@ public static class EcritureCloud
                     DemarrageCloud.Recharger();
                     return;
                 }
-                if (op.Type == TypeOp.SupprimerLocataire) _cache.Remove(Cle(false, op.Id));
+                if (op.Type == TypeOp.SupprimerLocataire) { _cache.Remove(Cle(false, op.Id)); _supprimesParMoi.Add(op.Id); }
                 else _cache[Cle(op.Type == TypeOp.Batiment, op.Id)] =
                     new Etat { Json = op.Json, Version = res.version, BatimentId = op.BatimentId, Ordre = op.Ordre };
             }
@@ -193,6 +243,7 @@ public static class EcritureCloud
             DemarrageCloud.Recharger();
             return;
         }
+        _supprimesParMoi.Add(id);
         _cache.Remove(Cle(true, id));
         foreach (var k in _cache.Where(kv => kv.Value.BatimentId == id).Select(kv => kv.Key).ToList()) _cache.Remove(k);
     }
@@ -309,6 +360,15 @@ public static class EcritureCloud
 
     /// Lance le gardien (bandeaux « En cours de modification par… ») dès l'ouverture d'une entreprise.
     public static void DemarrerGardien() => Gardien.Assurer();
+
+    /// Étape 5 : un verrou a changé (canal en direct) ; sans attendre le relevé des 10 s.
+    public static void RafraichirBandeaux() => Gardien.MettreAJourBandeaux();
+
+    /// Prénom de qui modifie cette fiche (dernier relevé des verrous des autres), sinon null :
+    /// une ligne de locataire reconstruite le reprend aussitôt.
+    static readonly Dictionary<string, string> _detenteurs = new Dictionary<string, string>();
+    public static string Detenteur(bool batiment, string id) =>
+        id != null && _detenteurs.TryGetValue(Cle(batiment, id), out var p) ? p : null;
 
     /// Ferme sans enregistrer les écrans qui tiennent une fiche, puis libère tout (rechargement,
     /// changement d'entreprise, déconnexion) : un écran resté ouvert garderait l'ancienne fiche.
@@ -457,8 +517,22 @@ public static class EcritureCloud
             {
                 var autres = await VerrousDesAutres();
                 if (autres == null) return;
-                foreach (var f in FindObjectsOfType<BatimentPrefab>(true)) Bandeau(f, "batiment", autres.FirstOrDefault(v => v.cible_type == "batiment" && v.cible_id == f.getID()));
-                foreach (var f in FindObjectsOfType<LocatairePrefab>(true)) Bandeau(f, "locataire", autres.FirstOrDefault(v => v.cible_type == "locataire" && v.cible_id == f.getID()));
+                // Bandeau sur la fiche, et prénom (étape 5, décision du 14/10) : sur l'onglet du
+                // bâtiment dès qu'on y modifie quelque chose, et sur la ligne du locataire dans la
+                // liste du résumé (les onglets des locataires sont masqués).
+                _detenteurs.Clear();
+                foreach (var x in autres) _detenteurs[Cle(x.cible_type == "batiment", x.cible_id)] = RegleVerrou.Prenom(x.nom);
+                var liste = autres.Select(x => (x.cible_type, x.cible_id, x.nom)).ToList();
+                var bm = BatimentManager.Instance;
+                foreach (var f in FindObjectsOfType<BatimentPrefab>(true))
+                {
+                    Bandeau(f, "batiment", autres.FirstOrDefault(x => x.cible_type == "batiment" && x.cible_id == f.getID()));
+                    var locs = new HashSet<string>(f.listLocataire.Where(l => l != null).Select(l => l.id));
+                    if (bm != null) bm.menuManager.SetDetenteur(f, RegleVerrou.Detenteurs(liste, f.getID(), locs));
+                    foreach (var ligne in f.GetComponentsInChildren<LocataireRowUI>(true)) ligne.SetDetenteur(Detenteur(false, ligne.LocataireId));
+                }
+                foreach (var f in FindObjectsOfType<LocatairePrefab>(true))
+                    Bandeau(f, "locataire", autres.FirstOrDefault(x => x.cible_type == "locataire" && x.cible_id == f.getID()));
             }
             catch (Exception ex) { Debug.LogWarning("[Verrou] Bandeaux : " + ex.Message); }
         }
