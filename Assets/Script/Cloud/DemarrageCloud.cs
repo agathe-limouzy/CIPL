@@ -24,8 +24,14 @@ public static class DemarrageCloud
         }
         try
         {
+            // Traces du démarrage (Player.log d'un build) : sans elles, un blocage ne disait pas où (14/10).
+            Debug.Log("[Cloud] Démarrage : reprise de la connexion gardée…");
             if (!SessionCloud.Active && !await SessionCloud.Restaurer())
+            {
+                Debug.Log("[Cloud] Pas de connexion gardée : écran de connexion");
                 await EcransCloud.Connexion(Canvas);
+            }
+            Debug.Log("[Cloud] Connecté(e) : " + SessionCloud.Session?.user?.email);
             await OuvrirUneEntreprise(forcerChoix: false);
         }
         catch (Exception e)
@@ -61,7 +67,8 @@ public static class DemarrageCloud
         while (true)
         {
             var (liste, erreur) = await DonneesCloud.MesEntreprises();
-            if (liste == null) { ConfirmDialog.Erreur("Impossible de lire vos entreprises : " + erreur); return; }
+            if (liste == null) { Debug.LogWarning("[Cloud] Entreprises : " + erreur); ConfirmDialog.Erreur("Impossible de lire vos entreprises : " + erreur); return; }
+            Debug.Log($"[Cloud] {liste.Count} entreprise(s) : {string.Join(", ", liste.Select(x => x.nom))}");
 
             // Import proposé si le cloud est vide, ou si un import précédent est à reprendre.
             var sources = ImportLocal.EntreprisesDuPC()
@@ -129,16 +136,16 @@ public static class DemarrageCloud
     {
         SessionCloud.Entreprise = e;
 
-        // Les documents (photos, PDF) restent sur ce PC jusqu'à l'étape 6 : on garde la racine
-        // locale de l'entreprise importée, s'il y en a une, pour que les fiches les retrouvent.
-        string dossier = PlayerPrefs.GetString(ClePrefsDossier(e.id), "");
-        if (!string.IsNullOrEmpty(dossier) && Directory.Exists(dossier)) SaveLocationService.UseRoot(dossier);
+        var (dossier, telecharger) = await DossierDocuments(e);
+        SaveLocationService.UseRoot(dossier);
         ReglageService.Load();
+        Debug.Log($"[Cloud] Ouverture de « {e.nom} », dossier {dossier}{(telecharger ? "" : " (Drive partagé)")}");
 
         await EcritureCloud.VerifierNom(Canvas);   // « Votre nom », à la première ouverture
 
+        Debug.Log("[Cloud] Lecture des bâtiments…");
         var (bats, erreur) = await EcritureCloud.Charger(e.id);   // avec les versions (étape 4a)
-        if (bats == null) { ConfirmDialog.Erreur($"Lecture de « {e.nom} » impossible : {erreur}"); return; }
+        if (bats == null) { Debug.LogWarning("[Cloud] Lecture : " + erreur); ConfirmDialog.Erreur($"Lecture de « {e.nom} » impossible : {erreur}"); return; }
 
         EcritureCloud.FermerEcrans();   // un écran resté ouvert écrirait l'ancienne fiche
         _bm.Vider();
@@ -146,9 +153,240 @@ public static class DemarrageCloud
         EcritureCloud.Recaler(bats);   // les mises à niveau du chargement ne repartent pas au serveur
         _bm.menuManager.OpenGeneralMenu();
         EcritureCloud.DemarrerGardien();
-        DirectCloud.Demarrer(e.id);   // étape 5 : changements des collègues, présence
+        DirectCloud.Demarrer(e.id, telecharger);   // étape 5 : changements des collègues, présence ; 6 : documents
         EcransCloud.Pastille(Canvas, $"{e.nom} · cloud");
         UndoToast.Instance?.ShowInfo($"{e.nom} : {bats.Count} bâtiment(s) lu(s) depuis le cloud.");
+    }
+
+    // ── Dossier des documents sur ce PC (étapes 6a et 6b) ───────────────────────
+
+    static string ClePrefsType(string entrepriseId) => "cipl_dossier_type_" + entrepriseId;
+
+    /// Nature du dossier retenu sur ce PC (DossierEntreprise.DriveAuto…), "" pour un dossier de CIPL.
+    public static string TypeDossier(string entrepriseId) => PlayerPrefs.GetString(ClePrefsType(entrepriseId), "");
+
+    static void Retenir(string entrepriseId, string dossier, string type)
+    {
+        PlayerPrefs.SetString(ClePrefsDossier(entrepriseId), dossier);
+        PlayerPrefs.SetString(ClePrefsType(entrepriseId), type);
+        PlayerPrefs.Save();
+    }
+
+    /// « Dans CIPL » : Documents\CIPL\<entreprise>, créé sans question (§13). Jamais la racine par
+    /// défaut : c'est celle d'une autre entreprise (« Mon entreprise »).
+    public static string DossierLocal(EntrepriseCloud e) =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "CIPL", DossiersDonnees.NomDossier(e.nom));
+
+    static string ChoisirDossier(string titre)
+    {
+#if UNITY_STANDALONE || UNITY_EDITOR
+        var p = SFB.StandaloneFileBrowser.OpenFolderPanel(titre, "", false);
+        return p != null && p.Length > 0 && !string.IsNullOrEmpty(p[0]) ? p[0] : null;
+#else
+        return null;
+#endif
+    }
+
+    /// Où ranger les documents sur ce PC, et si ce PC les reçoit lui-même du cloud (faux dans un
+    /// Drive partagé : c'est le Drive qui les recopie).
+    static async Task<(string dossier, bool telecharger)> DossierDocuments(EntrepriseCloud e)
+    {
+        string dossier = PlayerPrefs.GetString(ClePrefsDossier(e.id), "");
+        string type = TypeDossier(e.id);
+        bool existe = !string.IsNullOrEmpty(dossier) && Directory.Exists(dossier);
+        bool dansDrive = type == DossierEntreprise.DriveAuto || type == DossierEntreprise.DriveMain;
+
+        if (!e.ModeDrive)
+        {
+            // Retour « Dans CIPL » : on quitte le Drive, où N copies reçues du cloud se battraient.
+            if (!existe || dansDrive)
+            {
+                dossier = DossierLocal(e);
+                Directory.CreateDirectory(dossier);
+                Retenir(e.id, dossier, "");
+            }
+            return (dossier, true);
+        }
+
+        if (existe && dansDrive && DossierEntreprise.Refus(dossier, e.id, e.nom) == null) return (dossier, false);
+        if (existe && type == DossierEntreprise.HorsDrive) return (dossier, true);
+
+        string refus = null;
+        while (true)
+        {
+            Debug.Log("[Cloud] Recherche du Drive partagé…");
+            UndoToast.Instance?.ShowInfo($"Recherche des documents de {e.nom} dans votre Drive…");
+            var trouve = await Task.Run(() => DossierEntreprise.Chercher(e.id, DossierEntreprise.RacinesDuPC()));
+            if (trouve != null)
+            {
+                Debug.Log("[Cloud] Drive partagé trouvé : " + trouve);
+                Retenir(e.id, trouve, DossierEntreprise.DriveAuto);
+                UndoToast.Instance?.ShowInfo($"Documents de {e.nom} trouvés dans votre Drive : {trouve}");
+                return (trouve, false);
+            }
+            switch (await EcransCloud.DossierIntrouvable(Canvas, e.nom, refus))
+            {
+                case EcransCloud.ChoixDossier.Rechercher:
+                    refus = null;
+                    continue;
+                case EcransCloud.ChoixDossier.Choisir:
+                    string choisi = ChoisirDossier($"Dossier partagé de {e.nom}");
+                    if (choisi == null) continue;
+                    refus = DossierEntreprise.Refus(choisi, e.id, e.nom);
+                    if (refus != null) continue;
+                    Retenir(e.id, choisi, DossierEntreprise.DriveMain);
+                    return (choisi, false);
+                default:
+                    // Continuer sans le dossier : ce PC reçoit lui-même les documents, là où on lui
+                    // dit de les ranger (décision du 14/10).
+                    string parent = ChoisirDossier($"Où ranger les documents de {e.nom} sur cet ordinateur ?");
+                    if (parent == null) continue;
+                    string local = DossierEntreprise.Cible(parent, e.id, e.nom);
+                    Directory.CreateDirectory(local);
+                    Retenir(e.id, local, DossierEntreprise.HorsDrive);
+                    return (local, true);
+            }
+        }
+    }
+
+    // ── Réglages › Documents (étape 6b, maquette validée le 14/10) ─────────────
+
+    [Serializable] class ParamsMode { public string p_entreprise, p_mode; }
+
+    static async Task<bool> DefinirMode(EntrepriseCloud e, string mode)
+    {
+        var r = await CloudClient.Fonction(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "definir_mode_documents",
+                                           new ParamsMode { p_entreprise = e.id, p_mode = mode });
+        var res = r.Ok ? JsonUtility.FromJson<EcritureCloud.Resultat>(r.Corps) : null;
+        if (res == null || !res.ok)
+        {
+            ConfirmDialog.Erreur(res?.refus == "admin" ? "Seul un administrateur peut changer le rangement des documents."
+                                                       : "Changement impossible : " + r.Erreur);
+            return false;
+        }
+        e.mode_documents = mode;
+        return true;
+    }
+
+    /// Admin : les documents passent dans un dossier partagé (OneDrive, Google Drive…), ou changent
+    /// de dossier partagé. Ceux de ce PC y sont recopiés avec les Réglages, et le repère y est
+    /// déposé : les collègues le retrouvent seuls à leur prochain démarrage.
+    public static void PasserEnDrive()
+    {
+        var e = SessionCloud.Entreprise;
+        if (e == null) return;
+        string choisi = ChoisirDossier($"Dossier partagé (OneDrive, Google Drive…) où ranger les documents de {e.nom}");
+        if (choisi == null) return;
+        // Un sous-dossier au nom de l'entreprise, sauf si le dossier choisi est déjà le sien.
+        string dossier = DossierEntreprise.Cible(choisi, e.id, e.nom);
+        string actuel = SaveLocationService.GetSaveRoot();
+        if (DossierEntreprise.Meme(dossier, actuel))
+        {
+            UndoToast.Instance?.ShowInfo("C'est déjà le dossier des documents.");
+            return;
+        }
+        ConfirmDialog.Instance?.Show("Ranger les documents dans ce dossier partagé ?",
+            $"Les documents et les Réglages de ce PC seront recopiés dans :\n{dossier}\n\n" +
+            "Vos collègues le retrouveront automatiquement à leur prochain démarrage de CIPL.",
+            async () =>
+            {
+                try
+                {
+                    Directory.CreateDirectory(dossier);
+                    int n = DossierEntreprise.Recopier(actuel, dossier);
+                    if (!ImportLocal.EcrireRepere(dossier, new ImportLocal.Repere { id = e.id, nom = e.nom, projet = SessionCloud.Url, complet = true }, out string err))
+                    { ConfirmDialog.Erreur("Repère non écrit dans le dossier partagé : " + err); return; }
+                    // Changement de dossier partagé : l'ancien repère est retiré, sinon les collègues y resteraient.
+                    if (e.ModeDrive && ImportLocal.LireRepere(actuel)?.id == e.id)
+                    {
+                        string ancien = Path.Combine(actuel, "CIPL_entreprise.ancien.json");
+                        if (File.Exists(ancien)) File.Delete(ancien);
+                        File.Move(Path.Combine(actuel, ImportLocal.NomRepere), ancien);
+                    }
+                    if (!e.ModeDrive && !await DefinirMode(e, "drive")) return;
+                    Retenir(e.id, dossier, DossierEntreprise.DriveMain);
+                    UndoToast.Instance?.ShowInfo($"Documents rangés dans le Drive partagé ({n} recopié(s)).");
+                    Recharger();
+                }
+                catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Passage au Drive partagé impossible : " + ex.Message); }
+            }, "Ranger ici");
+    }
+
+    /// Admin : retour « Dans CIPL », chaque PC reçoit sa copie. Rien n'est effacé du Drive.
+    public static void PasserEnCipl()
+    {
+        var e = SessionCloud.Entreprise;
+        if (e == null || !e.ModeDrive) return;
+        string local = DossierLocal(e);
+        ConfirmDialog.Instance?.Show("Ranger les documents dans CIPL ?",
+            $"Chaque ordinateur recevra sa copie des documents (ici : {local}). Le dossier partagé n'est plus utilisé ; rien n'y est effacé.\n\n" +
+            "Vos collègues basculent à leur prochain démarrage de CIPL.",
+            async () =>
+            {
+                try
+                {
+                    if (!await DefinirMode(e, "cipl")) return;
+                    Directory.CreateDirectory(local);
+                    DossierEntreprise.Recopier(SaveLocationService.GetSaveRoot(), local);
+                    Retenir(e.id, local, "");
+                    Recharger();
+                }
+                catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Retour dans CIPL impossible : " + ex.Message); }
+            }, "Ranger dans CIPL");
+    }
+
+    /// Sur cet ordinateur : chercher de nouveau le dossier partagé (après l'avoir synchronisé).
+    public static async void RechercherDossier()
+    {
+        var e = SessionCloud.Entreprise;
+        if (e == null) return;
+        UndoToast.Instance?.ShowInfo("Recherche du dossier partagé…");
+        var trouve = await Task.Run(() => DossierEntreprise.Chercher(e.id, DossierEntreprise.RacinesDuPC()));
+        if (trouve == null)
+        {
+            ConfirmDialog.Erreur($"Le dossier partagé de « {e.nom} » est introuvable sur cet ordinateur. " +
+                                 "Ouvrez ce Drive dans votre navigateur et cliquez sur « Synchroniser », ou choisissez-le à la main.");
+            return;
+        }
+        Retenir(e.id, trouve, DossierEntreprise.DriveAuto);
+        Recharger();
+    }
+
+    /// Sur cet ordinateur : désigner soi-même le dossier partagé (refusé s'il n'est pas celui de l'entreprise).
+    public static void ChoisirDossierPartage()
+    {
+        var e = SessionCloud.Entreprise;
+        if (e == null) return;
+        string choisi = ChoisirDossier($"Dossier partagé de {e.nom}");
+        if (choisi == null) return;
+        string refus = DossierEntreprise.Refus(choisi, e.id, e.nom);
+        if (refus != null) { ConfirmDialog.Erreur(refus); return; }
+        Retenir(e.id, choisi, DossierEntreprise.DriveMain);
+        Recharger();
+    }
+
+    /// Dans CIPL : ranger les documents de ce PC dans un autre dossier (décision du 15/10). On désigne
+    /// le dossier parent ; ce qui est déjà ici y est recopié, rien n'est effacé, le reste arrive du cloud.
+    public static void ChangerDossierLocal()
+    {
+        var e = SessionCloud.Entreprise;
+        if (e == null || e.ModeDrive) return;
+        string choisi = ChoisirDossier($"Où ranger les documents de {e.nom} sur cet ordinateur ?");
+        if (choisi == null) return;
+        string dossier = DossierEntreprise.Cible(choisi, e.id, e.nom);
+        string actuel = SaveLocationService.GetSaveRoot();
+        if (DossierEntreprise.Meme(dossier, actuel)) { UndoToast.Instance?.ShowInfo("C'est déjà le dossier des documents."); return; }
+        var autre = ImportLocal.LireRepere(dossier);
+        if (autre != null && autre.id != e.id) { ConfirmDialog.Erreur($"Ce dossier est celui de « {autre.nom} », pas de « {e.nom} »."); return; }
+        try
+        {
+            Directory.CreateDirectory(dossier);
+            int n = DossierEntreprise.Recopier(actuel, dossier);
+            Retenir(e.id, dossier, "");
+            UndoToast.Instance?.ShowInfo($"Documents rangés dans {dossier} ({n} recopié(s)).");
+            Recharger();
+        }
+        catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Changement de dossier impossible : " + ex.Message); }
     }
 
     /// Relit l'entreprise ouverte (après un refus du serveur : version dépassée, fiche prise).

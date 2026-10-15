@@ -102,13 +102,13 @@ public static class ObjectifPanel
             {
                 var ligne = UIFactory.HBox(docs, 8, false, "Doc");
                 string chemin = Path.Combine(dossier, nom);
-                bool existe = File.Exists(chemin);
+                bool existe = File.Exists(chemin) || SessionCloud.Active;   // sur le cloud : lu depuis le cloud s'il n'est pas encore ici (étape 6b)
                 var t = UIFactory.Text(ligne.transform, existe ? nom : $"Introuvable : {nom}", UITheme.Role.Donnee, UITheme.TextePrincipal);
                 t.enableWordWrapping = false; t.overflowMode = TextOverflowModes.Ellipsis;
                 UIFactory.LE(t.gameObject, flexW: 1, minW: 0);
                 var ouvrir = PetitBouton(ligne.transform, "Ouvrir");
                 ouvrir.interactable = existe;
-                ouvrir.onClick.AddListener(() => Application.OpenURL("file:///" + chemin.Replace('\\', '/')));
+                ouvrir.onClick.AddListener(() => DocumentsCloud.Ouvrir(chemin));
                 var retirer = PetitBouton(ligne.transform, "Retirer");
                 retirer.onClick.AddListener(() => { documents.Remove(nom); majDocs(); });
             }

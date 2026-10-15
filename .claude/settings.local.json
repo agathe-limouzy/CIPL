@@ -104,7 +104,10 @@
       "Bash(PYTHONIOENCODING=utf-8 python -I apercu.py)",
       "Bash(rm \"/c/Users/agath/Documents/CIPL/CIPL_Git/CIPL/.claude/launch.json\")",
       "Bash(git -C /c/Users/agath/Documents/CIPL/CIPL_Git/CIPL status --short)",
-      "Bash(python -I -m http.server 8765 --bind 127.0.0.1 --directory \"/c/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/e64728c1-a395-4eec-8787-0142fd15f40b/scratchpad\")"
+      "Bash(python -I -m http.server 8765 --bind 127.0.0.1 --directory \"/c/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/e64728c1-a395-4eec-8787-0142fd15f40b/scratchpad\")",
+      "PowerShell(Get-Item \"C:\\\\Users\\\\agath\\\\AppData\\\\LocalLow\\\\DefaultCompany\\\\CIPL_Test\\\\Player-prev.log\",\"C:\\\\Users\\\\agath\\\\AppData\\\\LocalLow\\\\DefaultCompany\\\\CIPL_Test\\\\Player.log\" | Select-Object Name, CreationTime, LastWriteTime, Length | Format-Table -AutoSize | Out-String -Width 200; Select-String -Path \"C:\\\\Users\\\\agath\\\\AppData\\\\LocalLow\\\\DefaultCompany\\\\CIPL_Test\\\\Player-prev.log\" -Pattern \"^\\\\[\" | Select-Object -First 15 | ForEach-Object { $_.Line })",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\agath\\\\OneDrive\" -Force | Select-Object Name, Attributes | Format-Table -AutoSize; Get-ChildItem \"C:\\\\Users\\\\agath\\\\OneDrive\\\\Démo CIPL\" -Force -ErrorAction SilentlyContinue | Select-Object Name, Attributes, Length | Format-Table -AutoSize; Get-Process | Where-Object { $_.ProcessName -match \"CIPL|OneDrive|GoogleDrive\" } | Select-Object ProcessName, Id, StartTime, Responding | Format-Table -AutoSize; \\(Get-Item \"C:\\\\Users\\\\agath\\\\AppData\\\\LocalLow\\\\DefaultCompany\\\\CIPL_Test\\\\Player.log\"\\).LastWriteTime; Get-Date)",
+      "PowerShell(Get-Content \"C:\\\\Users\\\\agath\\\\AppData\\\\LocalLow\\\\DefaultCompany\\\\CIPL_Test\\\\Player.log\" -Encoding UTF8 | Select-String -Pattern \"\\\\[Cloud\\\\]|\\\\[Direct\\\\]|\\\\[Docs\\\\]|Exception\" | Select-Object -Last 30; \\(Get-Item \"C:\\\\Users\\\\agath\\\\AppData\\\\LocalLow\\\\DefaultCompany\\\\CIPL_Test\\\\Player.log\"\\).LastWriteTime; Get-Date; Get-ChildItem \"H:\\\\Mon Drive\\\\CIPL_App_Save_Teste\" -Force | Select-Object Name, LastWriteTime)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -19,6 +19,7 @@ public static class EntrepriseBootstrap
         var src = gmp.btnSauvegardes;
         var clone = Object.Instantiate(src.gameObject, src.transform.parent);
         clone.name = "BtnEntreprises";
+        clone.SetActive(true);   // la source peut être déjà masquée (ordre des amorces non garanti)
         clone.transform.SetSiblingIndex(src.transform.GetSiblingIndex());   // avant « Charger une save »
 
         // Étape 2 (cloud) : « Compte » remplace « Entreprises » (changer d'entreprise, se

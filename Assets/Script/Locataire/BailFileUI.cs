@@ -188,8 +188,7 @@ public class BailFileUI : MonoBehaviour
     void Ouvrir(string stocke)
     {
         string chemin = Chemin(stocke);
-        if (!string.IsNullOrEmpty(chemin) && File.Exists(chemin))
-            Application.OpenURL("file:///" + chemin.Replace('\\', '/'));
+        if (!string.IsNullOrEmpty(chemin)) DocumentsCloud.Ouvrir(chemin);   // pas encore arrivé dans le Drive : lu depuis le cloud (étape 6b)
     }
 
     void Modifier(Action<Locataire> changement)

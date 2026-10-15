@@ -293,7 +293,70 @@ Sujet choisi par l'utilisatrice : le module de l'app. Diagnostic présenté (4 s
   - 14/10, Y6 sans effet : les onglets des locataires sont masqués dans CIPL (`VueLocataire/HeaderLoc`).
     - Correction (décision du 14/10) : le prénom va sur l'onglet du bâtiment dès qu'on y modifie quelque chose (`RegleVerrou.Detenteurs`) et sur la ligne du locataire du résumé (`LocataireRowUI.SetDetenteur`, repris à chaque reconstruction via `EcritureCloud.Detenteur`).
   - Console : `[Direct] … en attente, j'y travaille` / `[Direct] … relu (…)`. **445 tests verts.**
-- **Ensuite : l'étape 6** (documents : envoi au cloud, copie locale, corbeille).
+- **Étape 6a (documents, mode « Sur chaque PC »), code écrit et validé en Play le 14/10** (parcours Z1 à Z4, le build tenant lieu de 2e PC) :
+  - Décisions du 14/10 :
+    - on partage tout ce qui est rangé dans `Batiment/` et `Logo/`, y compris un fichier déposé à la main (change la décision du 09/10). Les sauvegardes, les corbeilles et `batiments/*.json` restent hors partage ;
+    - livraison en deux temps : 6a, puis 6b (mode Drive partagé, Réglages › Documents, recherche du repère, lecture depuis le cloud).
+  - Synchronisation du dossier plutôt qu'un branchement de chaque écriture (une demi-douzaine d'endroits, et les renommages qui déplacent des dossiers entiers) : un passage toutes les 20 s, et 2 s après un dépôt d'un collègue (temps réel sur `documents`).
+  - `Serveur/etape6_supabase.sql` (à passer) :
+    - compartiment privé `documents`, un objet par contenu `<entreprise_id>/<SHA-256>` (le stockage refuse les noms accentués ; un renommage ne renvoie rien) ;
+    - table `documents` (chemin → empreinte, `supprime_le`), fonctions `documenter` et `supprimer_document`.
+  - `Cloud/DocumentsCloud.cs` :
+    - `SyncDocuments.Plan` (testé) : local, manifeste (empreinte au dernier passage) et serveur → Envoyer, Télécharger, Noter, SupprimerServeur, Corbeille. Ce qui est modifié ici l'emporte ; une copie jamais synchronisée cède au cloud ;
+    - `DocumentsCloud` : passage, état par PC dans `persistentDataPath/cipl_docs_<entreprise>_<dossier>.json` (l'éditeur et un build partagent persistentDataPath, pas leur dossier) ;
+    - rien n'est effacé : ce qui est supprimé ou remplacé part dans `corbeille_documents/<date>/`.
+  - `DemarrageCloud.Ouvrir` : un PC sans dossier pour l'entreprise reçoit `Documents\CIPL\<entreprise>`, jamais la racine par défaut (celle de « Mon entreprise »).
+  - `CloudClient.DeposerFichier` / `LireFichier`.
+  - **451 tests verts.**
+  - 14/10, pendant les essais :
+    - le build restait sur un accueil vide après une requête sans réponse (15 s) : traces `[Cloud]` ajoutées au démarrage (Player.log) ;
+    - `SessionCloud.Restaurer` effaçait la connexion gardée sur une simple coupure réseau : seul un refus du serveur (4xx) l'efface désormais ;
+    - un changement de compte pendant la première réception interrompt le passage (le message « reçus » ne s'affiche pas, les fichiers sont bien là).
+  - Limites :
+    - une lecture de la liste plafonnée à 1 000 documents ;
+    - le stockage ne purge jamais ;
+    - `reglage.json` reste local (un nouveau PC part de Réglages vides, étape 9).
+- **Étape 6b (Drive partagé), code écrit le 14/10 et validé en Play le 15/10** (parcours AA1 à AA7). L'étape 6 est terminée :
+  - Décisions du 14/10 :
+    - maquettes validées : Réglages › Documents, et la fenêtre « Documents de … » quand le Drive est introuvable ;
+    - en mode Drive, les Réglages (`reglage.json`) vivent dans le dossier Drive : partagés par le Drive jusqu'à l'étape 9 ;
+    - « Continuer sans le dossier » demande où créer le dossier, puis ce PC reçoit lui-même les documents.
+  - `Serveur/etape6b_supabase.sql` (passé) : `entreprises.mode_documents` (« cipl » / « drive »), `mes_entreprises()` recréée avec ce mode, `definir_mode_documents` (admin).
+  - `Cloud/DossierEntreprise.cs` (testé) :
+    - `Racines` : OneDrive (variables de Windows, dossiers « OneDrive… » du profil) et Google Drive (« Mon Drive » des lecteurs) ;
+    - `Chercher` : le repère `CIPL_entreprise.json` à 4 niveaux au plus ;
+    - `Refus` (dossier choisi à la main) ;
+    - `Recopier` (Batiment/, Logo/, reglage.json, sans écraser).
+  - `DemarrageCloud.DossierDocuments` :
+    - « Dans CIPL » : `Documents\CIPL\<entreprise>`, et un ancien dossier Drive est quitté ;
+    - « Drive » : dossier retenu s'il porte encore le repère, sinon recherche, sinon la fenêtre (Rechercher, Choisir, Continuer) ;
+    - nature du dossier gardée par PC (PlayerPrefs `cipl_dossier_type_<id>` : drive-auto, drive-main, hors-drive).
+  - Actions de Réglages :
+    - `PasserEnDrive` (recopie, dépôt du repère, retrait de l'ancien repère quand on change de dossier partagé) ;
+    - `PasserEnCipl`, `RechercherDossier`, `ChoisirDossierPartage`.
+  - En mode Drive, `DocumentsCloud` ne télécharge plus (le Drive recopie) : il envoie seulement ce qui change ici.
+  - `DocumentsCloud.Ouvrir` : un document absent de ce PC est lu depuis le cloud dans `%TEMP%\CIPL\` (bail, PDF du suivi, pièces des objectifs).
+  - Le logo est enregistré en chemin relatif ; un ancien chemin absolu reste lu, mais il faut rechoisir le logo pour qu'il suive sur les autres PC.
+  - **455 tests verts.**
+  - 15/10, le bouton « Réglage » de l'accueil avait disparu :
+    - Cause : `FacturationBootstrap` (« Réglage ») et `EntrepriseBootstrap` (« Compte ») copient tous deux le bouton « Sauvegardes » au chargement, et le second masque la source. L'ordre des deux amorces n'est pas garanti : copié après le masquage, « Réglage » naissait masqué (l'ordre a changé avec les nouvelles classes).
+    - Correction : chaque copie est rendue visible (`SetActive(true)`).
+  - 15/10, AA3 : le build a mis 3 min 30 à trouver `H:\Mon Drive\CIPL_App_Save_Teste\Démo CIPL`, sur un accueil vide :
+    - Cause : `DossierEntreprise.Chercher` fouillait chaque racine jusqu'au bout (5 000 dossiers de OneDrive, puis de `G:\Mon Drive`) avant de passer à la suivante.
+    - Correction : toutes les racines sont parcourues ensemble, niveau par niveau, avec un plafond de 5 000 × le nombre de racines. Un message « Recherche des documents… » s'affiche pendant la recherche, et la trace `[Cloud] Drive partagé trouvé` a été ajoutée. **456 tests verts.**
+  - 15/10, AA1 à AA6 validés. Ajout demandé : en mode « Dans CIPL », chacun peut ranger les documents de son PC dans un dossier précis.
+    - Réglages › Documents › « Changer de dossier… » (`DemarrageCloud.ChangerDossierLocal`) :
+      - on désigne le dossier parent, et `DossierEntreprise.Cible` y ajoute le dossier de l'entreprise, sauf si le dossier désigné porte déjà son repère ;
+      - le dossier d'une autre entreprise est refusé ;
+      - ce qui est déjà ici est recopié (`Recopier`, rien n'est effacé), et le reste arrive du cloud.
+    - La pastille affiche « Choisi à la main » hors de `Documents\CIPL\<entreprise>`.
+    - `Cible` et `Meme` remplacent aussi le code qui était écrit en ligne dans `PasserEnDrive` et dans « Continuer sans le dossier ».
+    - **457 tests verts.** AA7 a été validé.
+  - Limites :
+    - les bibliothèques SharePoint ne sont pas cherchées (« Choisir à la main ») ;
+    - les collègues ne basculent de mode qu'à leur prochain démarrage ;
+    - sur un même PC, l'éditeur et le build partagent les dossiers trouvés.
+- **Ensuite : l'étape 7** (factures : réservation de l'envoi automatique).
 
 ### Où en est le chantier au 29/09 (soir) — **310 tests EditMode verts**
 

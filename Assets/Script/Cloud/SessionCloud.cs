@@ -10,7 +10,9 @@ public class EntrepriseCloud
 {
     public string id, nom, type, role;
     public int nb_batiments;
+    public string mode_documents;   // étape 6b : « cipl » (chaque PC reçoit sa copie) ou « drive » (Drive partagé)
     public bool EstAdmin => role == "admin";
+    public bool ModeDrive => mode_documents == "drive";
 }
 
 /// Qui est connecté, sur quelle entreprise. Le jeton de renouvellement est gardé
@@ -55,7 +57,14 @@ public static class SessionCloud
 
         var r = await CloudClient.Renouveler(Url, Cle, Encoding.UTF8.GetString(clair));
         var s = r.Ok ? CloudClient.LireSession(r.Corps) : null;
-        if (s == null) { EffacerFichier(); return false; }
+        if (s == null)
+        {
+            // Jeton refusé par le serveur (4xx) : il ne vaut plus rien. Réseau qui ne répond pas
+            // (code 0, 5xx) : on le garde pour la prochaine fois (retour du 14/10).
+            if (r.Ok || (r.Code >= 400 && r.Code < 500)) EffacerFichier();
+            Debug.LogWarning("[Cloud] Reprise de la connexion impossible : " + (r.Ok ? "réponse illisible" : r.Erreur));
+            return false;
+        }
         Session = s;
         _memoriser = true;
         Memoriser();   // le serveur remplace le jeton de renouvellement à chaque usage

@@ -416,7 +416,8 @@ public static class FacturePdfService
     {
         try
         {
-            string custom = ReglageService.Current != null ? ReglageService.Current.logoPath : null;
+            // Relatif depuis l'étape 6b (Réglages partagés par un Drive), absolu avant.
+            string custom = ReglageService.Current != null ? DossiersDonnees.VersAbsolu(ReglageService.Current.logoPath) : null;
             string path = (!string.IsNullOrEmpty(custom) && File.Exists(custom))
                 ? custom : Path.Combine(Application.streamingAssetsPath, "logo_cipl.png");
             if (!File.Exists(path)) return "";

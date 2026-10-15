@@ -17,6 +17,9 @@ public static class FacturationBootstrap
         var src = gmp.btnSauvegardes;
         var clone = Object.Instantiate(src.gameObject, src.transform.parent);
         clone.name = "BtnReglage";
+        // La source peut être déjà masquée par EntrepriseBootstrap : l'ordre des deux amorces
+        // n'est pas garanti, et une copie d'un bouton masqué naît masquée (retour du 15/10).
+        clone.SetActive(true);
         clone.transform.SetSiblingIndex(src.transform.GetSiblingIndex() + 1);
 
         var btn = clone.GetComponent<Button>();

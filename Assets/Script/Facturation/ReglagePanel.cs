@@ -105,6 +105,7 @@ public class ReglagePanel : MonoBehaviour
         BuildEntetes(content);
         BuildListesCharges(content);
         BuildTextes(content);
+        BuildDocuments(content);   // sur le cloud (étape 6b), à la place de l'emplacement de sauvegarde
         BuildSauvegarde(content);
 
         // Footer
@@ -304,7 +305,7 @@ public class ReglagePanel : MonoBehaviour
                 Directory.CreateDirectory(dossier);
                 string dest = Path.Combine(dossier, "logo" + Path.GetExtension(paths[0]));
                 File.Copy(paths[0], dest, true);
-                R.logoPath = dest;
+                R.logoPath = DossiersDonnees.VersRelatif(dest);   // relatif : juste sur chaque PC du Drive partagé (étape 6b)
                 ReglageService.Save();
                 RefreshLogo();
             }
@@ -315,8 +316,9 @@ public class ReglagePanel : MonoBehaviour
 
     void RefreshLogo()
     {
-        string path = !string.IsNullOrEmpty(R.logoPath) && File.Exists(R.logoPath)
-            ? R.logoPath : Path.Combine(Application.streamingAssetsPath, "logo_cipl.png");
+        string logo = DossiersDonnees.VersAbsolu(R.logoPath);
+        string path = !string.IsNullOrEmpty(logo) && File.Exists(logo)
+            ? logo : Path.Combine(Application.streamingAssetsPath, "logo_cipl.png");
         var tex = PhotoService.Charger(path);
         if (_logoPreview != null)
         {
@@ -655,6 +657,7 @@ public class ReglagePanel : MonoBehaviour
     void BuildSauvegarde(Transform parent)
     {
         var body = UIFactory.Section(parent, "Emplacement de sauvegarde", CoPetrole, CoPetroleL);
+        _sectionSauvegarde = body.transform.parent.gameObject;
         _savePath = UIFactory.Text(body.transform, "", UITheme.Role.Donnee, UITheme.TexteSecondaire);
 
         var row = UIFactory.HBox(body.transform, 8, false, "SaveBtns");
@@ -673,10 +676,95 @@ public class ReglagePanel : MonoBehaviour
             "Revenir à l'emplacement par défaut", () => { SaveIO.ResetToDefault(); LoadIntoUI(); }));
     }
 
+    // ── Section Documents (étape 6b, maquette validée le 14/10) ───────────────
+
+    Transform _docsBody;
+    GameObject _sectionDocuments, _sectionSauvegarde;
+
+    void BuildDocuments(Transform parent)
+    {
+        var body = UIFactory.Section(parent, "Documents", CoPetrole, CoPetroleL);
+        _docsBody = body.transform;
+        _sectionDocuments = body.transform.parent.gameObject;
+    }
+
+    void RefreshDocuments()
+    {
+        if (_docsBody == null) return;
+        foreach (Transform c in _docsBody) Destroy(c.gameObject);
+        var e = SessionCloud.Entreprise;
+        if (e == null) return;
+        bool admin = e.EstAdmin, drive = e.ModeDrive;
+
+        // Rangement : choix de l'admin, en lecture pour les autres.
+        UIFactory.Text(_docsBody, "Rangement des documents", UITheme.Role.Donnee, UITheme.TextePrincipal, true);
+        var modes = UIFactory.HBox(_docsBody, 8, false, "Modes");
+        PuceDoc(modes.transform, "Dans CIPL", !drive, admin && drive ? () => Agir(DemarrageCloud.PasserEnCipl) : (Action)null);
+        PuceDoc(modes.transform, "Drive partagé", drive, admin && !drive ? () => Agir(DemarrageCloud.PasserEnDrive) : (Action)null);
+        UIFactory.LE(UIFactory.Rect("Espace", modes.transform).gameObject, flexW: 1);
+        UIFactory.Text(_docsBody, drive
+            ? "Les documents sont dans un dossier OneDrive, Google Drive ou SharePoint que vous partagez déjà. CIPL y écrit, le Drive les recopie chez chacun. Le cloud de CIPL en garde la copie de référence."
+            : "Chaque ordinateur reçoit sa copie des documents depuis le cloud de CIPL.", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        if (drive && admin) BoutonDoc(UIFactory.HBox(_docsBody, 8, false, "Partage").transform, "Changer le dossier partagé…", () => Agir(DemarrageCloud.PasserEnDrive));
+        if (!admin) UIFactory.Text(_docsBody, "Seul un administrateur peut changer le rangement.", UITheme.Role.Aide, UITheme.TexteSecondaire);
+
+        // Sur cet ordinateur.
+        UIFactory.Text(_docsBody, "Sur cet ordinateur", UITheme.Role.Donnee, UITheme.TextePrincipal, true);
+        string type = DemarrageCloud.TypeDossier(e.id);
+        bool horsDrive = drive && type == DossierEntreprise.HorsDrive;
+        string etat = !drive ? (DossierEntreprise.Meme(SaveLocationService.GetSaveRoot(), DemarrageCloud.DossierLocal(e)) ? "Dossier de CIPL" : "Choisi à la main")
+                    : type == DossierEntreprise.DriveAuto ? "Trouvé automatiquement"
+                    : type == DossierEntreprise.DriveMain ? "Choisi à la main"
+                    : "Hors du Drive : ce PC reçoit lui-même les documents";
+        var ligneEtat = UIFactory.HBox(_docsBody, 8, false, "Etat");
+        ObjectifsTableau.Pastille(ligneEtat.transform, etat,
+            horsDrive ? new Color32(0xFA, 0xEE, 0xDA, 0xFF) : new Color32(0xEA, 0xF3, 0xDE, 0xFF),
+            horsDrive ? new Color32(0x63, 0x38, 0x06, 0xFF) : new Color32(0x27, 0x50, 0x0A, 0xFF));
+        UIFactory.LE(UIFactory.Rect("Espace", ligneEtat.transform).gameObject, flexW: 1);
+        UIFactory.Text(_docsBody, SaveLocationService.GetSaveRoot(), UITheme.Role.Aide, UITheme.TexteSecondaire);
+        if (drive) UIFactory.Text(_docsBody, "Chaque ordinateur range le Drive à sa façon : CIPL retrouve ce dossier tout seul.",
+                                  UITheme.Role.Aide, UITheme.TexteSecondaire);
+        var boutons = UIFactory.HBox(_docsBody, 8, false, "Boutons");
+        if (drive)
+        {
+            BoutonDoc(boutons.transform, "Rechercher à nouveau", () => Agir(DemarrageCloud.RechercherDossier));
+            BoutonDoc(boutons.transform, "Choisir à la main…", () => Agir(DemarrageCloud.ChoisirDossierPartage));
+        }
+        else BoutonDoc(boutons.transform, "Changer de dossier…", () => Agir(DemarrageCloud.ChangerDossierLocal));
+        BoutonDoc(boutons.transform, "Ouvrir le dossier", SaveIO.OpenFolder);
+        UIFactory.LE(UIFactory.Rect("Espace", boutons.transform).gameObject, flexW: 1);
+    }
+
+    /// Choix du mode : pleine couleur s'il est retenu ; cliquable seulement pour l'admin.
+    void PuceDoc(Transform parent, string texte, bool choisi, Action clic)
+    {
+        var b = UIFactory.Button(parent, texte, choisi ? CoPetrole : UITheme.Carte, choisi ? Color.white : UITheme.TextePrincipal,
+                                 34, UITheme.Role.Action, choisi);
+        if (!choisi) UIFactory.Border(b.gameObject);
+        UIFactory.LargeurDuTexte(b);
+        if (clic != null) b.onClick.AddListener(() => clic());
+    }
+
+    void BoutonDoc(Transform parent, string texte, Action clic)
+    {
+        var b = UIFactory.Button(parent, texte, UITheme.Carte, UITheme.TextePrincipal, 38, UITheme.Role.Action, false);
+        UIFactory.Border(b.gameObject);
+        UIFactory.LargeurDuTexte(b);
+        b.onClick.AddListener(() => clic());
+    }
+
+    /// Un changement de dossier relit l'entreprise : Réglages se ferme, ses valeurs venant de l'ancien dossier.
+    void Agir(Action action) =>
+        FermetureGuard.ConfirmerPerteSaisies("Changer le dossier des documents", () => { Close(); action(); });
+
     // ── Chargement / sauvegarde des valeurs ────────────────────────────────────
 
     void LoadIntoUI()
     {
+        // Sur le cloud, la section Documents remplace l'emplacement de sauvegarde (étape 6b).
+        if (_sectionDocuments != null) _sectionDocuments.SetActive(SessionCloud.Active);
+        if (_sectionSauvegarde != null) _sectionSauvegarde.SetActive(!SessionCloud.Active);
+        RefreshDocuments();
         _entrepriseNom.text = R.entrepriseNom ?? "";
         _apiKey.text = ReglageService.GetApiKey();
         if (_mapboxToken != null) _mapboxToken.text = ReglageService.GetMapboxToken();

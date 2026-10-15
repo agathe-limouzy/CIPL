@@ -208,6 +208,33 @@ public static class EcransCloud
         return fin.Task;
     }
 
+    // ── Drive partagé introuvable sur ce PC (étape 6b, maquette validée le 14/10) ─
+
+    public enum ChoixDossier { Rechercher, Choisir, Continuer }
+
+    /// `refus` : motif du dernier « Choisir le dossier… » refusé, affiché en rouge (null : rien).
+    public static Task<ChoixDossier> DossierIntrouvable(Canvas canvas, string nomEntreprise, string refus)
+    {
+        var fin = new TaskCompletionSource<ChoixDossier>();
+        var (voile, carte) = Fenetre(canvas, $"Documents de {nomEntreprise}", 520, false);
+        var corps = UIFactory.VBox(carte.transform, 8, 18, 18, 14, 6, "Corps");
+        UIFactory.Text(corps.transform, "L'admin range les documents dans un Drive partagé, mais CIPL ne le trouve pas sur cet ordinateur.",
+                       UITheme.Role.Donnee, UITheme.TextePrincipal);
+        UIFactory.Text(corps.transform, "Ouvrez ce Drive dans votre navigateur et cliquez sur « Synchroniser », puis « Rechercher à nouveau ».",
+                       UITheme.Role.Aide, UITheme.TexteSecondaire);
+        if (!string.IsNullOrEmpty(refus))
+            UIFactory.Text(corps.transform, refus, UITheme.Role.Aide, new Color32(0xA3, 0x2D, 0x2D, 0xFF));
+        var pied = Pied(carte.transform);
+        var continuer = Bouton(pied.transform, "Continuer sans le dossier", false);
+        var choisir = Bouton(pied.transform, "Choisir le dossier…", false);
+        var rechercher = Bouton(pied.transform, "Rechercher à nouveau", true);
+        void Repondre(ChoixDossier c) { UnityEngine.Object.Destroy(voile.gameObject); fin.TrySetResult(c); }
+        continuer.onClick.AddListener(() => Repondre(ChoixDossier.Continuer));
+        choisir.onClick.AddListener(() => Repondre(ChoixDossier.Choisir));
+        rechercher.onClick.AddListener(() => Repondre(ChoixDossier.Rechercher));
+        return fin.Task;
+    }
+
     // ── « Toujours là ? » (étape 4b, maquette 3 du 09/10) ──────────────────────
 
     /// Modale ambre ; le gardien des verrous réécrit le texte chaque seconde (compte à rebours).

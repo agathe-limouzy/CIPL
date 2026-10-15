@@ -357,10 +357,12 @@ public class LocataireSuiviInline : MonoBehaviour
         var a = new List<(string libelle, Action onClick)>();
         if (FacturationSuivi.EstGrisee(etat)) return a;   // reprise, franchise, hors bail : rien à faire
         string pdfAbs = FacturationSuivi.CheminPdf(l);
-        bool genere = !string.IsNullOrEmpty(pdfAbs) && File.Exists(pdfAbs);
+        // Sur le cloud, une facture émise ailleurs peut ne pas être encore arrivée ici (Drive) :
+        // elle est lue depuis le cloud à l'ouverture (étape 6b).
+        bool genere = !string.IsNullOrEmpty(pdfAbs) && (File.Exists(pdfAbs) || SessionCloud.Active);
         if (genere)
         {
-            a.Add(("PDF", () => Application.OpenURL("file:///" + pdfAbs.Replace("\\", "/"))));
+            a.Add(("PDF", () => DocumentsCloud.Ouvrir(pdfAbs)));
             // Facture déjà émise → « Corriger » (crée une version corrigée, même numéro) ;
             // sinon « Refaire » (regénère). Correction câblée pour le loyer.
             // La ligne est TOUJOURS transmise : elle désigne la période à ouvrir.

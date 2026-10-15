@@ -67,6 +67,47 @@ public static class CloudClient
     public static Task<Reponse> Inserer(string url, string cle, string jeton, string table, string corpsJson) =>
         Envoyer("POST", url + "/rest/v1/" + table, cle, jeton, corpsJson, "resolution=ignore-duplicates,return=minimal");
 
+    // ── Étape 6 : documents (stockage Supabase, compartiment privé) ────────────
+
+    /// Dépose un fichier. Déjà présent : ce n'est pas une erreur (la clé est l'empreinte du
+    /// contenu, un même contenu n'est envoyé qu'une fois).
+    public static async Task<Reponse> DeposerFichier(string url, string cle, string jeton, string compartiment, string objet, byte[] contenu)
+    {
+        var (rep, _) = await EnvoyerBrut("POST", url + "/storage/v1/object/" + compartiment + "/" + objet, cle, jeton, contenu);
+        if (!rep.Ok && (rep.Code == 409 || rep.Corps.Contains("Duplicate") || rep.Corps.Contains("already exists"))) rep.Ok = true;
+        return rep;
+    }
+
+    /// Lit un fichier ; contenu null si l'appel échoue (motif dans `erreur`).
+    public static async Task<(byte[] contenu, string erreur)> LireFichier(string url, string cle, string jeton, string compartiment, string objet)
+    {
+        var (rep, octets) = await EnvoyerBrut("GET", url + "/storage/v1/object/authenticated/" + compartiment + "/" + objet, cle, jeton, null);
+        return rep.Ok ? (octets, null) : (null, rep.Erreur);
+    }
+
+    static async Task<(Reponse rep, byte[] octets)> EnvoyerBrut(string methode, string adresse, string cle, string jeton, byte[] corps)
+    {
+        using (var r = new UnityWebRequest(adresse, methode) { downloadHandler = new DownloadHandlerBuffer() })
+        {
+            if (corps != null)
+            {
+                r.uploadHandler = new UploadHandlerRaw(corps);
+                r.SetRequestHeader("Content-Type", "application/octet-stream");
+            }
+            r.SetRequestHeader("apikey", cle);
+            if (!string.IsNullOrEmpty(jeton)) r.SetRequestHeader("Authorization", "Bearer " + jeton);
+            r.timeout = 120;   // une photo peut peser plusieurs Mo
+
+            var fin = new TaskCompletionSource<bool>();
+            r.SendWebRequest().completed += _ => fin.TrySetResult(true);
+            await fin.Task;
+
+            var rep = new Reponse { Code = r.responseCode, Ok = r.result == UnityWebRequest.Result.Success };
+            if (!rep.Ok) { rep.Corps = r.downloadHandler?.text ?? ""; rep.Erreur = LireErreur(r.responseCode, rep.Corps, r.error); }
+            return (rep, rep.Ok ? r.downloadHandler?.data : null);
+        }
+    }
+
     static async Task<Reponse> Envoyer(string methode, string adresse, string cle, string jeton, string corps,
                                        string prefer = null)
     {
