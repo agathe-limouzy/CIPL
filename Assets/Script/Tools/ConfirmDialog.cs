@@ -28,10 +28,14 @@ public class ConfirmDialog : MonoBehaviour
     /// Erreur à lire (retour du 06/10 : « pour un panel qui remonte une erreur il le faut
     /// plus voyant, centré ») : cette fenêtre, un seul bouton « OK ». Les informations et
     /// changements de statut restent en bas (UndoToast.ShowInfo).
-    public static void Erreur(string message)
+    public static void Erreur(string message) => Erreur(message, null);
+
+    /// `ensuite` s'exécute au clic sur « OK » : l'écran reste visible derrière le message jusque-là
+    /// (étape 8 : les saisies refusées restent à l'écran pour être recopiées, puis la fiche se recharge).
+    public static void Erreur(string message, Action ensuite)
     {
-        if (Instance == null) { UndoToast.Instance?.ShowInfo(message); return; }
-        Instance.Show("Attention", message, null, "OK");
+        if (Instance == null) { UndoToast.Instance?.ShowInfo(message); ensuite?.Invoke(); return; }
+        Instance.Show("Attention", message, ensuite, "OK");
         if (Instance.btnAnnuler != null) Instance.btnAnnuler.gameObject.SetActive(false);
     }
 

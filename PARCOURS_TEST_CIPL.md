@@ -627,3 +627,31 @@ Si la fenêtre ne s'ouvre pas, la console (ou le Player.log du build) dit pourqu
   - Attendu : « … — en cours de modification par Odile : elle partira dès que la fiche sera libre ». Rien n'est reçu.
   - Build : annuler la modification, **sans fermer l'éditeur**.
   - Attendu dans l'éditeur, dans les 10 s environ : message en bas « Facture de Sephora envoyée : sa fiche est libre. », l'e-mail arrive, et la ligne passe « Envoyé ».
+
+## AC. Étape 8a : coupure de la connexion pendant une session (16/10) *(validé en Play le 16/10, AC1 à AC5)*
+
+Préalable : le build est reconstruit. La coupure est **simulée dans l'éditeur seulement**, par moi (script) : le build, sur le même PC, reste en ligne et joue Odile. Dis-moi « coupe » et « rétablis » au bon moment.
+
+- [x] **AC1 · Bandeau et lecture seule** *(validé le 16/10)* :
+  - Éditeur en Play, accueil chargé → « coupe ».
+  - Attendu dans les 20 s environ : bandeau rouge sous les onglets « Hors ligne — lecture seule. Données à jour au 16/10 à … », avec « Réessayer ».
+  - rivoli → « Modifier » → refus au centre « Hors ligne — lecture seule : rien ne peut être modifié tant que la connexion n'est pas revenue. »
+  - « Réessayer » → message en bas « Toujours hors ligne. »
+- [x] **AC2 · Retour** *(validé le 16/10)* : « rétablis » → dans les 30 s (ou tout de suite avec « Réessayer ») : le bandeau disparaît, message « Connexion revenue. »
+- [x] **AC3 · Saisie commencée avant la coupure** *(validé le 16/10)* :
+  - En ligne : rivoli → « Modifier » → changer la surface du terrain (noter l'ancienne valeur) → « coupe ».
+  - « Enregistrer » → message en bas « Hors ligne : « rivoli » sera enregistré au retour de la connexion. »
+  - « rétablis » → « Connexion revenue. », puis la modification est enregistrée : le build la montre.
+  - Remettre l'ancienne valeur.
+- [x] **AC4 · Une collègue a modifié la fiche pendant la coupure** *(validé le 16/10, sur la fiche de Sephora : le verrou suit la fiche ouverte, bâtiment OU locataire ; il expire 2 min après le dernier signal de l'éditeur, qui part toutes les 30 s)* :
+  - En ligne : éditeur, rivoli → « Modifier » → « coupe ». Attendre **2 min et demie** : le verrou de l'éditeur expire.
+  - Build : rivoli → « Modifier » → changer la surface du terrain → « Enregistrer ».
+  - Éditeur : changer la même valeur autrement → « Enregistrer » (« … sera enregistré au retour… ») → « rétablis ».
+  - Attendu : message au centre, rivoli modifié ou repris par Odile pendant la coupure, vos saisies ne sont pas enregistrées. **L'écran de l'éditeur reste visible derrière** jusqu'à « OK ». Puis la fiche se recharge avec la valeur d'Odile.
+  - Remettre l'ancienne valeur.
+- [x] **AC5 · Modifier le bâtiment ne fait pas sauter le verrou d'un locataire** (demande du 16/10, en ligne, sans coupure) *(validé le 16/10)* :
+  - Build : rivoli › Sephora → « Modifier » (ne pas enregistrer).
+  - Éditeur : la ligne de Sephora porte « · Odile ». rivoli (le bâtiment) → « Modifier » → accepté → changer la surface du terrain → « Enregistrer ».
+  - Attendu : enregistré sans message ; le build montre la nouvelle surface. Sephora reste en modification dans le build, et l'éditeur affiche toujours « · Odile » sur sa ligne.
+  - Éditeur : Sephora → « Modifier » → refus « En cours de modification par Odile ». Le verrou d'Odile tient toujours.
+  - Build : annuler. Éditeur : remettre l'ancienne surface.

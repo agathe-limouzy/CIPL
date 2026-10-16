@@ -400,7 +400,27 @@ Sujet choisi par l'utilisatrice : le module de l'app. Diagnostic présenté (4 s
     - un PDF pas encore reçu sur ce PC (documents en cours de synchronisation, Drive pas recopié) n'est pas proposé : il le sera au lancement suivant ;
     - si le réseau tombe entre l'envoi et l'enregistrement du statut, la facture reste « en attente » sur le serveur (risque de double envoi, comme hors cloud) ;
     - Pappers reste suspendu en cloud : il écrit en arrière-plan sans verrou, et sera à traiter à part.
-- **Ensuite** : l'étape 8 (hors ligne), puis l'étape 9 (admin, utilisateurs, licences, Réglages partagés).
+- **Étape 8a (coupure pendant une session), code écrit et validé en Play le 16/10** (parcours AC1 à AC5) :
+  - Décisions :
+    - 09/10 : lecture seule ; bandeau « Hors ligne — lecture seule. Données à jour au … » avec « Réessayer » ; au retour, enregistrement contrôlé par la version, et en cas de refus, les saisies restent à l'écran puis la fiche se recharge ;
+    - 16/10 : retour tout seul (essai toutes les 30 s) plus le bouton ; bandeau sous les onglets.
+  - `HorsLigne` (nouveau) :
+    - `CloudClient.Envoyer` et `EnvoyerBrut` appellent `Constater` après chaque appel. `Panne` = pas de réponse (code 0) ou 502 à 504 ; un 4xx prouve que la connexion est là ;
+    - le bandeau est un MonoBehaviour persistant, placé sous la barre d'onglets à chaque image (zoom 175 %), avec un essai toutes les 30 s par `CloudClient.Sonder` (`/auth/v1/health`) ;
+    - au retour : « Connexion revenue », `EcritureCloud.RenvoyerEnAttente`, `DirectCloud.ToutRelire` ;
+    - `Simulee` : interrupteur de test en mémoire (script-execute), pour couper l'éditeur seul.
+  - `EcritureCloud` :
+    - `Reserver` est refusé hors ligne ;
+    - `Enregistrer` hors ligne : une fiche que je tiens (saisie commencée avant la coupure) va dans `_enAttente`, une action en un clic est refusée (relue au retour) ;
+    - un envoi coupé en route va aussi en attente ;
+    - `Occupe` compte les fiches en attente, pour que la relecture ne les écrase pas ;
+    - les refus (version, verrou) et `Abandonner` passent par `ConfirmDialog.Erreur(message, ensuite)` : l'écran reste derrière, et la fiche se recharge au clic sur « OK ».
+  - **464 tests verts** (`CloudHorsLigneTests`).
+  - 16/10, retours pendant le parcours AC (AC1 à AC4 validés) :
+    - le bandeau, posé par-dessus l'écran, cachait « Modifier ». `BatimentManager` range ses enfants dans une pile verticale (`VerticalLayoutGroup`) : le bandeau y est inséré juste après la barre d'onglets (hauteur fixe 44), et l'écran descend d'autant ;
+    - un refus au retour : la relecture en direct remplaçait la fiche derrière le message, avant le « OK ». `_refusOuverts` la fait attendre (`Occupe`).
+  - Limites : hors ligne, l'envoi automatique des factures est sauté (« réservation impossible ») et reproposé au lancement suivant.
+- **Ensuite** : l'étape 8b (démarrage sans connexion, sur la dernière copie gardée dans persistentDataPath), puis l'étape 9 (admin, utilisateurs, licences, Réglages partagés).
 
 ### Où en est le chantier au 29/09 (soir) — **310 tests EditMode verts**
 

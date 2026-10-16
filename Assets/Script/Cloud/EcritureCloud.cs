@@ -153,10 +153,41 @@ public static class EcritureCloud
     public static string BatimentDuLocataire(string locataireId) =>
         locataireId != null && _cache.TryGetValue(Cle(false, locataireId), out var e) ? e.BatimentId : null;
 
-    /// Je travaille dans ce bâtiment (fiche ou écran réservés, envoi en cours) : sa relecture attend.
+    /// Je travaille dans ce bâtiment (fiche ou écran réservés, envoi en cours, ou enregistrement
+    /// en attente de la connexion) : sa relecture attend.
     public static bool Occupe(string batimentId) =>
         !_file.IsCompleted
+        || _enAttente.Any(b => b.id == batimentId)
+        || _refusOuverts.Contains(batimentId)
         || _tenus.Any(t => (t.Type == "batiment" && t.Id == batimentId) || (t.Type == "locataire" && BatimentDuLocataire(t.Id) == batimentId));
+
+    // ── Étape 8 : enregistrements en attente de la connexion ───────────────────
+
+    /// Saisies commencées avant la coupure, ou envoi coupé en route : gardées ici, elles repartent
+    /// au retour de la connexion, contrôlées par la version (décision du 09/10).
+    static readonly HashSet<Batiment> _enAttente = new HashSet<Batiment>();
+
+    /// Bâtiments dont un enregistrement refusé est encore affiché : leur relecture attend le « OK ».
+    static readonly HashSet<string> _refusOuverts = new HashSet<string>();
+
+    public static void MettreEnAttente(Batiment b)
+    {
+        if (b == null || !_enAttente.Add(b)) return;
+        UndoToast.Instance?.ShowInfo($"Hors ligne : « {b.Name} » sera enregistré au retour de la connexion.");
+    }
+
+    public static void RenvoyerEnAttente()
+    {
+        foreach (var b in _enAttente.ToList())
+        {
+            _enAttente.Remove(b);
+            if (!Perime(b)) Enregistrer(b);   // relue entre-temps (rechargement) : il n'y a plus rien à renvoyer
+        }
+    }
+
+    /// Une de ses fiches est réservée par moi : une saisie était en cours quand la connexion est tombée.
+    static bool TientUneFiche(Batiment b) =>
+        _tenus.Any(t => (t.Type == "batiment" && t.Id == b.id) || (t.Type == "locataire" && BatimentDuLocataire(t.Id) == b.id));
 
     /// Un bâtiment et ses locataires, avec leurs versions (null = supprimé). Le cache n'est
     /// pas touché : voir Adopter, une fois la fiche reconstruite.
@@ -189,7 +220,18 @@ public static class EcritureCloud
 
     static Task _file = Task.CompletedTask;   // un enregistrement à la fois, dans l'ordre
 
-    public static void Enregistrer(Batiment b) { var avant = _file; _file = Envoyer(avant, b); }
+    public static void Enregistrer(Batiment b)
+    {
+        // Étape 8 : hors ligne, une saisie commencée avant la coupure attend la connexion ; une
+        // action en un clic est refusée (lecture seule), et la fiche sera relue au retour.
+        if (HorsLigne.Actif)
+        {
+            if (b != null && TientUneFiche(b)) MettreEnAttente(b);
+            else ConfirmDialog.Erreur(HorsLigne.Refus + " Cette modification n'est pas enregistrée.");
+            return;
+        }
+        var avant = _file; _file = Envoyer(avant, b);
+    }
 
     static async Task Envoyer(Task avant, Batiment b)
     {
@@ -207,16 +249,27 @@ public static class EcritureCloud
                     : await CloudClient.FonctionJson(Url, CleApi, jeton,
                         op.Type == TypeOp.Batiment ? "enregistrer_batiment" : "enregistrer_locataire", CorpsEnregistrer(e.id, op, SessionId));
 
-                // Réseau en panne : le cache n'est pas avancé, l'envoi sera retenté au prochain enregistrement.
-                if (!r.Ok) { ConfirmDialog.Erreur($"Enregistrement de « {b.Name} » impossible : {r.Erreur}"); return; }
+                // Réseau en panne : le cache n'est pas avancé ; la fiche repart au retour de la
+                // connexion (étape 8). Autre échec : retenté au prochain enregistrement.
+                if (!r.Ok)
+                {
+                    if (HorsLigne.Panne(r.Ok, r.Code)) MettreEnAttente(b);
+                    else ConfirmDialog.Erreur($"Enregistrement de « {b.Name} » impossible : {r.Erreur}");
+                    return;
+                }
 
                 var res = JsonUtility.FromJson<Resultat>(r.Corps);
                 if (res == null || !res.ok)
                 {
                     string nom = op.Type == TypeOp.Batiment ? b.Name
                         : b.locataireDuBatiment?.FirstOrDefault(l => l?.id == op.Id)?.Name ?? b.Name;
-                    ConfirmDialog.Erreur(MotifRefus(res ?? new Resultat { refus = "version" }, nom));
-                    DemarrageCloud.Recharger();
+                    // Les saisies refusées restent à l'écran derrière le message ; la fiche se recharge
+                    // au clic sur « OK » (décision du 09/10, reprise après une coupure). D'ici là, la
+                    // relecture en direct attend (retour du 16/10 : elle remplaçait les saisies avant le OK).
+                    string id = b.id;
+                    _refusOuverts.Add(id);
+                    ConfirmDialog.Erreur(MotifRefus(res ?? new Resultat { refus = "version" }, nom),
+                                         () => { _refusOuverts.Remove(id); DemarrageCloud.Recharger(); });
                     return;
                 }
                 if (op.Type == TypeOp.SupprimerLocataire) { _cache.Remove(Cle(false, op.Id)); _supprimesParMoi.Add(op.Id); }
@@ -285,6 +338,7 @@ public static class EcritureCloud
         var e = SessionCloud.Entreprise;
         var fiches = cibles.Where(c => !string.IsNullOrEmpty(c.id)).ToList();
         if (!SessionCloud.Active || e == null || fiches.Count == 0) { ouvrir(); return; }
+        if (HorsLigne.Actif && fiches.Any(c => !Tient(c.type, c.id))) { ConfirmDialog.Erreur(HorsLigne.Refus); return; }   // étape 8
         var prises = new List<(string type, string id, string nom)>();
         try
         {
@@ -352,11 +406,22 @@ public static class EcritureCloud
     /// les saisies non enregistrées disparaissent.
     static void Abandonner(string message, bool choisi = false)
     {
-        FermerEcrans();
-        if (choisi) UndoToast.Instance?.ShowInfo(message);   // « Annuler et libérer » : c'est voulu
-        else ConfirmDialog.Erreur(message);
-        DemarrageCloud.Recharger();
+        if (choisi)   // « Annuler et libérer » : c'est voulu
+        {
+            FermerEcrans();
+            UndoToast.Instance?.ShowInfo(message);
+            DemarrageCloud.Recharger();
+            return;
+        }
+        // Fiche perdue (libération forcée, reprise après une coupure) : les saisies restent à
+        // l'écran derrière le message pour être recopiées ; tout se ferme au clic sur « OK »
+        // (décision du 09/10). Le signal de vie ne la redemande pas entre-temps.
+        if (_abandonEnCours) return;
+        _abandonEnCours = true;
+        ConfirmDialog.Erreur(message, () => { _abandonEnCours = false; FermerEcrans(); DemarrageCloud.Recharger(); });
     }
+
+    static bool _abandonEnCours;
 
     /// Lance le gardien (bandeaux « En cours de modification par… ») dès l'ouverture d'une entreprise.
     public static void DemarrerGardien() => Gardien.Assurer();

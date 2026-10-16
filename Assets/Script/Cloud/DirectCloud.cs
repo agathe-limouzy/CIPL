@@ -112,6 +112,16 @@ public static class DirectCloud
         if (auteur != null) a.Auteur = auteur;
     }
 
+    /// Étape 8 : connexion revenue. Des changements ont pu être manqués : tout est relu en silence,
+    /// sauf ce sur quoi je travaille (relu quand j'aurai fini).
+    public static void ToutRelire()
+    {
+        if (_entreprise == null) return;
+        TousARelire(silencieux: true);
+        _verrous = _presences = true;
+        DocumentsCloud.Bientot();
+    }
+
     static void TousARelire(bool silencieux)
     {
         var bm = BatimentManager.Instance;

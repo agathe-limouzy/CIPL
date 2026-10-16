@@ -85,8 +85,14 @@ public static class CloudClient
         return rep.Ok ? (octets, null) : (null, rep.Erreur);
     }
 
+    /// Étape 8 : un appel léger pour savoir si le serveur répond (« Réessayer », toutes les 30 s).
+    public static Task<Reponse> Sonder(string url, string cle) => Envoyer("GET", url + "/auth/v1/health", cle, null, null);
+
+    static Reponse SansReseau() => new Reponse { Ok = false, Code = 0, Erreur = "Serveur injoignable (hors ligne simulé)" };
+
     static async Task<(Reponse rep, byte[] octets)> EnvoyerBrut(string methode, string adresse, string cle, string jeton, byte[] corps)
     {
+        if (HorsLigne.Simulee) { HorsLigne.Constater(false, 0); return (SansReseau(), null); }
         using (var r = new UnityWebRequest(adresse, methode) { downloadHandler = new DownloadHandlerBuffer() })
         {
             if (corps != null)
@@ -104,6 +110,7 @@ public static class CloudClient
 
             var rep = new Reponse { Code = r.responseCode, Ok = r.result == UnityWebRequest.Result.Success };
             if (!rep.Ok) { rep.Corps = r.downloadHandler?.text ?? ""; rep.Erreur = LireErreur(r.responseCode, rep.Corps, r.error); }
+            HorsLigne.Constater(rep.Ok, rep.Code);
             return (rep, rep.Ok ? r.downloadHandler?.data : null);
         }
     }
@@ -111,6 +118,7 @@ public static class CloudClient
     static async Task<Reponse> Envoyer(string methode, string adresse, string cle, string jeton, string corps,
                                        string prefer = null)
     {
+        if (HorsLigne.Simulee) { HorsLigne.Constater(false, 0); return SansReseau(); }
         using (var r = new UnityWebRequest(adresse, methode) { downloadHandler = new DownloadHandlerBuffer() })
         {
             if (corps != null)
@@ -130,6 +138,7 @@ public static class CloudClient
             var rep = new Reponse { Code = r.responseCode, Corps = r.downloadHandler?.text ?? "" };
             rep.Ok = r.result == UnityWebRequest.Result.Success;
             if (!rep.Ok) rep.Erreur = LireErreur(r.responseCode, rep.Corps, r.error);
+            HorsLigne.Constater(rep.Ok, rep.Code);   // étape 8
             return rep;
         }
     }
