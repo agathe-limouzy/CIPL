@@ -148,6 +148,32 @@ public class CloudDocumentsTests
     }
 
     [Test]
+    public void Sur_le_cloud_les_secrets_restent_sur_le_PC_et_ceux_du_dossier_sont_repris()
+    {
+        // Décision du 15/10 : jamais dans un Drive partagé ; et un changement de dossier ne les perd plus.
+        string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cipl_test_secrets_" + System.Guid.NewGuid().ToString("N"));
+        try
+        {
+            string racine = System.IO.Path.Combine(tmp, "Docs"), pc = System.IO.Path.Combine(tmp, "PC");
+            System.IO.Directory.CreateDirectory(racine);
+            System.IO.Directory.CreateDirectory(pc);
+            string ancien = System.IO.Path.Combine(racine, "pennylane_secrets.dat");
+
+            Assert.That(ReglageService.CheminSecrets(racine, null, pc), Is.EqualTo(ancien), "hors cloud : dans le dossier, comme avant");
+
+            System.IO.File.WriteAllText(ancien, "cle=A");
+            string chemin = ReglageService.CheminSecrets(racine, "e1", pc);
+            Assert.That(chemin, Is.EqualTo(System.IO.Path.Combine(pc, "cipl_secrets_e1.dat")));
+            Assert.That(System.IO.File.ReadAllText(chemin), Is.EqualTo("cle=A"), "repris du dossier");
+
+            System.IO.File.WriteAllText(ancien, "cle=B");
+            ReglageService.CheminSecrets(racine, "e1", pc);
+            Assert.That(System.IO.File.ReadAllText(chemin), Is.EqualTo("cle=A"), "repris une seule fois : jamais écrasé");
+        }
+        finally { if (System.IO.Directory.Exists(tmp)) System.IO.Directory.Delete(tmp, true); }
+    }
+
+    [Test]
     public void Passer_au_Drive_recopie_documents_et_reglages_sans_rien_ecraser()
     {
         string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cipl_test_recopie_" + System.Guid.NewGuid().ToString("N"));

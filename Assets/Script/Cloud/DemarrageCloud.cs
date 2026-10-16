@@ -87,6 +87,10 @@ public static class DemarrageCloud
                 : await EcransCloud.Choisir(Canvas, liste, SessionCloud.Session?.user?.email);
             if (choix == null) { SeDeconnecter(); return; }
             await Ouvrir(choix);
+            if (_bm == null) return;   // Play arrêté entre-temps : pas de fenêtre dans la scène d'édition
+            // Étape 7 : à l'ouverture seulement, pas à chaque relecture. Chez chacun (décision du
+            // 15/10) : la réservation de chaque facture empêche qu'elle parte deux fois.
+            FactureEnvoiAuto.ProposerAuDemarrage(_bm.BatimentPrefab);
             return;
         }
     }
@@ -146,6 +150,9 @@ public static class DemarrageCloud
         Debug.Log("[Cloud] Lecture des bâtiments…");
         var (bats, erreur) = await EcritureCloud.Charger(e.id);   // avec les versions (étape 4a)
         if (bats == null) { Debug.LogWarning("[Cloud] Lecture : " + erreur); ConfirmDialog.Erreur($"Lecture de « {e.nom} » impossible : {erreur}"); return; }
+        // Play arrêté pendant la lecture : la suite s'exécuterait hors Play et installerait
+        // les fiches et leurs onglets dans la scène d'édition (retour du 16/10).
+        if (_bm == null) return;
 
         EcritureCloud.FermerEcrans();   // un écran resté ouvert écrirait l'ancienne fiche
         _bm.Vider();

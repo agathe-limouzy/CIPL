@@ -206,4 +206,76 @@ public class EnvoiAutoTests
             "le réglage de régularisation ne doit pas déteindre sur le loyer");
         Assert.That(FactureEnvoiAuto.Destinataire(loc, "Inconnu"), Is.EqualTo("locataire@exemple.fr"));
     }
+
+    // ── Étape 7 : plusieurs PC (décision du 15/10 : sauter et le dire à la fin) ──
+
+    static EcritureCloud.ResultatEnvoi Refus(string refus, string motif = null, string statut = null)
+        => new EcritureCloud.ResultatEnvoi { refus = refus, nom = "Odile Limouzy", motif = motif, statut = statut };
+
+    [Test]
+    public void Une_facture_refusee_par_le_serveur_dit_pourquoi()
+    {
+        Assert.That(FactureEnvoiAuto.MotifSaut(Refus("envoyee", statut: "Envoye")), Is.EqualTo("déjà envoyée par Odile"));
+        Assert.That(FactureEnvoiAuto.MotifSaut(Refus("verrou", EcritureCloud.MotifEnvoi)), Is.EqualTo("envoi en cours par Odile"));
+        Assert.That(FactureEnvoiAuto.MotifSaut(Refus("verrou", "modification")),
+                    Is.EqualTo("en cours de modification par Odile : elle partira dès que la fiche sera libre"));
+        // Décision du 16/10 : seule la fiche en cours de modification fait attendre l'envoi.
+        Assert.That(FactureEnvoiAuto.AttendFiche(Refus("verrou", "modification")), Is.True);
+        Assert.That(FactureEnvoiAuto.AttendFiche(Refus("verrou", EcritureCloud.MotifEnvoi)), Is.False, "le collègue l'envoie");
+        Assert.That(FactureEnvoiAuto.AttendFiche(Refus("envoyee", statut: "Envoye")), Is.False);
+        Assert.That(FactureEnvoiAuto.AttendFiche(Refus("version")), Is.False);
+        StringAssert.StartsWith("n'est plus à envoyer", FactureEnvoiAuto.MotifSaut(Refus("envoyee", statut: "Paye")));
+        StringAssert.StartsWith("modifiée entre-temps par Odile", FactureEnvoiAuto.MotifSaut(Refus("version")));
+        StringAssert.Contains("prochain lancement", FactureEnvoiAuto.MotifSaut(Refus("reseau", "délai dépassé")));
+    }
+
+    [Test]
+    public void Le_bilan_ne_s_affiche_que_si_quelque_chose_n_est_pas_parti()
+    {
+        Assert.That(FactureEnvoiAuto.Bilan(3, 0, "", new string[0]), Is.Null, "tout est parti : le message du bas suffit");
+        Assert.That(FactureEnvoiAuto.Bilan(2, 0, "", new[] { "Sephora — déjà envoyée par Odile", "Volteo — envoi en cours par Odile" }),
+                    Is.EqualTo("2 facture(s) envoyée(s), 2 sautée(s) :\n• Sephora — déjà envoyée par Odile\n• Volteo — envoi en cours par Odile"));
+        StringAssert.Contains("restent en attente d'envoi", FactureEnvoiAuto.Bilan(1, 1, "SMTP refusé.", new string[0]));
+    }
+
+    [Test]
+    public void Plus_tard_ne_vaut_que_pour_qui_l_a_dit()
+    {
+        // Retour du 16/10 : sur un même PC, le « Plus tard » d'Agathe cachait la liste à Odile.
+        Assert.That(FactureEnvoiAuto.CleReportDe(null, null), Is.EqualTo("CIPL_EnvoiAutoReporte"), "hors cloud : inchangé");
+        Assert.That(FactureEnvoiAuto.CleReportDe("agathe", "e1"), Is.Not.EqualTo(FactureEnvoiAuto.CleReportDe("odile", "e1")));
+        Assert.That(FactureEnvoiAuto.CleReportDe("agathe", "e1"), Is.Not.EqualTo(FactureEnvoiAuto.CleReportDe("agathe", "e2")));
+    }
+
+    [Test]
+    public void L_envoi_repart_de_la_fiche_relue_entre_temps()
+    {
+        // Un collègue a changé le bâtiment pendant que la fenêtre était ouverte : la fiche est
+        // reconstruite, l'ancien objet ne doit plus être modifié (il ne serait pas enregistré).
+        var go = new UnityEngine.GameObject("bp test");
+        try
+        {
+            var ancien = new Locataire { id = "l1", Name = "Dupont" };
+            ancien.facturesEtat.Add(Ligne("AttenteEnvoi", 3));
+            var relu = new Locataire { id = "l1", Name = "Dupont" };
+            relu.facturesEtat.Add(Ligne("AttenteEnvoi", 3));
+            var bp = go.AddComponent<BatimentPrefab>();
+            bp.listLocataire.Add(relu);
+
+            var c = new FactureEnvoiAuto.Candidate { loc = ancien, rec = ancien.facturesEtat[0], destinataire = "a@b.fr" };
+            var r = FactureEnvoiAuto.Retrouver(c, new[] { bp });
+            Assert.That(r.HasValue, Is.True);
+            Assert.That(r.Value.loc, Is.SameAs(relu));
+            Assert.That(r.Value.rec, Is.SameAs(relu.facturesEtat[0]));
+            Assert.That(r.Value.bp, Is.SameAs(bp));
+            Assert.That(r.Value.destinataire, Is.EqualTo("a@b.fr"), "fiche relue sans adresse : on garde celle de la liste");
+
+            relu.emailLocataire = "nouvelle@exemple.fr";   // changée pendant l'attente de la fiche
+            Assert.That(FactureEnvoiAuto.Retrouver(c, new[] { bp }).Value.destinataire, Is.EqualTo("nouvelle@exemple.fr"));
+
+            relu.facturesEtat.Clear();
+            Assert.That(FactureEnvoiAuto.Retrouver(c, new[] { bp }).HasValue, Is.False, "facture disparue : rien à retrouver");
+        }
+        finally { UnityEngine.Object.DestroyImmediate(go); }
+    }
 }

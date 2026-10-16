@@ -37,9 +37,9 @@ public class BatimentManager : MonoBehaviour
         UIZoom.Appliquer();
 
         // Étape 2 du multi-utilisateur (CONCEPTION_MULTIUTILISATEUR.md) : les données viennent
-        // du cloud, en lecture seule. Sauvegarde au démarrage, purge, migration des dossiers,
-        // envoi automatique des factures et Pappers sont suspendus : ils écrivent, et rien ne
-        // doit l'être avant l'étape 4. Le chemin local ci-dessous n'est plus appelé.
+        // du cloud. Sauvegarde au démarrage, purge, migration des dossiers et Pappers sont
+        // suspendus ; l'envoi automatique des factures est relancé par DemarrageCloud, avec
+        // réservation de chaque facture (étape 7). Le chemin local ci-dessous n'est plus appelé.
         DemarrageCloud.Lancer(this);
     }
 
@@ -96,10 +96,13 @@ public class BatimentManager : MonoBehaviour
     {
         if (SessionCloud.Active) return;   // données du cloud : rien à réécrire sur ce PC
         if (_batiments == null || _batiments.Count == 0) return;
+        // Ne réécrit que ce qui a été lu du disque (LoadAll). Sur le cloud, SessionCloud peut être
+        // vidée par un rechargement des scripts en plein Play : sans ce garde, les fiches du cloud
+        // partaient en batiment_*.json dans le dossier des documents, peut-être un Drive (16/10).
+        if (string.IsNullOrEmpty(_racineChargement)) return;
 
         string racine = SaveLocationService.GetSaveRoot();
-        if (!string.IsNullOrEmpty(_racineChargement)
-            && !string.Equals(racine, _racineChargement, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(racine, _racineChargement, StringComparison.OrdinalIgnoreCase))
         {
             Debug.LogWarning("[BatimentManager] Sauvegarde de fermeture ignorée : l'emplacement a changé " +
                              $"depuis le chargement ({_racineChargement} → {racine}).");

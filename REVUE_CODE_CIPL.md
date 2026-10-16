@@ -356,7 +356,51 @@ Sujet choisi par l'utilisatrice : le module de l'app. Diagnostic présenté (4 s
     - les bibliothèques SharePoint ne sont pas cherchées (« Choisir à la main ») ;
     - les collègues ne basculent de mode qu'à leur prochain démarrage ;
     - sur un même PC, l'éditeur et le build partagent les dossiers trouvés.
-- **Ensuite : l'étape 7** (factures : réservation de l'envoi automatique).
+- **Étape 7 (envoi automatique des factures), code écrit le 15/10 et validé en Play le 16/10** (parcours AB1 à AB4) :
+  - Décisions du 15/10 :
+    - la fenêtre « N factures sont à envoyer » s'ouvre chez chacun, à l'ouverture de l'entreprise (`DemarrageCloud.OuvrirUneEntreprise`), pas à chaque relecture ;
+    - une facture prise ailleurs est sautée, et le bilan le dit à la fin.
+  - `Serveur/etape7_supabase.sql` (passé) : `reserver_envoi(entreprise, locataire, facture, version, session)`.
+    - Il prend le verrou du locataire (motif « envoi des factures »), puis vérifie sur la fiche du serveur que la facture est toujours `AttenteEnvoi` et que la version est celle que connaît l'application.
+    - Sinon, il rend le verrou et refuse : `verrou` (nom, motif), `envoyee` (statut, maj_par) ou `version`.
+    - **Simplification de la conception** : pas de table `envois_factures`. Le statut reste dans la fiche, et le verrou plus la version suffisent.
+  - `EcritureCloud.ReserverEnvoi` : en cas de succès, le locataire est tenu (`_tenus`, signal de vie) tant que l'envoi est en cours **ou qu'un enregistrement attend** (`EnregistrementEnCours`). Le statut « Envoyé » ne peut donc pas être refusé ensuite.
+  - `FactureEnvoiAuto.Envoyer` :
+    - la facture est réservée avant chaque envoi ;
+    - après la réservation, `Retrouver` reprend la fiche à jour (une relecture en direct a pu remplacer les objets depuis l'ouverture de la fenêtre) ;
+    - les motifs de saut viennent de `MotifSaut`, et `Bilan` affiche une fenêtre au centre seulement si quelque chose n'est pas parti.
+  - **460 tests verts** : 3 nouveaux dans `EnvoiAutoTests`.
+  - 15/10, AB1 : la fenêtre ne s'ouvrait pas, avec la trace « [EnvoiAuto] Rien n'est proposé : Le mot de passe SMTP n'est pas enregistré ».
+    - Cause : les secrets (`pennylane_secrets.dat`) vivaient dans le dossier des documents, et les changements de dossier de l'étape 6b (`Recopier`) ne les emportaient pas.
+    - Correction, décision du 15/10 « Sur chaque PC » : sur le cloud, `ReglageService.CheminSecrets` les range dans `persistentDataPath/cipl_secrets_<entreprise>.dat`, hors du dossier.
+      - Ils ne vont jamais dans un Drive partagé, lisible par d'autres.
+      - Ceux du dossier courant y sont repris une fois.
+      - Hors cloud, rien ne change.
+    - Il faut ressaisir une fois le mot de passe SMTP (et la clé Pennylane) dans Réglages › Connexion & envoi. L'étape 9 les partagera par le serveur.
+    - **461 tests verts.**
+  - 16/10, « Réglage n'affiche rien » :
+    - Cause : le plugin MCP s'est mis à jour pendant le Play (0.93.2 → 1.0.1). Ce rechargement des scripts a vidé les données statiques (session cloud, `BatimentManager.Instance`, `ConfirmDialog`), alors que l'écran restait affiché. Remède : arrêter le Play et le relancer.
+    - Effet de bord trouvé dans le journal : à la fermeture d'un tel Play, `SauvegardeDeFermeture` ne savait plus qu'on était sur le cloud. Elle réécrivait les `batiment_*.json` dans le dossier des documents (un Drive, en mode Drive partagé).
+    - Correction : elle ne réécrit plus que ce que `LoadAll` a lu du disque (`_racineChargement`), ce qui n'arrive jamais sur le cloud. Les fichiers `Test_Save2\Démo CIPL\batiments\` déjà écrits ne sont pas lus sur le cloud. **461 tests verts.**
+  - 16/10, AB2 bloqué : « Plus tard » était retenu pour tout le PC. Pour changer de compte dans le build, on cliquait « Plus tard », et Odile ne voyait plus la liste. Le même défaut existe sur un vrai PC partagé.
+    - Correction : sur le cloud, `FactureEnvoiAuto.CleReportDe(utilisateur, entreprise)` donne une clé par personne et par entreprise. Hors cloud, rien ne change. **462 tests verts.**
+  - 16/10, AB1 et AB2 validés. Pour AB3, « Loyer Octobre 2026 » de Sephora (`loyer-2026-P10`) a été remis de « Envoyé » à « en attente d'envoi » par script (`EcritureCloud.Charger` puis `Enregistrer`).
+  - 16/10, onglets en double au lancement du Play :
+    - Cause : un Play avait été arrêté pendant « Lecture des bâtiments… ». La suite de `DemarrageCloud.Ouvrir` s'est exécutée hors Play et a installé les 4 fiches et leurs 17 onglets dans la scène d'édition, sans la marquer comme modifiée. Chaque Play suivant repartait de cette scène.
+    - Correction : `Ouvrir` s'arrête si `_bm` a disparu après la lecture, et `OuvrirUneEntreprise` aussi, avant de proposer l'envoi des factures. `DirectCloud` était déjà protégé (`bm == null`).
+    - La scène a été rechargée depuis le disque, qui était intact.
+  - 16/10, AB3 validé. Demande et décision du 16/10 : une facture sautée parce que sa fiche était en cours de modification part **toute seule dès que la fiche est libre** (son envoi a déjà été confirmé), tant que CIPL reste ouvert sur la même entreprise.
+    - `FactureEnvoiAuto.EnvoyerUne` (réserver, envoyer, enregistrer le statut) est partagé entre la fenêtre et la file d'attente `Attente`.
+    - `Attente` est un MonoBehaviour persistant. Toutes les 5 s, il cherche une fiche dont le détenteur est vide (`EcritureCloud.Detenteur`, relevé des verrous toutes les 10 s ou tout de suite par le direct), puis il envoie.
+    - Si la fiche est reprise entre-temps, il attend encore. Message à la fin : « Facture de X envoyée : sa fiche est libre. »
+    - `AttendFiche` : un refus `verrou` dont le motif n'est pas « envoi des factures ». Un envoi en cours chez un collègue n'attend pas, c'est lui qui l'envoie.
+    - `Retrouver` relit le destinataire sur la fiche à jour (il a pu changer pendant l'attente).
+    - **462 tests verts.** AB4 validé le 16/10.
+  - Limites :
+    - un PDF pas encore reçu sur ce PC (documents en cours de synchronisation, Drive pas recopié) n'est pas proposé : il le sera au lancement suivant ;
+    - si le réseau tombe entre l'envoi et l'enregistrement du statut, la facture reste « en attente » sur le serveur (risque de double envoi, comme hors cloud) ;
+    - Pappers reste suspendu en cloud : il écrit en arrière-plan sans verrou, et sera à traiter à part.
+- **Ensuite** : l'étape 8 (hors ligne), puis l'étape 9 (admin, utilisateurs, licences, Réglages partagés).
 
 ### Où en est le chantier au 29/09 (soir) — **310 tests EditMode verts**
 

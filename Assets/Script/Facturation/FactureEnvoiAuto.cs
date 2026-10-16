@@ -93,6 +93,59 @@ public class FactureEnvoiAuto : MonoBehaviour
         return res.OrderBy(c => c.rec.echeanceISO).ToList();
     }
 
+    // ── Étape 7 : réservation (cloud) ───────────────────────────────────────────
+
+    /// Pourquoi une facture n'est pas partie : le serveur a refusé de la réserver.
+    public static string MotifSaut(EcritureCloud.ResultatEnvoi r)
+    {
+        const string plusTard = " : elle repartira au prochain lancement";
+        string qui = string.IsNullOrEmpty(r?.nom) ? "un collègue" : RegleVerrou.Prenom(r.nom);
+        switch (r?.refus)
+        {
+            case "verrou": return r.motif == EcritureCloud.MotifEnvoi ? $"envoi en cours par {qui}"
+                                                                       : $"en cours de modification par {qui} : elle partira dès que la fiche sera libre";
+            case "envoyee": return r.statut == "Envoye" ? $"déjà envoyée par {qui}" : $"n'est plus à envoyer (modifiée par {qui})";
+            case "version": return $"modifiée entre-temps par {qui}" + plusTard;
+            default: return $"réservation impossible ({r?.motif})" + plusTard;
+        }
+    }
+
+    /// Sautée parce que sa fiche est en cours de modification : son envoi, déjà confirmé, attend
+    /// que la fiche soit libre (décision du 16/10). En cours d'envoi chez un collègue : il s'en charge.
+    public static bool AttendFiche(EcritureCloud.ResultatEnvoi r)
+        => r?.refus == "verrou" && r.motif != EcritureCloud.MotifEnvoi;
+
+    /// Bilan de l'envoi, ou null si tout est parti (le message du bas suffit alors).
+    public static string Bilan(int ok, int echecs, string erreur, IList<string> sautees)
+    {
+        if (echecs == 0 && sautees.Count == 0) return null;
+        string tete = $"{ok} facture(s) envoyée(s)"
+            + (sautees.Count > 0 ? $", {sautees.Count} sautée(s)" : "")
+            + (echecs > 0 ? $", {echecs} en échec" : "")
+            + (sautees.Count > 0 ? " :" : ".");
+        return tete + string.Concat(sautees.Select(s => "\n• " + s))
+            + (echecs > 0 ? $"\n\n{erreur} Les factures non parties restent en attente d'envoi." : "");
+    }
+
+    /// La même facture sur les fiches affichées maintenant : une relecture (changement d'un
+    /// collègue) a pu remplacer les objets depuis l'ouverture de la fenêtre. Le destinataire est
+    /// relu sur la fiche à jour (il a pu changer pendant l'attente). Null si elle n'y est plus.
+    public static Candidate? Retrouver(Candidate c, IEnumerable<BatimentPrefab> bps)
+    {
+        if (bps == null || c.loc == null || c.rec == null) return null;
+        foreach (var bp in bps)
+        {
+            if (bp == null || bp.listLocataire == null) continue;
+            var loc = bp.listLocataire.FirstOrDefault(l => l != null && l.id == c.loc.id);
+            var rec = loc?.facturesEtat?.FirstOrDefault(r => r.key == c.rec.key);
+            if (rec == null) continue;
+            string dest = Destinataire(loc, rec.type);
+            return new Candidate { bp = bp, loc = loc, rec = rec, pdfAbsolu = c.pdfAbsolu,
+                                   destinataire = string.IsNullOrWhiteSpace(dest) ? c.destinataire : dest };
+        }
+        return null;
+    }
+
     // ── Proposition au lancement ────────────────────────────────────────────────
 
     /// À appeler une fois les bâtiments chargés. Ne fait rien s'il n'y a rien à
@@ -167,12 +220,20 @@ public class FactureEnvoiAuto : MonoBehaviour
     // Confort d'écran, propre au poste : il n'a rien à faire dans la sauvegarde métier.
     const string CleReport = "CIPL_EnvoiAutoReporte";
 
+    /// Sur le cloud, « Plus tard » ne vaut que pour qui l'a dit, dans cette entreprise : un
+    /// collègue qui ouvre CIPL sur le même PC voit encore la liste (retour du 16/10).
+    public static string CleReportDe(string utilisateur, string entreprise)
+        => string.IsNullOrEmpty(utilisateur) ? CleReport : $"{CleReport}_{utilisateur}_{entreprise}";
+
+    static string CleReportIci => CleReportDe(SessionCloud.Active ? SessionCloud.Session?.user?.id : null,
+                                              SessionCloud.Entreprise?.id);
+
     static bool ReporteAujourdhui()
-        => PlayerPrefs.GetString(CleReport, "") == DateTime.Today.ToString("yyyy-MM-dd");
+        => PlayerPrefs.GetString(CleReportIci, "") == DateTime.Today.ToString("yyyy-MM-dd");
 
     static void MarquerReporte()
     {
-        PlayerPrefs.SetString(CleReport, DateTime.Today.ToString("yyyy-MM-dd"));
+        PlayerPrefs.SetString(CleReportIci, DateTime.Today.ToString("yyyy-MM-dd"));
         PlayerPrefs.Save();
     }
 
@@ -318,44 +379,123 @@ public class FactureEnvoiAuto : MonoBehaviour
 
         int ok = 0, echecs = 0;
         string derniereErreur = "";
-        foreach (var c in choisies)
+        var sautees = new List<string>();
+        foreach (var choisie in choisies)
         {
-            _etat.text = $"Envoi {ok + echecs + 1}/{choisies.Count} — {c.loc.Name}…";
-
-            var info = c.loc.FactureInfoDe(c.rec.type);
-            var ctx = Contexte(c.loc, c.rec);
-            var bat = c.bp != null ? c.bp.getBatiment() : null;
-            string objet = FactureVarResolver.Resolve(
-                FacturePdfService.Texte(info?.emailObjet, EmailService.ObjetDefaut), c.loc, bat, ctx);
-            string corps = FactureVarResolver.Resolve(
-                FacturePdfService.Texte(info?.emailCorps, EmailService.CorpsDefaut), c.loc, bat, ctx);
-
-            var envoi = EmailService.Envoyer(c.destinataire, objet, corps, new[] { c.pdfAbsolu });
-            while (!envoi.Termine) yield return null;
-
-            if (envoi.Succes)
+            _etat.text = $"Envoi {ok + echecs + sautees.Count + 1}/{choisies.Count} — {choisie.loc.Name}…";
+            var issue = new Issue();
+            yield return EnvoyerUne(choisie, issue, this);
+            if (issue.Partie) ok++;
+            else if (issue.Refus != null)
             {
-                // Le PDF et le numéro existent déjà : on ne réémet rien, on constate le
-                // départ. D'où la mise à jour du statut seul, sans passer par
-                // FactureEmission — qui consommerait une nouvelle séquence.
-                foreach (var r in FacturationSuivi.MemeFacture(c.loc, c.rec.key).DefaultIfEmpty(c.rec))
-                {
-                    r.statut = "Envoye";
-                    r.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
-                }
-                if (c.bp != null) c.bp.SaveAfterModifyToDoListLocataire();
-                ok++;
+                sautees.Add($"{choisie.loc.Name} — {MotifSaut(issue.Refus)}");
+                if (AttendFiche(issue.Refus)) Attente.Ajouter(choisie);
             }
-            else { echecs++; derniereErreur = envoi.Erreur; }
+            else { echecs++; derniereErreur = issue.Erreur; }
         }
 
         _envoiEnCours = false;
         LocataireSuiviInline.RefreshTous();
 
-        if (echecs == 0) UndoToast.Instance?.ShowInfo($"{ok} facture(s) envoyée(s).");
-        else ConfirmDialog.Erreur($"{ok} envoyée(s), {echecs} en échec — {derniereErreur} "
-              + "Les factures non parties restent en attente d'envoi.");
+        string bilan = Bilan(ok, echecs, derniereErreur, sautees);
+        if (bilan == null) UndoToast.Instance?.ShowInfo($"{ok} facture(s) envoyée(s).");
+        else ConfirmDialog.Erreur(bilan);
         Destroy(gameObject);
+    }
+
+    /// Ce qu'est devenue une facture : partie, sautée (refus du serveur) ou en échec d'envoi.
+    class Issue { public bool Partie; public EcritureCloud.ResultatEnvoi Refus; public string Erreur; }
+
+    /// Une facture : réservée d'abord (étape 7 ; déjà envoyée par un collègue, en cours d'envoi
+    /// chez lui, ou fiche prise : sautée), puis envoyée, puis son statut enregistré. Le verrou
+    /// tient jusqu'à l'enregistrement, et tombe si `hote` disparaît en route.
+    static IEnumerator EnvoyerUne(Candidate choisie, Issue issue, MonoBehaviour hote)
+    {
+        bool tenu = true;
+        var reservation = EcritureCloud.ReserverEnvoi(choisie.loc, choisie.rec.key,
+            () => (tenu && hote != null) || EcritureCloud.EnregistrementEnCours);
+        while (!reservation.IsCompleted) yield return null;
+        if (!reservation.Result.ok) { issue.Refus = reservation.Result; yield break; }
+        // La fiche a pu être relue depuis l'ouverture de la fenêtre : on part de l'objet à
+        // jour, que le verrou garde désormais tel quel.
+        var c = (SessionCloud.Active ? Retrouver(choisie, BatimentManager.Instance?.BatimentPrefab) : null) ?? choisie;
+
+        var info = c.loc.FactureInfoDe(c.rec.type);
+        var ctx = Contexte(c.loc, c.rec);
+        var bat = c.bp != null ? c.bp.getBatiment() : null;
+        string objet = FactureVarResolver.Resolve(
+            FacturePdfService.Texte(info?.emailObjet, EmailService.ObjetDefaut), c.loc, bat, ctx);
+        string corps = FactureVarResolver.Resolve(
+            FacturePdfService.Texte(info?.emailCorps, EmailService.CorpsDefaut), c.loc, bat, ctx);
+
+        var envoi = EmailService.Envoyer(c.destinataire, objet, corps, new[] { c.pdfAbsolu });
+        while (!envoi.Termine) yield return null;
+
+        if (envoi.Succes)
+        {
+            // Le PDF et le numéro existent déjà : on ne réémet rien, on constate le
+            // départ. D'où la mise à jour du statut seul, sans passer par
+            // FactureEmission — qui consommerait une nouvelle séquence.
+            foreach (var r in FacturationSuivi.MemeFacture(c.loc, c.rec.key).DefaultIfEmpty(c.rec))
+            {
+                r.statut = "Envoye";
+                r.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
+            }
+            if (c.bp != null) c.bp.SaveAfterModifyToDoListLocataire();
+            issue.Partie = true;
+        }
+        else issue.Erreur = envoi.Erreur;
+        tenu = false;   // le verrou est rendu une fois le statut enregistré
+    }
+
+    /// Factures confirmées mais sautées parce que leur fiche était en cours de modification
+    /// (décision du 16/10) : elles partent seules dès que la fiche est libre, tant que CIPL reste
+    /// ouvert sur la même entreprise. Sinon, elles sont reproposées au prochain lancement.
+    class Attente : MonoBehaviour
+    {
+        static Attente _instance;
+        readonly List<Candidate> _liste = new List<Candidate>();
+        string _entreprise;
+        bool _enCours;
+        float _prochain;
+
+        public static void Ajouter(Candidate c)
+        {
+            if (_instance == null)
+            {
+                var go = new GameObject("FacturesEnAttenteDeFiche");
+                DontDestroyOnLoad(go);
+                _instance = go.AddComponent<Attente>();
+            }
+            if (_instance._entreprise != SessionCloud.Entreprise?.id) _instance._liste.Clear();
+            _instance._entreprise = SessionCloud.Entreprise?.id;
+            _instance._liste.Add(c);
+        }
+
+        void Update()
+        {
+            if (_enCours || _liste.Count == 0 || Time.realtimeSinceStartup < _prochain) return;
+            _prochain = Time.realtimeSinceStartup + 5f;
+            if (!SessionCloud.Active || SessionCloud.Entreprise?.id != _entreprise) { _liste.Clear(); return; }
+            // Détenteur d'après le dernier relevé des verrous (10 s, ou tout de suite par le direct).
+            int i = _liste.FindIndex(c => EcritureCloud.Detenteur(false, c.loc.id) == null);
+            if (i >= 0) StartCoroutine(Envoyer(i));
+        }
+
+        IEnumerator Envoyer(int i)
+        {
+            _enCours = true;
+            var c = _liste[i];
+            var issue = new Issue();
+            yield return EnvoyerUne(c, issue, this);
+            _enCours = false;
+            if (issue.Refus != null && AttendFiche(issue.Refus)) yield break;   // reprise entre-temps : on attend encore
+            _liste.RemoveAt(i);
+            LocataireSuiviInline.RefreshTous();
+            if (issue.Partie) UndoToast.Instance?.ShowInfo($"Facture de {c.loc.Name} envoyée : sa fiche est libre.");
+            else if (issue.Refus != null) UndoToast.Instance?.ShowInfo($"Facture de {c.loc.Name} : {MotifSaut(issue.Refus)}.");
+            else ConfirmDialog.Erreur($"Facture de {c.loc.Name} non envoyée : {issue.Erreur} Elle reste en attente d'envoi.");
+        }
     }
 
     /// Contexte de résolution des variables du message. La facture étant déjà générée,

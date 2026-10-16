@@ -400,6 +400,43 @@ public static class EcritureCloud
                              "Rien n'est modifié : réessayez quand la fiche sera libérée.");
     }
 
+    // ── Étape 7 : envoi automatique des factures ───────────────────────────────
+
+    public const string MotifEnvoi = "envoi des factures";
+    [Serializable] class ParamsEnvoi { public string p_entreprise, p_locataire, p_facture, p_session; public int p_version; }
+    [Serializable] public class ResultatEnvoi { public bool ok; public string refus, nom, motif, pris_le, statut; }
+
+    /// Un enregistrement attend ou part : le verrou d'un envoi n'est rendu qu'après celui de son statut.
+    public static bool EnregistrementEnCours => !_file.IsCompleted;
+
+    /// Avant d'envoyer une facture : le serveur réserve son locataire et vérifie qu'elle attend
+    /// toujours son envoi, sur la fiche que je connais (refus sinon : déjà envoyée, fiche prise ou
+    /// modifiée). Le verrou tient tant que `actif` est vrai : le statut « Envoyé » ne peut donc pas
+    /// être refusé ensuite. Hors cloud : accordé.
+    public static async Task<ResultatEnvoi> ReserverEnvoi(Locataire loc, string factureKey, Func<bool> actif)
+    {
+        var e = SessionCloud.Entreprise;
+        if (!SessionCloud.Active || e == null || loc == null) return new ResultatEnvoi { ok = true };
+        try
+        {
+            var r = await CloudClient.Fonction(Url, CleApi, await SessionCloud.Jeton(), "reserver_envoi", new ParamsEnvoi
+            {
+                p_entreprise = e.id, p_locataire = loc.id, p_facture = factureKey, p_session = SessionId,
+                p_version = _cache.TryGetValue(Cle(false, loc.id), out var etat) ? etat.Version : 0,
+            });
+            var res = r.Ok ? JsonUtility.FromJson<ResultatEnvoi>(r.Corps) : null;
+            if (res == null) return new ResultatEnvoi { refus = "reseau", motif = r.Ok ? "réponse illisible" : r.Erreur };
+            if (res.ok)
+            {
+                _tenus.Add(new Tenu { Type = "locataire", Id = loc.id, Nom = loc.Name, Motif = MotifEnvoi, Actif = actif,
+                                      ProchainSignal = Time.realtimeSinceStartup + 30f });
+                Gardien.Assurer();
+            }
+            return res;
+        }
+        catch (Exception ex) { Debug.LogException(ex); return new ResultatEnvoi { refus = "reseau", motif = ex.Message }; }
+    }
+
     // ── Nom affiché ────────────────────────────────────────────────────────────
 
     [Serializable] class Vide { }

@@ -582,3 +582,48 @@ Préalable : `Serveur/etape6b_supabase.sql` passé dans Supabase (SQL Editor ›
   - Dans Réglages › Documents : la pastille « Choisi à la main » et ce chemin ; « Ouvrir le dossier » montre `Batiment\…` et `reglage.json`.
   - Relancer le Play : le même dossier est gardé.
   - « Changer de dossier… » → choisir `Documents\CIPL` → retour dans `Documents\CIPL\Démo CIPL`, pastille « Dossier de CIPL ».
+
+## AB. Étape 7 : envoi automatique des factures, réservé facture par facture (15/10) *(validé en Play le 16/10, AB1 à AB4)*
+
+Préalable : `Serveur/etape7_supabase.sql` passé dans Supabase (SQL Editor › New query › Run), et le build **reconstruit**. Éditeur = compte 1 (Agathe), build = compte 2 (Odile).
+
+Une seule fois avant AB1 : dans le Play, Réglages › Connexion & envoi → ressaisir le mot de passe SMTP (et la clé Pennylane), puis relancer le Play.
+- Sur le cloud, ces secrets restent désormais sur le PC, hors du dossier des documents (décision du 15/10).
+- Le build, sur le même PC, les reprend tout seul.
+
+**Les e-mails partent pour de vrai.** Dans la fenêtre « N factures sont à envoyer », décoche toutes les lignes sauf ta facture de test.
+
+Une facture de test, c'est :
+- une facture « en attente d'envoi » dont la date d'envoi est atteinte (échéance dans moins de 15 jours) ;
+- sur un locataire de test dont l'adresse e-mail est la tienne.
+
+Prépare-en trois, une par cas ci-dessous.
+
+Si la fenêtre ne s'ouvre pas, la console (ou le Player.log du build) dit pourquoi, sur une ligne `[EnvoiAuto]`. Par exemple, « déjà reporté aujourd'hui » si « Plus tard » a été cliqué ce jour-là sur ce PC.
+
+- [x] **AB1 · Envoi simple** *(validé le 16/10)* :
+  - Lancer le Play → la fenêtre s'ouvre (elle ne s'ouvrait plus sur le cloud depuis l'étape 2).
+  - Ne garder que la facture de test → « Tout envoyer » → confirmer.
+  - Attendu : message en bas « 1 facture(s) envoyée(s) », l'e-mail arrive, et la ligne du suivi passe à « Envoyé ».
+  - Relancer : elle n'est plus proposée.
+- [x] **AB2 · Déjà envoyée par une collègue** *(validé le 16/10)* :
+  - Lancer l'éditeur puis le build : les deux proposent la 2e facture de test.
+    - Si le build s'ouvre sur ton compte (il reprend la connexion gardée de l'éditeur) : « Plus tard » → Compte → se déconnecter → se connecter avec le compte d'Odile.
+    - La liste s'ouvre alors pour Odile : « Plus tard » ne vaut que pour la personne qui l'a cliqué (16/10).
+  - Éditeur : l'envoyer seule.
+  - Build : « Tout envoyer » sur cette même facture.
+  - Attendu : fenêtre au centre « 0 facture(s) envoyée(s), 1 sautée(s) : • <locataire> — déjà envoyée par Agathe ». **Un seul e-mail reçu.**
+- [x] **AB3 · Fiche en cours de modification** *(validé le 16/10)* :
+  - 3e facture de test, préparée le 16/10 par script : « Sephora · rivoli — Loyer Octobre 2026 » (`loyer-2026-P10`), remise de « Envoyé » à « en attente d'envoi ». Elle part à ton adresse.
+    - Pour la refaire à la main, sans rien envoyer : Réglages › Connexion & envoi en mode Pennylane ; rivoli › Sephora › « Révision du dépôt », « Date d'échéance » = aujourd'hui → « Sauvegarder et envoyer » (« Aucun email envoyé… ») ; puis remettre le mode e-mail.
+  - Build : ouvrir le locataire de la 3e facture de test → « Modifier » (sans enregistrer).
+  - Éditeur : relancer le Play → « Tout envoyer » sur cette facture.
+  - Attendu : « … — en cours de modification par Odile : elle repartira au prochain lancement ». Rien n'est reçu.
+  - Build : annuler la modification. Éditeur : relancer → la facture est proposée de nouveau → l'envoyer → elle part.
+- [x] **AB4 · Elle part dès que la fiche est libre** (décision du 16/10) *(validé le 16/10)* :
+  - Préparation : remettre une facture de test « en attente d'envoi » (demande-le-moi, comme pour AB3), puis reconstruire le build.
+  - Build : ouvrir sa fiche → « Modifier », sans enregistrer.
+  - Éditeur : lancer le Play → « Tout envoyer » sur cette facture.
+  - Attendu : « … — en cours de modification par Odile : elle partira dès que la fiche sera libre ». Rien n'est reçu.
+  - Build : annuler la modification, **sans fermer l'éditeur**.
+  - Attendu dans l'éditeur, dans les 10 s environ : message en bas « Facture de Sephora envoyée : sa fiche est libre. », l'e-mail arrive, et la ligne passe « Envoyé ».

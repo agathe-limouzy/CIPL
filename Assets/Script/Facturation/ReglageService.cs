@@ -8,7 +8,7 @@ using UnityEngine;
 /// - Les SECRETS (clé API Pennylane, mot de passe SMTP) vont dans un fichier
 ///   séparé <SaveRoot>/pennylane_secrets.dat (format clé=valeur), qui n'est PAS
 ///   du JSON → ignoré par les backups (qui ne copient que les *.json) et jamais
-///   commité dans le repo.
+///   commité dans le repo. Sur le cloud : sur ce PC, hors du dossier (CheminSecrets).
 public static class ReglageService
 {
     private static ReglageData _current;
@@ -21,8 +21,23 @@ public static class ReglageService
     private static string FilePath =>
         Path.Combine(SaveLocationService.GetSaveRoot(), "reglage.json");
 
-    private static string SecretsPath =>
-        Path.Combine(SaveLocationService.GetSaveRoot(), "pennylane_secrets.dat");
+    private static string SecretsPath => CheminSecrets(SaveLocationService.GetSaveRoot(),
+        SessionCloud.Active ? SessionCloud.Entreprise?.id : null, Application.persistentDataPath);
+
+    /// Secrets d'une entreprise. Sur le cloud (décision du 15/10), ils restent sur ce PC, hors du
+    /// dossier des documents : ce dossier peut être un Drive partagé, lisible par d'autres, et il
+    /// change de place (Réglages › Documents). Ceux déjà saisis dans le dossier y sont repris une
+    /// fois. Hors cloud : dans le dossier, comme avant.
+    public static string CheminSecrets(string racine, string entrepriseCloud, string dossierPc)
+    {
+        string dossier = Path.Combine(racine, "pennylane_secrets.dat");
+        if (string.IsNullOrEmpty(entrepriseCloud)) return dossier;
+        string pc = Path.Combine(dossierPc, $"cipl_secrets_{entrepriseCloud}.dat");
+        if (!File.Exists(pc) && File.Exists(dossier))
+            try { File.Copy(dossier, pc); }
+            catch (IOException e) { Debug.LogWarning("[ReglageService] Reprise des secrets du dossier impossible : " + e.Message); }
+        return pc;
+    }
 
     // Secrets de l'APPLICATION, communs à toutes les entreprises. La clé Pennylane et
     // le mot de passe SMTP appartiennent à une entreprise donnée ; le token Mapbox, lui,

@@ -423,6 +423,16 @@ Le statut est mis à jour **directement** (`statut = "Envoye"`), sans repasser p
 
 **Garde-fous** : ne demande rien si l'email n'est pas configuré (`EmailService.CeQuiManque`), ni si l'envoi a été reporté le jour même — relancer l'application dix fois ne doit pas poser dix questions (mémorisé en `PlayerPrefs`, c'est un confort d'écran propre au poste, pas une donnée métier).
 
+**Plusieurs PC (cloud, étape 7, 15/10)** :
+- La fenêtre s'ouvre chez chacun, à l'ouverture de l'entreprise (`DemarrageCloud`).
+- Juste avant chaque envoi, la facture est réservée sur le serveur (`reserver_envoi`) :
+  - le verrou de son locataire est pris (« envoi des factures ») ;
+  - le serveur vérifie que la facture est toujours « en attente d'envoi », sur la fiche à jour.
+- Une facture déjà envoyée par un collègue, en cours d'envoi chez lui, ou dont la fiche est en cours de modification est **sautée**. Les autres partent, et une fenêtre au centre liste celles qui ont été sautées et pourquoi.
+- Une facture sautée parce que sa fiche était en cours de modification **part toute seule dès que la fiche est libre** (16/10) : son envoi a déjà été confirmé. Si CIPL est fermé avant, elle est reproposée au lancement suivant.
+- Le verrou tient jusqu'à l'enregistrement du statut « Envoyé » : une facture ne peut pas partir deux fois.
+- Détails : `CONCEPTION_MULTIUTILISATEUR.md`, étape 7.
+
 **Limites connues** : l'application doit être lancée pour que l'envoi soit proposé · seul l'email existe (aucun appel à l'API Pennylane dans le code) · l'adresse `@cipl.fr` reste bloquée côté Microsoft 365, l'envoi part donc du compte configuré.
 
 ### « Envoyé » veut dire envoyé (2026-09-22)
