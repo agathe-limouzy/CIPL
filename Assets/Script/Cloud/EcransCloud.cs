@@ -58,6 +58,12 @@ public static class EcransCloud
     public static Task Connexion(Canvas canvas)
     {
         var fin = new TaskCompletionSource<bool>();
+        AfficherConnexion(canvas, fin);
+        return fin.Task;
+    }
+
+    static void AfficherConnexion(Canvas canvas, TaskCompletionSource<bool> fin)
+    {
         var (voile, carte) = Fenetre(canvas, "CIPL — Connexion", 420, true);
         var corps = UIFactory.VBox(carte.transform, 12, 18, 18, 16, 6, "Corps");
 
@@ -67,10 +73,14 @@ public static class EcransCloud
         mdp.contentType = TMP_InputField.ContentType.Password;
         mdp.ForceLabelUpdate();
         var garder = UIFactory.Toggle(corps.transform, "Rester connecté(e) sur ce PC", true);
-        UIFactory.Text(corps.transform, "Mot de passe oublié et création de compte : étape suivante.",
+        UIFactory.Text(corps.transform, "Mot de passe oublié : étape suivante.",
                        UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         var pied = Pied(carte.transform);
+        // Étape 9b : un collègue invité crée ici son compte avec le code reçu par e-mail.
+        var invite = Bouton(pied.transform, "J'ai reçu une invitation", false);
+        invite.transform.SetAsFirstSibling();
+        invite.onClick.AddListener(() => { UnityEngine.Object.Destroy(voile.gameObject); AfficherInvitation(canvas, fin); });
         var connecter = Bouton(pied.transform, "Se connecter", true);
 
         bool enCours = false;
@@ -90,7 +100,55 @@ public static class EcransCloud
         connecter.onClick.AddListener(Essayer);
         mdp.onSubmit.AddListener(_ => Essayer());
         email.Select();
-        return fin.Task;
+    }
+
+    /// Étape 9b (maquette validée le 19/10) : l'invité saisit l'adresse invitée, le code de l'e-mail
+    /// et son mot de passe. Le compte est créé (ou, s'il existe, ouvert), puis l'invitation acceptée.
+    static void AfficherInvitation(Canvas canvas, TaskCompletionSource<bool> fin)
+    {
+        var (voile, carte) = Fenetre(canvas, "CIPL — J'ai reçu une invitation", 440, true);
+        var corps = UIFactory.VBox(carte.transform, 12, 18, 18, 16, 6, "Corps");
+        UIFactory.Text(corps.transform, "Saisissez l'adresse qui a reçu l'invitation et le code de l'e-mail, " +
+                       "puis choisissez votre mot de passe.", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        var email = DepartPanel.Champ(corps.transform, "E-mail", "vous@entreprise.fr", 1f);
+        email.contentType = TMP_InputField.ContentType.EmailAddress;
+        var code = DepartPanel.Champ(corps.transform, "Code d'invitation", "K7F2-9QXD", 1f);
+        var mdp = DepartPanel.Champ(corps.transform, "Mot de passe (8 caractères minimum)", "", 1f);
+        mdp.contentType = TMP_InputField.ContentType.Password;
+        mdp.ForceLabelUpdate();
+        var mdp2 = DepartPanel.Champ(corps.transform, "Confirmer le mot de passe", "", 1f);
+        mdp2.contentType = TMP_InputField.ContentType.Password;
+        mdp2.ForceLabelUpdate();
+
+        var pied = Pied(carte.transform);
+        var deja = Bouton(pied.transform, "J'ai déjà un compte", false);
+        deja.transform.SetAsFirstSibling();
+        deja.onClick.AddListener(() => { UnityEngine.Object.Destroy(voile.gameObject); AfficherConnexion(canvas, fin); });
+        var rejoindre = Bouton(pied.transform, "Rejoindre", true);
+
+        bool enCours = false;
+        async void Essayer()
+        {
+            if (enCours) return;
+            string manque = UtilisateursCloud.VerifierRejoindre(email.text, code.text, mdp.text, mdp2.text);
+            if (manque != null) { ConfirmDialog.Erreur(manque); return; }
+            enCours = true; rejoindre.interactable = false;
+            try
+            {
+                // Déjà connecté (code refusé au premier essai) : on ne recrée pas le compte.
+                string refus = SessionCloud.Active ? null : await SessionCloud.Rejoindre(email.text, mdp.text);
+                if (refus != null) { ConfirmDialog.Erreur(refus); return; }
+                var res = await UtilisateursCloud.Accepter(code.text);
+                if (res?.ok != true) { ConfirmDialog.Erreur(UtilisateursCloud.Motif(res)); return; }
+                mdp.text = mdp2.text = "";
+                UnityEngine.Object.Destroy(voile.gameObject);
+                UndoToast.Instance?.ShowInfo($"Bienvenue dans {res.nom}.");
+                fin.TrySetResult(true);
+            }
+            finally { enCours = false; if (rejoindre != null) rejoindre.interactable = true; }
+        }
+        rejoindre.onClick.AddListener(Essayer);
+        email.Select();
     }
 
     // ── 2. Choisir l'entreprise ────────────────────────────────────────────────

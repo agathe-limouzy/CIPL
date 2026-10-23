@@ -79,7 +79,30 @@ public static class EcritureCloud
         }
     }
 
-    public static void Recaler(IEnumerable<Batiment> bats) => Recaler(_cache, bats);
+    public static void Recaler(IEnumerable<Batiment> bats) { Recaler(_cache, bats); _copieAEcrire = true; }
+
+    // ── Étape 8b : copie locale de l'état connu du serveur ─────────────────────
+
+    static bool _copieAEcrire;
+    static float _prochaineCopie;
+
+    /// Réécrit la copie locale si l'état connu du serveur a changé (au plus toutes les 5 s, et à la
+    /// fermeture). Pas pendant un démarrage sur la copie : rien de neuf n'est connu.
+    public static void GarderCopie(bool maintenant = false)
+    {
+        if (!_copieAEcrire || HorsLigne.DepuisCopie || SessionCloud.Entreprise == null) return;
+        if (!maintenant && Time.realtimeSinceStartup < _prochaineCopie) return;
+        _prochaineCopie = Time.realtimeSinceStartup + 5f;
+        _copieAEcrire = false;
+        CopieLocale.Garder(SessionCloud.Entreprise, SessionCloud.Session?.user, HorsLigne.AJourLe, _cache);
+    }
+
+    /// Démarrage sur la copie : elle devient l'état connu du serveur (versions comprises).
+    public static void ReprendreCopie(IDictionary<string, Etat> etats)
+    {
+        _cache.Clear();
+        foreach (var kv in etats) _cache[kv.Key] = kv.Value;
+    }
 
     /// Paramètres de enregistrer_batiment / enregistrer_locataire ; le JSON de CIPL part en objet.
     public static string CorpsEnregistrer(string entreprise, Op op, string session)
@@ -133,7 +156,7 @@ public static class EcritureCloud
         var rl = await CloudClient.Table("GET", Url, CleApi, jeton, "locataires",
                                          $"entreprise_id=eq.{entrepriseId}&select=id,batiment_id,ordre,version,data&order=ordre.asc");
         if (!rl.Ok) return (null, rl.Erreur);
-        try { return (Lire(rb.Corps, rl.Corps, _cache), null); }
+        try { var bats = Lire(rb.Corps, rl.Corps, _cache); _copieAEcrire = true; return (bats, null); }
         catch (Exception e) { return (null, "Données illisibles : " + e.Message); }
     }
 
@@ -207,8 +230,11 @@ public static class EcritureCloud
 
     /// Le cache prend l'état relu d'un bâtiment (ses anciens locataires en sortent), puis se
     /// recale sur la fiche reconstruite (mises à niveau du chargement).
-    public static void Adopter(string batimentId, IDictionary<string, Etat> etat, Batiment b) =>
+    public static void Adopter(string batimentId, IDictionary<string, Etat> etat, Batiment b)
+    {
         Adopter(_cache, batimentId, etat, b);
+        _copieAEcrire = true;
+    }
 
     public static void Adopter(IDictionary<string, Etat> cache, string batimentId, IDictionary<string, Etat> etat, Batiment b)
     {
@@ -230,6 +256,9 @@ public static class EcritureCloud
             else ConfirmDialog.Erreur(HorsLigne.Refus + " Cette modification n'est pas enregistrée.");
             return;
         }
+        // Étape 9c1 : abonnement expiré, lecture seule ; la fiche est relue (la modification n'est
+        // faite qu'en mémoire).
+        if (AbonnementCloud.LectureSeule) { ConfirmDialog.Erreur(AbonnementCloud.Refus, DemarrageCloud.Recharger); return; }
         var avant = _file; _file = Envoyer(avant, b);
     }
 
@@ -275,6 +304,7 @@ public static class EcritureCloud
                 if (op.Type == TypeOp.SupprimerLocataire) { _cache.Remove(Cle(false, op.Id)); _supprimesParMoi.Add(op.Id); }
                 else _cache[Cle(op.Type == TypeOp.Batiment, op.Id)] =
                     new Etat { Json = op.Json, Version = res.version, BatimentId = op.BatimentId, Ordre = op.Ordre };
+                _copieAEcrire = true;
             }
         }
         catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Enregistrement impossible : " + ex.Message); }
@@ -299,6 +329,7 @@ public static class EcritureCloud
         _supprimesParMoi.Add(id);
         _cache.Remove(Cle(true, id));
         foreach (var k in _cache.Where(kv => kv.Value.BatimentId == id).Select(kv => kv.Key).ToList()) _cache.Remove(k);
+        _copieAEcrire = true;
     }
 
     // ── Verrous ────────────────────────────────────────────────────────────────
@@ -339,6 +370,7 @@ public static class EcritureCloud
         var fiches = cibles.Where(c => !string.IsNullOrEmpty(c.id)).ToList();
         if (!SessionCloud.Active || e == null || fiches.Count == 0) { ouvrir(); return; }
         if (HorsLigne.Actif && fiches.Any(c => !Tient(c.type, c.id))) { ConfirmDialog.Erreur(HorsLigne.Refus); return; }   // étape 8
+        if (AbonnementCloud.LectureSeule) { ConfirmDialog.Erreur(AbonnementCloud.Refus); return; }   // étape 9c1
         var prises = new List<(string type, string id, string nom)>();
         try
         {
@@ -560,6 +592,7 @@ public static class EcritureCloud
                     else if (now >= t.ProchainSignal) { t.ProchainSignal = now + 30f; Renouveler(t); }
                 }
                 SurveillerInactivite(now);
+                GarderCopie();   // étape 8b
             }
             if (now >= _prochainesBandes && SessionCloud.Active && SessionCloud.Entreprise != null)
             {
@@ -598,7 +631,11 @@ public static class EcritureCloud
 
         void FermerToujoursLa() { if (_toujoursLa != null) Destroy(_toujoursLa); _toujoursLa = null; }
 
-        void OnApplicationQuit() => LibererTout();   // au mieux ; sinon les verrous expirent après 2 min
+        void OnApplicationQuit()
+        {
+            GarderCopie(maintenant: true);   // étape 8b : la copie locale suit jusqu'à la fermeture
+            LibererTout();   // au mieux ; sinon les verrous expirent après 2 min
+        }
 
         /// Verrous valables des AUTRES sessions ; null si la lecture échoue.
         public static async Task<List<LigneVerrou>> VerrousDesAutres()

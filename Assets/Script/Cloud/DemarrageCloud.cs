@@ -28,6 +28,8 @@ public static class DemarrageCloud
             Debug.Log("[Cloud] Démarrage : reprise de la connexion gardée…");
             if (!SessionCloud.Active && !await SessionCloud.Restaurer())
             {
+                // Étape 8b : le serveur ne répond pas. Dernière copie de ce PC, en lecture seule.
+                if (HorsLigne.Actif && await OuvrirCopie()) return;
                 Debug.Log("[Cloud] Pas de connexion gardée : écran de connexion");
                 await EcransCloud.Connexion(Canvas);
             }
@@ -52,11 +54,29 @@ public static class DemarrageCloud
         catch (Exception e) { Debug.LogException(e); ConfirmDialog.Erreur("Changement d'entreprise impossible : " + e.Message); }
     }
 
+    /// Étape 9b : un admin m'a retiré de l'entreprise ouverte (ma présence est refusée). On la
+    /// ferme, on efface sa copie locale, et on propose les autres entreprises (s'il y en a).
+    public static void Exclu()
+    {
+        var e = SessionCloud.Entreprise;
+        if (e == null || _bm == null) return;
+        Debug.Log($"[Cloud] Retiré(e) de « {e.nom} » par un administrateur");
+        DirectCloud.Arreter();
+        EcritureCloud.FermerEcrans();
+        _bm.Vider();
+        EcransCloud.Pastille(Canvas, null);
+        CopieLocale.Effacer();
+        SessionCloud.Entreprise = null;
+        ConfirmDialog.Erreur($"Vous n'avez plus accès à « {e.nom} » : un administrateur vous a retiré(e) de l'entreprise.",
+                             ChangerEntreprise);
+    }
+
     public static void SeDeconnecter()
     {
         DirectCloud.Arreter();   // avant Oublier : il signale mon départ avec le jeton
         EcritureCloud.FermerEcrans();
         SessionCloud.Oublier();
+        CopieLocale.Effacer();   // étape 8b : plus rien de lisible sur ce PC sans connexion
         _bm.Vider();
         EcransCloud.Pastille(Canvas, null);
         Lancer(_bm);
@@ -144,6 +164,9 @@ public static class DemarrageCloud
         SaveLocationService.UseRoot(dossier);
         ReglageService.Load();
         Debug.Log($"[Cloud] Ouverture de « {e.nom} », dossier {dossier}{(telecharger ? "" : " (Drive partagé)")}");
+        await ReglagesCloud.Synchroniser(e);   // étape 9a : Réglages et secrets de l'entreprise
+        string abo = await AbonnementCloud.Lire(e);   // étape 9c1 : expiré → lecture seule
+        if (abo != null) Debug.LogWarning("[Cloud] Abonnement illisible : " + abo);
 
         await EcritureCloud.VerifierNom(Canvas);   // « Votre nom », à la première ouverture
 
@@ -154,6 +177,14 @@ public static class DemarrageCloud
         // les fiches et leurs onglets dans la scène d'édition (retour du 16/10).
         if (_bm == null) return;
 
+        Afficher(e, bats, telecharger);
+        CopieLocale.Retenir(e.id);                  // étape 8b : celle qu'on ouvre sans connexion
+        EcritureCloud.GarderCopie(maintenant: true);
+        UndoToast.Instance?.ShowInfo($"{e.nom} : {bats.Count} bâtiment(s) lu(s) depuis le cloud.");
+    }
+
+    static void Afficher(EntrepriseCloud e, System.Collections.Generic.List<Batiment> bats, bool telecharger)
+    {
         EcritureCloud.FermerEcrans();   // un écran resté ouvert écrirait l'ancienne fiche
         _bm.Vider();
         _bm.Installer(bats);
@@ -162,7 +193,42 @@ public static class DemarrageCloud
         EcritureCloud.DemarrerGardien();
         DirectCloud.Demarrer(e.id, telecharger);   // étape 5 : changements des collègues, présence ; 6 : documents
         EcransCloud.Pastille(Canvas, $"{e.nom} · cloud");
-        UndoToast.Instance?.ShowInfo($"{e.nom} : {bats.Count} bâtiment(s) lu(s) depuis le cloud.");
+    }
+
+    /// Étape 8b : pas de connexion au démarrage. On ouvre la dernière copie de l'entreprise ouverte
+    /// en dernier sur ce PC, en lecture seule (bandeau « Données à jour au … ») ; la connexion
+    /// revenue, tout est relu (ReprendreEnLigne). Faux sans copie ni connexion gardée.
+    static async Task<bool> OuvrirCopie()
+    {
+        string id = CopieLocale.Derniere;
+        if (string.IsNullOrEmpty(id) || !CopieLocale.Charger(id, out var e, out var u, out var aJour, out var etats)) return false;
+        if (!SessionCloud.RestaurerHorsLigne(u)) return false;
+        Debug.Log($"[Cloud] Hors ligne : ouverture de la copie de « {e.nom} » du {aJour:dd/MM/yyyy HH:mm}");
+        SessionCloud.Entreprise = e;
+        HorsLigne.SurCopie(aJour);
+        var (dossier, telecharger) = await DossierDocuments(e);
+        SaveLocationService.UseRoot(dossier);
+        ReglageService.Load();
+        if (_bm == null) return true;
+        EcritureCloud.ReprendreCopie(etats);
+        Afficher(e, CopieLocale.Recomposer(etats), telecharger);
+        UndoToast.Instance?.ShowInfo($"Hors ligne : {e.nom} est affichée telle qu'au {aJour:dd'/'MM} à {aJour.Hour} h {aJour:mm}.");
+        return true;
+    }
+
+    /// Étape 8b : la connexion est revenue après un démarrage sur la copie. Tout est relu, puis
+    /// l'envoi des factures est proposé, comme à une ouverture normale.
+    public static async void ReprendreEnLigne()
+    {
+        var e = SessionCloud.Entreprise;
+        if (e == null || _bm == null) return;
+        try
+        {
+            await Ouvrir(e);
+            if (_bm == null) return;
+            FactureEnvoiAuto.ProposerAuDemarrage(_bm.BatimentPrefab);
+        }
+        catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Relecture de l'entreprise impossible : " + ex.Message); }
     }
 
     // ── Dossier des documents sur ce PC (étapes 6a et 6b) ───────────────────────

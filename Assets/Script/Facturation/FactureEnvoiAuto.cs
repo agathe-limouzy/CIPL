@@ -153,6 +153,11 @@ public class FactureEnvoiAuto : MonoBehaviour
     /// aujourd'hui — relancer l'application dix fois ne doit pas poser dix questions.
     public static void ProposerAuDemarrage(IEnumerable<BatimentPrefab> bps)
     {
+        if (AbonnementCloud.LectureSeule)   // étape 9c1 : envoyer change le statut des factures
+        {
+            Debug.Log("[EnvoiAuto] Rien n'est proposé : abonnement expiré, lecture seule.");
+            return;
+        }
         string manque = EmailService.CeQuiManque();
         if (manque != null)
         {

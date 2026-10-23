@@ -79,7 +79,7 @@ public static class DirectCloud
             string filtre = "entreprise_id=eq." + _entreprise;
             _canal = new TempsReel();
             await _canal.Demarrer(SessionCloud.Url, SessionCloud.Cle,
-                r => TempsReel.MessageJoinFiltre(new[] { "batiments", "locataires", "verrous", "presences", "documents" }, filtre, jeton, r));
+                r => TempsReel.MessageJoinFiltre(new[] { "batiments", "locataires", "verrous", "presences", "documents", "reglages", "secrets" }, filtre, jeton, r));
             _jetonEnvoye = jeton;
         }
         catch (Exception e) { _canal = null; Debug.LogWarning("[Direct] Connexion impossible : " + e.Message); }
@@ -99,6 +99,9 @@ public static class DirectCloud
         if (d.table == "verrous") { _verrous = true; return; }
         if (d.table == "presences") { _presences = true; return; }
         if (d.table == "documents") { if (Val(d.record?.maj_session) != EcritureCloud.SessionId) DocumentsCloud.Bientot(); return; }   // étape 6a
+        // Étape 9a : Réglages changés par un collègue (annoncés), ou un secret (en silence).
+        if (d.table == "reglages") { if (Val(d.record?.maj_session) != EcritureCloud.SessionId) ReglagesCloud.ARelire(Val(d.record?.maj_par) ?? "un collègue"); return; }
+        if (d.table == "secrets") { ReglagesCloud.ARelire(null); return; }
         var c = Concerne(d, _entreprise, EcritureCloud.SessionId, EcritureCloud.BatimentDuLocataire, EcritureCloud.SupprimeParMoi);
         if (c == null) return;
         if (c.Value.batimentId == "*") TousARelire(silencieux: false);
@@ -224,6 +227,8 @@ public static class DirectCloud
         {
             var r = await CloudClient.Fonction(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "signaler_presence",
                 new ParamsPresence { p_entreprise = e, p_session = EcritureCloud.SessionId });
+            // Étape 9b : retiré de l'entreprise par un admin (le serveur refuse ma présence).
+            if (!r.Ok && (r.Erreur ?? "").Contains("accès refusé") && e == _entreprise) { DemarrageCloud.Exclu(); return; }
             if (!r.Ok) Debug.LogWarning("[Direct] Présence : " + r.Erreur);
         }
         catch (Exception ex) { Debug.LogWarning("[Direct] Présence : " + ex.Message); }
@@ -340,6 +345,7 @@ public static class DirectCloud
             _prochainTour = now + 0.5f;
             Relire(now);
             DocumentsCloud.Tic(now);
+            ReglagesCloud.Tic();   // étape 9a
             if (_verrous) { _verrous = false; EcritureCloud.RafraichirBandeaux(); }
             if (_presences) { _presences = false; LirePresences(); }
             if (now >= _prochainSignal) { _prochainSignal = now + 30f; Signaler(); LirePresences(); Entretenir(); }

@@ -215,7 +215,7 @@ public static class ObjectifsTableau
         return b;
     }
 
-    public static void Pastille(Transform parent, string texte, Color fond, Color encre)
+    public static void Pastille(Transform parent, string texte, Color fond, Color encre, float taille = UITheme.Role.Pastille)
     {
         // Le fond arrondi est un enfant HORS mise en page : sur la pastille elle-même, l'Image
         // (sprite 9-slice, coins de 24) imposait 48 px de haut et de large, quel que soit le texte
@@ -231,7 +231,7 @@ public static class ObjectifsTableau
         h.childAlignment = TextAnchor.MiddleCenter;
         h.childControlWidth = true; h.childControlHeight = true;
         h.childForceExpandWidth = false; h.childForceExpandHeight = false;
-        var t = UIFactory.Text(p.transform, texte, UITheme.Role.Pastille, encre);
+        var t = UIFactory.Text(p.transform, texte, taille, encre);
         t.enableWordWrapping = false;
     }
 

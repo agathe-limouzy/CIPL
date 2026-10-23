@@ -420,7 +420,123 @@ Sujet choisi par l'utilisatrice : le module de l'app. Diagnostic présenté (4 s
     - le bandeau, posé par-dessus l'écran, cachait « Modifier ». `BatimentManager` range ses enfants dans une pile verticale (`VerticalLayoutGroup`) : le bandeau y est inséré juste après la barre d'onglets (hauteur fixe 44), et l'écran descend d'autant ;
     - un refus au retour : la relecture en direct remplaçait la fiche derrière le message, avant le « OK ». `_refusOuverts` la fait attendre (`Occupe`).
   - Limites : hors ligne, l'envoi automatique des factures est sauté (« réservation impossible ») et reproposé au lancement suivant.
-- **Ensuite** : l'étape 8b (démarrage sans connexion, sur la dernière copie gardée dans persistentDataPath), puis l'étape 9 (admin, utilisateurs, licences, Réglages partagés).
+- **Étape 8b (démarrage sans connexion), code écrit le 16/10 et validé en Play le 19/10** (parcours AD1 à AD3). L'étape 8 est terminée :
+  - Décision du 09/10 : lecture seule sur la dernière copie reçue. Choix par défaut du 16/10, à revoir si besoin :
+    - on ouvre l'entreprise ouverte en dernier sur ce PC ;
+    - « Se déconnecter » efface les copies ;
+    - au retour de la connexion, tout est relu, puis l'envoi des factures est proposé.
+  - `CopieLocale` (nouveau) :
+    - fichier `persistentDataPath/cipl_copie_<entreprise>.json`, jamais dans le dossier des documents ;
+    - contenu : l'entreprise, l'utilisateur, la date des données, et l'état connu du serveur (`EcritureCloud._cache`, versions comprises) ;
+    - `Ecrire`, `Lire` et `Recomposer` sont testés ;
+    - la PlayerPrefs `cipl_derniere_entreprise` désigne l'entreprise à ouvrir.
+  - `EcritureCloud.GarderCopie` : l'état est marqué changé dans `Charger`, `Recaler`, `Adopter` et après chaque enregistrement ou suppression. Le Gardien réécrit la copie au plus toutes les 5 s, et à la fermeture. Rien n'est réécrit pendant un démarrage sur la copie.
+  - `DemarrageCloud` :
+    - `Lancer` : quand la reprise de la connexion échoue faute de réseau, `OuvrirCopie` reprend la connexion gardée sans la vérifier (`SessionCloud.RestaurerHorsLigne` : jeton de renouvellement, jeton d'accès vide, renouvelé au premier appel), puis installe la copie (`Afficher`, extrait d'`Ouvrir`) ;
+    - au retour, `HorsLigne` appelle `ReprendreEnLigne` (`Ouvrir` puis l'envoi des factures).
+  - Essai dans l'éditeur : l'EditorPrefs `CIPL_HorsLigneAuDemarrage` pose la coupure simulée dès le début du Play.
+  - **465 tests verts.**
+- **Étape 9 : découpage du 19/10** : 9a Réglages et secrets partagés, 9b Utilisateurs, 9c Abonnement Stripe et licences, 9d Export. On commence par 9a.
+- **Étape 9a (Réglages et secrets partagés), code écrit et validé en Play le 19/10** (parcours AE1 à AE4) :
+  - Décisions du 19/10 :
+    - contrôle de version, sans verrou ;
+    - diffusion tout de suite par le direct, mais différée tant que la fenêtre Réglages est ouverte chez soi ;
+    - pour un non-admin, « Connexion & envoi » affiche « Réglé par l'administrateur » ;
+    - au premier lancement, ce sont les Réglages du premier admin qui deviennent ceux de l'entreprise.
+  - `Serveur/etape9a_supabase.sql` (passé) :
+    - tables `reglages` (data jsonb, version, maj_par, maj_session) et `secrets` (cle, valeur), lisibles par les membres ;
+    - `enregistrer_reglages` : version 0 = mise en commun, admin seulement ; sinon contrôle de version ;
+    - `definir_secret` : admin seulement ;
+    - les deux tables sont publiées dans le direct.
+  - `ReglagesCloud` (nouveau) :
+    - `Synchroniser` à l'ouverture (`DemarrageCloud.Ouvrir`) : le serveur remplace la copie du PC, ou le premier admin met en commun ses Réglages et ses secrets ;
+    - `Envoyer` après chaque `ReglageService.Save`, un envoi à la fois ;
+    - un refus « version » affiche un message au centre, puis relit les Réglages et rafraîchit la fenêtre ;
+    - `ARelire` et `Tic` : relecture après un changement venu du direct (`DirectCloud`, tables `reglages` et `secrets`) ou au retour de la connexion, une fois la fenêtre Réglages fermée.
+  - `ReglageService` :
+    - sur le cloud, la copie est dans `persistentDataPath/cipl_reglages_<entreprise>.json` (`CheminReglages`, reprise une fois de `reglage.json`) ;
+    - `Remplacer`, `RemplacerSecrets`, `LireSecret` ;
+    - `Save` envoie au serveur (refusé hors ligne) ;
+    - `SetApiKey` et `SetSmtpPassword` envoient au serveur si le secret a changé et si l'utilisateur est admin.
+  - `ReglagePanel` : `_reserveAdmin` (Pennylane, mode d'envoi, carte SMTP) est masqué pour un non-admin, remplacé par `_reglePar` ; `SaveFromUI` ne touche pas à ces champs ; `Rafraichir()`.
+  - **466 tests verts.**
+  - Pas encore fait : les droits fins de Facturation (RIB, logo et suppression d'une liste de charges réservés à l'admin) et les onglets de Réglages par rôle. Ce sera avec 9b.
+  - 19/10, demande pour les essais : l'éditeur et le build ne partagent plus la connexion gardée.
+    - Ils ont le même persistentDataPath, donc se connecter dans l'un changeait le compte de l'autre.
+    - Dans l'éditeur, `SessionCloud.Fichier` vaut maintenant `cipl_session_editeur.dat` ; le build et l'application gardent `cipl_session.dat`.
+    - L'éditeur redemande la connexion une fois.
+- **Étape 9b (utilisateurs, invitations, droits), faite le 19/10, validée en Play (AF1 à AF5)** :
+  - Décisions du 19/10 :
+    - invitation par code envoyé par e-mail depuis le SMTP de l'entreprise, sans fonction serveur ni page relais ; « Confirm email » décoché dans Supabase, puisque le code prouve la boîte mail ;
+    - maquette validée : section « Utilisateurs » en tête de Réglages, fenêtre « Inviter un collègue », écran « J'ai reçu une invitation » ;
+    - onglets de Réglages repoussés à 9c.
+  - `Serveur/etape9b_supabase.sql` (à passer) :
+    - table `invitations` (empreinte SHA-256 du code, 7 jours) ;
+    - `annuaire`, `inviter` (licences = membres + invitations en cours, refus « licences »), `annuler_invitation`, `renvoyer_invitation`, `accepter_invitation` (adresse du compte connecté + code), `changer_role` et `retirer_membre` (refus « dernier admin » et « soi-même »), `changer_acces`.
+  - `UtilisateursCloud` (nouveau) :
+    - règles testées : `NouveauCode` (alphabet sans 0, O, 1 ni I), `Normaliser`, `Empreinte` (identique au serveur), `Licences`, `Motif`, `VerifierRejoindre`, `CorpsEmail` ;
+    - les appels au serveur ;
+    - `EnvoyerEmail` par `EmailService`. Si l'e-mail ne part pas, le code est donné à l'admin pour qu'il le transmette.
+  - `SectionUtilisateurs` (nouveau) : la section de Réglages (pastille de licences, membres, invitations, menu de rôle, « Modifier… » pour les entreprises s'il y en a plusieurs, Retirer, Renvoyer, Annuler).
+    - `ReglagePanel.Modal` et `ModalField` deviennent `internal` (avec un libellé de validation) ;
+    - droits du 11/10 : logo, RIB et suppression d'une liste de charges réservés à l'admin (`_reserveAdmin`, `Admin`) ;
+    - retour en Play du 19/10 (« on voit pas trop les lignes ») : en-tête sur bande grise et en gras, filet entre les lignes, pastilles de licences et de statut à la taille des données (`ObjectifsTableau.Pastille` prend une taille optionnelle).
+  - `EcransCloud` : « J'ai reçu une invitation » sur l'écran de connexion. `SessionCloud.Rejoindre` crée le compte (`CloudClient.Inscrire`, `/auth/v1/signup`) ou, s'il existe, se connecte. Puis `accepter_invitation`.
+  - Personne retirée : `signaler_presence` est refusé (« accès refusé ») → `DemarrageCloud.Exclu` ferme l'entreprise, efface les copies locales, affiche un message au centre, puis « Changer d'entreprise ».
+  - **470 tests verts** (`CloudUtilisateursTests`).
+  - Défaut vu en Play le 19/10 : « Retirer » répondait « HTTP 404 Could not find the function public.retirer_membre(p_entreprise, p_role, p_user) ».
+    - Cause : `Retirer` réutilisait la classe de paramètres de `changer_role`, et JsonUtility envoie un texte nul comme `""` ; Supabase cherchait donc une fonction à 3 paramètres. Même défaut sur « Annuler » une invitation (`p_code_empreinte` en trop).
+    - Corrigé : une classe par signature SQL. Test `Chaque_appel_envoie_exactement_les_parametres_de_sa_fonction_SQL` : les 7 appels, sans réseau (`UtilisateursCloud.Appeler` remplaçable), comparés aux signatures de `etape9b_supabase.sql`.
+    - Piège à retenir pour 9c : ne jamais réutiliser une classe de paramètres RPC qui a un champ de plus.
+  - Limites :
+    - un rôle changé chez quelqu'un de connecté ne prend effet dans son interface qu'à sa prochaine ouverture (le serveur refuse déjà ce qui n'est plus permis) ;
+    - pas de « Mot de passe oublié » ;
+    - l'e-mail d'invitation dit de demander le lien d'installation à l'admin.
+- **Étape 9c1 (onglets de Réglages, abonnement sans paiement, lecture seule à l'expiration), faite le 19/10, validée en Play (AG1 à AG7)** :
+  - Décisions du 19/10 :
+    - 9c coupée en 9c1 (sans paiement) et 9c2 (Stripe : paiement, portail client, webhooks) ;
+    - prix de l'exemple du §13 (40 €, 28 € par entreprise suivante, 15 € par licence ; annuel = 10 mois) ; licences changées par – / + dans CIPL (9c2) ;
+    - boutons « Tester » des intégrations : plus tard ;
+    - bandeau d'essai : les 7 derniers jours, pour tous (retour du 19/10 : « faut juste qu'elle puisse pas modifier l'abonnement ni rien mais être informée que ça se finit bientôt ») ; l'admin a le bouton « Voir l'abonnement », les autres lisent « Voyez avec … (admin) » ;
+    - Taille de l'affichage dans l'onglet Documents ;
+    - « Ajouter une entreprise » dans l'onglet Abonnement, SIRET contrôlé sur sa forme seulement (Pappers en 9c2, avec les fonctions serveur).
+  - `Serveur/etape9c1_supabase.sql` (à passer) :
+    - `ecriture_permise(groupe)` : actif, paiement refusé, ou essai pas fini ;
+    - déclencheur `abonnement_expire` sur `batiments`, `locataires`, `documents`, `reglages`, `secrets` (toute écriture) et `verrous` (prise seulement) : un groupe expiré ne peut plus rien écrire, quelle que soit la fonction ;
+    - `abonnement(p_entreprise)` (tout membre ; la date du serveur sert au compte des jours) ; `ajouter_entreprise` (admin, même groupe, SIRET unique sur CIPL).
+  - `RegleAbonnement` (nouveau, testé) : `Lire`, `PeutEcrire`, `JoursRestants`, `BandeauEssai`, `Pastille`, `Explication`, `TexteExpire`, `Refus`, `Total` (3 SCI, 5 licences → 171 €), `VerifierSiret` (clé de Luhn, règle de La Poste).
+  - `AbonnementCloud` (nouveau) : lu à chaque ouverture (`DemarrageCloud.Ouvrir`) et dans Réglages ; `LectureSeule` ; `Constater` (appelé par `CloudClient.Envoyer` sur un refus « abonnement expiré » : le bandeau apparaît sans attendre) ; bandeau sous les onglets (ambre pour l'essai, corail à l'expiration, « Voir l'abonnement » pour l'admin).
+  - `HorsLigne.BarreOnglets` et `HorsLigne.NouveauBandeau` : la construction du bandeau rouge, mise en commun avec celui de l'abonnement.
+  - Lecture seule côté client, comme hors ligne : `EcritureCloud.Reserver` et `Enregistrer` (refus au centre, puis la fiche est relue), `ReglageService.Save` et le partage des secrets, `FactureEnvoiAuto.ProposerAuDemarrage`.
+  - `SectionAbonnement` (nouveau) : état, entreprises du groupe, « Ajouter une entreprise » (Société + SIRET, ou Particulier), licences, estimation mensuelle et annuelle. Retour du 19/10 : après un refus (SIRET, nom, déjà sur CIPL), la fenêtre se rouvre au OK avec ce qui était saisi ; de même pour « Inviter un collègue » (`SectionUtilisateurs`).
+  - `ReglagePanel` : onglets (`Onglets(cloud, admin)`, testé) ; nom de l'entreprise dans l'onglet Entreprise, en lecture pour un utilisateur ; token Mapbox dans l'onglet Documents (il est propre à chaque PC) ; « Enregistrer » caché sur Utilisateurs et Abonnement ; `OuvrirOnglet` pour le bandeau.
+  - **479 tests verts** (`CloudAbonnementTests`, dont la comparaison des paramètres envoyés aux signatures SQL).
+  - Défaut vu en Play le 19/10 (AG4) : Réglages › Enregistrer, abonnement expiré → le refus s'affichait, suivi de « Réglages enregistrés », et la modification restait.
+    - Cause : `ReglageService.Save` écrivait d'abord (mémoire et copie du PC), et ne regardait la lecture seule qu'au moment d'envoyer au serveur ; `SaveFromUI` annonçait l'enregistrement sans regarder le résultat. Même défaut hors ligne (étape 8).
+    - Corrigé : `RefusCloud()` (hors ligne ou abonnement expiré) est vérifié avant toute écriture ; en cas de refus, les Réglages d'avant sont rechargés (`Load`) et l'écran se remet à jour. Les secrets ne sont plus écrits sur le PC non plus. « Réglages enregistrés » seulement si `Save` a réussi.
+  - Limites :
+    - l'abonnement est relu à l'ouverture et dans Réglages : une expiration pendant la session se voit au premier refus du serveur ;
+    - « Choisir l'abonnement », – / + des licences et Pappers : 9c2 ;
+    - l'export prévu en lecture seule : 9d.
+- **Étape 9c2 (abonnement payé avec Stripe), faite le 22/10, validée en Play le 23/10 (AH1 à AH7)** (parcours AH, avec la mise en place Stripe et Supabase) :
+  - Décisions du 22/10 : prix HT, TVA 20 % en plus ; souscrit pendant l'essai, premier prélèvement le lendemain de sa fin ; licences au prorata immédiat ; Pappers dans une étape à part ; maquette validée (choix, attente, abonnement en cours, bandeau de paiement refusé).
+  - `Serveur/etape9c2_supabase.sql` : colonnes `groupes.stripe_client`, `stripe_abonnement`, `formule`, `echeance`, `resilie` ; `abonnement()` les renvoie (`abonne` = un abonnement Stripe en cours).
+  - Fonctions serveur (Supabase Edge Functions, TypeScript, à coller dans le tableau de bord) :
+    - `Serveur/fonctions/abonnement-stripe.ts` (jeton de l'admin, vérifié par `groupe_admin`) : `choisir` (client Stripe créé une fois ; page Checkout carte ou SEPA ; lignes entreprise, entreprises supplémentaires, licences ; TVA 20 % ; `trial_end` au lendemain de l'essai si Stripe a ses 48 h), `portail` (portail client), `ajuster` (licences, jamais moins que celles utilisées, et ligne « entreprise supplémentaire » recalée sur le nombre d'entreprises, au prorata). Prix et taux de TVA créés dans Stripe à leur première utilisation (clés `cipl_<ligne>_<formule>`).
+    - `Serveur/fonctions/stripe-webhook.ts` (sans jeton, signature Stripe vérifiée) : à chaque `customer.subscription.*`, l'abonnement est relu chez Stripe (les événements peuvent arriver dans le désordre) et recopié dans `groupes` (actif, refuse, expire ; licences ; formule ; échéance ; résiliation). Sert aussi la page de retour du navigateur (texte simple : Supabase n'affiche pas de HTML sur son adresse par défaut).
+  - La clé secrète Stripe ne quitte jamais le serveur ; CIPL ne voit aucun numéro de carte.
+  - `CloudClient.FonctionServeur` ; `AbonnementCloud` : `Payer`, `Portail`, `Ajuster`, bandeau orange « paiement refusé » (admin, bouton « Paiement et factures »), bouton « Choisir l'abonnement » sur le bandeau d'expiration.
+  - `SectionAbonnement` réécrite : choix (formule, licences avec minimum, HT / TVA / TTC, date du premier prélèvement), attente du retour de Stripe (relecture toutes les 5 s, 10 min au plus), abonnement en cours (« - » / « + » avec confirmation du prorata, « Paiement et factures »), « Ajouter une entreprise » qui recale l'abonnement.
+  - `RegleAbonnement` : `Ttc`, `Euros`, `LicencesMin`, `PremierPrelevement` (même règle des 48 h que le serveur), `TextePrelevement`, `TexteLicences`, `BandeauRefus` ; `Pastille` et `Explication` disent la formule, l'échéance et la résiliation.
+  - **484 tests verts**, dont la comparaison du corps envoyé avec ce que lit `abonnement-stripe.ts`.
+  - Retour du 22/10 : résilier directement dans CIPL. Actions serveur `resilier` / `reprendre` (`cancel_at_period_end`, effectif à l'échéance, décision du 11/10) ; boutons « Résilier l'abonnement » (confirmation, `RegleAbonnement.TexteResiliation`) et « Reprendre l'abonnement ». Test : chaque action de `AbonnementCloud` est traitée par `abonnement-stripe.ts`. Résilié, la lecture seule ne vient qu'à l'échéance ; décision du 22/10 : bandeau pour tous dès la résiliation (vert clair, information), qui devient un avertissement ambre les 7 derniers jours (`RegleAbonnement.BandeauResilie`, `AlerteResilie`, `TexteResilie`) ; « Reprendre l'abonnement » pour l'admin, toujours après confirmation (`AbonnementCloud.ConfirmerReprise`, `RegleAbonnement.TexteReprise`), du bandeau comme de l'onglet.
+  - Mise en place vue le 22/10 : modèle « Hello » de Supabase resté déployé ; `401 Missing authorization header` (« Verify JWT » encore actif sur `stripe-webhook`) ; `400 No signatures found` (mauvais `STRIPE_WEBHOOK_SECRET`). Tous trois décrits dans le guide AH.
+  - Vu en Play le 22/10 : « La page de paiement ne s'est pas ouverte : réponse du serveur sans adresse ». Cause probable : le modèle « Hello » de Supabase resté déployé à la place du code. `AbonnementCloud.Serveur` cite désormais le début d'une réponse inattendue (ni adresse, ni « ok », ni erreur).
+  - Limites :
+    - le code TypeScript n'est vérifié qu'au déploiement dans Supabase (pas de compilation ici) ;
+    - l'état de l'abonnement est relu à l'ouverture, dans Réglages et pendant l'attente du paiement : un paiement refusé se voit à la réouverture suivante ;
+    - prix en dur des deux côtés (`RegleAbonnement`, `abonnement-stripe.ts`) : à changer ensemble.
+- **Ensuite** : Pappers sur le serveur (vérification du SIRET), 9d (export) ; Pappers, toujours suspendu sur le cloud.
 
 ### Où en est le chantier au 29/09 (soir) — **310 tests EditMode verts**
 

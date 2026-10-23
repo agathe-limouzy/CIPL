@@ -43,6 +43,12 @@ public static class CloudClient
         Envoyer("POST", url + "/auth/v1/token?grant_type=password", cle, null,
                 JsonUtility.ToJson(new Identifiants { email = email, password = motDePasse }));
 
+    /// Étape 9b : création du compte d'un invité. « Confirm email » décoché dans Supabase : la
+    /// réponse porte directement la session (le code d'invitation a prouvé la boîte mail).
+    public static Task<Reponse> Inscrire(string url, string cle, string email, string motDePasse) =>
+        Envoyer("POST", url + "/auth/v1/signup", cle, null,
+                JsonUtility.ToJson(new Identifiants { email = email, password = motDePasse }));
+
     public static Task<Reponse> Renouveler(string url, string cle, string refreshToken) =>
         Envoyer("POST", url + "/auth/v1/token?grant_type=refresh_token", cle, null,
                 JsonUtility.ToJson(new Renouvellement { refresh_token = refreshToken }));
@@ -50,6 +56,10 @@ public static class CloudClient
     /// Fonction SQL (POST /rest/v1/rpc/<nom>), exécutée avec les droits de l'utilisateur du jeton.
     public static Task<Reponse> Fonction(string url, string cle, string jeton, string nom, object parametres) =>
         Envoyer("POST", url + "/rest/v1/rpc/" + nom, cle, jeton, JsonUtility.ToJson(parametres));
+
+    /// Étape 9c2 : fonction serveur (Edge Function, POST /functions/v1/<nom>), avec le jeton de l'utilisateur.
+    public static Task<Reponse> FonctionServeur(string url, string cle, string jeton, string nom, string corpsJson) =>
+        Envoyer("POST", url + "/functions/v1/" + nom, cle, jeton, corpsJson);
 
     /// Même chose avec des paramètres déjà en JSON (quand l'un d'eux est un objet JSON de CIPL).
     public static Task<Reponse> FonctionJson(string url, string cle, string jeton, string nom, string corpsJson) =>
@@ -139,6 +149,7 @@ public static class CloudClient
             rep.Ok = r.result == UnityWebRequest.Result.Success;
             if (!rep.Ok) rep.Erreur = LireErreur(r.responseCode, rep.Corps, r.error);
             HorsLigne.Constater(rep.Ok, rep.Code);   // étape 8
+            if (!rep.Ok) AbonnementCloud.Constater(rep.Erreur);   // étape 9c1 : expiré pendant la session
             return rep;
         }
     }

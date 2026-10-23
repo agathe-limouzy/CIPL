@@ -30,7 +30,10 @@ public static class SessionCloud
     public static bool LectureSeule => false;   // étape 4a : on écrit dans le cloud (EcritureCloud)
 
     static bool _memoriser;
-    static string Fichier => Path.Combine(Application.persistentDataPath, "cipl_session.dat");
+    /// L'éditeur et le build partagent persistentDataPath : avec un seul fichier, se connecter dans
+    /// l'un changeait le compte de l'autre (retour du 19/10). L'éditeur garde donc le sien.
+    /// ponytail: distinction pour le développement seulement ; l'application vendue n'a que cipl_session.dat.
+    static string Fichier => Path.Combine(Application.persistentDataPath, Application.isEditor ? "cipl_session_editeur.dat" : "cipl_session.dat");
 
     /// Null si la connexion a réussi, sinon le motif à afficher.
     public static async Task<string> SeConnecter(string email, string motDePasse, bool memoriser)
@@ -44,6 +47,25 @@ public static class SessionCloud
         _memoriser = memoriser;
         if (memoriser) Memoriser(); else EffacerFichier();
         return null;
+    }
+
+    /// Étape 9b, « J'ai reçu une invitation » : crée le compte ; s'il existe déjà (membre d'une
+    /// autre entreprise), se connecte avec son mot de passe. Null si connecté, sinon le motif.
+    public static async Task<string> Rejoindre(string email, string motDePasse)
+    {
+        var r = await CloudClient.Inscrire(Url, Cle, (email ?? "").Trim(), motDePasse ?? "");
+        var s = r.Ok ? CloudClient.LireSession(r.Corps) : null;
+        if (s != null)
+        {
+            Session = s;
+            _memoriser = true;
+            Memoriser();
+            return null;
+        }
+        if (r.Ok) return "Le compte est créé, mais Supabase attend une confirmation par e-mail : " +
+                         "décochez « Confirm email » dans Supabase (voir Serveur/etape9b_supabase.sql).";
+        if (r.Code == 400 || r.Code == 422) return await SeConnecter(email, motDePasse, true);   // compte déjà là
+        return "Création du compte impossible : " + r.Erreur;
     }
 
     /// Reprend la connexion gardée sur ce PC. Faux s'il n'y en a pas ou si elle n'est plus valable.
@@ -68,6 +90,21 @@ public static class SessionCloud
         Session = s;
         _memoriser = true;
         Memoriser();   // le serveur remplace le jeton de renouvellement à chaque usage
+        return true;
+    }
+
+    /// Étape 8b : pas de réseau au démarrage. La connexion gardée est reprise telle quelle : son
+    /// jeton de renouvellement servira au retour du réseau (Jeton le renouvelle au premier appel).
+    /// L'utilisateur vient de la copie locale. Faux sans connexion gardée sur ce PC.
+    public static bool RestaurerHorsLigne(CloudClient.Utilisateur u)
+    {
+        if (u == null || string.IsNullOrEmpty(u.id) || !File.Exists(Fichier)) return false;
+        byte[] clair;
+        try { clair = Dpapi.Deproteger(File.ReadAllBytes(Fichier)); }
+        catch (Exception) { clair = null; }
+        if (clair == null) return false;
+        Session = new CloudClient.Session { access_token = "", refresh_token = Encoding.UTF8.GetString(clair), expires_at = 0, user = u };
+        _memoriser = true;
         return true;
     }
 

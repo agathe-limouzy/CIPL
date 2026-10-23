@@ -9,6 +9,8 @@ using UnityEngine;
 ///   séparé <SaveRoot>/pennylane_secrets.dat (format clé=valeur), qui n'est PAS
 ///   du JSON → ignoré par les backups (qui ne copient que les *.json) et jamais
 ///   commité dans le repo. Sur le cloud : sur ce PC, hors du dossier (CheminSecrets).
+/// - Sur le cloud (étape 9a), Réglages et secrets de l'entreprise font référence sur le serveur
+///   (ReglagesCloud) ; ces fichiers n'en sont que la copie de ce PC (CheminReglages).
 public static class ReglageService
 {
     private static ReglageData _current;
@@ -18,11 +20,50 @@ public static class ReglageService
         get { if (_current == null) Load(); return _current; }
     }
 
-    private static string FilePath =>
-        Path.Combine(SaveLocationService.GetSaveRoot(), "reglage.json");
+    private static string FilePath => CheminReglages(SaveLocationService.GetSaveRoot(),
+        SessionCloud.Active ? SessionCloud.Entreprise?.id : null, Application.persistentDataPath);
 
     private static string SecretsPath => CheminSecrets(SaveLocationService.GetSaveRoot(),
         SessionCloud.Active ? SessionCloud.Entreprise?.id : null, Application.persistentDataPath);
+
+    /// Réglages d'une entreprise. Sur le cloud (étape 9a), la référence est sur le serveur ; ce PC
+    /// en garde une copie hors du dossier des documents (lecture sans connexion, et pas de conflit
+    /// de Drive). Ceux déjà saisis dans le dossier y sont repris une fois. Hors cloud : reglage.json.
+    public static string CheminReglages(string racine, string entrepriseCloud, string dossierPc) =>
+        SurCePC(Path.Combine(racine, "reglage.json"), entrepriseCloud, Path.Combine(dossierPc, $"cipl_reglages_{entrepriseCloud}.json"));
+
+    /// Fichier rangé sur ce PC pour une entreprise du cloud, repris une fois de celui du dossier.
+    static string SurCePC(string dansLeDossier, string entrepriseCloud, string surLePC)
+    {
+        if (string.IsNullOrEmpty(entrepriseCloud)) return dansLeDossier;
+        if (!File.Exists(surLePC) && File.Exists(dansLeDossier))
+            try { File.Copy(dansLeDossier, surLePC); }
+            catch (IOException e) { Debug.LogWarning($"[ReglageService] Reprise de {Path.GetFileName(dansLeDossier)} impossible : " + e.Message); }
+        return surLePC;
+    }
+
+    // ── Étape 9a : Réglages et secrets reçus du serveur ────────────────────────
+
+    /// Les secrets d'une entreprise (partagés par le serveur sur le cloud).
+    public static readonly string[] ClesSecrets = { "pennylane_api_key", "smtp_password" };
+
+    public static string LireSecret(string cle) => ReadSecret(cle);
+
+    /// Les Réglages du serveur deviennent ceux de ce PC (copie locale comprise), sans être renvoyés.
+    public static void Remplacer(ReglageData data)
+    {
+        if (data == null) return;
+        _current = data;
+        _chargementEchoue = false;
+        if (!AtomicFile.WriteAllText(FilePath, JsonUtility.ToJson(data, true), out string erreur))
+            Debug.LogWarning("[ReglageService] Copie locale des Réglages non écrite : " + erreur);
+    }
+
+    /// Les secrets du serveur deviennent ceux de ce PC.
+    public static void RemplacerSecrets(IDictionary<string, string> secrets)
+    {
+        foreach (var kv in secrets) WriteSecret(kv.Key, kv.Value);
+    }
 
     /// Secrets d'une entreprise. Sur le cloud (décision du 15/10), ils restent sur ce PC, hors du
     /// dossier des documents : ce dossier peut être un Drive partagé, lisible par d'autres, et il
@@ -111,6 +152,18 @@ public static class ReglageService
             return false;
         }
 
+        // Sur le cloud, hors ligne (étape 8) ou abonnement expiré (9c1) : lecture seule. Le refus
+        // vient AVANT toute écriture, et les Réglages d'avant reviennent à l'écran (retour du 19/10 :
+        // le message s'affichait, mais la modification restait, en mémoire et dans la copie du PC).
+        string refus = RefusCloud();
+        if (refus != null)
+        {
+            ConfirmDialog.Erreur(refus + " Les Réglages ne sont pas enregistrés.");
+            Load();
+            if (ReglagePanel.Instance != null && ReglagePanel.Instance.isActiveAndEnabled) ReglagePanel.Instance.Rafraichir();
+            return false;
+        }
+
         if (!AtomicFile.WriteAllText(FilePath, JsonUtility.ToJson(Current, true), out string erreur))
         {
             Debug.LogError($"[ReglageService] ÉCHEC d'enregistrement des réglages — {erreur}. Rien n'a été écrit sur le disque.");
@@ -118,8 +171,18 @@ public static class ReglageService
         }
 
         Debug.Log($"[ReglageService] Réglages sauvegardés → {FilePath}");
+
+        // Étape 9a : sur le cloud, les Réglages partent au serveur (contrôle de version).
+        if (SessionCloud.Active && SessionCloud.Entreprise != null) ReglagesCloud.Envoyer();
         return true;
     }
+
+    /// Le motif de la lecture seule sur le cloud, ou null si on peut écrire.
+    static string RefusCloud() =>
+        !SessionCloud.Active || SessionCloud.Entreprise == null ? null
+      : HorsLigne.Actif ? HorsLigne.Refus
+      : AbonnementCloud.LectureSeule ? AbonnementCloud.Refus
+      : null;
 
     // ── Lookup par ID (référencés depuis les locataires) ───────────────────────
 
@@ -165,10 +228,22 @@ public static class ReglageService
     // ── Secrets (hors JSON / hors backup / hors repo) ──────────────────────────
 
     public static string GetApiKey() => ReadSecret("pennylane_api_key");
-    public static bool SetApiKey(string v) => WriteSecret("pennylane_api_key", v);
+    public static bool SetApiKey(string v) => EcrireEtPartager("pennylane_api_key", v);
+
+    /// Étape 9a : un secret changé par un admin part au serveur (les autres ne le modifient pas).
+    /// Inchangé : rien ne part (Réglages › Enregistrer réécrit tous les champs).
+    static bool EcrireEtPartager(string cle, string valeur)
+    {
+        bool change = ReadSecret(cle) != (valeur ?? "");
+        if (change && RefusCloud() != null) return false;   // lecture seule : la copie de ce PC ne change pas non plus
+        if (!WriteSecret(cle, valeur)) return false;
+        if (change && SessionCloud.Active && SessionCloud.Entreprise != null && SessionCloud.Entreprise.EstAdmin)
+            ReglagesCloud.DefinirSecret(cle, valeur);
+        return true;
+    }
 
     public static string GetSmtpPassword() => ReadSecret("smtp_password");
-    public static bool SetSmtpPassword(string v) => WriteSecret("smtp_password", v);
+    public static bool SetSmtpPassword(string v) => EcrireEtPartager("smtp_password", v);
 
     // Token Mapbox : stocké hors du champ public de TileLoader, qui était sérialisé
     // EN CLAIR dans Maps.prefab et donc commité dans le dépôt.

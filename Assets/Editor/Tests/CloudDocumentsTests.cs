@@ -174,6 +174,33 @@ public class CloudDocumentsTests
     }
 
     [Test]
+    public void Etape_9a_reglages_sur_le_PC_et_mise_en_commun_par_un_admin()
+    {
+        // Sur le cloud, la copie des Réglages est sur ce PC (reprise une fois du dossier) ; hors cloud, reglage.json.
+        string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cipl_test_reglages_" + System.Guid.NewGuid().ToString("N"));
+        try
+        {
+            string racine = System.IO.Path.Combine(tmp, "Docs"), pc = System.IO.Path.Combine(tmp, "PC");
+            System.IO.Directory.CreateDirectory(racine);
+            System.IO.Directory.CreateDirectory(pc);
+            string ancien = System.IO.Path.Combine(racine, "reglage.json");
+            Assert.That(ReglageService.CheminReglages(racine, null, pc), Is.EqualTo(ancien));
+            System.IO.File.WriteAllText(ancien, "{\"entrepriseNom\":\"A\"}");
+            string chemin = ReglageService.CheminReglages(racine, "e1", pc);
+            Assert.That(chemin, Is.EqualTo(System.IO.Path.Combine(pc, "cipl_reglages_e1.json")));
+            Assert.That(System.IO.File.ReadAllText(chemin), Does.Contain("\"A\""), "repris du dossier");
+        }
+        finally { if (System.IO.Directory.Exists(tmp)) System.IO.Directory.Delete(tmp, true); }
+
+        // Décision du 19/10 : pas encore partagés (version 0), seul un admin met les siens en commun.
+        Assert.That(ReglagesCloud.PeutEnvoyer(0, admin: true), Is.True);
+        Assert.That(ReglagesCloud.PeutEnvoyer(0, admin: false), Is.False);
+        Assert.That(ReglagesCloud.PeutEnvoyer(4, admin: false), Is.True, "une fois partagés, chacun enregistre (contrôle de version)");
+        Assert.That(ReglagesCloud.Corps("e1", 4, "{\"x\":1}", "s\"1"),
+                    Is.EqualTo("{\"p_entreprise\":\"e1\",\"p_version\":4,\"p_data\":{\"x\":1},\"p_session\":\"s\\\"1\"}"));
+    }
+
+    [Test]
     public void Passer_au_Drive_recopie_documents_et_reglages_sans_rien_ecraser()
     {
         string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cipl_test_recopie_" + System.Guid.NewGuid().ToString("N"));

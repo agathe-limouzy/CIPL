@@ -28,6 +28,75 @@ public class ReglagePanel : MonoBehaviour
     TMP_InputField _tvaDebits, _tvaEncaissements;
     Toggle _modePennylane;
     GameObject _smtpCard;
+    TMP_Text _reglePar;   // étape 9a : « Réglé par l'administrateur », à la place des champs d'admin
+    readonly List<GameObject> _reserveAdmin = new List<GameObject>();
+
+    /// Admin, ou hors cloud : Pennylane, mode d'envoi et SMTP se modifient ici (étape 9a).
+    static bool Admin => !SessionCloud.Active || SessionCloud.Entreprise == null || SessionCloud.Entreprise.EstAdmin;
+
+    /// Réglages relus sur le serveur pendant que la fenêtre est ouverte (refus d'enregistrement).
+    public void Rafraichir() => LoadIntoUI();
+
+    SectionUtilisateurs _utilisateurs;   // étape 9b
+    SectionAbonnement _abonnement;       // étape 9c1
+
+    // ── Onglets (étape 9c1, maquette validée le 19/10) ─────────────────────────
+    public const string OEntreprise = "Entreprise", OFacturation = "Facturation", OUtilisateurs = "Utilisateurs",
+                        OAbonnement = "Abonnement", ODocuments = "Documents", OIntegrations = "Intégrations";
+    readonly Dictionary<string, GameObject> _pages = new Dictionary<string, GameObject>();
+    Transform _barreOnglets;
+    GameObject _footer;
+    string _onglet = OEntreprise;
+
+    /// Un utilisateur du cloud ne voit que Entreprise (lecture), Facturation et Documents
+    /// (décision du 11/10) ; hors cloud, ni Utilisateurs ni Abonnement.
+    public static string[] Onglets(bool cloud, bool admin) =>
+        !cloud ? new[] { OEntreprise, OFacturation, ODocuments, OIntegrations }
+      : admin ? new[] { OEntreprise, OFacturation, OUtilisateurs, OAbonnement, ODocuments, OIntegrations }
+      : new[] { OEntreprise, OFacturation, ODocuments };
+
+    /// Bandeau « Voir l'abonnement » : Réglages ouvert sur cet onglet.
+    public static void OuvrirOnglet(string onglet)
+    {
+        OpenPanel();
+        Instance?.Montrer(onglet);
+    }
+
+    public void Montrer(string onglet)
+    {
+        _onglet = onglet;
+        ConstruireOnglets();
+        if (_scroll != null) _scroll.verticalNormalizedPosition = 1f;   // chaque onglet s'ouvre en haut
+    }
+
+    ScrollRect _scroll;
+
+    void ConstruireOnglets()
+    {
+        var visibles = Onglets(SessionCloud.Active, Admin);
+        if (!visibles.Contains(_onglet)) _onglet = visibles[0];
+        foreach (Transform t in _barreOnglets) Destroy(t.gameObject);
+        foreach (var o in visibles)
+        {
+            bool actif = o == _onglet;
+            var b = UIFactory.Button(_barreOnglets, o, actif ? UITheme.Primaire : UITheme.Carte,
+                                     actif ? Color.white : UITheme.TextePrincipal, 38, UITheme.Role.Bouton, actif);
+            if (!actif) UIFactory.Border(b.gameObject);
+            UIFactory.LargeurDuTexte(b);
+            string nom = o;   // capture par copie
+            b.onClick.AddListener(() => Montrer(nom));
+        }
+        foreach (var kv in _pages) kv.Value.SetActive(kv.Key == _onglet);
+        _footer.SetActive(_onglet != OUtilisateurs && _onglet != OAbonnement);   // rien à y enregistrer
+    }
+
+    Transform Page(Transform content, string onglet)
+    {
+        var p = UIFactory.VBox(content, 16, 0, 0, 0, 0, onglet);
+        _pages[onglet] = p.gameObject;
+        return p.transform;
+    }
+
     Button _testEmail;
     TMP_Text _testInfo;
     Transform _ribList, _enteteList;
@@ -95,21 +164,36 @@ public class ReglagePanel : MonoBehaviour
         var title = UIFactory.Text(header.transform, "Réglage", UITheme.Role.Page, UITheme.TextePrincipal, true);
         UIFactory.LE(title.gameObject, flexW: 1);
 
-        // Scroll
+        // Onglets (étape 9c1), construits à chaque ouverture : ils dépendent du rôle
+        _barreOnglets = UIFactory.HBox(col.transform, 8, false, "Onglets").transform;
+        UIFactory.LE(_barreOnglets.gameObject, minH: 44);
+
+        // Scroll : une page par onglet
         var content = MakeScroll(col.transform);
 
-        BuildAffichage(content);
-        BuildConnexion(content);
-        BuildLogo(content);
-        BuildRibs(content);
-        BuildEntetes(content);
-        BuildListesCharges(content);
-        BuildTextes(content);
-        BuildDocuments(content);   // sur le cloud (étape 6b), à la place de l'emplacement de sauvegarde
-        BuildSauvegarde(content);
+        BuildEntreprise(Page(content, OEntreprise));
+
+        var facturation = Page(content, OFacturation);
+        BuildLogo(facturation);
+        BuildRibs(facturation);
+        BuildEntetes(facturation);
+        BuildListesCharges(facturation);
+        BuildTextes(facturation);
+
+        _utilisateurs = new SectionUtilisateurs(this, Page(content, OUtilisateurs));   // étape 9b
+        _abonnement = new SectionAbonnement(this, Page(content, OAbonnement));
+
+        var documents = Page(content, ODocuments);   // ce qui se règle sur cet ordinateur
+        BuildDocuments(documents);   // sur le cloud (étape 6b), à la place de l'emplacement de sauvegarde
+        BuildSauvegarde(documents);
+        BuildAffichage(documents);
+        BuildCartes(documents);
+
+        BuildConnexion(Page(content, OIntegrations));
 
         // Footer
         var footer = UIFactory.HBox(col.transform, 12, false, "Footer");
+        _footer = footer.gameObject;
         UIFactory.LE(footer.gameObject, minH: 56);
         var save = UIFactory.Button(footer.transform, "Enregistrer", UITheme.Primaire, Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(save.gameObject, flexW: 1);
@@ -120,6 +204,7 @@ public class ReglagePanel : MonoBehaviour
     {
         var srGO = UIFactory.Rect("Scroll", parent);
         var sr = srGO.gameObject.AddComponent<ScrollRect>();
+        _scroll = sr;
         sr.horizontal = false; sr.vertical = true; sr.scrollSensitivity = 32;
         sr.movementType = ScrollRect.MovementType.Clamped;
         UIFactory.LE(srGO.gameObject, flexH: 1);
@@ -142,37 +227,59 @@ public class ReglagePanel : MonoBehaviour
 
     // ── Section Connexion + mode d'envoi ───────────────────────────────────────
 
+    // ── Onglet Entreprise : nom (lecture seule pour un utilisateur du cloud) ────
+
+    void BuildEntreprise(Transform parent)
+    {
+        var body = UIFactory.Section(parent, "Entreprise", CoVert, CoVertL);
+        UIFactory.Text(body.transform, "Nom de l'entreprise", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _entrepriseNom = UIFactory.Input(body.transform, "GROUPE CIPL");
+
+        // Étape 9a : pour un utilisateur (non admin) sur le cloud, l'envoi des factures est
+        // « Réglé par l'administrateur » (décision du 19/10) ; l'onglet Intégrations lui est caché.
+        _reglePar = UIFactory.Text(body.transform, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        _reglePar.gameObject.SetActive(false);
+    }
+
+    // ── Cartes : token Mapbox, propre à chaque ordinateur ──────────────────────
+
+    void BuildCartes(Transform parent)
+    {
+        var body = UIFactory.Section(parent, "Cartes", CoPetrole, CoPetroleL);
+        // Token Mapbox : saisi ici plutôt que dans le champ public de TileLoader, qui
+        // était sérialisé en clair dans Maps.prefab et donc commité dans le dépôt.
+        UIFactory.Text(body.transform, "Token Mapbox (sur cet ordinateur)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _mapboxToken = UIFactory.Input(body.transform, "Collez votre token Mapbox…");
+        _mapboxToken.contentType = TMP_InputField.ContentType.Password;
+    }
+
+    // ── Onglet Intégrations : Pennylane, mode d'envoi, SMTP (admin) ────────────
+
     void BuildConnexion(Transform parent)
     {
         var body = UIFactory.Section(parent, "Connexion & envoi", CoVert, CoVertL);
 
-        UIFactory.Text(body.transform, "Nom de l'entreprise", UITheme.Role.Libelle, UITheme.TexteSecondaire);
-        _entrepriseNom = UIFactory.Input(body.transform, "GROUPE CIPL");
-
-        UIFactory.Text(body.transform, "Clé API Pennylane", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _reserveAdmin.Add(UIFactory.Text(body.transform, "Clé API Pennylane", UITheme.Role.Libelle, UITheme.TexteSecondaire).gameObject);
         _apiKey = UIFactory.Input(body.transform, "Collez votre clé API…");
         _apiKey.contentType = TMP_InputField.ContentType.Password;
-
-        // Token Mapbox : saisi ici plutôt que dans le champ public de TileLoader, qui
-        // était sérialisé en clair dans Maps.prefab et donc commité dans le dépôt.
-        UIFactory.Text(body.transform, "Token Mapbox (cartes)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
-        _mapboxToken = UIFactory.Input(body.transform, "Collez votre token Mapbox…");
-        _mapboxToken.contentType = TMP_InputField.ContentType.Password;
+        _reserveAdmin.Add(_apiKey.gameObject);
 
         _modePennylane = UIFactory.Toggle(body.transform, "Envoyer via Pennylane (e-facture Factur-X)", true);
+        _reserveAdmin.Add(_modePennylane.gameObject);
 
         // Cette case ne gouverne QUE l'envoi des factures. Les réglages SMTP restent
         // visibles dans les deux modes : les relances d'impayé partent par email même
         // en Pennylane, donc les masquer les rendait inconfigurables.
-        UIFactory.Text(body.transform,
+        _reserveAdmin.Add(UIFactory.Text(body.transform,
             "Cette case choisit comment partent les FACTURES. Les relances d'impayé passent "
             + "par email dans tous les cas : les réglages SMTP ci-dessous servent donc toujours. "
             + "(Pennylane : loyers seulement pour l'instant, déposés sans être émis.)",
-            UITheme.Role.Aide, UITheme.TexteSecondaire);
+            UITheme.Role.Aide, UITheme.TexteSecondaire).gameObject);
 
         // Sous-carte SMTP (mode Email)
         var smtpBody = UIFactory.Card(body.transform);
         _smtpCard = smtpBody.gameObject; // la carte SMTP (le VLG est porté par la carte)
+        _reserveAdmin.Add(_smtpCard);
         UIFactory.Text(smtpBody.transform, "Envoi par email (SMTP)", UITheme.Role.Libelle, UITheme.TextePrincipal, true);
         UIFactory.Text(smtpBody.transform,
             "Sert aux relances d'impayé dans tous les cas, et à l'envoi des factures si le mode "
@@ -287,6 +394,7 @@ public class ReglagePanel : MonoBehaviour
         var reset = UIFactory.Button(row.transform, "Logo CIPL par défaut", UITheme.Carte, UITheme.TexteSecondaire, 40, UITheme.Role.Action);
         UIFactory.Border(reset.gameObject); UIFactory.LE(reset.gameObject, prefW: 240, flexW: 0);
         reset.onClick.AddListener(() => { R.logoPath = ""; ReglageService.Save(); RefreshLogo(); });
+        _reserveAdmin.Add(row.gameObject);   // étape 9b : logo réservé à l'admin (décision du 11/10)
 
         RefreshLogo();
     }
@@ -342,6 +450,7 @@ public class ReglagePanel : MonoBehaviour
         _ribList = listGO.transform;
         var add = UIFactory.Button(body.transform, "+  Ajouter un RIB", CoBleuL, CoBleu, 40, UITheme.Role.Bouton);
         add.onClick.AddListener(() => OpenRibForm(null));
+        _reserveAdmin.Add(add.gameObject);   // étape 9b : RIB réservés à l'admin (décision du 11/10)
         RebuildRibList();
     }
 
@@ -362,6 +471,7 @@ public class ReglagePanel : MonoBehaviour
             UIFactory.Text(pad.transform, ribNom, UITheme.Role.Libelle, UITheme.TextePrincipal, true);
             UIFactory.Text(pad.transform, string.IsNullOrEmpty(rib.iban) ? "—" : rib.iban, UITheme.Role.Donnee, UITheme.TexteSecondaire);
             var rib2 = rib;
+            if (!Admin) continue;   // étape 9b : lecture seule pour un utilisateur
             var edit = UIFactory.Button(row.transform, "Modifier", UITheme.Carte, UITheme.TextePrincipal, 34, UITheme.Role.Action);
             UIFactory.Border(edit.gameObject); UIFactory.LE(edit.gameObject, prefW: 90, flexW: 0);
             edit.onClick.AddListener(() => OpenRibForm(rib2));
@@ -558,7 +668,8 @@ public class ReglagePanel : MonoBehaviour
         UIFactory.LargeurDuTexte(edit);
         edit.onClick.AddListener(() => renommer());
 
-        if (supprimer == null) return;
+        // Supprimer une liste touche tous les bâtiments : admin seulement (étape 9b, décision du 11/10).
+        if (supprimer == null || !Admin) return;
         var del = UIFactory.Button(row.transform, "Supprimer", UITheme.AlerteClair, UITheme.AlerteTexte, 34, UITheme.Role.Action);
         UIFactory.LargeurDuTexte(del);
         del.onClick.AddListener(() => supprimer());
@@ -765,6 +876,16 @@ public class ReglagePanel : MonoBehaviour
         if (_sectionDocuments != null) _sectionDocuments.SetActive(SessionCloud.Active);
         if (_sectionSauvegarde != null) _sectionSauvegarde.SetActive(!SessionCloud.Active);
         RefreshDocuments();
+        _utilisateurs?.Rafraichir();
+        _abonnement?.Rafraichir();
+        ConstruireOnglets();
+        bool admin = Admin;
+        foreach (var go in _reserveAdmin) if (go != null) go.SetActive(admin);
+        _entrepriseNom.interactable = admin;   // étape 9c1 : onglet Entreprise en lecture pour un utilisateur
+        _reglePar.gameObject.SetActive(!admin);
+        _reglePar.text = "Envoi des factures : " + (R.modeEnvoi == ModeEnvoi.Pennylane ? "via Pennylane"
+                         : $"par e-mail ({(string.IsNullOrEmpty(R.smtp.fromEmail) ? "adresse non réglée" : R.smtp.fromEmail)})")
+                         + ". Réglé par l'administrateur.";
         _entrepriseNom.text = R.entrepriseNom ?? "";
         _apiKey.text = ReglageService.GetApiKey();
         if (_mapboxToken != null) _mapboxToken.text = ReglageService.GetMapboxToken();
@@ -798,22 +919,24 @@ public class ReglagePanel : MonoBehaviour
     {
         R.entrepriseNom = _entrepriseNom.text.Trim();
         EntrepriseService.Register(R.entrepriseNom, SaveLocationService.GetSaveRoot());
-        ReglageService.SetApiKey(_apiKey.text.Trim());
         if (_mapboxToken != null) ReglageService.SetMapboxToken(_mapboxToken.text.Trim());
-        R.modeEnvoi = _modePennylane.isOn ? ModeEnvoi.Pennylane : ModeEnvoi.Email;
-        R.smtp.host = _smtpHost.text.Trim();
-        int.TryParse(_smtpPort.text.Trim(), out int port); R.smtp.port = port == 0 ? 587 : port;
-        R.smtp.fromEmail = _smtpFromEmail.text.Trim();
-        R.smtp.fromName = _smtpFromName.text.Trim();
-        R.smtp.username = _smtpUser.text.Trim();
-        ReglageService.SetSmtpPassword(_smtpPwd.text);
+        if (Admin)   // étape 9a : envoi et secrets réglés par l'admin seulement
+        {
+            ReglageService.SetApiKey(_apiKey.text.Trim());
+            R.modeEnvoi = _modePennylane.isOn ? ModeEnvoi.Pennylane : ModeEnvoi.Email;
+            R.smtp.host = _smtpHost.text.Trim();
+            int.TryParse(_smtpPort.text.Trim(), out int port); R.smtp.port = port == 0 ? 587 : port;
+            R.smtp.fromEmail = _smtpFromEmail.text.Trim();
+            R.smtp.fromName = _smtpFromName.text.Trim();
+            R.smtp.username = _smtpUser.text.Trim();
+            ReglageService.SetSmtpPassword(_smtpPwd.text);
+        }
         R.lieuEmission = _lieuEmission.text.Trim();
         R.phraseRetard = _phraseRetard.text;
         R.basDePage = _basDePage.text;
         R.mentionTvaDebits = _tvaDebits.text;
         R.mentionTvaEncaissements = _tvaEncaissements.text;
-        ReglageService.Save();
-        UndoToast.Instance?.ShowInfo("Réglages enregistrés");
+        if (ReglageService.Save()) UndoToast.Instance?.ShowInfo("Réglages enregistrés");   // refusé : le motif est déjà affiché
     }
 
     static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
@@ -822,7 +945,7 @@ public class ReglagePanel : MonoBehaviour
 
     /// Ouvre une modale centrée. `builder` reçoit le corps (VBox) et renvoie
     /// l'action à exécuter sur « Valider ».
-    void Modal(string titre, Func<VerticalLayoutGroup, Action> builder)
+    internal void Modal(string titre, Func<VerticalLayoutGroup, Action> builder, string valider = "Valider")
     {
         var scrim = UIFactory.Rect("ModalScrim", transform.parent);
         UIFactory.Stretch(scrim);
@@ -852,12 +975,12 @@ public class ReglagePanel : MonoBehaviour
         var cancel = UIFactory.Button(actions.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
         UIFactory.Border(cancel.gameObject); UIFactory.LE(cancel.gameObject, flexW: 1);
         cancel.onClick.AddListener(() => Destroy(scrim.gameObject));
-        var ok = UIFactory.Button(actions.transform, "Valider", UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
+        var ok = UIFactory.Button(actions.transform, valider, UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
         UIFactory.LE(ok.gameObject, flexW: 1);
         ok.onClick.AddListener(() => { onValidate?.Invoke(); Destroy(scrim.gameObject); });
     }
 
-    TMP_InputField ModalField(VerticalLayoutGroup body, string label, string value, string placeholder)
+    internal TMP_InputField ModalField(VerticalLayoutGroup body, string label, string value, string placeholder)
     {
         UIFactory.Text(body.transform, label, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var f = UIFactory.Input(body.transform, placeholder);

@@ -655,3 +655,175 @@ Préalable : le build est reconstruit. La coupure est **simulée dans l'éditeur
   - Attendu : enregistré sans message ; le build montre la nouvelle surface. Sephora reste en modification dans le build, et l'éditeur affiche toujours « · Odile » sur sa ligne.
   - Éditeur : Sephora → « Modifier » → refus « En cours de modification par Odile ». Le verrou d'Odile tient toujours.
   - Build : annuler. Éditeur : remettre l'ancienne surface.
+
+## AD. Étape 8b : démarrer sans connexion, sur la dernière copie (16/10) *(validé en Play le 19/10, AD1 à AD3)*
+
+Préalable : un Play en ligne (accueil chargé), puis l'arrêter, pour que la copie soit écrite. La coupure au démarrage est **simulée dans l'éditeur seulement** : je la pose avant ton Play (dis-moi « coupe au démarrage »), et je l'enlève ensuite (« rétablis »).
+
+- [x] **AD1 · Ouverture sur la copie** :
+  - Lancer le Play (coupure posée).
+  - Attendu : pas d'écran de connexion. L'accueil de Démo CIPL s'ouvre avec ses 4 bâtiments, et le message en bas « Hors ligne : Démo CIPL est affichée telle qu'au 16/10 à … ».
+  - Le bandeau rouge sous les onglets donne la même heure.
+  - rivoli → « Modifier » → refus au centre « Hors ligne — lecture seule… ».
+- [x] **AD2 · Retour de la connexion** :
+  - « rétablis » → dans les 30 s : « Connexion revenue. », puis « Démo CIPL : 4 bâtiment(s) lu(s) depuis le cloud. »
+  - Le bandeau disparaît, et « Modifier » marche de nouveau.
+- [x] **AD3 · Se déconnecter efface la copie** :
+  - Compte → « Se déconnecter » → se reconnecter.
+  - Je vérifie qu'aucune copie n'est restée sur le PC (`AppData\LocalLow\DefaultCompany\CIPL_Test\cipl_copie_*.json`).
+  - Une nouvelle copie est écrite à l'ouverture.
+
+## AE. Étape 9a : Réglages et secrets partagés par le serveur (19/10) *(validé en Play le 19/10, AE1 à AE4)*
+
+Préalable : `Serveur/etape9a_supabase.sql` passé dans Supabase (SQL Editor › New query › Run), et le build **reconstruit**. Éditeur = compte admin (Agathe), build = compte d'Odile (utilisatrice).
+
+- [x] **AE1 · Mise en commun par l'admin** :
+  - Éditeur : lancer le Play → message en bas « Vos Réglages sont maintenant ceux de toute l'entreprise. »
+  - Supabase › Table Editor : `reglages` a une ligne pour Démo CIPL, et `secrets` en a deux (clé Pennylane, mot de passe SMTP).
+- [x] **AE2 · Reçus par une utilisatrice** :
+  - Build (Odile) → Réglages → « Connexion & envoi » : seulement « Envoi des factures : par e-mail (…). Réglé par l'administrateur. », sans champ Pennylane ni SMTP.
+  - Les entêtes, RIB et listes de charges sont ceux de l'éditeur.
+- [x] **AE3 · Diffusion tout de suite** (à l'ouverture, les Réglages du serveur sont pris sans message : ils sont à jour) :
+  - Build : Réglages fermé.
+  - Éditeur : Réglages → changer le « Bas de page » → Enregistrer.
+  - Attendu dans le build : message en bas « Réglages mis à jour par Agathe. » Rouvrir Réglages : le nouveau bas de page y est.
+  - Refaire avec Réglages ouvert dans le build : aucun message tant qu'il reste ouvert ; à sa fermeture, « Réglages mis à jour par Agathe. »
+- [x] **AE4 · Deux enregistrements en même temps** :
+  - Éditeur et build : ouvrir Réglages.
+  - Éditeur : changer le bas de page → Enregistrer.
+  - Build : changer le bas de page autrement → Enregistrer.
+  - Attendu dans le build : message au centre « Réglages modifiés entre-temps par Agathe : vos modifications ne sont pas enregistrées. Les Réglages sont rechargés. » ; après « OK », la fenêtre montre le bas de page d'Agathe.
+  - Remettre l'ancien bas de page.
+
+## AF. Étape 9b : utilisateurs, invitations, droits (19/10) *(validé en Play le 19/10, AF1 à AF5)*
+
+Préalable :
+- `Serveur/etape9b_supabase.sql` passé dans Supabase.
+- Dans Supabase, Authentication › Sign In / Providers : « Allow new users to sign up » activé, et dans « Email », « Confirm email » décoché.
+- Le build **reconstruit**.
+- Éditeur = Agathe (admin), build = Odile (utilisatrice). Une adresse e-mail de test que tu lis, différente des deux comptes (par exemple un alias Gmail `agathelimouzy+test@gmail.com`).
+
+- [x] **AF1 · La section Utilisateurs (admin)** :
+  - Éditeur : Réglages → en tête, « Utilisateurs », avec la pastille « 2 / 3 licences » et le bouton « Inviter ».
+  - Agathe : « Admin (vous) », sans « Retirer ». Odile : « Utilisateur » (menu), « Retirer », et son statut « En ligne » si le build est ouvert.
+  - Build (Odile) : Réglages → pas de section Utilisateurs. Logo, RIB (ajout, modification, suppression) et suppression d'une liste de charges absents.
+- [x] **AF2 · Inviter** :
+  - Éditeur : « Inviter » → ton adresse de test, rôle Utilisateur, Démo CIPL coché → « Envoyer l'invitation ».
+  - Attendu : message « Invitation envoyée à … ». La ligne « Invitation envoyée · 7 j » apparaît, et la pastille passe à « 3 / 3 licences ».
+  - L'e-mail arrive, avec un code « XXXX-XXXX » et la marche à suivre.
+  - « Inviter » une 4e adresse → refus « 3 licences sur 3 utilisées… ».
+- [x] **AF3 · Rejoindre avec le code** :
+  - Build : Compte → Se déconnecter → « J'ai reçu une invitation » → l'adresse de test, le code, un mot de passe ×2 → « Rejoindre ».
+  - Attendu : « Bienvenue dans Démo CIPL. », puis l'entreprise s'ouvre avec le nouveau compte, qui demande « Votre nom ».
+  - Éditeur : Réglages › Utilisateurs → la personne apparaît comme membre, l'invitation a disparu.
+  - Un mauvais code → « Ce code ne correspond à aucune invitation… ».
+- [x] **AF4 · Rôle et dernier admin** :
+  - Éditeur : passer le nouveau membre en Admin → message « … est maintenant admin. »
+  - Le repasser en Utilisateur.
+  - Ton propre rôle n'est pas modifiable (« Admin (vous) »).
+- [x] **AF5 · Retirer** :
+  - Build connecté avec le nouveau compte et Démo CIPL ouverte.
+  - Éditeur : « Retirer » sur ce compte → confirmer → « … a été retiré(e) : la licence est libérée. »
+  - Attendu dans le build, dans les 30 s : message au centre « Vous n'avez plus accès à « Démo CIPL »… », puis le choix d'entreprise, vide.
+  - Le build se reconnecte ensuite avec le compte d'Odile.
+
+## AG. Étape 9c1 : onglets de Réglages, abonnement, lecture seule à l'expiration (19/10) *(validé en Play le 19/10, AG1 à AG7)*
+
+Préalable :
+- `Serveur/etape9c1_supabase.sql` passé dans Supabase.
+- **Juste après**, pour que Démo CIPL reste modifiable pendant le développement (son essai de 14 jours court depuis sa création), dans SQL Editor :
+  `update public.groupes set statut = 'actif' where id = (select groupe_id from public.entreprises where id = '1e8848f1-23a4-470e-89a9-afce3e9b2aa4');`
+- Le build **reconstruit**. Éditeur = Agathe (admin), build = Odile (utilisatrice).
+- Dans la suite, « passer en X » veut dire lancer cette ligne avec la valeur indiquée, puis rouvrir l'entreprise (relancer le Play, et Compte › Changer d'entreprise › Démo CIPL dans le build) :
+  `update public.groupes set statut = 'essai', fin_essai = current_date + 5 where id = (select groupe_id from public.entreprises where id = '1e8848f1-23a4-470e-89a9-afce3e9b2aa4');`
+
+- [x] **AG1 · Onglets (admin)** :
+  - Éditeur : Réglages → six onglets : Entreprise, Facturation, Utilisateurs, Abonnement, Documents, Intégrations.
+  - Entreprise : le nom de l'entreprise. Facturation : Logo, RIB, Entêtes, Listes de charges, Textes fixes. Documents : Documents, Taille de l'affichage, Cartes (token Mapbox). Intégrations : Pennylane, mode d'envoi, SMTP.
+  - Pas de bouton « Enregistrer » sur Utilisateurs ni sur Abonnement. Chaque onglet s'ouvre en haut de sa page.
+- [x] **AG2 · Onglets (utilisateur)** :
+  - Build (Odile) : trois onglets seulement, Entreprise, Facturation, Documents.
+  - Entreprise : le nom est grisé (non modifiable), avec « Envoi des factures : … Réglé par l'administrateur. »
+- [x] **AG3 · Essai** : passer en `statut = 'essai', fin_essai = current_date + 5`.
+  - Éditeur : bandeau ambre sous les onglets des bâtiments, « Essai gratuit : 5 jours restants. », avec « Voir l'abonnement ».
+  - « Voir l'abonnement » → Réglages s'ouvre sur l'onglet Abonnement : pastille « Essai gratuit · 5 jours restants », « Jusqu'au … », puis Démo CIPL, Licences 3 (2 utilisées), 40 €, 0 €, 45 €, Total « 85 € / mois · ou 850 € / an ».
+  - Build (Odile) : le même bandeau, « Essai gratuit : 5 jours restants. Voyez avec agathe Limouzy (admin). », **sans bouton** ; toujours pas d'onglet Abonnement dans ses Réglages (retour du 19/10 : elle est informée, sans rien pouvoir modifier).
+  - Variante : `fin_essai = current_date + 10` → plus de bandeau, ni chez toi ni chez Odile (seulement les 7 derniers jours).
+- [x] **AG4 · Expiré** : passer en `statut = 'essai', fin_essai = current_date - 1`.
+  - Éditeur : bandeau corail « Abonnement expiré : CIPL est en lecture seule. » avec « Voir l'abonnement » ; l'onglet Abonnement affiche « Expiré ».
+  - « Modifier » sur une fiche → message au centre « Abonnement expiré — lecture seule : rien ne peut être modifié. Voyez Réglages › Abonnement. »
+  - Une action en un clic (par exemple marquer une facture payée dans le suivi) → même message ; au OK, la fiche est relue et la case revient comme avant.
+  - Réglages › Facturation › changer un texte fixe → Enregistrer → refus « … Les Réglages ne sont pas enregistrés. » ; le texte revient aussitôt à l'ancienne valeur, et pas de message « Réglages enregistrés » *(défaut du 19/10 : la modification restait)*.
+  - Pas de fenêtre « N factures sont à envoyer » au lancement.
+  - Build (Odile) : bandeau « … Voyez avec agathe Limouzy (admin). », sans bouton ; « Modifier » → même refus, qui nomme l'admin.
+- [x] **AG5 · Expiration pendant la session** : éditeur et build ouverts en essai (`current_date + 5`), puis, sans rien rouvrir, passer en `current_date - 1`.
+  - Build : « Modifier » sur une fiche → refus du serveur (« … abonnement expiré … »), et le bandeau d'expiration apparaît aussitôt.
+- [x] **AG6 · Ajouter une entreprise** : repasser en `statut = 'actif'`, puis, dans l'éditeur, Réglages › Abonnement › « Ajouter une entreprise ».
+  - Société, SIRET « 123 » → « Le SIRET compte 14 chiffres. » ; SIRET `73282932000075` → « Ce SIRET n'existe pas : vérifiez les chiffres. »
+  - Après chaque refus, au clic sur OK, la fenêtre se rouvre avec le type, le SIRET et le nom déjà saisis *(retour du 19/10)*.
+  - Même chose pour Réglages › Utilisateurs › « Inviter » : adresse « abc » (sans @) → « … adresse e-mail … », puis au OK la fenêtre se rouvre avec « abc », le rôle et les entreprises cochées.
+  - Société, SIRET `732 829 320 00074`, nom « SCI Test 9c » → message en bas « « SCI Test 9c » ajoutée : ouvrez-la par Compte › Changer d'entreprise. » ; l'offre montre les deux entreprises, « Entreprises suivantes (1 × 28 €) 28 € », Total 113 €.
+  - Le même SIRET une deuxième fois → « Cette société est déjà sur CIPL… ».
+  - Particulier, nom laissé vide → « Patrimoine de agathe Limouzy » ajoutée.
+  - Compte › Changer d'entreprise : les nouvelles entreprises sont listées, et s'ouvrent vides.
+  - Nettoyage, dans SQL Editor : `delete from public.entreprises where nom in ('SCI Test 9c', 'Patrimoine de agathe Limouzy');`
+- [x] **AG7 · Remise en état** : `update public.groupes set statut = 'actif' where id = (select groupe_id from public.entreprises where id = '1e8848f1-23a4-470e-89a9-afce3e9b2aa4');`
+
+## AH. Étape 9c2 : abonnement payé avec Stripe (22/10) *(validé en Play le 23/10, AH1 à AH7)*
+
+**Mise en place, une fois** (tout en mode test : aucun vrai paiement) :
+1. **Stripe** : crée un compte sur stripe.com et reste en **mode test** (interrupteur en haut du tableau de bord).
+   - Paramètres › Informations sur l'entreprise : le nom et l'adresse qui figureront sur les factures.
+   - Paramètres › Moyens de paiement : active « Prélèvement SEPA » (la carte l'est déjà).
+   - Paramètres › Facturation › Portail client : coche « Mettre à jour les moyens de paiement », « Historique des factures » et « Annuler les abonnements » (à la fin de la période de facturation), puis **Enregistrer** (sans cela, « Paiement et factures » est refusé en mode test).
+   - Paramètres › Facturation › Gérer les échecs de paiement : 3 relances. Le choix « Annuler l'abonnement » si toutes échouent n'est **modifiable qu'en mode réel** (grisé en test, constaté le 22/10) : à régler au passage en réel, sinon un groupe qui ne paie plus resterait en « paiement refusé », modifiable, au lieu d'expirer.
+   - Développeurs › Clés API : copie la **clé secrète** (`sk_test_…`). Ne la colle nulle part ailleurs qu'à l'étape 2.
+2. **Supabase** › Edge Functions › **Secrets** : ajoute `STRIPE_SECRET_KEY` = la clé `sk_test_…`.
+3. **Supabase** › Edge Functions › **Deploy a new function › Via Editor** :
+   - nom `abonnement-stripe` : colle tout `Serveur/fonctions/abonnement-stripe.ts` à la place du modèle → Deploy. Laisse « Verify JWT » **activé**.
+   - nom `stripe-webhook` : colle tout `Serveur/fonctions/stripe-webhook.ts` → Deploy, puis dans ses réglages, **désactive « Verify JWT »** (Enforce JWT verification) → Save.
+   - Vérifie les deux noms exacts (l'éditeur en propose un au hasard) et remplace tout le modèle « Hello » par le code. Test : ouvrir `<Project URL>/functions/v1/stripe-webhook?retour=paye` dans le navigateur doit afficher « Paiement enregistré… » ; un `401 Missing authorization header` veut dire que « Verify JWT » est encore actif (constaté le 22/10 : désactiver, enregistrer, puis redéployer).
+4. **Stripe** › Développeurs › Webhooks › Ajouter une destination :
+   - adresse : celle de ton projet Supabase (Project Settings › API › Project URL) suivie de `/functions/v1/stripe-webhook` ;
+   - événements : `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted` ;
+   - copie le **secret de signature** (`whsec_…`) → Supabase › Edge Functions › Secrets : `STRIPE_WEBHOOK_SECRET`.
+   - Contrôle : Stripe › la destination › Événements envoyés doit montrer **200**. Un **400 « No signatures found matching… »** veut dire que le secret n'est pas le bon (constaté le 22/10) : recopier la clé de CETTE destination, préfixe `whsec_` compris et sans espace, recréer le secret, redéployer `stripe-webhook`, puis « Renvoyer » les événements en échec.
+5. `Serveur/etape9c2_supabase.sql` passé dans SQL Editor.
+6. Le build **reconstruit**. Démo CIPL en essai : `update public.groupes set statut = 'essai', fin_essai = current_date + 5 where id = (select groupe_id from public.entreprises where id = '1e8848f1-23a4-470e-89a9-afce3e9b2aa4');`
+
+Valeurs de test publiées par Stripe, à saisir sur la page Stripe (date d'expiration future, code quelconque) :
+- carte acceptée `4242 4242 4242 4242` ; carte enregistrée mais refusée au prélèvement `4000 0000 0000 0341` ;
+- IBAN SEPA accepté `FR1420041010050500013M02606`.
+
+- [x] **AH1 · Choisir l'abonnement** : éditeur, Réglages › Abonnement.
+  - « Choisir l'abonnement » : Mensuel choisi ; Licences 3, « 2 utilisées : 2 au minimum » ; « - » descend à 2, pas en dessous ; « + » remonte.
+  - Avec 3 licences : « 85 € HT », TVA 20 % « 17 € », Total « 102 € TTC / mois ». Annuel : « 850 € HT », « 170 € », « 1020 € TTC / an ».
+  - « Premier prélèvement le … , à la fin de l'essai. » : le lendemain de la fin de l'essai.
+- [x] **AH2 · Payer** : Mensuel, 3 licences → « Continuer vers le paiement ».
+  - Le navigateur ouvre la page Stripe (mode test) : CIPL — entreprise, CIPL — licence utilisateur × 3, TVA 20 %, rien à payer aujourd'hui (essai jusqu'au …).
+  - CIPL affiche « Paiement en cours dans votre navigateur… » avec Actualiser, Rouvrir la page de paiement, Revenir au choix.
+  - Carte `4242…` → S'abonner → page de texte « Paiement enregistré… ».
+  - Dans CIPL, en quelques secondes : « Abonnement enregistré. », pastille « Actif · mensuel », « Prochaine échéance le … », Total « 85 € HT · 102 € TTC / mois ». Le bandeau d'essai disparaît.
+  - Vérification : `select statut, formule, echeance, licences_max, stripe_abonnement from public.groupes;` → actif, mensuel, la date, 3, `sub_…`.
+  - Variante : « Annuler » sur la page Stripe → page « Paiement annulé : rien n'a été prélevé… » ; dans CIPL, « Revenir au choix ».
+- [x] **AH3 · Licences** : « + » → « Ajouter 1 licence : +15 € HT par mois, au prorata dès aujourd'hui. » → Ajouter → « Abonnement : 4 licences. » (Stripe › Abonnements : licence × 4).
+  - « - » deux fois → 2 ; encore « - » → refus au centre « 2 licences utilisées : retirez quelqu'un… ». Remonter à 3.
+- [x] **AH4 · Ajouter une entreprise (abonné)** : la fenêtre dit « votre abonnement augmente de 28 € HT par mois, au prorata dès aujourd'hui ».
+  - Société, SIRET `732 829 320 00074`, « SCI Test 9c2 » → ajoutée ; Total « 113 € HT · 135,60 € TTC / mois » ; Stripe : ligne « CIPL — entreprise supplémentaire » × 1.
+  - Nettoyage : `delete from public.entreprises where nom = 'SCI Test 9c2';`, puis « + » et « - » sur les licences (l'abonnement Stripe se recale sur le nombre d'entreprises).
+- [x] **AH5 · Résilier et Paiement et factures** *(résilier depuis CIPL : retour du 22/10 ; recoller `abonnement-stripe.ts` dans Supabase avant)* :
+  - « Résilier l'abonnement » (bouton corail) → « Votre abonnement reste actif jusqu'au … Ensuite, CIPL passe en lecture seule… » → Résilier → « Abonnement résilié : il prend fin à l'échéance. », pastille « Actif jusqu'au … · résilié », « Résilié : CIPL passe en lecture seule le … ».
+  - Résilié, la lecture seule ne commence qu'à l'échéance (le mois payé court jusque-là). Bandeaux pour tous *(décision du 22/10)* :
+    - dès la résiliation, bandeau vert clair « Abonnement résilié : CIPL passera en lecture seule le … », avec « Reprendre l'abonnement » chez toi ; chez Odile « … Voyez avec agathe Limouzy (admin). », sans bouton ;
+    - les 7 derniers jours, bandeau ambre « Abonnement résilié : 3 jours restants avant la lecture seule (le …) ». Pour le voir sans attendre : `update public.groupes set echeance = current_date + 3 where id = (select groupe_id from public.entreprises where id = '1e8848f1-23a4-470e-89a9-afce3e9b2aa4');` puis rouvrir Démo CIPL (Stripe remettra la vraie échéance au prochain événement) ;
+    - « Reprendre l'abonnement » du bandeau → fenêtre « Reprendre l'abonnement ? Votre abonnement continue après le … : le prochain prélèvement aura lieu à cette date… » *(retour du 22/10 : rien ne se reprend sans confirmer)* ; Annuler ne change rien ; Reprendre → « Abonnement repris. », le bandeau disparaît.
+  - Le bouton de l'onglet devient « Reprendre l'abonnement » → « Abonnement repris. », « Actif · mensuel » à nouveau.
+  - « Paiement et factures » ouvre le portail Stripe (moyen de paiement, factures) ; la résiliation y reste possible aussi, avec le même résultat dans CIPL après Actualiser.
+- [x] **AH6 · Paiement refusé** *(validé le 23/10, voie complète : `--payment-behavior=allow_incomplete` est nécessaire, sinon Stripe annule la modification quand le paiement échoue)* (abonnement en cours, **pas** résilié ; s'il l'est, le reprendre d'abord) :
+  - Voie simple (ce que fait CIPL) : `update public.groupes set statut = 'refuse' where id = (select groupe_id from public.entreprises where id = '1e8848f1-23a4-470e-89a9-afce3e9b2aa4');` — c'est ce qu'écrit le webhook quand Stripe signale un paiement refusé.
+  - Voie complète (vrai refus Stripe) : dans le portail, remplacer la carte par `4000 0000 0000 0341` ; puis Stripe › Workbench › Shell : `stripe subscriptions update sub_… --billing-cycle-anchor=now --proration-behavior=none --payment-behavior=allow_incomplete` (facturation immédiate, qui échoue ; l'identifiant complet se lit par `stripe subscriptions list --limit 1`). *(Corrigé le 22/10 : « mettre fin à l'essai » ne marche que pour un abonnement souscrit pendant l'essai.)*
+  - Rouvrir Démo CIPL : chez toi, bandeau orange « Le dernier paiement a été refusé. Mettez à jour votre moyen de paiement. » avec « Paiement et factures » ; pastille « Paiement refusé » ; CIPL reste modifiable.
+  - Build (Odile) : pas de bandeau.
+  - Remise en état : voie simple, la même ligne avec `statut = 'actif'` ; voie complète, remettre la carte `4242…` dans le portail, puis Stripe › la facture ouverte › Relancer le paiement → « Actif · mensuel », le bandeau disparaît (à la réouverture).
+- [x] **AH7 · Fin** *(validé le 23/10 ; dans Stripe, un abonnement impayé n'est pas dans l'onglet « Actifs » : effacer le filtre)* : Stripe › l'abonnement › Annuler immédiatement → rouvrir Démo CIPL : bandeau corail d'expiration avec « Choisir l'abonnement » (l'onglet Abonnement repropose le choix), lecture seule.
+  - Remise en état pour le développement : la ligne d'AG7 (`statut = 'actif'`).

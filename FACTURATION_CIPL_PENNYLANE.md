@@ -433,6 +433,15 @@ Le statut est mis à jour **directement** (`statut = "Envoye"`), sans repasser p
 - Le verrou tient jusqu'à l'enregistrement du statut « Envoyé » : une facture ne peut pas partir deux fois.
 - Détails : `CONCEPTION_MULTIUTILISATEUR.md`, étape 7.
 
+**Réglages sur le cloud (étape 9a, 19/10)** :
+- Entêtes, RIB, logo, listes de charges, textes, mode d'envoi et SMTP sont ceux de toute l'entreprise, rangés sur le serveur. Chaque PC en garde une copie. Une modification arrive tout de suite chez les autres.
+- Le mot de passe SMTP et la clé Pennylane sont reçus par chaque PC, car l'envoi part du poste, mais seul un admin les voit et les modifie. Un utilisateur lit « Réglé par l'administrateur ».
+- Détails : `CONCEPTION_MULTIUTILISATEUR.md`, étape 9.
+
+**Abonnement expiré (étape 9c1, 19/10)** :
+- Tout le groupe passe en lecture seule : aucune facture ne peut être émise, marquée payée ou modifiée, et la fenêtre « N factures sont à envoyer » n'est plus proposée (envoyer change le statut des factures).
+- Réglages : la section Pennylane, le mode d'envoi et le SMTP sont dans l'onglet Intégrations (admin) ; logo, RIB, entêtes, listes de charges et textes fixes dans l'onglet Facturation.
+
 **Limites connues** : l'application doit être lancée pour que l'envoi soit proposé · seul l'email existe (aucun appel à l'API Pennylane dans le code) · l'adresse `@cipl.fr` reste bloquée côté Microsoft 365, l'envoi part donc du compte configuré.
 
 ### « Envoyé » veut dire envoyé (2026-09-22)
