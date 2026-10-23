@@ -67,9 +67,7 @@ public static class UtilisateursCloud
     {
         if (string.IsNullOrWhiteSpace(email) || !email.Contains("@")) return "Saisissez l'adresse e-mail qui a reçu l'invitation.";
         if (Normaliser(code).Length != 8) return "Le code d'invitation a 8 caractères (par exemple K7F2-9QXD).";
-        if ((mdp ?? "").Length < 8) return "Le mot de passe doit faire au moins 8 caractères.";
-        if (mdp != confirmation) return "Les deux mots de passe ne sont pas identiques.";
-        return null;
+        return RegleMotDePasse.Refus(mdp, confirmation);
     }
 
     /// Le refus du serveur, en clair.

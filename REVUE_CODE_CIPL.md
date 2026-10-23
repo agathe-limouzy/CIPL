@@ -597,7 +597,17 @@ Sujet choisi par l'utilisatrice : le module de l'app. Diagnostic présenté (4 s
   - Remise en place : les 13 documents recopiés depuis la corbeille de l'éditeur vers `Test_Save2\Démo CIPL\Batiment\rivoli\Sephora\…` et `…\Starbucks Coffee\…` (corbeille intacte) ; au prochain Play de l'éditeur, ils repartent au cloud, et `Volteo\` remplace `Volteo2\`. Le build doit être reconstruit (ancienne règle).
   - **504 tests verts.**
 - **Message du bas trop long, corrigé le 23/10** (parcours AL6) : « 1 document(s) reçu(s) de vos collègues, 14 supprimé(s) par un collègue, rangé(s) dans la corbeille. » sortait de la bande (`UndoToast` : 420 × 56 fixes, texte sans retour à la ligne). `UndoToast.Awake` : retour à la ligne, et `ContentSizeFitter` vertical sur la bande (ancrée en bas : elle grandit vers le haut).
-- **Ensuite** : étape 12 (mot de passe oublié). Découpage « avant la vente » (CONCEPTION §14) : 10 Pappers sur le serveur et 11 export faits, 12 mot de passe oublié, 13 inscription libre-service, 14 e-mails de l'abonnement, 15 installation et mises à jour, 16 boutons « Tester », 17 passage en réel, 18 plateforme agréée de facturation électronique.
+- **Étape 12 (mot de passe oublié), faite le 23/10, validée en Play (AN1 à AN8)** (parcours AN) :
+  - Décisions du 23/10 : lien « Mot de passe oublié ? » sur l'écran de connexion ; l'adresse, un code par e-mail (code de récupération de Supabase, pas de lien à ouvrir), puis le code et le nouveau mot de passe dans la même fenêtre (maquette validée telle quelle) ; connecté(e) directement une fois changé ; la même fenêtre dans le menu Compte, « Changer mon mot de passe » (adresse du compte, non modifiable).
+  - `CloudClient` : `DemanderCode` (`/auth/v1/recover`), `VerifierCode` (`/auth/v1/verify`, type recovery), `ChangerMotDePasse` (`PUT /auth/v1/user`) ; une classe par corps (`CorpsDemande`, `CorpsCode`, testés).
+  - `SessionCloud.DemanderCode` / `ChangerMotDePasse` : la session du code vérifié est gardée tant que le mot de passe est refusé (identique à l'ancien…), un code ne servant qu'une fois ; ensuite elle devient la session, gardée sur ce PC (depuis le menu Compte : le choix fait à la connexion).
+  - `RegleMotDePasse` (testée) : 8 caractères et deux saisies identiques (aussi pour `VerifierRejoindre`), adresse, code de 6 à 10 chiffres, refus de Supabase en clair (429 trop tôt / plafond horaire, code incorrect ou expiré, même mot de passe).
+  - `EcransCloud.AfficherMotDePasse` (deux temps dans une fenêtre), lien de l'écran de connexion (l'adresse passe et revient), lien du menu Compte.
+  - Supabase : modèle « Reset Password » en français avec `{{ .Token }}` (guide AN) ; aucun SQL.
+  - **507 tests verts.**
+  - Mise en place vue le 23/10 : Supabase n'autorise plus à modifier ses modèles d'e-mail sans serveur d'envoi à nous (« custom SMTP »), et le modèle par défaut envoie un lien, pas le code. On déclare dans Supabase le Gmail qui envoie déjà les factures (guide AN, point 0) ; un expéditeur à l'adresse de CIPL reste pour l'étape 17.
+  - Limites : 30 e-mails par heure côté Supabase, environ 500 par jour côté Gmail ; un changement de mot de passe ferme les autres sessions du même compte (autres PCs : se reconnecter).
+- **Ensuite** : étape 13 (inscription libre-service). Découpage « avant la vente » (CONCEPTION §14) : 10 Pappers sur le serveur, 11 export et 12 mot de passe oublié faits, 13 inscription libre-service, 14 e-mails de l'abonnement, 15 installation et mises à jour, 16 boutons « Tester », 17 passage en réel, 18 plateforme agréée de facturation électronique.
 
 ### Où en est le chantier au 29/09 (soir) — **310 tests EditMode verts**
 

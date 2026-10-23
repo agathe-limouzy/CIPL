@@ -953,3 +953,45 @@ Préalable :
 - [x] **AM3 · La charge** : bâtiment › Charges › ouvrir la charge qui a un PDF → son nom de fichier est affiché (pas « Aucun fichier ») ; « Enregistrer » sans rien changer → aucun `…_1.pdf` n'apparaît dans `TEST Nouveautés 2\_Infos du bâtiment\Factures de charges\`.
 - [x] **AM4 · L'envoi automatique** : relancer le Play → la fenêtre « Une facture est à envoyer » propose la facture du locataire renommé (et non « [EnvoiAuto] … PDF introuvable » dans la console) ; « Tout envoyer » → l'email part avec le PDF joint, la ligne passe « Envoyé ».
 - [x] **AM5 · Sur le cloud** (Démo CIPL sur le cloud) : dans le build (Odile), une fois la synchronisation passée, « PDF » sur la même facture → elle s'ouvre (lue sous le nouveau nom, pas de « introuvable »). Puis remettre les noms d'origine du bâtiment et du locataire, et vérifier qu'une facture s'ouvre toujours.
+
+## AN. Étape 12 : mot de passe oublié (23/10) *(validé en Play le 23/10, AN1 à AN8)*
+
+Décisions du 23/10 : sur l'écran de connexion, « Mot de passe oublié ? » ; l'adresse, un code par e-mail (code de Supabase, pas de lien), puis le code et le nouveau mot de passe dans la même fenêtre (maquette validée telle quelle) ; une fois changé, connecté(e) directement ; la même fenêtre dans le menu Compte, « Changer mon mot de passe ».
+
+Préalable, dans Supabase (une fois) :
+0. **Serveur d'envoi** (constaté le 23/10 : sans lui, Supabase n'autorise plus à modifier ses modèles d'e-mail, et le modèle par défaut envoie un lien, pas le code). Bouton « Set up SMTP » (ou Authentication › Emails › SMTP Settings) › Enable custom SMTP, avec le compte Gmail qui envoie déjà les factures :
+   - Sender email `agathelimouzy@gmail.com`, Sender name `CIPL` ;
+   - Host `smtp.gmail.com`, Port `587`, Username `agathelimouzy@gmail.com` ;
+   - Password : un **mot de passe d'application** Gmail (Compte Google › Sécurité › Mots de passe des applications ; celui de CIPL convient, ou en créer un « Supabase »), saisi par toi seulement ;
+   - Save. Pour la vente, un expéditeur à l'adresse de CIPL (étape 17).
+1. **Authentication › Emails › Templates › « Reset Password »** :
+   - Subject : `Votre code CIPL`
+   - Body (remplacer tout) :
+     ```html
+     <h2>Votre code CIPL</h2>
+     <p>Bonjour,</p>
+     <p>Voici votre code pour choisir un nouveau mot de passe dans CIPL :</p>
+     <p style="font-size:26px;font-weight:bold;letter-spacing:4px">{{ .Token }}</p>
+     <p>Il est valable 1 heure. Saisissez-le dans CIPL, dans la fenêtre « Mot de passe oublié » ou « Changer mon mot de passe ».</p>
+     <p>Si vous n'avez rien demandé, ignorez ce message : votre mot de passe ne change pas.</p>
+     ```
+   - Save. Sans ce modèle, l'e-mail contient un lien au lieu du code.
+2. **Authentication › Sign In / Providers › Email** : vérifier « Email OTP Expiration » = 3600 (1 heure) et « Email OTP Length » = 6.
+3. Limite : avec ce serveur, Supabase envoie à toute adresse, 30 e-mails par heure au plus (Authentication › Rate Limits) ; Gmail, environ 500 par jour. Tester avec `agathelimouzy@gmail.com` ; le parcours ci-dessous n'en demande que deux.
+- Aucun SQL à passer. Le build reconstruit (pour AN7).
+
+- [x] **AN1 · Le lien** : éditeur, Compte › Se déconnecter → écran de connexion, adresse `agathelimouzy@gmail.com` saisie → « Mot de passe oublié ? » sous « Rester connecté(e) » → fenêtre « CIPL — Mot de passe oublié », l'adresse reprise. « Retour » → l'écran de connexion, l'adresse toujours là.
+- [x] **AN2 · L'adresse** : vider l'adresse ou écrire « agathe » → « Envoyer le code » → refus au centre « Saisissez l'adresse e-mail de votre compte. » ; au OK, la fenêtre est toujours là.
+- [x] **AN3 · Le code** (1er e-mail) : `agathelimouzy@gmail.com` → « Envoyer le code » → « Si un compte existe pour agathelimouzy@gmail.com, un code vient de partir. Il est valable 1 heure. » ; l'adresse se grise ; apparaissent Code, Nouveau mot de passe, Confirmer, « Renvoyer le code » ; le bouton devient « Changer le mot de passe ». E-mail reçu : « Votre code CIPL », 6 chiffres.
+  - « Renvoyer le code » aussitôt → « Un code vient déjà de partir : attendez une minute avant d'en demander un autre. » (aucun e-mail).
+- [x] **AN4 · Les refus** (la fenêtre garde ce qui est saisi) :
+  - code « 12345 » → « Saisissez le code à 6 chiffres reçu par e-mail. » ;
+  - bon code, mot de passe « court » → « … au moins 8 caractères. » ; deux mots de passe différents → « … pas identiques. » ;
+  - code `000000` et un bon mot de passe ×2 → « Ce code est incorrect ou a expiré : vérifiez-le, ou demandez-en un nouveau. »
+- [x] **AN5 · Changer** : le bon code, puis ton **mot de passe actuel** ×2 → « Choisissez un mot de passe différent de l'ancien. » ; puis un nouveau ×2 → « Mot de passe changé. » en bas, et CIPL passe directement à l'ouverture de Démo CIPL (sans redemander de code, sans se reconnecter).
+  - Compte › Se déconnecter → l'ancien mot de passe → « E-mail ou mot de passe incorrect. » ; le nouveau → connecté(e).
+- [x] **AN6 · Inconnu** : « Mot de passe oublié ? » avec `personne@exemple.fr` → même message « Si un compte existe… » (CIPL ne dit pas qui a un compte) ; aucun e-mail. « Retour ».
+- [x] **AN7 · Depuis le menu Compte** (2e e-mail) : connecté(e), Compte › « Changer mon mot de passe » → fenêtre « CIPL — Changer mon mot de passe » par-dessus l'application, l'adresse du compte grisée → « Envoyer le code » → code + nouveau mot de passe → « Mot de passe changé. » ; Démo CIPL reste ouverte, les fiches se modifient toujours.
+  - Relancer le Play → la connexion gardée est reprise (pas d'écran de connexion).
+  - Le build (Odile, autre compte) n'est pas touché. Un autre PC connecté au **même** compte devra se reconnecter : Supabase ferme les autres sessions d'un compte dont le mot de passe change.
+- [x] **AN8 · Nettoyage** : remettre ton mot de passe habituel (AN7 avec un nouveau code, ou plus tard).

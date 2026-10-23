@@ -49,6 +49,25 @@ public static class CloudClient
         Envoyer("POST", url + "/auth/v1/signup", cle, null,
                 JsonUtility.ToJson(new Identifiants { email = email, password = motDePasse }));
 
+    // Étape 12 : mot de passe oublié. Le modèle « Reset Password » de Supabase montre le code ({{ .Token }}).
+    [Serializable] class Adresse { public string email; }
+    [Serializable] class CodeRecupere { public string type, email, token; }
+    [Serializable] class NouveauMotDePasse { public string password; }
+
+    public static string CorpsDemande(string email) => JsonUtility.ToJson(new Adresse { email = email });
+    public static string CorpsCode(string email, string code) => JsonUtility.ToJson(new CodeRecupere { type = "recovery", email = email, token = code });
+
+    /// Envoie un code de récupération ; même réponse que le compte existe ou non.
+    public static Task<Reponse> DemanderCode(string url, string cle, string email) =>
+        Envoyer("POST", url + "/auth/v1/recover", cle, null, CorpsDemande(email));
+
+    /// Le code contre une session : il prouve la boîte mail.
+    public static Task<Reponse> VerifierCode(string url, string cle, string email, string code) =>
+        Envoyer("POST", url + "/auth/v1/verify", cle, null, CorpsCode(email, code));
+
+    public static Task<Reponse> ChangerMotDePasse(string url, string cle, string jeton, string motDePasse) =>
+        Envoyer("PUT", url + "/auth/v1/user", cle, jeton, JsonUtility.ToJson(new NouveauMotDePasse { password = motDePasse }));
+
     public static Task<Reponse> Renouveler(string url, string cle, string refreshToken) =>
         Envoyer("POST", url + "/auth/v1/token?grant_type=refresh_token", cle, null,
                 JsonUtility.ToJson(new Renouvellement { refresh_token = refreshToken }));

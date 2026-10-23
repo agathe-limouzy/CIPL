@@ -1,8 +1,63 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
+
+/// Étape 12 (décisions du 23/10) : « Mot de passe oublié » à la connexion et « Changer mon mot de
+/// passe » dans le menu Compte : un code envoyé par Supabase, puis le nouveau mot de passe.
+public static class RegleMotDePasse
+{
+    public const int Minimum = 8;
+
+    /// Null si le mot de passe convient, sinon le motif.
+    public static string Refus(string mdp, string confirmation)
+    {
+        if ((mdp ?? "").Length < Minimum) return $"Le mot de passe doit faire au moins {Minimum} caractères.";
+        if (mdp != confirmation) return "Les deux mots de passe ne sont pas identiques.";
+        return null;
+    }
+
+    public static string RefusAdresse(string email) =>
+        string.IsNullOrWhiteSpace(email) || !email.Contains("@") ? "Saisissez l'adresse e-mail de votre compte." : null;
+
+    /// Le code de l'e-mail sans espaces ni tirets (« 123 456 » → « 123456 »).
+    public static string Code(string saisie) => new string((saisie ?? "").Where(char.IsDigit).ToArray());
+
+    /// Le code et le nouveau mot de passe : null si complets, sinon ce qu'il manque. Supabase envoie
+    /// 6 chiffres par défaut (réglable jusqu'à 10).
+    public static string RefusCode(string code, string mdp, string confirmation)
+    {
+        int n = Code(code).Length;
+        if (n < 6 || n > 10) return "Saisissez le code à 6 chiffres reçu par e-mail.";
+        return Refus(mdp, confirmation);
+    }
+
+    // Les refus de Supabase, en clair.
+
+    /// 429 : un code demandé il y a moins d'une minute (« … after 42 seconds »), ou le plafond d'e-mails
+    /// par heure du service d'envoi de Supabase (« email rate limit exceeded »).
+    public static string MotifEnvoi(long code, string erreur)
+    {
+        if (code != 429) return "Envoi du code impossible : " + erreur;
+        return (erreur ?? "").IndexOf("seconds", StringComparison.OrdinalIgnoreCase) >= 0
+            ? "Un code vient déjà de partir : attendez une minute avant d'en demander un autre."
+            : "Trop d'e-mails envoyés pour l'instant : réessayez dans une heure.";
+    }
+
+    public static string MotifCode(long code, string erreur) => code >= 400 && code < 500 && code != 429
+        ? "Ce code est incorrect ou a expiré : vérifiez-le, ou demandez-en un nouveau."
+        : "Vérification du code impossible : " + erreur;
+
+    public static string MotifChangement(long code, string erreur)
+    {
+        string e = erreur ?? "";
+        if (e.IndexOf("different", StringComparison.OrdinalIgnoreCase) >= 0) return "Choisissez un mot de passe différent de l'ancien.";
+        if (code == 422) return "Mot de passe refusé : " + e;
+        return "Changement du mot de passe impossible : " + e;
+    }
+}
 
 /// Une entreprise du cloud, telle que la renvoie mes_entreprises().
 [Serializable]
@@ -121,6 +176,46 @@ public static class SessionCloud
             if (_memoriser) Memoriser();
         }
         return Session.access_token;
+    }
+
+    // ── Étape 12 : mot de passe ────────────────────────────────────────────────
+
+    static CloudClient.Session _recuperation;   // code vérifié, en attente du nouveau mot de passe
+    static string _recuperationEmail;
+
+    /// Envoie le code. Null s'il est parti — ou si l'adresse n'a pas de compte : Supabase ne le dit pas.
+    public static async Task<string> DemanderCode(string email)
+    {
+        _recuperation = null;   // un nouveau code remplace l'ancien
+        var r = await CloudClient.DemanderCode(Url, Cle, (email ?? "").Trim());
+        return r.Ok ? null : RegleMotDePasse.MotifEnvoi(r.Code, r.Erreur);
+    }
+
+    /// Le code de l'e-mail, puis le nouveau mot de passe. Null si changé : la session est alors celle
+    /// du compte (décision du 23/10 : connecté(e) directement), gardée sur ce PC — sauf depuis le menu
+    /// Compte, où la connexion garde le choix fait à l'ouverture.
+    public static async Task<string> ChangerMotDePasse(string email, string code, string motDePasse)
+    {
+        email = (email ?? "").Trim();
+        // Un code ne sert qu'une fois : vérifié, sa session attend un mot de passe accepté (refusé s'il
+        // est identique à l'ancien), sans redemander de code.
+        if (_recuperation == null || _recuperationEmail != email.ToLowerInvariant() || _recuperation.ExpireLe < DateTime.Now)
+        {
+            var v = await CloudClient.VerifierCode(Url, Cle, email, RegleMotDePasse.Code(code));
+            var s = v.Ok ? CloudClient.LireSession(v.Corps) : null;
+            if (s == null) return v.Ok ? "Réponse du serveur illisible." : RegleMotDePasse.MotifCode(v.Code, v.Erreur);
+            _recuperation = s;
+            _recuperationEmail = email.ToLowerInvariant();
+        }
+        var r = await CloudClient.ChangerMotDePasse(Url, Cle, _recuperation.access_token, motDePasse ?? "");
+        if (!r.Ok) return RegleMotDePasse.MotifChangement(r.Code, r.Erreur);
+
+        bool garder = Session == null || _memoriser;
+        Session = _recuperation;
+        _recuperation = null;
+        _memoriser = garder;
+        if (garder) Memoriser();
+        return null;
     }
 
     /// Se déconnecter : oublie la session et efface le jeton gardé sur ce PC.

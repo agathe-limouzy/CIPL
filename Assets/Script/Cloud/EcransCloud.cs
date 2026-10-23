@@ -62,19 +62,34 @@ public static class EcransCloud
         return fin.Task;
     }
 
-    static void AfficherConnexion(Canvas canvas, TaskCompletionSource<bool> fin)
+    /// Un lien (texte bleu souligné, à gauche).
+    static Button Lien(Transform parent, string texte)
+    {
+        var b = UIFactory.Button(parent, texte, UITheme.Carte, UITheme.Primaire, 26, UITheme.Role.Aide, false);
+        var t = b.GetComponentInChildren<TMP_Text>(true);
+        t.alignment = TextAlignmentOptions.Left;
+        t.fontStyle = FontStyles.Underline;
+        return b;
+    }
+
+    static void AfficherConnexion(Canvas canvas, TaskCompletionSource<bool> fin, string emailAvant = null)
     {
         var (voile, carte) = Fenetre(canvas, "CIPL — Connexion", 420, true);
         var corps = UIFactory.VBox(carte.transform, 12, 18, 18, 16, 6, "Corps");
 
         var email = DepartPanel.Champ(corps.transform, "E-mail", "vous@entreprise.fr", 1f);
         email.contentType = TMP_InputField.ContentType.EmailAddress;
+        email.text = emailAvant ?? "";
         var mdp = DepartPanel.Champ(corps.transform, "Mot de passe", "", 1f);
         mdp.contentType = TMP_InputField.ContentType.Password;
         mdp.ForceLabelUpdate();
         var garder = UIFactory.Toggle(corps.transform, "Rester connecté(e) sur ce PC", true);
-        UIFactory.Text(corps.transform, "Mot de passe oublié : étape suivante.",
-                       UITheme.Role.Aide, UITheme.TexteSecondaire);
+        // Étape 12 : l'adresse saisie passe à la fenêtre du code, et en revient.
+        Lien(corps.transform, "Mot de passe oublié ?").onClick.AddListener(() =>
+        {
+            UnityEngine.Object.Destroy(voile.gameObject);
+            AfficherMotDePasse(canvas, email.text, false, e => AfficherConnexion(canvas, fin, e), () => fin.TrySetResult(true));
+        });
 
         var pied = Pied(carte.transform);
         // Étape 9b : un collègue invité crée ici son compte avec le code reçu par e-mail.
@@ -149,6 +164,89 @@ public static class EcransCloud
         }
         rejoindre.onClick.AddListener(Essayer);
         email.Select();
+    }
+
+    /// Étape 12 (maquette validée le 23/10) : l'adresse, un code par e-mail, puis le code et le nouveau
+    /// mot de passe dans la même fenêtre. `connecte` : depuis le menu Compte (adresse du compte, non
+    /// modifiable, fenêtre par-dessus l'application). `retour(adresse)` : « Retour » ; `reussi` : le mot
+    /// de passe est changé et la session ouverte. Un refus laisse la fenêtre telle quelle.
+    static void AfficherMotDePasse(Canvas canvas, string emailDepart, bool connecte, Action<string> retour, Action reussi)
+    {
+        var (voile, carte) = Fenetre(canvas, connecte ? "CIPL — Changer mon mot de passe" : "CIPL — Mot de passe oublié", 440, !connecte);
+        var corps = UIFactory.VBox(carte.transform, 12, 18, 18, 16, 6, "Corps");
+        var aide = UIFactory.Text(corps.transform, connecte ? "Un code vous sera envoyé à l'adresse de votre compte."
+                                                            : "Saisissez l'adresse de votre compte : un code vous sera envoyé par e-mail.",
+                                  UITheme.Role.Aide, UITheme.TexteSecondaire);
+        var email = DepartPanel.Champ(corps.transform, "E-mail", "vous@entreprise.fr", 1f);
+        email.contentType = TMP_InputField.ContentType.EmailAddress;
+        email.text = emailDepart ?? "";
+        email.interactable = !connecte;
+
+        // Second temps, montré une fois le code parti.
+        var code = DepartPanel.Champ(corps.transform, "Code reçu par e-mail", "123456", 1f);
+        code.contentType = TMP_InputField.ContentType.IntegerNumber;
+        var mdp = DepartPanel.Champ(corps.transform, $"Nouveau mot de passe ({RegleMotDePasse.Minimum} caractères minimum)", "", 1f);
+        mdp.contentType = TMP_InputField.ContentType.Password;
+        mdp.ForceLabelUpdate();
+        var mdp2 = DepartPanel.Champ(corps.transform, "Confirmer le mot de passe", "", 1f);
+        mdp2.contentType = TMP_InputField.ContentType.Password;
+        mdp2.ForceLabelUpdate();
+        var renvoyer = Lien(corps.transform, "Renvoyer le code");
+        var second = new[] { code.transform.parent.gameObject, mdp.transform.parent.gameObject, mdp2.transform.parent.gameObject, renvoyer.gameObject };
+        foreach (var g in second) g.SetActive(false);
+
+        var pied = Pied(carte.transform);
+        var retourBtn = Bouton(pied.transform, "Retour", false);
+        retourBtn.transform.SetAsFirstSibling();
+        retourBtn.onClick.AddListener(() => { UnityEngine.Object.Destroy(voile.gameObject); retour?.Invoke(email.text); });
+        var principal = Bouton(pied.transform, "Envoyer le code", true);
+        var libelle = principal.GetComponentInChildren<TMP_Text>(true);
+
+        bool envoye = false, enCours = false;
+        async Task<bool> Envoyer()
+        {
+            string refus = RegleMotDePasse.RefusAdresse(email.text) ?? await SessionCloud.DemanderCode(email.text);
+            if (refus != null) { ConfirmDialog.Erreur(refus); return false; }
+            aide.text = $"Si un compte existe pour {email.text.Trim()}, un code vient de partir. Il est valable 1 heure.";
+            return true;
+        }
+        async void Valider()
+        {
+            if (enCours) return;
+            enCours = true; principal.interactable = false;
+            try
+            {
+                if (!envoye)
+                {
+                    if (!await Envoyer()) return;
+                    envoye = true;
+                    email.interactable = false;
+                    foreach (var g in second) g.SetActive(true);
+                    libelle.text = "Changer le mot de passe";
+                    UIFactory.LargeurDuTexte(principal);
+                    code.Select();
+                    return;
+                }
+                string refus = RegleMotDePasse.RefusCode(code.text, mdp.text, mdp2.text)
+                               ?? await SessionCloud.ChangerMotDePasse(email.text, code.text, mdp.text);
+                if (refus != null) { ConfirmDialog.Erreur(refus); return; }
+                mdp.text = mdp2.text = "";
+                UnityEngine.Object.Destroy(voile.gameObject);
+                UndoToast.Instance?.ShowInfo("Mot de passe changé.");
+                reussi?.Invoke();
+            }
+            finally { enCours = false; if (principal != null) principal.interactable = true; }
+        }
+        principal.onClick.AddListener(Valider);
+        renvoyer.onClick.AddListener(async () =>
+        {
+            if (enCours) return;
+            enCours = true;
+            try { if (await Envoyer()) UndoToast.Instance?.ShowInfo("Un nouveau code vient de partir."); }
+            finally { enCours = false; }
+        });
+        mdp2.onSubmit.AddListener(_ => Valider());
+        if (connecte || !string.IsNullOrWhiteSpace(email.text)) principal.Select(); else email.Select();
     }
 
     // ── 2. Choisir l'entreprise ────────────────────────────────────────────────
@@ -329,6 +427,12 @@ public static class EcransCloud
         UIFactory.Text(corps.transform, SessionCloud.Entreprise != null
             ? $"{SessionCloud.Entreprise.nom} · {(SessionCloud.Entreprise.EstAdmin ? "Admin" : "Utilisateur")}" : "",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
+        // Étape 12 : la même fenêtre que « Mot de passe oublié », sur l'adresse du compte.
+        Lien(corps.transform, "Changer mon mot de passe").onClick.AddListener(() =>
+        {
+            UnityEngine.Object.Destroy(voile.gameObject);
+            AfficherMotDePasse(canvas, SessionCloud.Session?.user?.email, true, null, null);
+        });
 
         var pied = UIFactory.HBox(carte.transform, 8, false, "Pied");
         pied.padding = new RectOffset(18, 18, 6, 16);

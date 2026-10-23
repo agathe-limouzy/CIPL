@@ -332,8 +332,9 @@ Ordre proposé : chaque étape ne dépend que des précédentes. Taille : S (une
 - **Testable** : le contenu et l'arborescence de l'export ; l'export puis l'import local redonnent les mêmes fiches.
 - **À décider** : admin seulement (décision « Sauvegardes » du 09/10) ou tout le monde quand l'abonnement a expiré (§13) ? Dossier ou fichier ZIP unique ? L'import d'un export (pour changer de compte, ou revenir hors cloud) fait-il partie de l'étape ?
 
-### 12. Mot de passe oublié
-- **Contenu** : sur l'écran de connexion, « Mot de passe oublié » : l'adresse → un **code à 6 chiffres** par e-mail (code de récupération de Supabase, sans lien à ouvrir, comme les invitations), puis le code et le nouveau mot de passe dans CIPL.
+### 12. Mot de passe oublié — **faite le 23/10, à tester en Play** (parcours AN)
+- **Décisions du 23/10** : maquette validée telle quelle (lien sur l'écran de connexion ; l'adresse, puis le code et le nouveau mot de passe dans la même fenêtre) ; connecté(e) directement une fois changé ; la même fenêtre dans le menu Compte, « Changer mon mot de passe ». Modèle « Reset Password » de Supabase en français avec `{{ .Token }}`. Fait : `RegleMotDePasse` (testée), `SessionCloud.DemanderCode` / `ChangerMotDePasse`, `EcransCloud.AfficherMotDePasse`.
+- **Contenu prévu** : sur l'écran de connexion, « Mot de passe oublié » : l'adresse → un **code à 6 chiffres** par e-mail (code de récupération de Supabase, sans lien à ouvrir, comme les invitations), puis le code et le nouveau mot de passe dans CIPL.
 - **Testable** : la vérification du formulaire (code, mot de passe ×2), sur le modèle de `VerifierRejoindre`.
 - **À décider** : les e-mails de Supabase partent par défaut d'un service limité à quelques envois par heure ; pour la vente, un serveur d'envoi dédié (étape 17). Le modèle d'e-mail de Supabase est à personnaliser en français.
 
