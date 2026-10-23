@@ -20,6 +20,12 @@ public class UndoToast : MonoBehaviour
     private void Awake()
     {
         Instance = this;
+        txtMessage.parseCtrlCharacters = false;   // « \r » d'un chemin Windows : voir ConfirmDialog
+        // Un message long passe à la ligne et la bande grandit vers le haut (retour du 23/10 : il
+        // sortait de la bande, largeur et hauteur fixes).
+        txtMessage.textWrappingMode = TextWrappingModes.Normal;
+        if (!TryGetComponent(out ContentSizeFitter fit)) fit = gameObject.AddComponent<ContentSizeFitter>();
+        fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         gameObject.SetActive(false);
     }
 

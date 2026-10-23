@@ -370,12 +370,12 @@ public class FacturationSuiviTests
     {
         // Les enregistrements antérieurs au correctif ne doivent pas être perdus.
         var ancien = new FactureEtat { key = Key, pdfPath = @"D:\Ancien\CIPL_Saves\facture.pdf" };
-        Assert.That(FacturationSuivi.CheminPdf(ancien), Is.EqualTo(@"D:\Ancien\CIPL_Saves\facture.pdf"));
+        Assert.That(FacturationSuivi.CheminPdf(ancien, "Rivoli", "Sephora"), Is.EqualTo(@"D:\Ancien\CIPL_Saves\facture.pdf"));
     }
 
     [Test]
     public void CheminPdf_tolere_une_ligne_nulle()
     {
-        Assert.That(FacturationSuivi.CheminPdf(null), Is.Null);
+        Assert.That(FacturationSuivi.CheminPdf(null, "Rivoli", "Sephora"), Is.Null);
     }
 }

@@ -753,7 +753,7 @@ public class FactureRegulPanel : MonoBehaviour
     {
         SaveFromUI(markPaid: false);
         var d = BuildData();
-        string png = Path.Combine(FactureDir(), "apercu_regul.png");
+        string png = DossiersDonnees.Apercu("apercu_regul.png");
         // Hauteur 2 pages : la facture (p.1) + le détail des charges (p.2).
         if (FacturePdfService.GenerateRegulPreviewPng(d, png, out string err, 794, 2246)) ShowPreview(png);
         else ConfirmDialog.Erreur("Échec de l'aperçu : " + err);
@@ -814,7 +814,7 @@ public class FactureRegulPanel : MonoBehaviour
 
         string liste = listes.Count == 1 && listes[0] == "" ? "" : "-" + string.Join("+", listes.Select(ListesCharges.Nom));
         string fname = Sanitize($"RegularisationdeCharge-{_nom.text}-{year}{liste}{emission.SuffixeFichier}") + ".pdf";
-        string pdf = Path.Combine(dir, fname);
+        string pdf = DossiersDonnees.CheminFacture(dir, fname);
 
         if (!FacturePdfService.GenerateRegulPdf(d, pdf, out string err))
         {
@@ -822,7 +822,7 @@ public class FactureRegulPanel : MonoBehaviour
             return;
         }
 
-        string png = Path.Combine(dir, "apercu_regul.png");
+        string png = DossiersDonnees.Apercu("apercu_regul.png");
         if (FacturePdfService.GenerateRegulPreviewPng(d, png, out _, 794, 2246)) ShowPreview(png);
 
         // Pas d'envoi demandé : on enregistre, rien ne part. Le bouton s'appelant

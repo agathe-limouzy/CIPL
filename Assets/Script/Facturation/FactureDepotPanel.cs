@@ -759,7 +759,7 @@ public class FactureDepotPanel : MonoBehaviour
     void GenererApercu()
     {
         SaveFromUI();
-        string png = Path.Combine(FactureDir(), "apercu_depot.png");
+        string png = DossiersDonnees.Apercu("apercu_depot.png");
         string err = DocumentAEmettre().Apercu(png);
         if (err == null) ShowPreview(png);
         else ConfirmDialog.Erreur("Échec de l'aperçu : " + err);
@@ -812,7 +812,7 @@ public class FactureDepotPanel : MonoBehaviour
         bool correction = emission.Correction;
 
         string fname = Sanitize($"{(_sortie ? "DecompteSortie" : _initial ? "DepotGarantie" : "RevisionDepot")}-{_nom.text}-{year}{emission.SuffixeFichier}") + ".pdf";
-        string pdf = Path.Combine(dir, fname);
+        string pdf = DossiersDonnees.CheminFacture(dir, fname);
 
         string err = d.Pdf(pdf);
         if (err != null)
@@ -821,7 +821,7 @@ public class FactureDepotPanel : MonoBehaviour
             return;
         }
 
-        string png = Path.Combine(dir, "apercu_depot.png");
+        string png = DossiersDonnees.Apercu("apercu_depot.png");
         if (d.Apercu(png) == null) ShowPreview(png);
 
         // Pas d'envoi demandé : on enregistre, rien ne part. Le bouton s'appelant

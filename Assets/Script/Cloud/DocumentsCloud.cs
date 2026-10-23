@@ -16,12 +16,15 @@ public static class SyncDocuments
     public class Distant { public string Empreinte; public bool Supprime; }
     public enum Action { Noter, Envoyer, Telecharger, SupprimerServeur, Corbeille }
 
+    /// Les dossiers partagés de l'entreprise ; « Anciens documents » depuis le rangement du 23/10.
+    public static readonly string[] Racines = { "Batiment", "Logo", DossiersDonnees.ANCIENS };
+
     /// Partagé (décision du 14/10) : tout ce qui est rangé dans Batiment/ et Logo/, sauf les
     /// fichiers temporaires d'Office et les réceptions en cours.
     public static bool Partage(string chemin)
     {
         if (string.IsNullOrEmpty(chemin)) return false;
-        if (!chemin.StartsWith("Batiment/", StringComparison.Ordinal) && !chemin.StartsWith("Logo/", StringComparison.Ordinal)) return false;
+        if (!Racines.Any(r => chemin.StartsWith(r + "/", StringComparison.Ordinal))) return false;
         string nom = chemin.Substring(chemin.LastIndexOf('/') + 1);
         return !nom.StartsWith("~$", StringComparison.Ordinal)
             && !nom.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
@@ -44,6 +47,7 @@ public static class SyncDocuments
                                                             IDictionary<string, Distant> serveur, bool telecharger)
     {
         var plan = new List<(Action, string)>();
+        bool premier = manifeste.Count == 0;   // premier passage de ce dossier (import, dossier neuf)
         foreach (var c in local.Keys.Union(manifeste.Keys).Union(serveur.Keys).OrderBy(c => c, StringComparer.Ordinal))
         {
             local.TryGetValue(c, out var l);
@@ -54,8 +58,10 @@ public static class SyncDocuments
             {
                 if (vivant && s.Empreinte == l) { if (m != l) plan.Add((Action.Noter, c)); }
                 // Jamais synchronisé sur ce PC alors que le cloud le connaît : le cloud fait foi (la
-                // copie d'ici part en corbeille avant d'être remplacée).
-                else if (m == null && s != null) { if (telecharger) plan.Add((vivant ? Action.Telecharger : Action.Corbeille, c)); }
+                // copie d'ici part en corbeille avant d'être remplacée). Sauf un chemin supprimé au
+                // cloud où ce PC, déjà synchronisé, a remis un fichier depuis : il repart (renommage
+                // revenu à un ancien nom, rivoli → rivoli2 → rivoli ; retour du 23/10, il partait en corbeille).
+                else if (m == null && s != null && (vivant || premier)) { if (telecharger) plan.Add((vivant ? Action.Telecharger : Action.Corbeille, c)); }
                 else if (l != m) plan.Add((Action.Envoyer, c));                                // nouveau ou modifié ici : il l'emporte
                 else if (vivant) { if (telecharger) plan.Add((Action.Telecharger, c)); }       // modifié par un collègue
                 else if (s != null) { if (telecharger) plan.Add((Action.Corbeille, c)); }      // supprimé par un collègue
@@ -69,6 +75,33 @@ public static class SyncDocuments
             else if (vivant && telecharger) plan.Add((Action.Telecharger, c));                 // ajouté par un collègue
         }
         return plan;
+    }
+
+    /// Rangement du 23/10 : la table `documents` lue comme si tout était déjà rangé. Une ligne
+    /// vivante à l'ancien chemin est vue à son nouvel emplacement s'il est libre ; `aRanger`
+    /// (ancien → nouveau) dit ce qu'il faut corriger au serveur après le passage : créer la ligne
+    /// au nouveau chemin (nouveau non null), puis supprimer l'ancienne. Une ligne ancienne déjà
+    /// supprimée est oubliée.
+    public static Dictionary<string, Distant> Redresser(IEnumerable<(string chemin, string empreinte, bool supprime)> lignes,
+                                                        out List<(string ancien, string nouveau)> aRanger)
+    {
+        var serveur = new Dictionary<string, Distant>();
+        var anciens = new List<(string c, string n, string e)>();
+        foreach (var (c, e, supprime) in lignes)
+        {
+            if (string.IsNullOrEmpty(c)) continue;
+            string n = DossiersDonnees.Nouveau(c);
+            if (n == c) { if (!serveur.ContainsKey(c)) serveur[c] = new Distant { Empreinte = e, Supprime = supprime }; }
+            else if (!supprime) anciens.Add((c, n, e));
+        }
+        aRanger = new List<(string, string)>();
+        foreach (var (c, n, e) in anciens)
+        {
+            bool libre = n != null && !serveur.ContainsKey(n);
+            if (libre) serveur[n] = new Distant { Empreinte = e };
+            aRanger.Add((c, libre ? n : null));
+        }
+        return serveur;
     }
 }
 
@@ -84,7 +117,7 @@ public static class DocumentsCloud
 
     [Serializable] class Fichier { public string c, e, m; public long t, d; }   // chemin, empreinte ici, empreinte au dernier passage, taille, date
     [Serializable] class Etat { public List<Fichier> fichiers = new List<Fichier>(); }
-    [Serializable] class LigneDoc { public string chemin, empreinte, supprime_le; }
+    [Serializable] class LigneDoc { public string chemin, empreinte, supprime_le; public long taille; }
     [Serializable] class LignesDoc { public LigneDoc[] items; }
     [Serializable] class ParamsDoc { public string p_entreprise, p_chemin; public long p_taille; public string p_empreinte, p_session; }
     [Serializable] class ParamsSuppr { public string p_entreprise, p_chemin, p_session; }
@@ -105,7 +138,57 @@ public static class DocumentsCloud
         _telecharger = telecharger;
         _premier = true;
         _etat = Charger();
+        Ranger(racine, _etat);
         _prochain = 0;   // premier passage tout de suite (il envoie les documents déjà sur ce PC)
+    }
+
+    /// Rangement du 23/10, avant le premier passage : les documents de ce PC rangés à l'ancienne
+    /// rejoignent leur place, et l'état du dernier passage les suit (sinon ils seraient vus
+    /// supprimés ici puis renvoyés).
+    static void Ranger(string racine, Etat etat)
+    {
+        var faits = RangerIci(racine);
+        if (faits.Count == 0) return;
+        foreach (var f in etat.fichiers)
+            if (f?.c != null && faits.TryGetValue(f.c, out var n) && n != null) f.c = n;
+        Sauver(etat);
+        Debug.Log($"[Documents] Rangement : {faits.Count} document(s) déplacé(s) ou retiré(s)");
+    }
+
+    /// Déplace chaque fichier de Batiment/ rangé à l'ancienne (DossiersDonnees.Nouveau), retire les
+    /// aperçus ; renvoie ancien → nouveau (null : retiré). Un fichier différent déjà à l'arrivée
+    /// n'est pas écrasé : l'ancien devient « x (2) ». Un fichier bloqué attend l'ouverture suivante.
+    public static Dictionary<string, string> RangerIci(string racine)
+    {
+        var faits = new Dictionary<string, string>();
+        string bat = Path.Combine(racine, "Batiment");
+        if (!Directory.Exists(bat)) return faits;
+        foreach (var abs in Directory.GetFiles(bat, "*", SearchOption.AllDirectories))
+        {
+            string c = abs.Substring(racine.Length).TrimStart('\\', '/').Replace('\\', '/');
+            string n = DossiersDonnees.Nouveau(c);
+            if (n == c) continue;
+            try
+            {
+                if (n == null) { File.Delete(abs); faits[c] = null; continue; }
+                string dest = Absolu(racine, n);
+                Directory.CreateDirectory(Path.GetDirectoryName(dest));
+                if (File.Exists(dest) && SyncDocuments.Empreinte(File.ReadAllBytes(dest)) == SyncDocuments.Empreinte(File.ReadAllBytes(abs)))
+                    File.Delete(abs);   // déjà à sa place (recopié par un Drive)
+                else
+                {
+                    string nom = Path.GetFileNameWithoutExtension(dest), ext = Path.GetExtension(dest), dir = Path.GetDirectoryName(dest);
+                    for (int i = 2; File.Exists(dest); i++) dest = Path.Combine(dir, $"{nom} ({i}){ext}");
+                    File.Move(abs, dest);
+                }
+                faits[c] = Relatif(racine, dest);
+            }
+            catch (Exception e) { Debug.LogWarning($"[Documents] Rangement de {c} : {e.Message}"); }
+        }
+        if (faits.Count > 0)   // dossiers vidés, les plus profonds d'abord
+            foreach (var d in Directory.GetDirectories(bat, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length))
+                try { if (!Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); } catch (Exception) { }
+        return faits;
     }
 
     public static void Arreter()
@@ -139,13 +222,13 @@ public static class DocumentsCloud
             var locaux = await Task.Run(() => Lister(racine, connus));
             // ponytail: une seule lecture, plafonnée à 1 000 lignes par Supabase ; paginer au-delà.
             var r = await CloudClient.Table("GET", SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "documents",
-                                            $"entreprise_id=eq.{ent}&select=chemin,empreinte,supprime_le");
+                                            $"entreprise_id=eq.{ent}&select=chemin,empreinte,supprime_le,taille");
             if (generation != _generation) return;
             if (!r.Ok) { Debug.LogWarning("[Documents] Lecture de la liste : " + r.Erreur); return; }
-            var serveur = (JsonUtility.FromJson<LignesDoc>("{\"items\":" + r.Corps + "}")?.items ?? new LigneDoc[0])
-                .Where(l => !string.IsNullOrEmpty(l.chemin))
-                .GroupBy(l => l.chemin).ToDictionary(g => g.Key, g => new SyncDocuments.Distant
-                    { Empreinte = g.First().empreinte, Supprime = !string.IsNullOrEmpty(g.First().supprime_le) });
+            var lignes = (JsonUtility.FromJson<LignesDoc>("{\"items\":" + r.Corps + "}")?.items ?? new LigneDoc[0])
+                .Where(l => !string.IsNullOrEmpty(l.chemin)).ToList();
+            var serveur = SyncDocuments.Redresser(lignes.Select(l => (l.chemin, l.empreinte, !string.IsNullOrEmpty(l.supprime_le))),
+                                                  out var aRanger);
 
             var plan = SyncDocuments.Plan(locaux.ToDictionary(kv => kv.Key, kv => kv.Value.e),
                                           connus.Where(kv => kv.Value.m != null).ToDictionary(kv => kv.Key, kv => kv.Value.m),
@@ -180,6 +263,16 @@ public static class DocumentsCloud
                         break;
                 }
             }
+            // Lignes à l'ancien chemin (rangement du 23/10) : la nouvelle, puis l'ancienne supprimée.
+            // Le contenu est déjà stocké sous son empreinte : rien n'est renvoyé.
+            foreach (var (ancien, nouveau) in aRanger)
+            {
+                if (generation != _generation) return;
+                var ligne = lignes.First(x => x.chemin == ancien);
+                if (nouveau == null || await Documenter(ent, nouveau, ligne.taille, ligne.empreinte)) await SupprimerServeur(ent, ancien);
+            }
+            if (aRanger.Count > 0) Debug.Log($"[Documents] Rangement au cloud : {aRanger.Count} chemin(s) corrigé(s)");
+
             // Disparus d'ici et plus rien à transmettre (supprimés au serveur, ou inconnus) : oubliés.
             foreach (var c in etat.Where(kv => kv.Value.e == null && (!serveur.TryGetValue(kv.Key, out var s) || s.Supprime))
                                   .Select(kv => kv.Key).ToList())
@@ -254,14 +347,15 @@ public static class DocumentsCloud
     static Dictionary<string, Fichier> Lister(string racine, Dictionary<string, Fichier> connus)
     {
         var res = new Dictionary<string, Fichier>();
-        foreach (var sous in new[] { "Batiment", "Logo" })
+        foreach (var sous in SyncDocuments.Racines)
         {
             string dossier = Path.Combine(racine, sous);
             if (!Directory.Exists(dossier)) continue;
             foreach (var abs in Directory.EnumerateFiles(dossier, "*", SearchOption.AllDirectories))
             {
                 string c = abs.Substring(racine.Length).TrimStart('\\', '/').Replace('\\', '/');
-                if (!SyncDocuments.Partage(c)) continue;
+                // Encore rangé à l'ancienne (bloqué à l'ouverture) : ignoré jusqu'au rangement suivant.
+                if (!SyncDocuments.Partage(c) || DossiersDonnees.Nouveau(c) != c) continue;
                 try
                 {
                     var fi = new FileInfo(abs);
@@ -302,12 +396,16 @@ public static class DocumentsCloud
         try { contenu = File.ReadAllBytes(Absolu(racine, chemin)); }
         catch (Exception) { return false; }
         if (SyncDocuments.Empreinte(contenu) != empreinte) return false;   // modifié depuis la liste : au prochain passage
-        string jeton = await SessionCloud.Jeton();
-        var r = await CloudClient.DeposerFichier(SessionCloud.Url, SessionCloud.Cle, jeton, Compartiment, ent + "/" + empreinte, contenu);
+        var r = await CloudClient.DeposerFichier(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), Compartiment, ent + "/" + empreinte, contenu);
         if (!r.Ok) { Debug.LogWarning($"[Documents] Envoi de {chemin} : {r.Erreur}"); return false; }
-        var d = await CloudClient.Fonction(SessionCloud.Url, SessionCloud.Cle, jeton, "documenter", new ParamsDoc
+        return await Documenter(ent, chemin, contenu.LongLength, empreinte);
+    }
+
+    static async Task<bool> Documenter(string ent, string chemin, long taille, string empreinte)
+    {
+        var d = await CloudClient.Fonction(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "documenter", new ParamsDoc
         {
-            p_entreprise = ent, p_chemin = chemin, p_taille = contenu.LongLength, p_empreinte = empreinte, p_session = EcritureCloud.SessionId,
+            p_entreprise = ent, p_chemin = chemin, p_taille = taille, p_empreinte = empreinte, p_session = EcritureCloud.SessionId,
         });
         if (!d.Ok) Debug.LogWarning($"[Documents] Index de {chemin} : {d.Erreur}");
         return d.Ok;

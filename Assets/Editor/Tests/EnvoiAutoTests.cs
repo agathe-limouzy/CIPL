@@ -24,7 +24,7 @@ public class EnvoiAutoTests
         };
 
     static bool Part(Locataire loc, FactureEtat rec, bool pdfPresent = true)
-        => FactureEnvoiAuto.DoitPartir(loc, rec, DateTime.Today, _ => pdfPresent, out _, out _);
+        => FactureEnvoiAuto.DoitPartir("Test", loc, rec, DateTime.Today, _ => pdfPresent, out _, out _);
 
     // ── Ce qui part ─────────────────────────────────────────────────────────────
 

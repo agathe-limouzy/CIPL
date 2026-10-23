@@ -415,11 +415,12 @@ public static class FacturationSuivi
         return emise && !string.IsNullOrEmpty(rec.pdfPath);
     }
 
-    /// Chemin exploitable du PDF d'une ligne : résout le chemin stocké, relatif
-    /// aujourd'hui, absolu pour les enregistrements antérieurs. À utiliser PARTOUT
-    /// plutôt que `f.pdfPath` brut — celui-ci n'est plus ouvrable tel quel.
-    public static string CheminPdf(FactureEtat f)
-        => f == null ? null : DossiersDonnees.VersAbsolu(f.pdfPath);
+    /// Chemin exploitable du PDF d'une ligne, cherché sous les noms ACTUELS du bâtiment et
+    /// du locataire (un renommage déplace le dossier sans réécrire `pdfPath`), à défaut le
+    /// chemin stocké (relatif aujourd'hui, absolu pour les enregistrements antérieurs).
+    /// À utiliser PARTOUT plutôt que `f.pdfPath` brut — celui-ci n'est plus ouvrable tel quel.
+    public static string CheminPdf(FactureEtat f, string nomBatiment, string nomLocataire)
+        => f == null ? null : DossiersDonnees.PdfFacture(nomBatiment, nomLocataire, f.pdfPath);
 
     // Correction d'une facture déjà émise : incrémente le compteur, suffixe le libellé
     // « corrigée(X) », met à jour le PDF/montant. Conserve le numéro ET le statut : un

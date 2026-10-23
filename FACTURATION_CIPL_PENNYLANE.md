@@ -211,10 +211,14 @@ Source : schéma de parcours fourni par Agathe. Trois modules qui se greffent su
     batiment_{id}.json       -> données (nommées par ID : stable aux renommages)
   Batiment/
     <Nom du bâtiment>/       -> nommé par le NOM, pas par l'ID
-      Photos/                -> photos copiées ici, référencées en chemin RELATIF
-      Charge/                -> PDF des charges
+      _Infos du bâtiment/    -> rangement du 2026-10-23
+        Photos/              -> photos copiées ici, référencées en chemin RELATIF
+        Factures de charges/ -> PDF des charges
+        Objectifs/
       <Nom du locataire>/
-        Facture/             -> factures générées
+        Factures/<sorte>/    -> factures générées : Loyers, Régularisations, Refacturations,
+                                Avoirs, Dépôt de garantie, Quittances (d'après le début du nom)
+        Bail/, Objectifs/
   Backups/                   -> sauvegardes de démarrage + avant_migration_<date>
 ```
 Le token Mapbox vit à part, au niveau application : `<persistentDataPath>/cipl_app_secrets.dat`.
@@ -611,6 +615,8 @@ Règles centralisées dans `ListesCharges.cs` et `ChargeBatiment.cs` — ne pas 
 - **Loyer** (`FactureLoyerPanel`), **Régularisation** (`FactureRegulPanel`, détail charges page 2), **Refacturation** (`FactureRefacPanel`), **Révision dépôt** (`FactureDepotPanel`, sans TVA). Aperçu PDF zoomable (`FacturePreviewViewer`).
 - **Période proposée par défaut = période EN COURS (2026-09-14)** : à l'ouverture de « Facturer le loyer » sans facture mémorisée, le menu « Période » proposait **toujours la 1re** période (`DefaultPeriodeIndex` renvoyait `1` sauf en mensuel) → on facturait le « 1er trimestre » par erreur. Corrigé : défaut = **période courante d'après la date du jour** (mensuel → mois ; trimestriel → `(mois-1)/3+1`, ex. sept → 3e trim ; bi-annuel → semestre ; annuel → 1). ⚠ L'**échéance** affichée pour une facture émise reste sa **date de paiement mémorisée** (date de facture + 30 j), distincte de la date calendaire de la période — d'où un « 1er trim » émis pouvant apparaître à une échéance d'octobre dans le Suivi.
 - **Entête auto par type de facture (2026-09-15)** : à l'ouverture d'un panneau sans entête mémorisée (`FactureInfo.enteteId` vide), le menu « Entête » se **positionne automatiquement** sur l'entête correspondant au type — Loyer/Regul/Refac/Depot. `ReglageService.EnteteChoisi(stored, type)` = mémorisée si présente, sinon `EnteteDefautId(type)` qui prend la **1re entête dont le NOM contient un mot-clé du type** (loyer ; régularisation/charges ; refacturation ; dépôt/garantie), à défaut la 1re de la liste. Appliqué dans les 4 `Facture*Panel` (arg de sélection du `_enteteDD.SetOptions`). Une entête modifiée à la main reste mémorisée (`enteteId` sauvé) et l'emporte.
+- **Rangement des PDF (2026-10-23)** : chaque facture dans `Factures/<sorte>` du locataire (`DossiersDonnees.CheminFacture`, d'après le début du nom : `Loyer-`, `RegularisationdeCharge-`, `Refacturation-`, `Avoir-`, `DepotGarantie-` / `RevisionDepot-` / `DecompteSortie-`, `Quittance-`) ; l'aperçu (`apercu*.png`) dans le dossier temporaire du PC, plus dans le dossier du locataire. Les `pdfPath` déjà enregistrés ne sont pas réécrits : `VersAbsolu` les mène au nouvel emplacement. Voir PARCOURS AL.
+- **Après un renommage (2026-10-23)** : renommer un bâtiment ou un locataire (ou une cession) déplace son dossier, mais `FactureEtat.pdfPath` et `ChargeBatiment.pdfPath` ne sont pas réécrits (sur le cloud, chaque locataire a son verrou). Le PDF est cherché à la lecture sous les noms ACTUELS : `FacturationSuivi.CheminPdf(f, bâtiment, locataire)` → `DossiersDonnees.PdfFacture`, et `PdfCharge` pour les charges ; le chemin enregistré ne sert que s'il est seul à mener au fichier, et un PDF absent partout est demandé au cloud sous les noms actuels. Bouton « PDF » du suivi, envoi automatique au lancement et formulaire de charge passent tous par là. Voir PARCOURS AM.
 - **Lieu d'émission (2026-09-29)** : la ville devant la date (« St Marcel Paulel, le … ») n'est plus écrite dans les gabarits (`{{LIEU}}`) : Réglages → Textes fixes → « Lieu d'émission » (`ReglageData.lieuEmission`), réglage d'entreprise seul, vide = « St Marcel Paulel ». Facture, régul et quittance. Tests `LieuEmissionTests`.
 - **Provisions par liste sur le loyer (2026-09-29)** : avec des listes de charges spécifiques, une ligne de provision par liste (« Provision pour charges — <liste> ») sur le panneau, le PDF et le dépôt Pennylane ; inchangé sans liste. Voir §13 « Charges : état par locataire… ».
 - **Option « montant mensuel à régler »** (2026-09-12, loyer non mensuel) : toggle dans « Options & envoi » (masqué si périodicité mensuelle, coché par défaut) → ajoute sous la mention TVA la ligne « Suite à votre demande, le montant mensuel à régler est de : X € » avec **X = TTC de la période ÷ nombre de mois de la période** (trim ÷3, semestre ÷6, an ÷12 ; `12 / NbPeriodes`). Placeholder `{{MENSUEL_ROW}}` du template, champs `Data.afficherMensuel/montantMensuel`, mémorisé `FactureInfo.ajouterMensuel`.

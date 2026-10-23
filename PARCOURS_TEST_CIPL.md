@@ -871,3 +871,85 @@ Préalable :
   - « + » sur Patrimoine → « Ajouter 1 licence à Patrimoine de agathe Limouzy : +15 € HT par mois, au prorata dès aujourd'hui. » → Ajouter → « Patrimoine de agathe Limouzy : 2 licences. » ; Stripe : licence × 4 ; Utilisateurs : « Patrimoine … · 1 / 2 licences ».
   - « - » sur Démo CIPL (2 utilisées, 2 licences) → refus au centre « Démo CIPL : 2 licences utilisées. Retirez quelqu'un de Démo CIPL… ».
 - [x] **AJ6 · Nettoyage** : Stripe › annuler l'abonnement immédiatement ; `delete from public.entreprises where nom like 'Patrimoine de%';` ; ligne d'AG7 (`statut = 'actif'`) ; remettre Démo CIPL à 3 licences : `update public.entreprises set licences_max = 3 where id = '1e8848f1-23a4-470e-89a9-afce3e9b2aa4';`
+
+## AK. Étape 11 : exporter toutes les données (23/10) *(validé en Play le 23/10, AK1 à AK6)*
+
+Décisions du 23/10 : l'admin exporte toujours, les autres seulement quand l'abonnement a expiré ; l'export porte sur l'entreprise ouverte ; c'est un dossier rangé comme une entreprise CIPL sur le PC ; les documents absents de ce PC sont téléchargés depuis le cloud. Ni les mots de passe ni la clé Pennylane ne partent.
+
+Préalable :
+- Rien à passer dans Supabase.
+- Le build **reconstruit** (pour AK5). Démo CIPL en « actif » (ligne d'AG7).
+- Un dossier vide pour les essais, par exemple `C:\Users\agath\Documents\Exports CIPL`.
+- **AL1 et AL4 faits avant** (rangement des documents, retour du 23/10).
+
+- [x] **AK1 · La section** : éditeur (Agathe, admin), Réglages › Documents → en bas, « Exporter toutes les données » : « Une copie complète de Démo CIPL sur ce PC : bâtiments, locataires, factures, baux, photos, charges, Réglages (sans les mots de passe ni la clé Pennylane), rangés comme dans CIPL. », et le bouton « Exporter… ». Pas encore de « Dernier export » ni de « Ouvrir le dossier ».
+- [x] **AK2 · Exporter** : « Exporter… » → fenêtre « Où ranger l'export ? » → choisir `Exports CIPL`.
+  - Pendant l'export : « Export de Démo CIPL en cours… », puis « Documents : 12 / 48 » qui avance.
+  - À la fin : message en bas « Export terminé : 4 bâtiments, 17 locataires, 48 documents. » (vos nombres) ; la section affiche « Dernier export : 23/10/2026 à 16 h 42 — … », le chemin du dossier, et « Ouvrir le dossier » à côté de « Exporter… ».
+  - Annuler la fenêtre de choix du dossier → rien ne se passe.
+- [x] **AK3 · Le contenu** (rangé comme en AL, retour du 23/10) : « Ouvrir le dossier » → l'Explorateur ouvre `Démo CIPL — export du 23-10-2026`, avec :
+  - `Batiment\rivoli\_Infos du bâtiment\rivoli.json` : la fiche du bâtiment ; `Batiment\rivoli\Sephora\Sephora.json` : celle du locataire, à côté de `Bail\` et `Factures\Loyers\`… ; plus de dossier `batiments\` ;
+  - `reglage.json` à la racine : les Réglages (textes fixes, listes de charges…) ; y chercher le mot de passe SMTP ou la clé Pennylane → absents ;
+  - `Anciens documents\` et `Logo\` ;
+  - pas de `pennylane_secrets.dat`, ni de corbeille, ni d'`apercu.png`.
+  - Ouvrir une facture de l'export : elle s'ouvre.
+- [x] **AK4 · Un deuxième export le même jour** : « Exporter… » → même dossier → `Démo CIPL — export du 23-10-2026 (2)` ; le premier est intact. « Dernier export » montre le nouveau.
+  - Supprimer à la main les deux dossiers d'export, rouvrir Réglages › Documents → « Dernier export » reste, mais « Ouvrir le dossier » a disparu.
+- [x] **AK5 · Les autres utilisateurs** : build (Odile), Réglages › Documents → **pas** de section « Exporter toutes les données ».
+  - Passer en `statut = 'essai', fin_essai = current_date - 1` (ligne du préalable d'AG), rouvrir Démo CIPL dans le build (Compte › Changer d'entreprise) → bandeau corail d'expiration ; Réglages › Documents → la section est là ; « Exporter… » marche comme en AK2, même en lecture seule.
+  - Dans l'éditeur, relancer le Play : la section reste visible pour l'admin.
+  - Repasser en `statut = 'actif'` (ligne d'AG7).
+- [x] **AK6 · Hors ligne** : éditeur en Play, Réglages fermé → dis-moi « coupe » → rouvrir Réglages › Documents → « Export indisponible hors ligne : il relit toutes les fiches sur le cloud. », sans « Exporter… » (« Ouvrir le dossier » reste si le dossier existe). « rétablis » → en rouvrant Réglages, « Exporter… » revient.
+
+## AL. Rangement des documents (23/10, à faire avant AK) *(validé en Play le 23/10, AL1 à AL7)*
+
+Retour du 23/10 sur l'export : dossiers à identifiant mêlés aux dossiers nommés, documents du bâtiment mêlés aux locataires. Décisions du 23/10 :
+- dans chaque bâtiment, `_Infos du bâtiment\` (Factures de charges, Objectifs, Photos), à côté des dossiers des locataires ;
+- dans chaque locataire, `Bail\`, `Objectifs\` et `Factures\`, avec six sous-dossiers : Avoirs, Dépôt de garantie, Loyers, Quittances, Refacturations, Régularisations ;
+- les dossiers à identifiant (bâtiments disparus) vont dans `Anciens documents\`, à côté de `Batiment\` ;
+- les aperçus (`apercu*.png`) ne sont plus des documents.
+
+Le rangement se fait seul, à l'ouverture de l'entreprise, sur chaque PC ; le cloud est corrigé au premier passage. Les fiches ne sont pas réécrites : un chemin enregistré avant mène au nouvel emplacement.
+
+Préalable :
+- Sauvegarde déjà faite (88 fichiers) : `C:\Users\agath\Documents\CIPL\Sauvegardes avant rangement 2026-10-23` (éditeur et build).
+- Le build **reconstruit avant de l'ouvrir** : un ancien build verrait les documents rangés comme supprimés par un collègue, les mettrait dans sa corbeille et les retéléchargerait (rien de perdu, mais du désordre).
+
+- [x] **AL1 · Rangement à l'ouverture** (éditeur) : lancer le Play.
+  - Console : « [Documents] Rangement : 41 document(s) déplacé(s) ou retiré(s) », puis « [Documents] Rangement au cloud : … chemin(s) corrigé(s) ».
+  - Pas de message « … supprimé(s) par un collègue, rangé(s) dans la corbeille ».
+  - `Test_Save2\Démo CIPL\Batiment\rivoli\Sephora\` : `Bail\` (AOUT 2025, Avril 2025), `Factures\Loyers\` (8 loyers, dont les 5 corrigées), `Factures\Régularisations\` (RegularisationdeCharge-Sephora-2025) ; plus de `Facture\`, plus d'`apercu*.png` nulle part.
+  - Même chose pour Auterive (Orge&Houblon, Tereva), Le Hangar (TEST Pennylane — Volteo : Loyers et Régularisations), Starbucks Coffee (Loyers).
+  - `Test_Save2\Démo CIPL\Anciens documents\` : trois dossiers à identifiant (Loyer-Sephora 1er et 3e trimestre, Boulangerie Paul, Optic 2000, Basic-Fit) ; il n'en reste aucun dans `Batiment\`.
+  - Les dossiers qui ne contenaient que des aperçus ont disparu (Parc Tertiaire Sud, Boutique Orange, nouveau locataire) : ils reviendront avec leur premier document.
+- [x] **AL2 · Les anciennes factures s'ouvrent** : rivoli › Sephora › suivi de facturation → ouvrir « Loyer 3e Trimestre 2026 » et la régularisation 2025 → les PDF s'ouvrent (depuis `Factures\Loyers\` et `Factures\Régularisations\`).
+- [x] **AL3 · Les nouveaux documents** :
+  - Sephora › Facturer le loyer › « Générer facture » (aperçu seul) → l'aperçu s'affiche, et aucun `apercu.png` n'apparaît dans le dossier de Sephora.
+  - rivoli › ajouter une photo → `rivoli\_Infos du bâtiment\Photos\`.
+  - rivoli › Charges › ajouter une charge avec un PDF → `rivoli\_Infos du bâtiment\Factures de charges\`.
+  - Un objectif du bâtiment rivoli avec un document → `rivoli\_Infos du bâtiment\Objectifs\`.
+  - Une quittance de Sephora (si un loyer est payé) → `Sephora\Factures\Quittances\`.
+- [x] **AL4 · Le build** (Odile, reconstruit) : ouvrir Démo CIPL → `C:\Users\agath\Documents\CIPL\Démo CIPL\` rangé de la même façon. `Player.log` : « [Documents] Rangement : … » et aucun document mis en corbeille.
+- [x] **AL5 · Un message avec un chemin** (défaut du 23/10 : texte superposé) : ouvrir une facture de Sephora dans le lecteur PDF et la laisser ouverte, puis renommer Sephora → refus au centre « Renommage impossible (Access to the path 'C:\Users\…\Batiment\rivoli…\Sephora' is denied.)… » écrit sur des lignes distinctes, sans rien de superposé (`\r` de `\rivoli` n'est plus un retour au début de la ligne). Fermer le PDF, renommer → passe.
+- [x] **AL6 · Un long message en bas** (défaut du 23/10 : il sortait de la bande) : renommer un locataire dans l'éditeur, puis attendre la synchronisation dans le build → « 1 document(s) reçu(s) de vos collègues, 14 supprimé(s) par un collègue, rangé(s) dans la corbeille. » sur deux lignes, dans la bande, qui grandit vers le haut. Un message court garde une seule ligne.
+- [x] **AL7 · Revenir à un ancien nom** (défaut du 23/10 : les documents partaient en corbeille partout) :
+  - Remise en place d'abord : lancer le Play de l'éditeur → Console « [Documents] 15 envoyé(s)… » environ (Sephora, Starbucks Coffee, Volteo) ; `Test_Save2\Démo CIPL\Batiment\rivoli\Sephora\` garde ses 11 documents (2 baux, 8 loyers, 1 régularisation). Build (reconstruit) : il les reçoit, et `Volteo2\` part dans sa corbeille.
+  - Puis : renommer rivoli en « rivoli2 », attendre 5 s, le renommer en « rivoli », attendre 5 s → dans l'éditeur, Sephora garde ses documents (rien dans `corbeille_documents\`) ; chez Odile, « PDF » sur « Loyer 3e Trimestre 2026 » de Sephora → il s'ouvre.
+  - Renommer puis arrêter le Play aussitôt (3 s plus tard) → chez Odile, la facture s'ouvre sous le nouveau nom.
+
+## AM. PDF de factures et de charges après un renommage (23/10) *(validé en Play le 23/10, AM1 à AM5)*
+
+Défaut trouvé pendant le rangement (AL) : renommer un bâtiment ou un locataire, ou céder un bail, déplace son dossier, mais les fiches gardent l'ancien chemin des PDF de factures et de charges, qui ne s'ouvraient plus et ne partaient plus à l'envoi automatique. Décision du 23/10 : les fiches ne sont pas réécrites (sur le cloud, chaque locataire a son verrou) ; le PDF est cherché sous les noms actuels.
+
+Préalable :
+- AL fait (documents rangés).
+- DemoCIPL, bâtiment « TEST Nouveautés » : un locataire avec au moins une facture émise (bouton « PDF » dans son suivi) et une charge du bâtiment avec un PDF joint. Noter les noms d'origine, remis en AM5.
+- Pour AM4 : une facture de ce locataire « En attente d'envoi » dont la date d'envoi est atteinte, une adresse email de test sur la fiche, l'email configuré (Réglages), et « Plus tard » pas encore choisi aujourd'hui.
+  - Constaté le 23/10 : dans Démo CIPL, Sephora n'a aucune facture en attente d'envoi (rien n'est proposé). La seule utilisable est « TEST Pennylane — Volteo » (Le Hangar), « Loyer Septembre 2026 », à qui il ne manque que l'adresse : faire AM4 avec elle (adresse `agathelimouzy@gmail.com` sur sa fiche, puis renommer Volteo ou Le Hangar). La Console dit pourquoi rien n'est proposé : « [EnvoiAuto] Aucune facture à envoyer aujourd'hui. En attente — … ».
+
+- [x] **AM1 · Renommer le bâtiment** : fiche du bâtiment › Modifier › « TEST Nouveautés 2 » › Sauvegarder → dans l'Explorateur, `Batiment\TEST Nouveautés 2\` a remplacé l'ancien dossier.
+  - Fiche du locataire › suivi de facturation › « PDF » sur la facture émise → le PDF s'ouvre (depuis `TEST Nouveautés 2\<locataire>\Factures\…`).
+- [x] **AM2 · Renommer le locataire** : fiche du locataire › Modifier › ajouter « 2 » au nom › Sauvegarder → son dossier est renommé ; « PDF » sur la même facture → elle s'ouvre encore.
+- [x] **AM3 · La charge** : bâtiment › Charges › ouvrir la charge qui a un PDF → son nom de fichier est affiché (pas « Aucun fichier ») ; « Enregistrer » sans rien changer → aucun `…_1.pdf` n'apparaît dans `TEST Nouveautés 2\_Infos du bâtiment\Factures de charges\`.
+- [x] **AM4 · L'envoi automatique** : relancer le Play → la fenêtre « Une facture est à envoyer » propose la facture du locataire renommé (et non « [EnvoiAuto] … PDF introuvable » dans la console) ; « Tout envoyer » → l'email part avec le PDF joint, la ligne passe « Envoyé ».
+- [x] **AM5 · Sur le cloud** (Démo CIPL sur le cloud) : dans le build (Odile), une fois la synchronisation passée, « PDF » sur la même facture → elle s'ouvre (lue sous le nouveau nom, pas de « introuvable »). Puis remettre les noms d'origine du bâtiment et du locataire, et vérifier qu'une facture s'ouvre toujours.

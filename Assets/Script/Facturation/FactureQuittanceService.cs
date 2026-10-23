@@ -36,7 +36,7 @@ public static class FactureQuittanceService
         // Batiment/<GUID>/<GUID>/Facture : introuvable a cote des factures.
         string dir = DossiersDonnees.DossierFactures(
             fiche.batimentPrefabOrigin.getName(), loc.Name);
-        string pdf = Path.Combine(dir, Sanitize($"Quittance-{loc.Name}-{periode}") + ".pdf");
+        string pdf = DossiersDonnees.CheminFacture(dir, Sanitize($"Quittance-{loc.Name}-{periode}") + ".pdf");
 
         if (!FacturePdfService.GenerateQuittancePdf(d, pdf, out string err))
         {

@@ -20,6 +20,9 @@ public class ConfirmDialog : MonoBehaviour
     private void Awake()
     {
         Instance = this;
+        // Un chemin Windows (« …\Batiment\rivoli\… ») n'est pas une séquence d'échappement : lu comme
+        // « \r », il renvoyait la fin du message au début de la ligne, par-dessus (retour du 23/10).
+        txtTitre.parseCtrlCharacters = txtMessage.parseCtrlCharacters = false;
         _confirmLabel = btnConfirmer != null ? btnConfirmer.GetComponentInChildren<TMP_Text>(true) : null;
         _defaultConfirmLabel = _confirmLabel != null ? _confirmLabel.text : "Confirmer";
         gameObject.SetActive(false);

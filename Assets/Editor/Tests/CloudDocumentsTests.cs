@@ -37,6 +37,42 @@ public class CloudDocumentsTests
     }
 
     [Test]
+    public void Un_fichier_remis_a_un_chemin_supprime_au_cloud_repart()
+    {
+        // Retour du 23/10 : rivoli → rivoli2 → rivoli. Ce PC a supprimé rivoli/… au cloud au premier
+        // renommage ; au second, le fichier y revient : il repart au lieu d'aller en corbeille.
+        const string logo = "Logo/logo.png";
+        var serveur = S("e1", supprime: true);
+        serveur[logo] = new SyncDocuments.Distant { Empreinte = "e9" };
+        Assert.That(Plan(D((F, "e1"), (logo, "e9")), D((logo, "e9")), serveur), Is.EqualTo(new[] { (A.Envoyer, F) }));
+        Assert.That(Plan(D((F, "e1"), (logo, "e9")), D((logo, "e9")), serveur, telecharger: false), Is.EqualTo(new[] { (A.Envoyer, F) }), "Drive partagé");
+        // Premier passage de ce dossier (rien de synchronisé ici) : une copie périmée, le cloud fait foi.
+        Assert.That(Plan(D((F, "e1")), D(), S("e1", supprime: true)), Is.EqualTo(new[] { (A.Corbeille, F) }));
+    }
+
+    [Test]
+    public void Les_lignes_a_l_ancien_chemin_sont_vues_a_leur_nouvelle_place()
+    {
+        // Rangement du 23/10 : la table est lue rangée ; le serveur est corrigé après le passage.
+        const string ancien = "Batiment/rivoli/Volteo/Facture/Loyer-Volteo-Octobre 2026.pdf",
+                     nouveau = "Batiment/rivoli/Volteo/Factures/Loyers/Loyer-Volteo-Octobre 2026.pdf",
+                     apercu = "Batiment/rivoli/Volteo/Facture/apercu.png",
+                     photo = "Batiment/rivoli/Photos/a.jpg", photoRangee = "Batiment/rivoli/_Infos du bâtiment/Photos/a.jpg";
+        var s = SyncDocuments.Redresser(new[]
+        {
+            (ancien, "e1", false), (apercu, "e2", false), (photo, "e3", false), (photoRangee, "e4", false),
+            ("Batiment/rivoli/Charge/vieux.pdf", "e5", true), ("Logo/logo.png", "e6", false),
+        }, out var aRanger);
+
+        Assert.That(s.Keys, Is.EquivalentTo(new[] { nouveau, photoRangee, "Logo/logo.png" }));
+        Assert.That(s[nouveau].Empreinte, Is.EqualTo("e1"));
+        Assert.That(s[photoRangee].Empreinte, Is.EqualTo("e4"), "la ligne déjà rangée l'emporte");
+        Assert.That(aRanger, Is.EquivalentTo(new[] { (ancien, nouveau), (apercu, (string)null), (photo, (string)null) }),
+                    "créer la ligne rangée si elle manque, puis supprimer l'ancienne ; l'ancienne déjà supprimée est oubliée");
+        Assert.That(SyncDocuments.Partage("Anciens documents/1eecbbbc-e00f-4dbf-b451-0acf0a6b83c9/Facture/x.pdf"), Is.True);
+    }
+
+    [Test]
     public void L_empreinte_est_le_sha256_du_contenu()
     {
         Assert.That(SyncDocuments.Empreinte(Encoding.UTF8.GetBytes("abc")),

@@ -54,9 +54,11 @@ public static class SaveIO
     }
 
     /// Ouvre le dossier de sauvegarde dans l'explorateur système.
-    public static void OpenFolder()
+    public static void OpenFolder() => OpenFolder(SaveLocationService.GetSaveRoot());
+
+    /// Étape 11 : aussi pour le dossier d'un export.
+    public static void OpenFolder(string path)
     {
-        string path = SaveLocationService.GetSaveRoot();
         if (!Directory.Exists(path)) return;
 #if UNITY_EDITOR || UNITY_STANDALONE_WIN
         System.Diagnostics.Process.Start("explorer.exe", path.Replace('/', '\\'));

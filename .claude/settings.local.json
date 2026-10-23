@@ -144,7 +144,12 @@
       "WebFetch(domain:www.invopop.com)",
       "WebFetch(domain:docs.invopop.com)",
       "WebFetch(domain:digitiz.fr)",
-      "Bash(grep -v \"^\\\\s*$\")"
+      "Bash(grep -v \"^\\\\s*$\")",
+      "Bash(awk -F/ '{print $2}')",
+      "Bash(python -I -c ' *)",
+      "Bash(PYTHONIOENCODING=utf-8 python -I -)",
+      "Bash(awk -F: '$1>186000')",
+      "Bash(grep -c '\\\\\\\\r')"
     ]
   },
   "enableAllProjectMcpServers": true,

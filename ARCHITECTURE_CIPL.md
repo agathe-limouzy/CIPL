@@ -73,7 +73,7 @@ Le code se lit en cinq couches. La règle qui les relie est simple : **l'interfa
 | `General/` | Accueil, alertes « À traiter », couleurs et icônes de toute l'app, garde de fermeture | `GeneralMenuPanel`, `HomeAlert` (+ `HomeAlertCollector`), `AppSectionColors`, `FermetureGuard` |
 | `Menu/` | Barre d'onglets (bâtiments, locataires) | `MenuManager`, `MenuItem` |
 | `Save/` | Emplacement des données, dossiers, écriture sûre, sauvegardes, entreprises, migration, transfert | `SaveLocationService`, `DossiersDonnees`, `AtomicFile`, `BackupService`, `EntrepriseService`, `TransfertEntreprise` |
-| `Cloud/` | Multi-utilisateur (Supabase), branché au démarrage : connexion, choix de l'entreprise et import (étapes 2-3), enregistrement par fiche avec version et verrous (étape 4), en direct et présence (étape 5), documents partagés (étape 6), réservation de l'envoi des factures (étape 7), hors ligne (étape 8), Réglages partagés, utilisateurs et abonnement (étape 9). Côté serveur : `Serveur/*.sql`, passés dans l'ordre (essai, etape2, etape4, etape4b, etape5, etape6, etape6b, etape7, etape9a, etape9b, etape9c1, etape9c2, etape10, etape10b), et les fonctions serveur Stripe `Serveur/fonctions/*.ts` (Supabase Edge Functions). Voir `CONCEPTION_MULTIUTILISATEUR.md` | `CloudClient`, `SessionCloud`, `DemarrageCloud`, `DonneesCloud`, `ImportLocal`, `EcritureCloud`, `DirectCloud`, `TempsReel`, `EcransCloud`, `RegleVerrou`, `Dpapi`, `LienCipl`, `DocumentsCloud`, `DossierEntreprise`, `HorsLigne`, `CopieLocale`, `ReglagesCloud`, `UtilisateursCloud`, `SectionUtilisateurs`, `RegleAbonnement`, `AbonnementCloud`, `SectionAbonnement` |
+| `Cloud/` | Multi-utilisateur (Supabase), branché au démarrage : connexion, choix de l'entreprise et import (étapes 2-3), enregistrement par fiche avec version et verrous (étape 4), en direct et présence (étape 5), documents partagés (étape 6), réservation de l'envoi des factures (étape 7), hors ligne (étape 8), Réglages partagés, utilisateurs et abonnement (étape 9), export de toutes les données (étape 11). Côté serveur : `Serveur/*.sql`, passés dans l'ordre (essai, etape2, etape4, etape4b, etape5, etape6, etape6b, etape7, etape9a, etape9b, etape9c1, etape9c2, etape10, etape10b), et les fonctions serveur Stripe `Serveur/fonctions/*.ts` (Supabase Edge Functions). Voir `CONCEPTION_MULTIUTILISATEUR.md` | `CloudClient`, `SessionCloud`, `DemarrageCloud`, `DonneesCloud`, `ImportLocal`, `EcritureCloud`, `DirectCloud`, `TempsReel`, `EcransCloud`, `RegleVerrou`, `Dpapi`, `LienCipl`, `DocumentsCloud`, `DossierEntreprise`, `HorsLigne`, `CopieLocale`, `ReglagesCloud`, `UtilisateursCloud`, `SectionUtilisateurs`, `RegleAbonnement`, `AbonnementCloud`, `SectionAbonnement`, `RegleExport`, `ExportCloud`, `SectionExport` |
 | `Travaux/`, `Achat/` | Investissements, travaux, tableaux de rentabilité | `RentabiliteGlobaleController`, `TravauxController`, `InvestissementListPanel` |
 | `Objectif/` | Objectifs (par bâtiment, locataire, et global) | `ObjectiveManager`, `GlobalObjectivesSection` |
 | `Maps/` | Carte, géocodage, tuiles, vignettes | `MapController`, `GeoCodingService`, `MapThumbnailService` |
@@ -147,11 +147,16 @@ Chacune de ces règles a coûté un défaut réel (voir `REVUE_CODE_CIPL.md`).
 │   └─ batiment_<id>.json                 ← un bâtiment et tous ses locataires
 ├─ Batiment/                              ← documents, rangés par NOM (lisible dans l'explorateur)
 │   └─ <Nom du bâtiment>/
-│       ├─ Photos/
-│       ├─ Charge/                        ← PDF des factures de charges
+│       ├─ _Infos du bâtiment/            ← rangement du 23/10
+│       │   ├─ Factures de charges/       ← PDF des factures de charges
+│       │   ├─ Objectifs/
+│       │   └─ Photos/
 │       └─ <Nom du locataire>/
-│           ├─ Facture/                   ← PDF émis
-│           └─ Bail/                      ← bail et avenants (copiés)
+│           ├─ Bail/                      ← bail et avenants (copiés)
+│           ├─ Factures/                  ← PDF émis : Avoirs, Dépôt de garantie, Loyers,
+│           │                               Quittances, Refacturations, Régularisations
+│           └─ Objectifs/
+├─ Anciens documents/                     ← dossiers à identifiant d'avant le nommage par nom
 ├─ Backups/<date_heure>/                  ← copie au démarrage, gardée 30 jours
 ├─ corbeille_batiments/, corbeille_photos/
 └─ .migration_dossiers_v1                 ← marqueur de la migration GUID → noms
@@ -160,7 +165,7 @@ Chacune de ces règles a coûté un défaut réel (voir `REVUE_CODE_CIPL.md`).
 ### 5.2 Les pièces
 
 - **`SaveLocationService`** : racine active (`PlayerPrefs`), repli sur `persistentDataPath`. Une racine enregistrée mais introuvable (disque débranché) est **signalée**, pas remplacée en silence.
-- **`DossiersDonnees`** : chemins de tous les documents, conversion d'un nom en nom de dossier valide (caractères interdits, noms réservés Windows, 60 caractères au plus), chemins **relatifs** stockés (`VersRelatif` / `VersAbsolu`). Les noms étant des dossiers, ils doivent être uniques : deux bâtiments homonymes sont refusés, et deux locataires homonymes seulement dans le même bâtiment.
+- **`DossiersDonnees`** : chemins de tous les documents, conversion d'un nom en nom de dossier valide (caractères interdits, noms réservés Windows, 60 caractères au plus), chemins **relatifs** stockés (`VersRelatif` / `VersAbsolu`). `Nouveau` dit où va un document rangé avant le 23/10 : `VersAbsolu` s'en sert pour les chemins déjà enregistrés, `DocumentsCloud.RangerIci` pour déplacer les fichiers à l'ouverture. Les noms étant des dossiers, ils doivent être uniques : deux bâtiments homonymes sont refusés, et deux locataires homonymes seulement dans le même bâtiment.
 - **`AtomicFile.WriteAllText`** : écriture dans un `.tmp` puis bascule par `File.Replace`, l'ancienne version passant en `.bak`. Renvoie `false` en cas d'échec : l'appelant doit le dire, jamais afficher « sauvegardé ».
 - **`BatimentManager`** :
   - `LoadAll` charge chaque JSON isolément : un fichier tronqué est signalé sans bloquer les autres ;

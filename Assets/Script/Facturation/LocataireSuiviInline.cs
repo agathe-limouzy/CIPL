@@ -356,7 +356,7 @@ public class LocataireSuiviInline : MonoBehaviour
     {
         var a = new List<(string libelle, Action onClick)>();
         if (FacturationSuivi.EstGrisee(etat)) return a;   // reprise, franchise, hors bail : rien à faire
-        string pdfAbs = FacturationSuivi.CheminPdf(l);
+        string pdfAbs = FacturationSuivi.CheminPdf(l, _fiche.batimentPrefabOrigin.getName(), _loc.Name);
         // Sur le cloud, une facture émise ailleurs peut ne pas être encore arrivée ici (Drive) :
         // elle est lue depuis le cloud à l'ouverture (étape 6b).
         bool genere = !string.IsNullOrEmpty(pdfAbs) && (File.Exists(pdfAbs) || SessionCloud.Active);

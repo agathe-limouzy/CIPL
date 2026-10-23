@@ -137,6 +137,7 @@ public static class UIFactory
     {
         var rt = Rect("Text", parent);
         var t = rt.gameObject.AddComponent<TextMeshProUGUI>();
+        t.parseCtrlCharacters = false;   // « \r » d'un chemin Windows : voir ConfirmDialog
         t.text = text; t.fontSize = size; t.enableAutoSizing = false;
         t.color = color ?? UITheme.TextePrincipal;
         t.fontStyle = bold ? FontStyles.Bold : FontStyles.Normal;

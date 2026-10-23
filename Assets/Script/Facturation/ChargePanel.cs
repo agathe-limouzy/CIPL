@@ -78,7 +78,7 @@ public class ChargePanel : MonoBehaviour
         _isNew = existing == null;
         _edit = existing != null ? Clone(existing) : new ChargeBatiment { dateISO = DateTime.Today.ToString("yyyy-MM-dd") };
         _fType = string.IsNullOrEmpty(_edit.typeRatio) ? "Surface" : _edit.typeRatio;
-        _fPdf = DossiersDonnees.VersAbsolu(_edit.pdfPath);
+        _fPdf = DossiersDonnees.PdfCharge(_bp.getName(), _edit.pdfPath);
         _fLoc.Clear(); _fRatio.Clear();
 
         var root = (FindObjectOfType<Canvas>()?.rootCanvas.transform) ?? transform;
@@ -361,8 +361,10 @@ public class ChargePanel : MonoBehaviour
 
         // Copie du PDF dans le dossier de sauvegarde (comme le bail / les photos).
         // Comparaison entre chemins ABSOLUS : _edit.pdfPath est desormais relatif,
-        // le comparer tel quel aurait recopie le PDF a chaque enregistrement.
-        if (!string.IsNullOrEmpty(_fPdf) && _fPdf != DossiersDonnees.VersAbsolu(_edit.pdfPath)
+        // le comparer tel quel aurait recopie le PDF a chaque enregistrement. Meme
+        // resolution qu'a l'ouverture (PdfCharge) : apres un renommage, elle seule
+        // retrouve le PDF, et une autre recopierait le meme fichier en « x_1.pdf ».
+        if (!string.IsNullOrEmpty(_fPdf) && _fPdf != DossiersDonnees.PdfCharge(_bp.getName(), _edit.pdfPath)
             && File.Exists(_fPdf))
             _edit.pdfPath = DossiersDonnees.VersRelatif(CopyPdf(_fPdf));
         else if (string.IsNullOrEmpty(_fPdf))

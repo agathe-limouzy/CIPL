@@ -411,7 +411,7 @@ public class FactureLoyerPanel : MonoBehaviour
     {
         SaveFromUI();
         var d = BuildData();
-        string png = Path.Combine(FactureDir(), "apercu.png");
+        string png = DossiersDonnees.Apercu("apercu.png");
         if (FacturePdfService.GeneratePreviewPng(d, png, out string err)) ShowPreview(png);
         else ConfirmDialog.Erreur("Échec de l'aperçu : " + err);
     }
@@ -437,7 +437,7 @@ public class FactureLoyerPanel : MonoBehaviour
 
         string dir = FactureDir();
         string fname = Sanitize($"Loyer-{_nom.text}-{d.subtitle}{emission.SuffixeFichier}") + ".pdf";
-        string pdf = Path.Combine(dir, fname);
+        string pdf = DossiersDonnees.CheminFacture(dir, fname);
 
         if (!FacturePdfService.GeneratePdf(d, pdf, out string err))
         {
@@ -446,7 +446,7 @@ public class FactureLoyerPanel : MonoBehaviour
         }
 
         // Aperçu à jour dans l'appli à partir du même rendu.
-        string png = Path.Combine(dir, "apercu.png");
+        string png = DossiersDonnees.Apercu("apercu.png");
         if (FacturePdfService.GeneratePreviewPng(d, png, out _)) ShowPreview(png);
 
         // Avant la date d'envoi, RIEN ne part : la facture est préparée et attendra

@@ -94,12 +94,12 @@ public static class DossierEntreprise
         return null;
     }
 
-    /// Recopie Batiment/, Logo/ et reglage.json d'un dossier vers un autre, sans rien écraser
+    /// Recopie Batiment/, Logo/, Anciens documents/ et reglage.json d'un dossier vers un autre, sans rien écraser
     /// (passage au Drive partagé, ou retour dans CIPL). Renvoie le nombre de documents recopiés.
     public static int Recopier(string depuis, string vers)
     {
         int n = 0;
-        foreach (var sous in new[] { "Batiment", "Logo" })
+        foreach (var sous in SyncDocuments.Racines)
         {
             string src = Path.Combine(depuis, sous);
             if (!Directory.Exists(src)) continue;

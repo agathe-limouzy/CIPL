@@ -39,6 +39,7 @@ public class ReglagePanel : MonoBehaviour
 
     SectionUtilisateurs _utilisateurs;   // étape 9b
     SectionAbonnement _abonnement;       // étape 9c1
+    SectionExport _export;               // étape 11
 
     // ── Onglets (étape 9c1, maquette validée le 19/10) ─────────────────────────
     public const string OEntreprise = "Entreprise", OFacturation = "Facturation", OUtilisateurs = "Utilisateurs",
@@ -70,6 +71,7 @@ public class ReglagePanel : MonoBehaviour
         // Utilisateurs (lu à l'ouverture de Réglages seulement). Chaque onglet se relit à l'affichage.
         if (onglet == OUtilisateurs) _utilisateurs?.Rafraichir();
         else if (onglet == OAbonnement) _abonnement?.Rafraichir();
+        else if (onglet == ODocuments) _export?.Rafraichir();
         if (_scroll != null) _scroll.verticalNormalizedPosition = 1f;   // chaque onglet s'ouvre en haut
     }
 
@@ -190,6 +192,7 @@ public class ReglagePanel : MonoBehaviour
         var documents = Page(content, ODocuments);   // ce qui se règle sur cet ordinateur
         BuildDocuments(documents);   // sur le cloud (étape 6b), à la place de l'emplacement de sauvegarde
         BuildSauvegarde(documents);
+        _export = new SectionExport(documents);   // étape 11 : « Exporter toutes les données »
         BuildAffichage(documents);
         BuildCartes(documents);
 
@@ -882,6 +885,7 @@ public class ReglagePanel : MonoBehaviour
         RefreshDocuments();
         _utilisateurs?.Rafraichir();
         _abonnement?.Rafraichir();
+        _export?.Rafraichir();
         ConstruireOnglets();
         bool admin = Admin;
         foreach (var go in _reserveAdmin) if (go != null) go.SetActive(admin);

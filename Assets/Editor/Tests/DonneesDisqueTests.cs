@@ -54,11 +54,81 @@ public class DonneesDisqueTests
     public void Factures_et_charges_sont_rangees_sous_le_NOM_du_batiment()
     {
         // Elles atterrissaient dans des dossiers nommés par GUID, invisibles pour qui
-        // ouvre le dossier lisible du bâtiment.
-        Assert.That(DossiersDonnees.DossierFactures("Immeuble Rivoli", "Dupont"),
-                    Does.Contain("Immeuble Rivoli").And.Contain("Dupont"));
-        Assert.That(DossiersDonnees.DossierCharges("Immeuble Rivoli"),
-                    Does.Contain("Immeuble Rivoli"));
+        // ouvre le dossier lisible du bâtiment. Rangement du 23/10 : ce qui concerne le bâtiment
+        // dans « _Infos du bâtiment », les factures du locataire par sorte.
+        string bat = DossiersDonnees.DossierBatiment("Immeuble Rivoli");
+        Assert.That(DossiersDonnees.DossierCharges("Immeuble Rivoli"), Is.EqualTo(Path.Combine(bat, "_Infos du bâtiment", "Factures de charges")));
+        Assert.That(DossiersDonnees.DossierPhotos("Immeuble Rivoli"), Is.EqualTo(Path.Combine(bat, "_Infos du bâtiment", "Photos")));
+        Assert.That(DossiersDonnees.DossierObjectifs("Immeuble Rivoli", null), Is.EqualTo(Path.Combine(bat, "_Infos du bâtiment", "Objectifs")));
+        Assert.That(DossiersDonnees.DossierObjectifs("Immeuble Rivoli", "Dupont"), Is.EqualTo(Path.Combine(bat, "Dupont", "Objectifs")));
+
+        string factures = DossiersDonnees.DossierFactures("Immeuble Rivoli", "Dupont");
+        Assert.That(factures, Is.EqualTo(Path.Combine(bat, "Dupont", "Factures")));
+        Assert.That(DossiersDonnees.CheminFacture(factures, "Loyer-Dupont-Octobre 2026.pdf"),
+                    Is.EqualTo(Path.Combine(factures, "Loyers", "Loyer-Dupont-Octobre 2026.pdf")));
+        foreach (var (f, sorte) in new[]
+        {
+            ("RegularisationdeCharge-Dupont-2025.pdf", "Régularisations"), ("Refacturation-eau-Dupont-10-2026.pdf", "Refacturations"),
+            ("Avoir-eau-Dupont-10-2026.pdf", "Avoirs"), ("DepotGarantie-Dupont-2026.pdf", "Dépôt de garantie"),
+            ("RevisionDepot-Dupont-2027.pdf", "Dépôt de garantie"), ("DecompteSortie-Dupont-2028.pdf", "Dépôt de garantie"),
+            ("Quittance-Dupont-Octobre 2026.pdf", "Quittances"), ("autre.pdf", ""),
+        })
+            Assert.That(DossiersDonnees.SousDossierFacture(f), Is.EqualTo(sorte), f);
+    }
+
+    [Test]
+    public void Un_document_range_a_l_ancienne_a_sa_nouvelle_place()
+    {
+        foreach (var (avant, apres) in new[]
+        {
+            ("Batiment/rivoli/Photos/facade.jpg", "Batiment/rivoli/_Infos du bâtiment/Photos/facade.jpg"),
+            ("Batiment/rivoli/Objectifs/devis.pdf", "Batiment/rivoli/_Infos du bâtiment/Objectifs/devis.pdf"),
+            ("Batiment/rivoli/Charge/eau.pdf", "Batiment/rivoli/_Infos du bâtiment/Factures de charges/eau.pdf"),
+            ("Batiment/rivoli/Sephora/Facture/Loyer-Sephora-Loyer 3e Trimestre 2026-corrigee1.pdf",
+             "Batiment/rivoli/Sephora/Factures/Loyers/Loyer-Sephora-Loyer 3e Trimestre 2026-corrigee1.pdf"),
+            ("Batiment/rivoli/Sephora/Facture/autre.pdf", "Batiment/rivoli/Sephora/Factures/autre.pdf"),
+            ("Batiment/1eecbbbc-e00f-4dbf-b451-0acf0a6b83c9/e6971e84-be55-4de8-8f44-b9a140975381/Facture/Loyer-x.pdf",
+             "Anciens documents/1eecbbbc-e00f-4dbf-b451-0acf0a6b83c9/e6971e84-be55-4de8-8f44-b9a140975381/Facture/Loyer-x.pdf"),
+            // déjà rangés, ou hors du rangement : inchangés
+            ("Batiment/rivoli/Sephora/Bail/bail.pdf", "Batiment/rivoli/Sephora/Bail/bail.pdf"),
+            ("Batiment/rivoli/Sephora/Objectifs/devis.pdf", "Batiment/rivoli/Sephora/Objectifs/devis.pdf"),
+            ("Logo/logo.png", "Logo/logo.png"),
+        })
+        {
+            Assert.That(DossiersDonnees.Nouveau(avant), Is.EqualTo(apres), avant);
+            Assert.That(DossiersDonnees.Nouveau(apres), Is.EqualTo(apres), "rangé une seule fois : " + apres);
+        }
+        Assert.That(DossiersDonnees.Nouveau("Batiment/rivoli/Sephora/Facture/apercu_regul.png"), Is.Null, "un aperçu n'est pas un document");
+        Assert.That(DossiersDonnees.Nouveau("Batiment/2c5459f5-7108-4995-9c1d-438714d1cefc/8f0aa55a-e71a-459f-bc77-40394e8ada2f/Facture/apercu.png"),
+                    Is.Null, "même dans un dossier à identifiant");
+    }
+
+    [Test]
+    public void Le_rangement_deplace_les_fichiers_et_les_chemins_enregistres_suivent()
+    {
+        string racine = SaveLocationService.GetSaveRoot();
+        string R(string c) => Path.Combine(racine, c.Replace('/', Path.DirectorySeparatorChar));
+        Fichier(R("Batiment/rivoli/Photos/facade.jpg"), "photo");
+        Fichier(R("Batiment/rivoli/Sephora/Facture/Loyer-Sephora-Octobre 2026.pdf"), "loyer");
+        Fichier(R("Batiment/rivoli/Sephora/Facture/apercu.png"), "aperçu");
+        Fichier(R("Batiment/rivoli/Sephora/Bail/bail.pdf"), "bail");
+        Fichier(R("Batiment/rivoli/Charge/eau.pdf"), "ancienne");
+        Fichier(R("Batiment/rivoli/_Infos du bâtiment/Factures de charges/eau.pdf"), "nouvelle");
+        // Pas encore rangé (PC ouvert hors ligne) : le chemin enregistré mène à l'ancien fichier.
+        Assert.That(File.ReadAllText(DossiersDonnees.VersAbsolu("Batiment/rivoli/Photos/facade.jpg")), Is.EqualTo("photo"));
+
+        var faits = DocumentsCloud.RangerIci(racine);
+
+        Assert.That(faits, Has.Count.EqualTo(4));
+        Assert.That(faits["Batiment/rivoli/Sephora/Facture/apercu.png"], Is.Null, "aperçu retiré");
+        Assert.That(File.ReadAllText(R("Batiment/rivoli/Sephora/Factures/Loyers/Loyer-Sephora-Octobre 2026.pdf")), Is.EqualTo("loyer"));
+        Assert.That(File.ReadAllText(R("Batiment/rivoli/_Infos du bâtiment/Factures de charges/eau (2).pdf")), Is.EqualTo("ancienne"), "rien n'est écrasé");
+        Assert.That(File.Exists(R("Batiment/rivoli/Sephora/Bail/bail.pdf")), Is.True);
+        Assert.That(Directory.Exists(R("Batiment/rivoli/Sephora/Facture")) || Directory.Exists(R("Batiment/rivoli/Photos")), Is.False, "dossiers vidés retirés");
+        // Les fiches ne sont pas réécrites : l'ancien chemin enregistré mène au nouvel emplacement.
+        Assert.That(File.ReadAllText(DossiersDonnees.VersAbsolu("Batiment/rivoli/Photos/facade.jpg")), Is.EqualTo("photo"));
+        Assert.That(File.ReadAllText(DossiersDonnees.VersAbsolu("Batiment/rivoli/Sephora/Facture/Loyer-Sephora-Octobre 2026.pdf")), Is.EqualTo("loyer"));
+        Assert.That(DocumentsCloud.RangerIci(racine), Is.Empty, "une seule fois");
     }
 
     // ── Chemins relatifs (G1) ───────────────────────────────────────────────
@@ -78,6 +148,40 @@ public class DonneesDisqueTests
     public void Un_chemin_absolu_herite_est_renvoye_tel_quel()
     {
         Assert.That(DossiersDonnees.VersAbsolu(@"D:\Ancien\photo.jpg"), Is.EqualTo(@"D:\Ancien\photo.jpg"));
+    }
+
+    // ── Renommage : les PDF de factures et de charges suivent ───────────────
+
+    [Test]
+    public void Apres_un_renommage_les_PDF_de_factures_et_de_charges_se_retrouvent()
+    {
+        // Un renommage déplace le dossier sans réécrire les fiches (sur le cloud, chaque locataire
+        // a son verrou) : le PDF se cherche sous les noms actuels.
+        string loyer = DossiersDonnees.CheminFacture(DossiersDonnees.DossierFactures("Rivoli", "Sephora"), "Loyer-Sephora-Octobre 2026.pdf");
+        string eau = Path.Combine(DossiersDonnees.DossierCharges("Rivoli"), "eau.pdf");
+        Fichier(loyer, "loyer"); Fichier(eau, "eau");
+        var rec = new FactureEtat { pdfPath = DossiersDonnees.VersRelatif(loyer) };
+        string charge = DossiersDonnees.VersRelatif(eau);
+
+        Assert.That(DossiersDonnees.RenommerBatiment("Rivoli", "Rivoli Neuf", out string err), Is.True, err);
+        Assert.That(DossiersDonnees.RenommerLocataire("Rivoli Neuf", "Sephora", "Sephora Paris", out err), Is.True, err);
+
+        Assert.That(File.Exists(DossiersDonnees.VersAbsolu(rec.pdfPath)), Is.False, "le chemin enregistré ne mène plus au fichier");
+        Assert.That(File.ReadAllText(FacturationSuivi.CheminPdf(rec, "Rivoli Neuf", "Sephora Paris")), Is.EqualTo("loyer"));
+        Assert.That(File.ReadAllText(DossiersDonnees.PdfCharge("Rivoli Neuf", charge)), Is.EqualTo("eau"));
+        // Enregistré avant le rangement du 23/10 (« Facture », sans sorte), puis renommé.
+        Assert.That(File.ReadAllText(DossiersDonnees.PdfFacture("Rivoli Neuf", "Sephora Paris",
+            "Batiment/Rivoli/Sephora/Facture/Loyer-Sephora-Octobre 2026.pdf")), Is.EqualTo("loyer"));
+
+        // Seul le chemin enregistré mène au fichier (dossier à identifiant rangé dans « Anciens documents ») : il sert.
+        const string bat = "1eecbbbc-e00f-4dbf-b451-0acf0a6b83c9", loc = "e6971e84-be55-4de8-8f44-b9a140975381";
+        Fichier(Path.Combine(SaveLocationService.GetSaveRoot(), "Anciens documents", bat, loc, "Facture", "Loyer-x.pdf"), "ancien");
+        Assert.That(File.ReadAllText(DossiersDonnees.PdfFacture("Rivoli Neuf", "Sephora Paris",
+            $"Batiment/{bat}/{loc}/Facture/Loyer-x.pdf")), Is.EqualTo("ancien"));
+
+        // Absent partout (cloud, Drive pas encore recopié) : le chemin sous les noms actuels.
+        Assert.That(DossiersDonnees.PdfFacture("Rivoli Neuf", "Sephora Paris", "Batiment/Rivoli/Sephora/Factures/Loyers/Loyer-Sephora-Novembre 2026.pdf"),
+                    Is.EqualTo(DossiersDonnees.CheminFacture(DossiersDonnees.DossierFactures("Rivoli Neuf", "Sephora Paris"), "Loyer-Sephora-Novembre 2026.pdf")));
     }
 
     // ── M5 : migration d'entreprise ─────────────────────────────────────────

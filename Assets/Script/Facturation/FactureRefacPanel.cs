@@ -624,7 +624,7 @@ public class FactureRefacPanel : MonoBehaviour
     {
         SaveFromUI();
         var d = BuildData();
-        string png = Path.Combine(FactureDir(), "apercu_refac.png");
+        string png = DossiersDonnees.Apercu("apercu_refac.png");
         if (FacturePdfService.GeneratePreviewPng(d, png, out string err)) ShowPreview(png);
         else ConfirmDialog.Erreur("Échec de l'aperçu : " + err);
     }
@@ -653,7 +653,7 @@ public class FactureRefacPanel : MonoBehaviour
         string quoi = sel.Count == 1 ? sel[0].c.nom : $"{sel.Count} charges";
         string type = d.ttc < -0.005f ? "Avoir" : "Refacturation";
         string fname = Sanitize($"{type}-{quoi}-{_nom.text}-{dt:MM-yyyy}{emission.SuffixeFichier}") + ".pdf";
-        string pdf = Path.Combine(dir, fname);
+        string pdf = DossiersDonnees.CheminFacture(dir, fname);
 
         if (!FacturePdfService.GeneratePdf(d, pdf, out string err))
         {
@@ -661,7 +661,7 @@ public class FactureRefacPanel : MonoBehaviour
             return;
         }
 
-        string png = Path.Combine(dir, "apercu_refac.png");
+        string png = DossiersDonnees.Apercu("apercu_refac.png");
         if (FacturePdfService.GeneratePreviewPng(d, png, out _)) ShowPreview(png);
 
         // Pas d'envoi demandé : on enregistre, rien ne part. Le bouton s'appelant

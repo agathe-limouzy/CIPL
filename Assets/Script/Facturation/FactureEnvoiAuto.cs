@@ -37,7 +37,7 @@ public class FactureEnvoiAuto : MonoBehaviour
     /// Une ligne part-elle ? Elle doit être **en attente d'envoi** (générée, jamais
     /// expédiée), avoir atteint sa date d'envoi, porter un PDF lisible et un
     /// destinataire. `pdfExiste` est injecté pour que la règle se teste sans disque.
-    public static bool DoitPartir(Locataire loc, FactureEtat rec, DateTime aujourdhui,
+    public static bool DoitPartir(string nomBatiment, Locataire loc, FactureEtat rec, DateTime aujourdhui,
                                   Func<string, bool> pdfExiste, out string destinataire,
                                   out string pdfAbsolu)
     {
@@ -54,7 +54,7 @@ public class FactureEnvoiAuto : MonoBehaviour
         if (!FacturationSuivi.TryEcheance(rec.echeanceISO, out var ech)) return false;
         if (aujourdhui.Date < ech.AddDays(-FacturationSuivi.EnvoiAvantJours).Date) return false;
 
-        pdfAbsolu = FacturationSuivi.CheminPdf(rec);
+        pdfAbsolu = FacturationSuivi.CheminPdf(rec, nomBatiment, loc.Name);
         if (string.IsNullOrEmpty(pdfAbsolu) || !(pdfExiste?.Invoke(pdfAbsolu) ?? false)) return false;
 
         destinataire = Destinataire(loc, rec.type);
@@ -83,7 +83,7 @@ public class FactureEnvoiAuto : MonoBehaviour
             {
                 if (loc?.facturesEtat == null) continue;
                 foreach (var rec in loc.facturesEtat)
-                    if (DoitPartir(loc, rec, aujourdhui, File.Exists, out string dest, out string pdf)
+                    if (DoitPartir(bp.getName(), loc, rec, aujourdhui, File.Exists, out string dest, out string pdf)
                         // Régularisation regroupée : plusieurs lignes, UN document — il ne part qu'une fois.
                         && !res.Exists(x => x.loc == loc && x.pdfAbsolu == pdf))
                         res.Add(new Candidate { bp = bp, loc = loc, rec = rec,
@@ -204,7 +204,7 @@ public class FactureEnvoiAuto : MonoBehaviour
                 {
                     if (rec.statut != "AttenteEnvoi") continue;
                     var envoi = FacturationSuivi.DateEnvoi(rec.type, rec.echeanceISO);
-                    string pdf = FacturationSuivi.CheminPdf(rec);
+                    string pdf = FacturationSuivi.CheminPdf(rec, bp.getName(), loc.Name);
                     string quoi = $"{loc.Name} / {rec.libelle}";
                     if (envoi.HasValue && DateTime.Today < envoi.Value)
                         raisons.Add($"{quoi} : à envoyer le {envoi.Value:dd/MM/yyyy}");
