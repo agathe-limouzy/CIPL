@@ -10,7 +10,9 @@ using UnityEngine;
 /// accessibles, retire quelqu'un. Une licence compte chaque membre et chaque invitation en cours.
 public static class UtilisateursCloud
 {
-    [Serializable] public class Entreprise { public string id, nom; }
+    /// Licences par entreprise (décision du 23/10) : celles qu'elle a, celles qu'elle utilise
+    /// (personnes qui y ont accès + invitations en cours qui la comprennent).
+    [Serializable] public class Entreprise { public string id, nom; public int licences_max, licences_utilisees; }
     [Serializable] public class Membre { public string user_id, nom, email, role; public string[] entreprises; public bool en_ligne, moi; }
     [Serializable] public class Invitation { public string id, email, role, expire_le; public string[] entreprises; }
     [Serializable] public class Annuaire { public int licences_max, licences_utilisees; public Entreprise[] entreprises; public Membre[] membres; public Invitation[] invitations; }
@@ -48,6 +50,18 @@ public static class UtilisateursCloud
 
     public static string Licences(int utilisees, int max) => $"{utilisees} / {max} licence{(max > 1 ? "s" : "")}";
 
+    /// « Démo CIPL · 2 / 3 licences », « SCI Rivoli · 1 / 1 licence · pleine ».
+    public static string PastilleLicences(Entreprise e) =>
+        $"{e.nom} · {Licences(e.licences_utilisees, e.licences_max)}" + (Libres(e) <= 0 ? " · pleine" : "");
+
+    public static int Libres(Entreprise e) => e.licences_max - e.licences_utilisees;
+
+    /// Case d'une entreprise dans « Inviter » ou « Entreprises de … » : ses licences libres.
+    public static string CaseEntreprise(Entreprise e, bool dejaDedans) =>
+        dejaDedans ? $"{e.nom} · sa licence"
+      : Libres(e) <= 0 ? $"{e.nom} · aucune licence libre"
+      : $"{e.nom} · {Libres(e)} licence{(Libres(e) > 1 ? "s" : "")} libre{(Libres(e) > 1 ? "s" : "")}";
+
     /// « J'ai reçu une invitation » : null si le formulaire est complet, sinon ce qu'il manque.
     public static string VerifierRejoindre(string email, string code, string mdp, string confirmation)
     {
@@ -63,7 +77,10 @@ public static class UtilisateursCloud
     {
         switch (r?.refus)
         {
-            case "licences": return $"{r.utilisees} licences sur {r.max} utilisées. Retirez quelqu'un ou augmentez l'abonnement.";
+            case "licences": return string.IsNullOrEmpty(r.nom)
+                ? $"{r.utilisees} licences sur {r.max} utilisées. Retirez quelqu'un ou augmentez l'abonnement."
+                : $"{r.nom} : {r.utilisees} licence{(r.utilisees > 1 ? "s" : "")} sur {r.max} utilisée{(r.utilisees > 1 ? "s" : "")}. " +
+                  $"Ajoutez une licence à {r.nom} (Réglages › Abonnement) ou retirez-y quelqu'un.";
             case "deja_membre": return "Cette personne fait déjà partie de l'entreprise.";
             case "email": return "Cette adresse e-mail n'est pas valide.";
             case "entreprises": return "Choisissez au moins une entreprise.";

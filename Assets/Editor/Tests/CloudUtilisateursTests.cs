@@ -38,6 +38,22 @@ public class CloudUtilisateursTests
                     Is.EqualTo("Serveur injoignable"));
     }
 
+    /// Licences par entreprise (décision du 23/10) : un compteur et des cases par entreprise, et un
+    /// refus qui nomme l'entreprise pleine.
+    [Test]
+    public void Licences_par_entreprise_compteur_cases_et_refus()
+    {
+        var demo = new UtilisateursCloud.Entreprise { nom = "Démo CIPL", licences_max = 3, licences_utilisees = 2 };
+        var rivoli = new UtilisateursCloud.Entreprise { nom = "SCI Rivoli", licences_max = 1, licences_utilisees = 1 };
+        Assert.That(UtilisateursCloud.PastilleLicences(demo), Is.EqualTo("Démo CIPL · 2 / 3 licences"));
+        Assert.That(UtilisateursCloud.PastilleLicences(rivoli), Is.EqualTo("SCI Rivoli · 1 / 1 licence · pleine"));
+        Assert.That(UtilisateursCloud.CaseEntreprise(demo, dejaDedans: false), Is.EqualTo("Démo CIPL · 1 licence libre"));
+        Assert.That(UtilisateursCloud.CaseEntreprise(rivoli, dejaDedans: false), Is.EqualTo("SCI Rivoli · aucune licence libre"));
+        Assert.That(UtilisateursCloud.CaseEntreprise(rivoli, dejaDedans: true), Is.EqualTo("SCI Rivoli · sa licence"));
+        Assert.That(UtilisateursCloud.Motif(new UtilisateursCloud.Resultat { refus = "licences", nom = "SCI Rivoli", utilisees = 1, max = 1 }),
+                    Is.EqualTo("SCI Rivoli : 1 licence sur 1 utilisée. Ajoutez une licence à SCI Rivoli (Réglages › Abonnement) ou retirez-y quelqu'un."));
+    }
+
     [Test]
     public void Le_formulaire_d_invitation_dit_ce_qui_manque()
     {

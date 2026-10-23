@@ -57,7 +57,13 @@ public class SectionUtilisateurs
     {
         var tete = UIFactory.HBox(_corps, 10, false, "Tete");
         UIFactory.LE(tete.gameObject, minH: 40);
-        ObjectifsTableau.Pastille(tete.transform, UtilisateursCloud.Licences(_a.licences_utilisees, _a.licences_max), VertClair, Vert, UITheme.Role.Donnee);
+        // Licences par entreprise (décision du 23/10) : un compteur pour chacune, ambre si pleine.
+        foreach (var x in _a.entreprises ?? new UtilisateursCloud.Entreprise[0])
+        {
+            bool libre = UtilisateursCloud.Libres(x) > 0;
+            ObjectifsTableau.Pastille(tete.transform, UtilisateursCloud.PastilleLicences(x),
+                                      libre ? VertClair : InviteFond, libre ? Vert : InviteEncre, UITheme.Role.Donnee);
+        }
         UIFactory.LE(UIFactory.Rect("Espace", tete.transform).gameObject, flexW: 1);
         Bouton(tete.transform, "Inviter", OuvrirInvitation, principal: true);
 
@@ -149,8 +155,8 @@ public class SectionUtilisateurs
                                      roleAvant == "admin" ? 1 : 0, _ => { }, 40);
             UIFactory.Text(body.transform, "Entreprises accessibles", UITheme.Role.Libelle, UITheme.TexteSecondaire);
             foreach (var x in _a.entreprises ?? new UtilisateursCloud.Entreprise[0])
-                cases.Add((x.id, UIFactory.Toggle(body.transform, x.nom,
-                    entreprisesAvant != null ? entreprisesAvant.Contains(x.id) : x.id == SessionCloud.Entreprise?.id)));
+                cases.Add((x.id, CaseEntreprise(body.transform, x,
+                    entreprisesAvant != null ? entreprisesAvant.Contains(x.id) : x.id == SessionCloud.Entreprise?.id, dejaDedans: false)));
             return () => Inviter(email.text.Trim(), role.SelectedId, cases.Where(c => c.t.isOn).Select(c => c.id).ToArray());
         }, "Envoyer l'invitation");
     }
@@ -206,9 +212,23 @@ public class SectionUtilisateurs
         _panel.Modal($"Entreprises de {Nom(m)}", body =>
         {
             foreach (var x in _a.entreprises ?? new UtilisateursCloud.Entreprise[0])
-                cases.Add((x.id, UIFactory.Toggle(body.transform, x.nom, (m.entreprises ?? new string[0]).Contains(x.id))));
+            {
+                bool dedans = (m.entreprises ?? new string[0]).Contains(x.id);
+                cases.Add((x.id, CaseEntreprise(body.transform, x, dedans, dedans)));
+            }
+            UIFactory.Text(body.transform, "Décocher une entreprise y libère la licence.", UITheme.Role.Aide, UITheme.TexteSecondaire);
             return () => ChangerAcces(m, cases.Where(c => c.t.isOn).Select(c => c.id).ToArray());
         });
+    }
+
+    /// Licences par entreprise (décision du 23/10) : une entreprise sans licence libre ne se coche
+    /// pas, sauf pour quelqu'un qui y est déjà (sa licence est à lui).
+    static Toggle CaseEntreprise(Transform parent, UtilisateursCloud.Entreprise x, bool coche, bool dejaDedans)
+    {
+        bool possible = dejaDedans || UtilisateursCloud.Libres(x) > 0;
+        var t = UIFactory.Toggle(parent, UtilisateursCloud.CaseEntreprise(x, dejaDedans), coche && possible);
+        t.interactable = possible;
+        return t;
     }
 
     async void ChangerAcces(UtilisateursCloud.Membre m, string[] entreprises)

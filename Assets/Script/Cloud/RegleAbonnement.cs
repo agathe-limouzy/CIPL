@@ -74,12 +74,14 @@ public static class RegleAbonnement
         premier.Date > aujourdhui.Date ? $"Premier prélèvement le {premier:dd/MM/yyyy}, à la fin de l'essai." : "Premier prélèvement aujourd'hui.";
 
     /// Confirmation de « - » / « + » sur un abonnement en cours : prorata immédiat.
-    public static string TexteLicences(int ecart, bool annuel)
+    /// Licences par entreprise (décision du 23/10) : `entreprise` nomme celle qui change.
+    public static string TexteLicences(int ecart, bool annuel, string entreprise = null)
     {
         int n = Math.Abs(ecart), prix = PrixLicence * (annuel ? MoisParAn : 1) * n;
         string quoi = n + " licence" + (n > 1 ? "s" : ""), periode = annuel ? "par an" : "par mois";
-        return ecart > 0 ? $"Ajouter {quoi} : +{prix} € HT {periode}, au prorata dès aujourd'hui."
-                         : $"Retirer {quoi} : -{prix} € HT {periode}, avec un avoir au prorata.";
+        string ou = string.IsNullOrEmpty(entreprise) ? "" : (ecart > 0 ? " à " : " de ") + entreprise;
+        return ecart > 0 ? $"Ajouter {quoi}{ou} : +{prix} € HT {periode}, au prorata dès aujourd'hui."
+                         : $"Retirer {quoi}{ou} : -{prix} € HT {periode}, avec un avoir au prorata.";
     }
 
     /// Confirmation de « Résilier l'abonnement » (retour du 22/10) : effectif à l'échéance.

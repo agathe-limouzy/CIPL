@@ -467,6 +467,16 @@ public static class EcritureCloud
     public static string Detenteur(bool batiment, string id) =>
         id != null && _detenteurs.TryGetValue(Cle(batiment, id), out var p) ? p : null;
 
+    /// Étape 10 : les locataires que personne ne modifie, d'après les verrous relus à l'instant
+    /// (les autres sessions) et ceux que je tiens. Null si la lecture échoue.
+    public static async Task<Func<string, bool>> LocatairesLibres()
+    {
+        var autres = await Gardien.VerrousDesAutres();
+        if (autres == null) return null;
+        var pris = new HashSet<string>(autres.Where(v => v.cible_type == "locataire").Select(v => v.cible_id));
+        return id => !pris.Contains(id) && !Tient("locataire", id);
+    }
+
     /// Ferme sans enregistrer les écrans qui tiennent une fiche, puis libère tout (rechargement,
     /// changement d'entreprise, déconnexion) : un écran resté ouvert garderait l'ancienne fiche.
     public static void FermerEcrans()

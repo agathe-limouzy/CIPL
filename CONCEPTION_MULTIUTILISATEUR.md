@@ -235,7 +235,7 @@ Chaque étape doit pouvoir être livrée et testée seule. Les règles métier v
 | 6 | Documents — **6a faite le 14/10** (parcours Z) : synchronisation de `Batiment/` et `Logo/` (décision du 14/10 : tout ce qui y est rangé est partagé), contenu stocké sous son empreinte, corbeille, dossier `Documents\CIPL\<entreprise>` sur un nouveau PC. **6b faite le 15/10** (parcours AA) : mode choisi par l'admin sur le serveur, Réglages › Documents, recherche du repère dans OneDrive / Google Drive (tous les Drives ensemble, niveau par niveau), fenêtre « Documents de … » (« Continuer sans le dossier » demande où le créer, décision du 14/10), Réglages dans le Drive, lecture depuis le cloud d'un document pas encore recopié, et « Changer de dossier… » en mode « Dans CIPL » (décision du 15/10) | Envoi au cloud, deux modes de copie locale, corbeille, Réglages › Documents | `SyncDocuments` | `DossiersDonnees`, `PhotoService`, `BailFileUI`, émission des factures, `ChargePanel`, `ReglagePanel` |
 | 7 | Factures — **faite le 16/10** (parcours AB) : fenêtre « N factures sont à envoyer » chez chacun, à l'ouverture de l'entreprise (décision du 15/10) ; réservation par `reserver_envoi` juste avant chaque envoi ; factures prises ailleurs sautées, et dites dans le bilan (décision du 15/10) ; une facture sautée parce que sa fiche était en cours de modification part seule dès que la fiche est libre (décision du 16/10) ; « Plus tard » propre à chaque personne ; secrets (SMTP, Pennylane) rangés sur le PC, hors du dossier des documents (décision du 15/10) | Réservation de l'envoi automatique | `MotifSaut`, `Bilan`, `Retrouver` | `FactureEnvoiAuto`, `EcritureCloud`, `DemarrageCloud` |
 | 8 | Hors ligne — **8a faite le 16/10** (parcours AC) : coupure pendant une session, bandeau rouge sous les onglets (décision du 16/10), lecture seule, saisies commencées avant la coupure renvoyées au retour et contrôlées par la version, retour tout seul toutes les 30 s ou sur « Réessayer » (décision du 16/10). **8b faite le 19/10** (parcours AD) : démarrage sans connexion sur la dernière copie (`persistentDataPath`, entreprise ouverte en dernier), effacée à la déconnexion ; au retour, tout est relu | Bandeau, lecture seule, reprise contrôlée par la version | `HorsLigne.Panne`, `HorsLigne.Texte` | `CloudClient`, `EcritureCloud`, `DirectCloud`, `ConfirmDialog` |
-| 9 | Admin — découpée le 19/10 en 9a (Réglages et secrets partagés : **faite le 19/10**, parcours AE), 9b (utilisateurs, invitations par code envoyé par e-mail, droits : **faite le 19/10**, parcours AF), 9c1 (onglets de Réglages, abonnement sans paiement, lecture seule à l'expiration, « Ajouter une entreprise » : **faite le 19/10**, parcours AG), 9c2 (Stripe : paiement par carte ou SEPA, portail client, licences au prorata, TVA 20 % en plus des prix HT, résiliation depuis CIPL : **faite le 22/10, validée le 23/10**, parcours AH), Pappers sur le serveur (vérification du SIRET), 9d (export) | Utilisateurs, invitations, licences, libération forcée, export | Comptage des licences ; `ReglagesCloud.PeutEnvoyer` | `ReglagePanel` (nouvel onglet), `BackupService` (devient l'export), `ReglageService`, `ReglagesCloud` |
+| 9 | Admin — découpée le 19/10 en 9a (Réglages et secrets partagés : **faite le 19/10**, parcours AE), 9b (utilisateurs, invitations par code envoyé par e-mail, droits : **faite le 19/10**, parcours AF), 9c1 (onglets de Réglages, abonnement sans paiement, lecture seule à l'expiration, « Ajouter une entreprise » : **faite le 19/10**, parcours AG), 9c2 (Stripe : paiement par carte ou SEPA, portail client, licences au prorata, TVA 20 % en plus des prix HT, résiliation depuis CIPL : **faite le 22/10, validée le 23/10**, parcours AH). Pappers sur le serveur et l'export deviennent les étapes 10 et 11 (§14, découpage du 23/10) | Utilisateurs, invitations, licences, libération forcée, export | Comptage des licences ; `ReglagesCloud.PeutEnvoyer` | `ReglagePanel` (nouvel onglet), `BackupService` (devient l'export), `ReglageService`, `ReglagesCloud` |
 
 ---
 
@@ -272,7 +272,7 @@ Les flows complets (technique et écrans) sont dans **`FLOW_MULTIUTILISATEUR.dra
 | Paiement | **Stripe**, dans l'application : « Choisissez votre abonnement », puis « Information bancaire » (page Stripe : carte ou prélèvement SEPA). Les webhooks Stripe mettent le statut à jour. « Paiement et factures » ouvre le portail client Stripe. CIPL ne voit jamais les numéros de carte |
 | Offre | **Une seule offre**, tout inclus, mensuelle ou annuelle (2 mois offerts, à confirmer). Prix = 1re entreprise X € + chaque entreprise en plus X € **-30 %** (pourcentage fixe) + licences × Y € (prix à fixer) |
 | Groupe | Un **groupe** = un titulaire, un moyen de paiement, **une facture** pour toutes ses entreprises. On ajoute une entreprise par Réglages › Abonnement › « Ajouter une entreprise » (SIRET), et la remise s'applique seule |
-| Licences dans le groupe | **Une personne = une licence** pour tout le groupe. Exemple : 3 SCI et 4 personnes = 3 entreprises + 4 licences. L'admin coche les entreprises accessibles pour chacun |
+| Licences dans le groupe | ~~**Une personne = une licence** pour tout le groupe~~. **Remplacé le 23/10 : licences par entreprise.** Chaque entreprise a son nombre de licences (exemple : Démo CIPL 3, SCI Rivoli 1) ; une personne occupe une licence dans chacune de ses entreprises ; une entreprise pleine ne peut pas être cochée. Rôle et facture restent ceux du groupe (une ligne « licence » = le total). 3 licences par entreprise pendant l'essai ; une entreprise ajoutée à un groupe abonné commence à 1. Parcours AJ |
 | Abonnement expiré | **Lecture seule + export** pour tous. L'admin voit « Choisissez votre abonnement », les autres « voyez avec Marie Dupont (admin) ». Paiement refusé : bandeau orange pour l'admin, Stripe relance 3 fois, puis expiration. Résiliation : effective à la date d'échéance |
 | Réglages | **Onglets** : Entreprise, Facturation (les sections actuelles), Utilisateurs, Abonnement, Documents, Intégrations (Pennylane, serveur mail, Pappers, chacun avec un bouton « Tester » qui dit quel identifiant ne fonctionne pas). Un utilisateur ne voit que Entreprise (lecture), Facturation et Documents (dossier sur ce PC) |
 | Menu compte | Initiales en haut à droite : Mon profil, Changer d'entreprise (avec `FermetureGuard` si une saisie est en cours), Se déconnecter (libère les verrous et efface le jeton du PC). Le bouton « Entreprises » de l'accueil disparaît |
@@ -296,3 +296,72 @@ Les flows complets (technique et écrans) sont dans **`FLOW_MULTIUTILISATEUR.dra
 - `DossierEntreprise` : liste des racines Drive, recherche du repère, validation d'un dossier choisi à la main. Exemple : chez Paul, le repère de SCI Rivoli est dans `C:\Users\paul\OneDrive - SCI Rivoli\CIPL` → trouvé. Un dossier dont le repère porte un autre identifiant → « Ce dossier n'est pas celui de SCI Rivoli ».
 
 **Découpage (§11)** : l'étape 2 comprend désormais l'inscription, les liens `cipl://` et le menu compte. L'étape 9 comprend l'abonnement Stripe, le groupe, la remise et les onglets de Réglages. L'étape 1 (essai technique) doit aussi vérifier l'enregistrement du protocole `cipl://` et la transmission d'un lien à une fenêtre CIPL déjà ouverte.
+
+---
+
+## 14. Avant la vente : suite du découpage (proposée le 23/10, à valider)
+
+Les étapes 1 à 9c2 sont faites et validées. Restent les deux étapes prévues (Pappers sur le serveur, export), puis ce qu'il faut pour vendre : aujourd'hui, un nouveau client ne peut entrer que par une invitation ou par l'import depuis un PC déjà installé (l'inscription prévue au §13 n'a pas été faite à l'étape 2), personne ne peut retrouver un mot de passe oublié, et l'application ne s'installe ni ne se met à jour seule.
+
+Ordre proposé : chaque étape ne dépend que des précédentes. Taille : S (une séance), M (deux ou trois), L (davantage).
+
+| N° | Étape | Taille | Dépend de | Pourquoi à cette place |
+|---|---|---|---|---|
+| 10 | Pappers sur le serveur | S | 9c2 (fonctions serveur) | L'inscription d'une société en a besoin |
+| 11 | Export de toutes les données (ex-9d) | M | — | Promis aux abonnés expirés (§13) ; remplace la sauvegarde du démarrage |
+| 12 | Mot de passe oublié | S | — | Manque à tous les utilisateurs actuels |
+| 13 | Inscription libre-service | M | 10, 12 | Sans elle, aucun nouveau client ne peut commencer seul |
+| 14 | E-mails de l'abonnement | M | 13 | Fin d'essai J-7 et J-1 (§13), paiement refusé, résiliation |
+| 15 | Installation et mises à jour | L | — | Un invité doit pouvoir installer CIPL lui-même |
+| 16 | Boutons « Tester » des intégrations | S | — | Repoussés en 9c1 ; utiles au support |
+| 17 | Passage en réel | M | toutes | Réglages de production, juridique, RGPD |
+| 18 | Plateforme agréée de facturation électronique | M | — | Obligations de 2027 (voir le rapport du 22/10) |
+
+### 10. Pappers sur le serveur — **faite et validée le 23/10** (parcours AI)
+- **Révisé le 23/10** : CIPL n'utilise pas l'API payante de Pappers mais l'annuaire public de l'État (sans clé). Décisions : vérification depuis CIPL, sans fonction serveur ; tournée des résumés d'entreprise une fois par jour, sur le premier poste qui ouvre l'entreprise (`prendre_tournee_annuaire`), fiches en cours de modification sautées ; « Ajouter une entreprise » pré-remplit le nom et affiche la forme et le siège, refuse une société fermée ou introuvable.
+- **Contenu prévu au départ** : une fonction serveur `pappers` (clé `PAPPERS_API_KEY` dans les Secrets de Supabase, jamais sur les PC) : SIRET → raison sociale, adresse, forme, radiée ou non. « Ajouter une entreprise » pré-remplit la fenêtre et refuse une société radiée. La synchronisation Pappers des fiches (`PappersSync`), suspendue sur le cloud, passe par cette fonction.
+- **Testable** : lecture de la réponse Pappers ; refus (radiée, introuvable) ; comparaison du corps envoyé avec la fonction (même test qu'en 9c2).
+- **À décider** : la synchronisation des fiches se lance-t-elle seule (à l'ouverture, une fois par jour) ou à la demande de l'admin ? Qui paie les appels Pappers (inclus dans l'abonnement) ?
+
+### 11. Export de toutes les données
+- **Contenu** : « Exporter toutes les données » : bâtiments, locataires, Réglages (sans les secrets) en JSON, et tous les documents, dans un dossier choisi sur le PC. Possible en lecture seule (abonnement expiré, hors ligne sur la copie). `BackupService` disparaît du démarrage.
+- **Testable** : le contenu et l'arborescence de l'export ; l'export puis l'import local redonnent les mêmes fiches.
+- **À décider** : admin seulement (décision « Sauvegardes » du 09/10) ou tout le monde quand l'abonnement a expiré (§13) ? Dossier ou fichier ZIP unique ? L'import d'un export (pour changer de compte, ou revenir hors cloud) fait-il partie de l'étape ?
+
+### 12. Mot de passe oublié
+- **Contenu** : sur l'écran de connexion, « Mot de passe oublié » : l'adresse → un **code à 6 chiffres** par e-mail (code de récupération de Supabase, sans lien à ouvrir, comme les invitations), puis le code et le nouveau mot de passe dans CIPL.
+- **Testable** : la vérification du formulaire (code, mot de passe ×2), sur le modèle de `VerifierRejoindre`.
+- **À décider** : les e-mails de Supabase partent par défaut d'un service limité à quelques envois par heure ; pour la vente, un serveur d'envoi dédié (étape 17). Le modèle d'e-mail de Supabase est à personnaliser en français.
+
+### 13. Inscription libre-service
+- **Contenu** (§13) : « Créer mon compte » sur l'écran de connexion → Société (SIRET vérifié par l'étape 10, refus si radiée ou déjà sur CIPL : « demandez une invitation à son administrateur ») ou Particulier (nom, prénom, adresse ; « Patrimoine de … ») → compte admin, groupe en essai de 14 jours, première entreprise vide. Premier lancement : Se connecter / Créer mon compte / J'ai reçu une invitation.
+- **Testable** : la vérification du formulaire ; le nom par défaut d'un particulier ; les refus.
+- **À décider** : comment prouver l'adresse e-mail ? « Confirm email » est décoché depuis 9b (le code d'invitation prouve la boîte). Proposition : un code à 6 chiffres envoyé à l'inscription, comme pour le mot de passe oublié, plutôt qu'un lien. Une même personne peut-elle créer plusieurs groupes ?
+
+### 14. E-mails de l'abonnement
+- **Contenu** : fin d'essai à J-7 et J-1 (§13), puis expiration ; paiement refusé et reçus de paiement (Stripe sait les envoyer lui-même : à activer dans ses réglages) ; confirmation de résiliation. Une tâche planifiée sur le serveur (une fois par jour) choisit les groupes concernés.
+- **Testable** : quel e-mail pour quel groupe, quel jour (règle pure, comme `RegleAbonnement`).
+- **À décider** : par quel service partent les e-mails de CIPL lui-même (pas le SMTP des clients) ? À qui : l'admin seulement, ou tous les membres pour l'expiration ?
+
+### 15. Installation et mises à jour
+- **Contenu** : un installeur Windows ; l'enregistrement du protocole `cipl://` (déjà vérifié à l'étape 1) ; au lancement, la version la plus récente est lue sur le serveur et proposée au téléchargement ; un lien de téléchargement dans l'e-mail d'invitation (aujourd'hui : « demandez le lien à l'admin »).
+- **Testable** : la comparaison des versions ; le choix « mise à jour obligatoire / proposée ».
+- **À décider** : où héberger l'installeur (site cipl.fr ?) ; signature du code (certificat payant, sans lequel Windows affiche un avertissement à l'installation) ; mise à jour obligatoire quand le serveur change (nouvelle version du SQL) ?
+
+### 16. Boutons « Tester » des intégrations
+- **Contenu** : Réglages › Intégrations : un « Tester » par service, qui dit quel identifiant ne marche pas. Le test SMTP existe déjà (« Envoyer un email de test ») ; à ajouter : Pennylane (appel de lecture), Mapbox (une tuile).
+- **Testable** : la traduction des erreurs en messages clairs.
+
+### 17. Passage en réel
+Surtout des réglages, mais à ne pas oublier :
+- **Stripe** : vérification de l'entreprise, clé `sk_live_…`, nouvelle destination webhook en mode réel et son secret, portail client, « Annuler l'abonnement » après échec des relances (non modifiable en test), informations de l'entreprise sur les factures (SIREN, TVA intracommunautaire, mentions légales).
+- **Supabase** : offre payante (l'offre gratuite **met le projet en pause** après une semaine sans activité, et n'a pas de sauvegarde quotidienne, promise par la décision « Sauvegardes » du 09/10) ; serveur d'envoi d'e-mails dédié ; modèles d'e-mails en français.
+- **Juridique** : CGV et CGU, mentions légales, politique de confidentialité ; RGPD (contrat de sous-traitance avec Supabase et Stripe, registre des traitements ; données hébergées en UE : projet Supabase en Irlande).
+- **Factures de CIPL lui-même** : à partir du 1/9/2027, les factures d'abonnement émises à des entreprises françaises devront passer par une plateforme agréée ; les factures Stripe ne le font pas (voir l'étape 18).
+
+### 18. Plateforme agréée de facturation électronique
+D'après le rapport `reports/Plateformes agréées facturation électronique.md` (22/10) :
+- **Sans code, dès maintenant** : chaque SCI gérée doit avoir choisi une plateforme de réception (obligatoire depuis le 1/9/2026, amende après mise en demeure) ; un compte gratuit suffit.
+- **Avant le 1/9/2027** : choisir la plateforme d'émission des loyers soumis à TVA (Pennylane, Super PDP ou B2Brouter), tester son API avec un vrai Factur-X, et l'intégrer à la place de Pennylane si elle est retenue ; déclarer le statut « encaissée ».
+- **Pour CIPL lui-même** : émettre ses propres factures d'abonnement par une plateforme agréée.
+- **À décider** : les questions aux fournisseurs listées à la fin du rapport.

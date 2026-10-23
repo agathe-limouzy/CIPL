@@ -20,7 +20,9 @@ public static class PappersSync
     /// exploitable, et réécrit leur bloc de résumé. Ne sauvegarde qu'à la fin, et
     /// seulement si quelque chose a changé — un démarrage ne doit pas réécrire quatre
     /// fichiers pour rien.
-    public static IEnumerator Tout(IEnumerable<BatimentPrefab> bps)
+    /// Étape 10 (cloud) : `libre` dit si un locataire peut être réécrit (personne ne modifie sa
+    /// fiche) ; ceux qui ne le sont pas sont sautés, ils seront rafraîchis à la tournée suivante.
+    public static IEnumerator Tout(IEnumerable<BatimentPrefab> bps, System.Func<string, bool> libre = null)
     {
         if (bps == null) yield break;
 
@@ -33,6 +35,7 @@ public static class PappersSync
             foreach (var loc in bp.listLocataire)
             {
                 if (loc == null || !PappersResume.SiretExploitable(loc.siretNumber)) continue;
+                if (libre != null && !libre(loc.id)) continue;
 
                 interroges++;
                 bool change = false, echoue = false;
@@ -43,6 +46,9 @@ public static class PappersSync
                 yield return new WaitForSeconds(PauseEntreAppels);
             }
 
+            // Fiche détruite pendant la tournée (entreprise changée, fiche relue) : rien à écrire,
+            // sinon l'ancienne fiche partirait dans l'entreprise ouverte depuis.
+            if (bp == null) yield break;
             if (touche && BatimentManager.Instance != null)
                 BatimentManager.Instance.SaveBatiment(bp.getBatiment());
         }
@@ -110,6 +116,9 @@ public static class PappersSync
             // dans aucune scène et n'ont pas de bâtiment d'origine. Les toucher n'a
             // pas de sens — et modifier un asset depuis le jeu encore moins.
             if (fiche == null || !fiche.gameObject.scene.IsValid()) continue;
+            // Fiche en cours de saisie : le commentaire tapé ne doit pas être remplacé sous les
+            // doigts (la tournée du cloud, étape 10, passe pendant qu'on travaille).
+            if (fiche.EnEdition) continue;
             var loc = fiche.GetLocataire();
             if (loc != null && fiche.Commentaire != null) fiche.Commentaire.ApplyValue(loc.commentaire);
         }

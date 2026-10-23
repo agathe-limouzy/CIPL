@@ -143,7 +143,8 @@
       "WebFetch(domain:www.francenum.gouv.fr)",
       "WebFetch(domain:www.invopop.com)",
       "WebFetch(domain:docs.invopop.com)",
-      "WebFetch(domain:digitiz.fr)"
+      "WebFetch(domain:digitiz.fr)",
+      "Bash(grep -v \"^\\\\s*$\")"
     ]
   },
   "enableAllProjectMcpServers": true,

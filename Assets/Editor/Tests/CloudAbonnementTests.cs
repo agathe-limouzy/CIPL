@@ -117,6 +117,11 @@ public class CloudAbonnementTests
         Assert.That(RegleAbonnement.LicencesMin(2), Is.EqualTo(2));
         Assert.That(RegleAbonnement.TexteLicences(1, annuel: false), Is.EqualTo("Ajouter 1 licence : +15 € HT par mois, au prorata dès aujourd'hui."));
         Assert.That(RegleAbonnement.TexteLicences(-1, annuel: true), Is.EqualTo("Retirer 1 licence : -150 € HT par an, avec un avoir au prorata."));
+        // Licences par entreprise (décision du 23/10) : la confirmation nomme l'entreprise.
+        Assert.That(RegleAbonnement.TexteLicences(1, false, "SCI Rivoli"),
+                    Is.EqualTo("Ajouter 1 licence à SCI Rivoli : +15 € HT par mois, au prorata dès aujourd'hui."));
+        Assert.That(RegleAbonnement.TexteLicences(-1, false, "SCI Rivoli"),
+                    Is.EqualTo("Retirer 1 licence de SCI Rivoli : -15 € HT par mois, avec un avoir au prorata."));
     }
 
     [Test]

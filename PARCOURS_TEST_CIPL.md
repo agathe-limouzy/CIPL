@@ -827,3 +827,47 @@ Valeurs de test publiées par Stripe, à saisir sur la page Stripe (date d'expir
   - Remise en état : voie simple, la même ligne avec `statut = 'actif'` ; voie complète, remettre la carte `4242…` dans le portail, puis Stripe › la facture ouverte › Relancer le paiement → « Actif · mensuel », le bandeau disparaît (à la réouverture).
 - [x] **AH7 · Fin** *(validé le 23/10 ; dans Stripe, un abonnement impayé n'est pas dans l'onglet « Actifs » : effacer le filtre)* : Stripe › l'abonnement › Annuler immédiatement → rouvrir Démo CIPL : bandeau corail d'expiration avec « Choisir l'abonnement » (l'onglet Abonnement repropose le choix), lecture seule.
   - Remise en état pour le développement : la ligne d'AG7 (`statut = 'actif'`).
+
+## AI. Étape 10 : annuaire des entreprises (23/10) *(validé en Play le 23/10, AI1 à AI6)*
+
+CIPL n'utilise pas l'API payante de Pappers mais l'annuaire public de l'État (recherche-entreprises.api.gouv.fr, sans clé) : la vérification se fait depuis CIPL, sans fonction serveur (décision du 23/10).
+
+Préalable : `Serveur/etape10_supabase.sql` passé dans SQL Editor ; Démo CIPL en « actif » (ligne d'AG7) ; le build reconstruit.
+
+- [x] **AI1 · Ajouter une entreprise, SIRET trouvé** : Réglages › Abonnement › Ajouter une entreprise › Société.
+  - Saisir un vrai SIRET d'une société active (par exemple celui de ta SAS, `717 220 883 00044`, celui du bas de page de tes factures) : dès le 14e chiffre, « Recherche dans l'annuaire des entreprises… », puis une ligne « <forme> · <siège> », et le nom se remplit tout seul (modifiable).
+  - Effacer un chiffre : la ligne disparaît. Le remettre : elle revient.
+  - Ajouter → ajoutée. Nettoyage : `delete from public.entreprises where siret = '71722088300044';` (puis « + » et « - » sur les licences si un abonnement Stripe est en cours).
+- [x] **AI2 · SIRET introuvable** : `000 000 000 00000` (clé valable, mais aucune société) → ligne en rouge « Ce SIRET est introuvable dans l'annuaire des entreprises : vérifiez les chiffres. » ; Ajouter → refus au centre, puis la fenêtre se rouvre avec ce qui était saisi.
+- [x] **AI3 · Société fermée** (si tu connais le SIRET d'une société fermée, sinon le test EditMode le couvre) : ligne en rouge « « … » est fermée (cessée) : elle ne peut pas être ajoutée. » ; Ajouter → refus.
+- [x] **AI4 · Tournée du jour** : rouvrir Démo CIPL dans l'éditeur, attendre 30 s. *(Le premier poste du jour la fait : si le build a ouvert Démo CIPL avant, la tournée est dans son journal, `AppData\LocalLow\DefaultCompany\CIPL_Test\Player.log`, constaté le 23/10 ; l'éditeur écrit alors « Tournée de l'annuaire : déjà faite aujourd'hui ». Pour la refaire dans l'éditeur : la ligne `annuaire_le = null` d'AI5.)*
+  - Editor.log (ou la console) : « [Cloud] Tournée de l'annuaire des entreprises pour « Démo CIPL » », puis « [PappersSync] N locataire(s) interrogé(s), M résumé(s) mis à jour ».
+  - `select nom, annuaire_le from public.entreprises;` → la date du jour pour Démo CIPL.
+  - Un locataire avec SIRET : son commentaire porte le bloc « -- PAPPERS -- » à jour.
+- [x] **AI5 · Une seule fois par jour** *(validé le 23/10)* : rouvrir Démo CIPL (dans le build, ou relancer le Play) → plus de tournée ce jour-là (pas de ligne « Tournée » dans le journal). Pour la relancer : `update public.entreprises set annuaire_le = null where id = '1e8848f1-23a4-470e-89a9-afce3e9b2aa4';`.
+- [x] **AI6 · Fiche en cours de modification sautée** : remettre `annuaire_le = null` ; dans le build (Odile), « Modifier » sur un locataire qui a un SIRET et rester en saisie ; puis ouvrir Démo CIPL dans l'éditeur et attendre 30 s → la tournée passe, sans aucun message ; le locataire d'Odile n'est pas touché (sa saisie reste intacte), les autres sont rafraîchis.
+
+## AJ. Licences par entreprise (23/10) *(validé en Play le 23/10, AJ1 à AJ6)*
+
+Décision du 23/10 : chaque entreprise a son nombre de licences (par exemple Démo CIPL 3, SCI Rivoli 1) ; une personne occupe une licence dans chacune de ses entreprises. Rôle et facture restent ceux du groupe ; sur la facture Stripe, une ligne « licence » = le total.
+
+Préalable :
+- `Serveur/etape10b_supabase.sql` passé (après etape10).
+- **Recoller** `Serveur/fonctions/abonnement-stripe.ts` et `stripe-webhook.ts` dans Supabase (Code › Deploy) ; vérifier que « Verify JWT » reste désactivé sur `stripe-webhook`.
+- Le build reconstruit. Démo CIPL en « actif » sans abonnement Stripe (ligne d'AG7).
+- Une 2e entreprise, **après** etape10b : Réglages › Abonnement › Ajouter une entreprise › Particulier, nom vide → « Patrimoine de agathe Limouzy » (1 licence, celle de l'admin qui l'ajoute). Ajoutée avant etape10b, elle reçoit 3 licences à la reprise : `update public.entreprises set licences_max = 1 where nom like 'Patrimoine de%';`
+- Signe que etape10b n'est pas passé (constaté le 23/10) : « 0 utilisée » partout dans Réglages › Abonnement.
+
+- [x] **AJ1 · Compteurs** : Réglages › Utilisateurs → en tête « Démo CIPL · 2 / 3 licences » (vert) et « Patrimoine de agathe Limouzy · 1 / 1 licence · pleine » (ambre).
+- [x] **AJ2 · Inviter** : « Démo CIPL · 1 licence libre » (cochable), « Patrimoine … · aucune licence libre » (grisée, non cochable). Inviter `agathelimouzy+test3@gmail.com` sur Démo CIPL → « Démo CIPL · 3 / 3 licences · pleine ». Annuler l'invitation → 2 / 3.
+- [x] **AJ3 · Entreprises d'Odile** (« Modifier… ») : Démo CIPL cochée « · sa licence » ; Patrimoine grisée « · aucune licence libre » ; « Décocher une entreprise y libère la licence. »
+- [x] **AJ4 · Choisir l'abonnement** (Réglages › Abonnement, sans abonnement Stripe) :
+  - une ligne par entreprise : « Démo CIPL · 1re entreprise · 40 € » avec « - 3 + » (2 utilisées : pas en dessous de 2) et 45 € ; « Patrimoine … · -30 % · 28 € » avec « - 1 + » et 15 € ;
+  - Total HT 128 €, TVA 25,60 €, Total 153,60 € TTC / mois ;
+  - les « - » / « + » ici ne changent que le choix : l'onglet Utilisateurs garde les licences en vigueur jusqu'au paiement (la phrase sous le total le dit, retour du 23/10) ;
+  - mettre Démo CIPL à 2 → 113 € HT ; Continuer vers le paiement → la page Stripe montre « licence × 3 » ; payer (`4242…`) ;
+  - après « Abonnement enregistré. » : Démo CIPL 2 licences, Patrimoine 1 (la répartition s'applique au paiement) ; Utilisateurs : « Démo CIPL · 2 / 2 licences · pleine ».
+- [x] **AJ5 · « + » / « - » par entreprise** (abonné) :
+  - « + » sur Patrimoine → « Ajouter 1 licence à Patrimoine de agathe Limouzy : +15 € HT par mois, au prorata dès aujourd'hui. » → Ajouter → « Patrimoine de agathe Limouzy : 2 licences. » ; Stripe : licence × 4 ; Utilisateurs : « Patrimoine … · 1 / 2 licences ».
+  - « - » sur Démo CIPL (2 utilisées, 2 licences) → refus au centre « Démo CIPL : 2 licences utilisées. Retirez quelqu'un de Démo CIPL… ».
+- [x] **AJ6 · Nettoyage** : Stripe › annuler l'abonnement immédiatement ; `delete from public.entreprises where nom like 'Patrimoine de%';` ; ligne d'AG7 (`statut = 'actif'`) ; remettre Démo CIPL à 3 licences : `update public.entreprises set licences_max = 3 where id = '1e8848f1-23a4-470e-89a9-afce3e9b2aa4';`

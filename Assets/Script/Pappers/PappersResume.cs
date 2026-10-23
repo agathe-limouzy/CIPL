@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 /// Le résumé d'entreprise inséré dans le commentaire d'un locataire, et la façon de
 /// l'y remplacer sans toucher au reste.
@@ -65,6 +66,34 @@ public static class PappersResume
         sb.AppendLine("── Finances ──");
         sb.AppendLine("Consulter sur Pappers pour CA et résultat");
         return sb.ToString().TrimEnd();
+    }
+
+    // ── Étape 10 : « Ajouter une entreprise » (décisions du 23/10) ───────────────
+
+    /// Peut-on ajouter cette société à CIPL ? Null si oui, sinon le motif. Annuaire injoignable
+    /// (ni données ni « introuvable ») : null, la vérification n'a pas pu se faire.
+    /// ponytail: vérifié par CIPL, pas par le serveur (annuaire public, sans clé à protéger).
+    public static string Refus(string siret, AnnuaireEntreprise data, bool introuvable)
+    {
+        string chiffres = new string((siret ?? "").Where(char.IsDigit).ToArray());
+        bool autreSociete = data != null && !string.IsNullOrEmpty(data.siren) && chiffres.Length >= 9
+                            && data.siren != chiffres.Substring(0, 9);
+        if (introuvable || autreSociete)
+            return "Ce SIRET est introuvable dans l'annuaire des entreprises : vérifiez les chiffres.";
+        if (data != null && data.etat_administratif == "C")
+            return $"« {data.nom_complet} » est fermée (cessée) : elle ne peut pas être ajoutée.";
+        return null;
+    }
+
+    /// La forme et le siège, pour vérifier d'un coup d'œil que c'est la bonne société :
+    /// « Société civile immobilière · 12 RUE DE RIVOLI 75004 PARIS ».
+    public static string Description(AnnuaireEntreprise data)
+    {
+        if (data == null) return "";
+        string siege = data.siege == null ? null
+                     : !string.IsNullOrWhiteSpace(data.siege.adresse) ? data.siege.adresse
+                     : $"{data.siege.code_postal} {data.siege.commune}".Trim();
+        return string.Join(" · ", new[] { data.libelle_nature_juridique, siege }.Where(x => !string.IsNullOrWhiteSpace(x)));
     }
 
     /// Un SIRET utilisable pour l'interrogation : 9 chiffres au minimum.

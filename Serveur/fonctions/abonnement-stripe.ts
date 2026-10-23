@@ -59,7 +59,9 @@ async function tva(): Promise<string> {
 
 Deno.serve(async (req) => {
   try {
-    const { action, entreprise, formule, licences } = await req.json();
+    // `cible` : l'entreprise dont on change les licences (ajuster) ; `repartition` : les licences
+    // de chaque entreprise au choix de l'abonnement (licences par entreprise, décision du 23/10).
+    const { action, entreprise, formule, licences, cible, repartition } = await req.json();
     const jeton = req.headers.get("Authorization") ?? "";
 
     // Seul un admin de l'entreprise passe : la même règle que dans CIPL (groupe_admin).
@@ -69,15 +71,27 @@ Deno.serve(async (req) => {
 
     const { data: groupe, error: e1 } = await service.from("groupes").select("*").eq("id", g).single();
     if (e1) throw e1;
-    const { count: nbEntreprises } = await service.from("entreprises").select("id", { count: "exact", head: true }).eq("groupe_id", g);
-    const { data: utilisees } = await service.rpc("licences_utilisees", { p_groupe: g });
-    const minimum = Math.max(1, utilisees ?? 1);
-    const n = Math.max(1, nbEntreprises ?? 1);
+    const { data: ents, error: e2 } = await service.from("entreprises").select("id, nom, licences_max").eq("groupe_id", g).order("cree_le");
+    if (e2) throw e2;
+    const n = Math.max(1, ents?.length ?? 1);
+    const utilisees = async (id: string): Promise<number> =>
+      (await service.rpc("licences_utilisees_entreprise", { p_entreprise: id })).data ?? 0;
 
     if (action === "choisir") {
       if (groupe.stripe_abonnement) return json({ erreur: "Un abonnement est déjà en cours : voyez « Paiement et factures »." });
-      if (!(licences >= minimum)) return json({ erreur: `${minimum} licences sont utilisées : il en faut au moins autant.` });
       const f = formule === "annuel" ? "annuel" : "mensuel";
+
+      // Licences de chaque entreprise : au moins celles qu'elle utilise. Elles ne s'appliquent
+      // qu'au paiement (stripe-webhook, à la création de l'abonnement) : un paiement abandonné ne
+      // change rien.
+      const choix = new Map<string, number>((repartition ?? []).map((r: { entreprise: string; licences: number }) => [r.entreprise, r.licences]));
+      const parEntreprise: Record<string, number> = {};
+      for (const e of ents ?? []) {
+        const l = Number(choix.get(e.id) ?? e.licences_max), u = await utilisees(e.id);
+        if (!(l >= Math.max(1, u))) return json({ erreur: `${e.nom} : ${u} licences sont utilisées, il en faut au moins autant.` });
+        parEntreprise[e.id] = l;
+      }
+      const total = Object.values(parEntreprise).reduce((a, b) => a + b, 0);
 
       let client = groupe.stripe_client;
       if (!client) {
@@ -89,7 +103,7 @@ Deno.serve(async (req) => {
 
       const lignes = [{ price: await prix("entreprise", f), quantity: 1 }];
       if (n > 1) lignes.push({ price: await prix("entreprise_suivante", f), quantity: n - 1 });
-      lignes.push({ price: await prix("licence", f), quantity: licences });
+      lignes.push({ price: await prix("licence", f), quantity: total });
 
       // Premier prélèvement le lendemain de la fin de l'essai (décision du 22/10). Stripe exige au
       // moins 48 h d'avance : plus près de la fin, le paiement part tout de suite.
@@ -105,7 +119,9 @@ Deno.serve(async (req) => {
         payment_method_collection: "always",
         line_items: lignes,
         subscription_data: {
-          metadata: { groupe_id: g },
+          // ponytail: une valeur de métadonnée Stripe tient 500 caractères, soit une dizaine
+          // d'entreprises ; au-delà, garder la répartition sur le serveur en attendant le paiement.
+          metadata: { groupe_id: g, licences: JSON.stringify(parEntreprise) },
           default_tax_rates: [await tva()],
           ...(essai ? { trial_end: lendemain } : {}),
         },
@@ -128,15 +144,23 @@ Deno.serve(async (req) => {
       const ligne = (nom: string) => sub.items.data.find((i) => i.price.lookup_key === `cipl_${nom}_${f}`);
       const prorata = { proration_behavior: "create_prorations" as const };
 
-      // Licences (0 : inchangées) ; jamais moins que celles utilisées (membres et invitations).
-      if (licences) {
-        if (licences < minimum) return json({ erreur: `${minimum} licences sont utilisées : retirez quelqu'un avant de baisser le nombre de licences.` });
-        const l = ligne("licence");
-        if (!l) throw new Error("Ligne « licence » absente de l'abonnement.");
-        await stripe.subscriptionItems.update(l.id, { quantity: licences, ...prorata });
-        const { error } = await service.from("groupes").update({ licences_max: licences }).eq("id", g);
+      // Licences de l'entreprise `cible` (0 : inchangées) ; jamais moins que celles qu'elle
+      // utilise. La ligne « licence » de Stripe suit le total des entreprises.
+      if (licences && cible) {
+        const e = (ents ?? []).find((x) => x.id === cible);
+        if (!e) return json({ erreur: "Cette entreprise n'est pas dans le groupe." });
+        const u = await utilisees(cible);
+        if (licences < Math.max(1, u)) return json({ erreur: `${e.nom} : ${u} licences sont utilisées, retirez quelqu'un avant de baisser le nombre de licences.` });
+        const { error } = await service.from("entreprises").update({ licences_max: licences }).eq("id", cible);
         if (error) throw error;
+        e.licences_max = licences;
       }
+      const total = (ents ?? []).reduce((a, x) => a + x.licences_max, 0);
+      const l = ligne("licence");
+      if (!l) throw new Error("Ligne « licence » absente de l'abonnement.");
+      if (l.quantity !== total) await stripe.subscriptionItems.update(l.id, { quantity: total, ...prorata });
+      const { error: e3 } = await service.from("groupes").update({ licences_max: total }).eq("id", g);
+      if (e3) throw e3;
 
       // Entreprises : la ligne « supplémentaire » suit le nombre d'entreprises du groupe.
       const suivantes = n - 1, s = ligne("entreprise_suivante");

@@ -41,4 +41,21 @@ Action<AnnuaireEntreprise> onSuccess, Action<string> onError)
 
     onSuccess?.Invoke(response.results[0]);
 }
+
+/// Étape 10 : la même interrogation, attendable (« Ajouter une entreprise »). `introuvable` :
+/// l'annuaire a répondu, sans résultat ; une erreur sans `introuvable` : il n'a pas répondu.
+public static async System.Threading.Tasks.Task<(AnnuaireEntreprise data, string erreur, bool introuvable)> Chercher(string siret)
+{
+    using var req = UnityWebRequest.Get($"{ApiBaseUrl}?q={UnityWebRequest.EscapeURL((siret ?? "").Trim())}&page=1&per_page=1");
+    var fin = new System.Threading.Tasks.TaskCompletionSource<bool>();
+    req.SendWebRequest().completed += _ => fin.TrySetResult(true);
+    await fin.Task;
+    if (req.result != UnityWebRequest.Result.Success) return (null, req.error, false);
+    AnnuaireResponse response;
+    try { response = JsonUtility.FromJson<AnnuaireResponse>(req.downloadHandler.text); }
+    catch (Exception e) { return (null, "réponse illisible : " + e.Message, false); }
+    return response?.results == null || response.results.Length == 0
+        ? (null, "Entreprise non trouvée pour ce SIRET", true)
+        : (response.results[0], null, false);
+}
   }

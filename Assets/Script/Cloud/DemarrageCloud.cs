@@ -111,6 +111,7 @@ public static class DemarrageCloud
             // Étape 7 : à l'ouverture seulement, pas à chaque relecture. Chez chacun (décision du
             // 15/10) : la réservation de chaque facture empêche qu'elle parte deux fois.
             FactureEnvoiAuto.ProposerAuDemarrage(_bm.BatimentPrefab);
+            TourneeAnnuaire(choix);
             return;
         }
     }
@@ -325,6 +326,30 @@ public static class DemarrageCloud
     // ── Réglages › Documents (étape 6b, maquette validée le 14/10) ─────────────
 
     [Serializable] class ParamsMode { public string p_entreprise, p_mode; }
+    [Serializable] class ParamsEntreprise { public string p_entreprise; }
+
+    /// Étape 10 (décision du 23/10) : la tournée de l'annuaire des entreprises (résumé d'entreprise
+    /// de tous les locataires), une fois par jour et par entreprise, sur le premier poste qui
+    /// l'ouvre (le serveur le note). Jamais en lecture seule ; fiches en cours de modification sautées.
+    static async void TourneeAnnuaire(EntrepriseCloud e)
+    {
+        try
+        {
+            await Task.Delay(30000);   // après le démarrage, une fois les verrous des autres relus
+            if (_bm == null || SessionCloud.Entreprise != e || HorsLigne.Actif || AbonnementCloud.LectureSeule) return;
+            var r = await CloudClient.Fonction(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(),
+                                               "prendre_tournee_annuaire", new ParamsEntreprise { p_entreprise = e.id });
+            // Retour du 23/10 : sans trace, une tournée faite par un autre poste (le build) ne se voyait pas.
+            if (!r.Ok) { Debug.LogWarning("[Cloud] Tournée de l'annuaire impossible : " + r.Erreur); return; }
+            if (r.Corps.Trim() != "true") { Debug.Log("[Cloud] Tournée de l'annuaire : déjà faite aujourd'hui (par ce poste ou un autre)."); return; }
+            var libre = await EcritureCloud.LocatairesLibres();
+            if (libre == null) { Debug.LogWarning("[Cloud] Tournée de l'annuaire : verrous illisibles, reportée à demain."); return; }
+            if (_bm == null || SessionCloud.Entreprise != e) return;
+            Debug.Log($"[Cloud] Tournée de l'annuaire des entreprises pour « {e.nom} »");
+            _bm.StartCoroutine(PappersSync.Tout(_bm.BatimentPrefab, libre));
+        }
+        catch (Exception ex) { Debug.LogWarning("[Cloud] Tournée de l'annuaire : " + ex.Message); }
+    }
 
     static async Task<bool> DefinirMode(EntrepriseCloud e, string mode)
     {

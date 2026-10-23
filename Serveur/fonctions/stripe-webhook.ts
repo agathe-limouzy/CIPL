@@ -47,6 +47,18 @@ async function appliquer(sub: Stripe.Subscription) {
   if (error) throw error;   // réponse 500 : Stripe renverra l'événement
 }
 
+/** Licences par entreprise (décision du 23/10) : la répartition choisie avant le paiement
+ *  (métadonnée « licences » posée par abonnement-stripe) s'applique à la création de
+ *  l'abonnement, une seule fois ; ensuite, « + » / « - » dans CIPL (action ajuster). */
+async function repartir(sub: Stripe.Subscription) {
+  const g = sub.metadata?.groupe_id, r = sub.metadata?.licences;
+  if (!g || !r) return;
+  for (const [id, l] of Object.entries(JSON.parse(r) as Record<string, number>)) {
+    const { error } = await service.from("entreprises").update({ licences_max: l }).eq("id", id).eq("groupe_id", g);
+    if (error) throw error;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     const r = new URL(req.url).searchParams.get("retour") ?? "";
@@ -66,6 +78,7 @@ Deno.serve(async (req) => {
     // Relu chez Stripe plutôt que pris dans l'événement : les événements peuvent arriver dans
     // le désordre, l'état relu est toujours le dernier.
     const sub = await stripe.subscriptions.retrieve((evt.data.object as Stripe.Subscription).id);
+    if (evt.type === "customer.subscription.created") await repartir(sub);
     await appliquer(sub);
   }
   return new Response("ok");

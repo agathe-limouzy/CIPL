@@ -66,6 +66,10 @@ public class ReglagePanel : MonoBehaviour
     {
         _onglet = onglet;
         ConstruireOnglets();
+        // Retour du 23/10 : les licences changées dans Abonnement n'apparaissaient pas dans
+        // Utilisateurs (lu à l'ouverture de Réglages seulement). Chaque onglet se relit à l'affichage.
+        if (onglet == OUtilisateurs) _utilisateurs?.Rafraichir();
+        else if (onglet == OAbonnement) _abonnement?.Rafraichir();
         if (_scroll != null) _scroll.verticalNormalizedPosition = 1f;   // chaque onglet s'ouvre en haut
     }
 

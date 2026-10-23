@@ -94,6 +94,33 @@ public class PappersResumeTests
         Assert.That(PappersResume.Construire(null), Is.Empty);
     }
 
+    // ── Étape 10 : « Ajouter une entreprise » ───────────────────────────────────
+
+    [Test]
+    public void Ajouter_une_entreprise_refuse_une_societe_fermee_ou_introuvable()
+    {
+        var e = Entreprise();   // SIREN 123456789
+        Assert.That(PappersResume.Refus("123 456 789 00012", e, false), Is.Null, "active, même SIREN");
+        StringAssert.Contains("introuvable", PappersResume.Refus("12345678900012", null, introuvable: true));
+        StringAssert.Contains("introuvable", PappersResume.Refus("98765432100012", e, false), "l'annuaire a renvoyé une autre société");
+        e.etat_administratif = "C";
+        Assert.That(PappersResume.Refus("12345678900012", e, false),
+                    Is.EqualTo("« BOULANGERIE DUPONT » est fermée (cessée) : elle ne peut pas être ajoutée."));
+        // Annuaire injoignable : rien n'est refusé (la vérification n'a pas pu se faire).
+        Assert.That(PappersResume.Refus("12345678900012", null, introuvable: false), Is.Null);
+    }
+
+    [Test]
+    public void La_forme_et_le_siege_montrent_que_c_est_la_bonne_societe()
+    {
+        var e = Entreprise();
+        e.siege = new AnnuaireSiege { adresse = "12 RUE DE RIVOLI 75004 PARIS", code_postal = "75004", commune = "PARIS" };
+        Assert.That(PappersResume.Description(e), Is.EqualTo("SARL · 12 RUE DE RIVOLI 75004 PARIS"));
+        e.siege = new AnnuaireSiege { code_postal = "81200", commune = "MAZAMET" };
+        Assert.That(PappersResume.Description(e), Is.EqualTo("SARL · 81200 MAZAMET"), "sans adresse : le code postal et la commune");
+        Assert.That(PappersResume.Description(null), Is.Empty);
+    }
+
     // ── SIRET ───────────────────────────────────────────────────────────────────
 
     [Test]

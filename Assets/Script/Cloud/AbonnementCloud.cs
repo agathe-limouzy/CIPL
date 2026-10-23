@@ -72,16 +72,21 @@ public static class AbonnementCloud
 
     // ── Étape 9c2 : paiement avec Stripe (fonction serveur abonnement-stripe) ───
 
-    [Serializable] class PStripe { public string action, entreprise, formule; public int licences; }
+    /// `cible` : l'entreprise dont on change les licences ; `repartition` : les licences de chaque
+    /// entreprise au choix de l'abonnement (licences par entreprise, décision du 23/10).
+    [Serializable] class PStripe { public string action, entreprise, formule, cible; public int licences; public Repartition[] repartition; }
+    [Serializable] public class Repartition { public string entreprise; public int licences; }
     [Serializable] class RStripe { public string url, erreur; public bool ok; }
 
     /// La dernière page Stripe ouverte (« Rouvrir la page de paiement »).
     public static string DerniereUrl { get; private set; }
 
-    static async Task<(RStripe rep, string erreur)> Serveur(string action, string formule, int licences)
+    static async Task<(RStripe rep, string erreur)> Serveur(string action, string formule, int licences,
+                                                          string cible = null, Repartition[] repartition = null)
     {
         var r = await CloudClient.FonctionServeur(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "abonnement-stripe",
-            JsonUtility.ToJson(new PStripe { action = action, entreprise = SessionCloud.Entreprise?.id, formule = formule, licences = licences }));
+            JsonUtility.ToJson(new PStripe { action = action, entreprise = SessionCloud.Entreprise?.id, formule = formule, licences = licences,
+                                             cible = cible, repartition = repartition ?? new Repartition[0] }));
         RStripe rep = null;
         try { rep = JsonUtility.FromJson<RStripe>(r.Corps); } catch (Exception) { /* pas du JSON : r.Erreur dit pourquoi */ }
         if (!string.IsNullOrEmpty(rep?.erreur)) return (rep, rep.erreur);
@@ -96,9 +101,9 @@ public static class AbonnementCloud
     static string Extrait(string corps) =>
         string.IsNullOrEmpty(corps) ? "(vide)" : corps.Length > 200 ? corps.Substring(0, 200) + "…" : corps;
 
-    static async Task<string> OuvrirPage(string action, string formule, int licences)
+    static async Task<string> OuvrirPage(string action, string formule, Repartition[] repartition = null)
     {
-        var (rep, erreur) = await Serveur(action, formule, licences);
+        var (rep, erreur) = await Serveur(action, formule, 0, null, repartition);
         if (erreur != null) return erreur;
         if (string.IsNullOrEmpty(rep?.url)) return "réponse du serveur sans adresse.";
         DerniereUrl = rep.url;
@@ -107,10 +112,10 @@ public static class AbonnementCloud
     }
 
     /// Ouvre la page de paiement Stripe dans le navigateur. Null si elle s'est ouverte, sinon le motif.
-    public static Task<string> Payer(bool annuel, int licences) => OuvrirPage("choisir", annuel ? "annuel" : "mensuel", licences);
+    public static Task<string> Payer(bool annuel, Repartition[] repartition) => OuvrirPage("choisir", annuel ? "annuel" : "mensuel", repartition);
 
     /// « Paiement et factures » : le portail client Stripe (moyen de paiement, factures, résiliation).
-    public static Task<string> Portail() => OuvrirPage("portail", null, 0);
+    public static Task<string> Portail() => OuvrirPage("portail", null);
 
     public static async void OuvrirPortail()
     {
@@ -136,7 +141,9 @@ public static class AbonnementCloud
     }
 
     /// Licences (0 : inchangées) et nombre d'entreprises, au prorata. Null si fait, sinon le motif.
-    public static async Task<string> Ajuster(int licences) => (await Serveur("ajuster", null, licences)).erreur;
+    /// `cible` : l'entreprise dont les licences passent à `licences` (null / 0 : rien ne change,
+    /// l'abonnement se recale seulement sur les entreprises du groupe).
+    public static async Task<string> Ajuster(string cible, int licences) => (await Serveur("ajuster", null, licences, cible)).erreur;
 
     public static string Motif(Ajout a) =>
         a?.refus == "siret" ? "Le SIRET compte 14 chiffres."

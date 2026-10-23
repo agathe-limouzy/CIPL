@@ -19,7 +19,7 @@ public class SectionAbonnement
 
     // Choix en cours, avant le paiement ; attente du retour de Stripe (relecture toutes les 5 s).
     bool _annuel;
-    int _licences;
+    readonly Dictionary<string, int> _repartition = new Dictionary<string, int>();   // licences choisies, par entreprise
     bool _enAttente;
     int _attente;
 
@@ -79,31 +79,43 @@ public class SectionAbonnement
 
     void Choix(AbonnementCloud.Lu a, RegleAbonnement.Etat etat)
     {
-        int min = RegleAbonnement.LicencesMin(a.licences_utilisees);
-        _licences = Math.Max(_licences > 0 ? _licences : a.licences_max, min);
         UIFactory.Text(_corps, "Choisir l'abonnement", UITheme.Role.Libelle, UITheme.TextePrincipal, true);
         var formules = UIFactory.HBox(_corps, 8, false, "Formules");
         Puce(formules.transform, "Mensuel", !_annuel, () => { _annuel = false; Reconstruire(); });
         Puce(formules.transform, $"Annuel · {12 - RegleAbonnement.MoisParAn} mois offerts", _annuel, () => { _annuel = true; Reconstruire(); });
 
-        int n = LigneEntreprises(a);
-        LigneLicences(_licences, ecart => { _licences = Math.Max(min, _licences + ecart); Reconstruire(); },
-                      $"{a.licences_utilisees} utilisée{S(a.licences_utilisees)} : {min} au minimum");
-        int ht = RegleAbonnement.Total(n, _licences) * (_annuel ? RegleAbonnement.MoisParAn : 1);
+        // Licences par entreprise (décision du 23/10) : au départ celles de l'essai, jamais moins
+        // que celles qu'elle utilise.
+        int Choisi(UtilisateursCloud.Entreprise e)
+        {
+            if (!_repartition.TryGetValue(e.id, out int l)) l = e.licences_max;
+            return _repartition[e.id] = Math.Max(l, RegleAbonnement.LicencesMin(e.licences_utilisees));
+        }
+        int total = LignesEntreprises(a, _annuel, Choisi, (e, ecart) =>
+        {
+            _repartition[e.id] = Math.Max(RegleAbonnement.LicencesMin(e.licences_utilisees), Choisi(e) + ecart);
+            Reconstruire();
+        });
+        int n = Math.Max(1, a.entreprises?.Length ?? 0);
+        int ht = RegleAbonnement.Total(n, total) * (_annuel ? RegleAbonnement.MoisParAn : 1);
         decimal ttc = RegleAbonnement.Ttc(ht);
-        Ligne($"1re entreprise · {n - 1} suivante{S(n - 1)} · {_licences} licence{S(_licences)}", RegleAbonnement.Euros(ht) + " HT");
+        Ligne("Total HT", RegleAbonnement.Euros(ht));
         Ligne("TVA 20 %", RegleAbonnement.Euros(ttc - ht));
         Ligne("Total", $"{RegleAbonnement.Euros(ttc)} TTC {(_annuel ? "/ an" : "/ mois")}", gras: true);
 
         var premier = RegleAbonnement.PremierPrelevement(etat, AbonnementCloud.FinEssai, AbonnementCloud.Aujourdhui);
-        UIFactory.Text(_corps, "Carte ou prélèvement SEPA, sur la page sécurisée de Stripe. " +
+        // Retour du 23/10 : sans cette phrase, on croyait les licences déjà changées (l'onglet
+        // Utilisateurs, lui, montre celles en vigueur).
+        UIFactory.Text(_corps, "Les licences choisies ici s'appliquent au paiement ; d'ici là, chaque entreprise garde les siennes " +
+                       "(3 pendant l'essai). Carte ou prélèvement SEPA, sur la page sécurisée de Stripe. " +
                        RegleAbonnement.TextePrelevement(premier, AbonnementCloud.Aujourdhui), UITheme.Role.Aide, UITheme.TexteSecondaire);
         Bouton(UIFactory.HBox(_corps, 8, false, "Payer").transform, "Continuer vers le paiement", Payer, principal: true);
     }
 
     async void Payer()
     {
-        string erreur = await AbonnementCloud.Payer(_annuel, _licences);
+        var repartition = _repartition.Select(kv => new AbonnementCloud.Repartition { entreprise = kv.Key, licences = kv.Value }).ToArray();
+        string erreur = await AbonnementCloud.Payer(_annuel, repartition);
         if (erreur != null) { ConfirmDialog.Erreur("La page de paiement ne s'est pas ouverte : " + erreur); return; }
         _enAttente = true;
         Reconstruire();
@@ -148,9 +160,9 @@ public class SectionAbonnement
     void Abonne(AbonnementCloud.Lu a)
     {
         bool annuel = a.formule == "annuel";
-        int n = LigneEntreprises(a);
-        LigneLicences(a.licences_max, ecart => ChangerLicences(a, ecart), $"{a.licences_utilisees} utilisée{S(a.licences_utilisees)}");
-        int ht = RegleAbonnement.Total(n, a.licences_max) * (annuel ? RegleAbonnement.MoisParAn : 1);
+        int total = LignesEntreprises(a, annuel, e => e.licences_max, (e, ecart) => ChangerLicences(a, e, ecart));
+        int n = Math.Max(1, a.entreprises?.Length ?? 0);
+        int ht = RegleAbonnement.Total(n, total) * (annuel ? RegleAbonnement.MoisParAn : 1);
         Ligne("Total", $"{RegleAbonnement.Euros(ht)} HT · {RegleAbonnement.Euros(RegleAbonnement.Ttc(ht))} TTC {(annuel ? "/ an" : "/ mois")}", gras: true);
         var row = UIFactory.HBox(_corps, 10, false, "Portail").transform;
         Bouton(row, "Paiement et factures", AbonnementCloud.OuvrirPortail);
@@ -173,42 +185,51 @@ public class SectionAbonnement
         Rafraichir();
     }
 
-    void ChangerLicences(AbonnementCloud.Lu a, int ecart)
+    void ChangerLicences(AbonnementCloud.Lu a, UtilisateursCloud.Entreprise e, int ecart)
     {
-        int nouveau = a.licences_max + ecart, min = RegleAbonnement.LicencesMin(a.licences_utilisees);
+        int nouveau = e.licences_max + ecart, min = RegleAbonnement.LicencesMin(e.licences_utilisees);
         if (nouveau < min)
         {
-            ConfirmDialog.Erreur($"{a.licences_utilisees} licence{S(a.licences_utilisees)} utilisée{S(a.licences_utilisees)} : " +
-                                 "retirez quelqu'un (onglet Utilisateurs) avant de baisser le nombre de licences.");
+            ConfirmDialog.Erreur($"{e.nom} : {e.licences_utilisees} licence{S(e.licences_utilisees)} utilisée{S(e.licences_utilisees)}. " +
+                                 $"Retirez quelqu'un de {e.nom} (onglet Utilisateurs) avant de baisser son nombre de licences.");
             return;
         }
         ConfirmDialog.Instance?.Show(ecart > 0 ? "Ajouter une licence ?" : "Retirer une licence ?",
-            RegleAbonnement.TexteLicences(ecart, a.formule == "annuel"), async () =>
+            RegleAbonnement.TexteLicences(ecart, a.formule == "annuel", e.nom), async () =>
             {
-                string erreur = await AbonnementCloud.Ajuster(nouveau);
+                string erreur = await AbonnementCloud.Ajuster(e.id, nouveau);
                 if (erreur != null) ConfirmDialog.Erreur("Licences inchangées : " + erreur);
-                else UndoToast.Instance?.ShowInfo($"Abonnement : {nouveau} licences.");
+                else UndoToast.Instance?.ShowInfo($"{e.nom} : {nouveau} licence{S(nouveau)}.");
                 Rafraichir();
             }, ecart > 0 ? "Ajouter" : "Retirer");
     }
 
     // ── Lignes communes ────────────────────────────────────────────────────────
 
-    /// Entreprises du groupe, avec « Ajouter une entreprise ». Renvoie leur nombre.
-    int LigneEntreprises(AbonnementCloud.Lu a)
+    /// Licences par entreprise (maquette du 23/10) : « Ajouter une entreprise », puis une ligne par
+    /// entreprise (prix, licences avec « - » / « + », montant des licences). Renvoie le total des licences.
+    int LignesEntreprises(AbonnementCloud.Lu a, bool annuel, Func<UtilisateursCloud.Entreprise, int> licences,
+                          Action<UtilisateursCloud.Entreprise, int> changer)
     {
+        int mois = annuel ? RegleAbonnement.MoisParAn : 1, total = 0;
         var ents = a.entreprises ?? new UtilisateursCloud.Entreprise[0];
-        Bouton(Ligne("Entreprises du groupe", string.Join(", ", ents.Select(x => x.nom))), "Ajouter une entreprise", OuvrirAjout, principal: true);
-        return Math.Max(1, ents.Length);
-    }
-
-    void LigneLicences(int valeur, Action<int> changer, string note)
-    {
-        var row = Ligne("Licences", null);
-        Bouton(row, "-", () => changer(-1));
-        UIFactory.Text(row, valeur.ToString(), UITheme.Role.Donnee, UITheme.TextePrincipal, true);
-        Bouton(row, "+", () => changer(+1));
-        UIFactory.Text(row, note, UITheme.Role.Aide, UITheme.TexteSecondaire);
+        Bouton(Ligne("Entreprises du groupe", null), "Ajouter une entreprise", OuvrirAjout, principal: true);
+        for (int i = 0; i < ents.Length; i++)
+        {
+            var e = ents[i];
+            int l = licences(e);
+            total += l;
+            int prix = (i == 0 ? RegleAbonnement.PrixEntreprise : RegleAbonnement.PrixEntrepriseSuivante) * mois;
+            var row = Ligne($"{e.nom}  ·  {(i == 0 ? "1re entreprise" : "-30 %")}  ·  {RegleAbonnement.Euros(prix)}", null);
+            Bouton(row, "-", () => changer(e, -1));
+            UIFactory.Text(row, l.ToString(), UITheme.Role.Donnee, UITheme.TextePrincipal, true);
+            Bouton(row, "+", () => changer(e, +1));
+            UIFactory.Text(row, $"licence{S(l)} · {e.licences_utilisees} utilisée{S(e.licences_utilisees)}", UITheme.Role.Aide, UITheme.TexteSecondaire);
+            var montant = UIFactory.Text(row, RegleAbonnement.Euros(l * RegleAbonnement.PrixLicence * mois), UITheme.Role.Donnee,
+                                         UITheme.TextePrincipal, false, TMPro.TextAlignmentOptions.Right);
+            UIFactory.LE(montant.gameObject, prefW: 90, minW: 90);
+        }
+        return total;
     }
 
     static string S(int n) => n > 1 ? "s" : "";
@@ -243,9 +264,35 @@ public class SectionAbonnement
             var libelleSiret = UIFactory.Text(body.transform, "SIRET (14 chiffres)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
             siret = UIFactory.Input(body.transform, "123 456 789 00012");
             siret.text = siretAvant ?? "";
-            champsSiret = new[] { libelleSiret.gameObject, siret.gameObject };
+            // Étape 10 (décision du 23/10) : aux 14 chiffres, l'annuaire des entreprises est
+            // interrogé ; la raison sociale remplit le nom, la forme et le siège s'affichent ici.
+            var infoAnnuaire = UIFactory.Text(body.transform, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
+            champsSiret = new[] { libelleSiret.gameObject, siret.gameObject, infoAnnuaire.gameObject };
             foreach (var go in champsSiret) go.SetActive(!particulier);
             nom = _panel.ModalField(body, "Nom de l'entreprise", nomAvant, "SCI Rivoli");
+
+            string cherche = null, nomAuto = null;
+            async void Rechercher(string chiffres)
+            {
+                cherche = chiffres;
+                infoAnnuaire.color = UITheme.TexteSecondaire;
+                infoAnnuaire.text = "Recherche dans l'annuaire des entreprises…";
+                var (data, _, introuvable) = await PapperService.Chercher(chiffres);
+                if (infoAnnuaire == null || cherche != chiffres) return;   // fenêtre fermée, ou autre SIRET saisi depuis
+                string refus = PappersResume.Refus(chiffres, data, introuvable);
+                if (refus != null) { infoAnnuaire.color = UITheme.Alerte; infoAnnuaire.text = refus; return; }
+                if (data == null) { infoAnnuaire.text = "Annuaire des entreprises injoignable : le SIRET n'a pas pu être vérifié."; return; }
+                infoAnnuaire.text = PappersResume.Description(data);
+                if (string.IsNullOrWhiteSpace(nom.text) || nom.text == nomAuto) nom.text = nomAuto = data.nom_complet;
+            }
+            void SurSiret(string v)
+            {
+                string chiffres = new string((v ?? "").Where(char.IsDigit).ToArray());
+                if (chiffres.Length == 14 && chiffres != cherche) Rechercher(chiffres);
+                else if (chiffres.Length != 14) { cherche = null; infoAnnuaire.text = ""; }
+            }
+            siret.onValueChanged.AddListener(SurSiret);
+            SurSiret(siret.text);   // fenêtre rouverte après un refus : le SIRET déjà saisi
             aideParticulier = UIFactory.Text(body.transform, "Laissé vide : « Patrimoine de » suivi de votre nom.", UITheme.Role.Aide, UITheme.TexteSecondaire);
             aideParticulier.gameObject.SetActive(particulier);
             return () => Ajouter(nom.text.Trim(), type.SelectedId, siret.text);
@@ -257,14 +304,21 @@ public class SectionAbonnement
         Action reprendre = () => OuvrirAjout(type, siret, nom);
         if (type == "societe")
         {
-            string motif = RegleAbonnement.VerifierSiret(siret) ?? (nom == "" ? "Saisissez la raison sociale." : null);
+            string motif = RegleAbonnement.VerifierSiret(siret);
+            if (motif == null)   // étape 10 : société fermée ou introuvable dans l'annuaire → refus
+            {
+                var (data, _, introuvable) = await PapperService.Chercher(new string(siret.Where(char.IsDigit).ToArray()));
+                motif = PappersResume.Refus(siret, data, introuvable);
+                if (motif == null && nom == "" && data != null) nom = data.nom_complet;
+            }
+            if (motif == null && nom == "") motif = "Saisissez la raison sociale.";
             if (motif != null) { ConfirmDialog.Erreur(motif, reprendre); return; }
         }
         bool abonne = AbonnementCloud.Courant?.abonne == true;
         var res = await AbonnementCloud.Ajouter(nom, type, siret);
         if (res?.ok != true) { ConfirmDialog.Erreur(AbonnementCloud.Motif(res), reprendre); return; }
         // Étape 9c2 : l'abonnement suit le nombre d'entreprises (ligne « entreprise supplémentaire »).
-        string erreur = abonne ? await AbonnementCloud.Ajuster(0) : null;
+        string erreur = abonne ? await AbonnementCloud.Ajuster(null, 0) : null;
         if (erreur != null) ConfirmDialog.Erreur($"« {res.nom} » est ajoutée, mais l'abonnement n'a pas été mis à jour : {erreur}");
         else UndoToast.Instance?.ShowInfo($"« {res.nom} » ajoutée : ouvrez-la par Compte › Changer d'entreprise.");
         Rafraichir();
