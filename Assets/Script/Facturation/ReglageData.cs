@@ -77,8 +77,11 @@ public class ReglageData
     public string nomListeGenerale = ListesCharges.NomGeneraleDefaut;
 
     // Logo affiché sur les factures (chemin d'image copiée dans le dossier de
-    // sauvegarde). Vide = logo CIPL par défaut (StreamingAssets/logo_cipl.png).
+    // sauvegarde). Vide = logo CIPL par défaut (StreamingAssets/logo_cipl.png),
+    // sauf `sansLogo` : aucun logo (entreprise créée par « Créer mon compte », ou
+    // « Retirer le logo » ; retour du 25/10).
     public string logoPath;
+    public bool sansLogo;
 
     // Lieu d'émission imprimé devant la date (« St Marcel Paulel, le … »), sur tous les
     // documents. Réglage d'entreprise seulement : aucune facture ne le remplace.

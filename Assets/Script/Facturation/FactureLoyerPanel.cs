@@ -18,6 +18,17 @@ public class FactureLoyerPanel : MonoBehaviour
 {
     public static FactureLoyerPanel Instance { get; private set; }
 
+    /// Étape 13b-3 (retour du 25/10) : pendant le guide « Une première facture », le bouton émet sans
+    /// envoyer — ni e-mail ni Pennylane — et la facture attend dans le suivi. Un e-mail mal réglé ne
+    /// bloque plus le tutoriel, et rien ne part pendant qu'on apprend.
+    public static bool SansEnvoi { get; private set; }
+
+    public static void ModeSansEnvoi(bool oui)
+    {
+        SansEnvoi = oui;
+        if (Instance != null) Instance.RefreshBoutonSauver();
+    }
+
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
     static readonly Color CoBleu = Hex("#2C3E5E"), CoBleuL = Hex("#DEE3EB");
     // Couleurs de cartes. `CoContenu` et `CoReglement` portent le même rôle — donc la
@@ -448,6 +459,15 @@ public class FactureLoyerPanel : MonoBehaviour
         // Aperçu à jour dans l'appli à partir du même rendu.
         string png = DossiersDonnees.Apercu("apercu.png");
         if (FacturePdfService.GeneratePreviewPng(d, png, out _)) ShowPreview(png);
+
+        // Premiers pas, bâtiment d'exemple : émise, pas envoyée (même chemin que l'envoi différé).
+        if (SansEnvoi || BatimentExemple.Est(_bat))
+        {
+            Finaliser(d, key, emission, correction, pdf, false, BatimentExemple.Est(_bat)
+                ? "  Bâtiment d'exemple : rien n'est envoyé."
+                : "  Émise sans envoi (premiers pas) : elle attend dans le suivi de facturation.");
+            return;
+        }
 
         // Avant la date d'envoi, RIEN ne part : la facture est préparée et attendra
         // son jour, où elle sera proposée au lancement de l'application. Un loyer
@@ -1022,8 +1042,8 @@ public class FactureLoyerPanel : MonoBehaviour
         if (t == null) return;
         var envoi = DateEnvoiSaisie();
         bool enAvance = envoi.HasValue && DateTime.Today < envoi.Value;
-        t.text = enAvance
-            ? $"Enregistrer pour l'envoi du {envoi.Value:dd/MM}"
+        t.text = SansEnvoi || BatimentExemple.Est(_bat) ? "Émettre (sans envoyer)"
+            : enAvance ? $"Enregistrer pour l'envoi du {envoi.Value:dd/MM}"
             : "Sauvegarder et envoyer";
     }
 

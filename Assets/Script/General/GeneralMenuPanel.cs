@@ -426,6 +426,9 @@ public class GeneralMenuPanel : MonoBehaviour
 
     public void Hide() => gameObject.SetActive(false);
 
+    /// Une zone de l'accueil par son chemin sous le panneau des sections (étape 13b : la visite guidée).
+    public RectTransform Cible(string chemin) => PanelRoot()?.Find(chemin) as RectTransform;
+
     public void Refresh()
     {
         UpdateStats();
@@ -435,6 +438,7 @@ public class GeneralMenuPanel : MonoBehaviour
         BuildAlertes();
         RebuildBuildings();
         EnsureHomeReorg();
+        PremiersPas.Afficher(PanelRoot());   // étape 13b : la carte « Premiers pas », avant les hauteurs
         _colonnes?.Disposer();   // avant les hauteurs : « Créances » peut changer de place
         LayoutHeights();
         NormalizeHeaders();

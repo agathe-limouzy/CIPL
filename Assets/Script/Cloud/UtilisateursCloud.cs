@@ -63,11 +63,17 @@ public static class UtilisateursCloud
       : $"{e.nom} · {Libres(e)} licence{(Libres(e) > 1 ? "s" : "")} libre{(Libres(e) > 1 ? "s" : "")}";
 
     /// « J'ai reçu une invitation » : null si le formulaire est complet, sinon ce qu'il manque.
-    public static string VerifierRejoindre(string email, string code, string mdp, string confirmation)
+    public static string VerifierRejoindre(string email, string code, string mdp, string confirmation) =>
+        VerifierRejoindre(email, code, mdp, confirmation, out _);
+
+    /// `champs` : les zones en cause (RegleMotDePasse.Champ…), montrées en rouge (retour du 25/10).
+    public static string VerifierRejoindre(string email, string code, string mdp, string confirmation, out string[] champs)
     {
-        if (string.IsNullOrWhiteSpace(email) || !email.Contains("@")) return "Saisissez l'adresse e-mail qui a reçu l'invitation.";
-        if (Normaliser(code).Length != 8) return "Le code d'invitation a 8 caractères (par exemple K7F2-9QXD).";
-        return RegleMotDePasse.Refus(mdp, confirmation);
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains("@"))
+        { champs = new[] { RegleMotDePasse.ChampEmail }; return "Saisissez l'adresse e-mail qui a reçu l'invitation."; }
+        if (Normaliser(code).Length != 8)
+        { champs = new[] { RegleMotDePasse.ChampCode }; return "Le code d'invitation a 8 caractères (par exemple K7F2-9QXD)."; }
+        return RegleMotDePasse.Refus(mdp, confirmation, out champs);
     }
 
     /// Le refus du serveur, en clair.

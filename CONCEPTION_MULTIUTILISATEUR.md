@@ -311,11 +311,15 @@ Ordre proposé : chaque étape ne dépend que des précédentes. Taille : S (une
 | 11 | Export de toutes les données (ex-9d) | M | — | Promis aux abonnés expirés (§13) ; remplace la sauvegarde du démarrage |
 | 12 | Mot de passe oublié | S | — | Manque à tous les utilisateurs actuels |
 | 13 | Inscription libre-service | M | 10, 12 | Sans elle, aucun nouveau client ne peut commencer seul |
+| 13b | Premiers pas (tuto) | M | 13 | Ajoutée le 24/10 : un nouveau client arrive dans une application vide, sans savoir par où commencer |
 | 14 | E-mails de l'abonnement | M | 13 | Fin d'essai J-7 et J-1 (§13), paiement refusé, résiliation |
 | 15 | Installation et mises à jour | L | — | Un invité doit pouvoir installer CIPL lui-même |
 | 16 | Boutons « Tester » des intégrations | S | — | Repoussés en 9c1 ; utiles au support |
+| 16a | Envoi des e-mails par CIPL | M | 9c2 (fonctions serveur) | Ajoutée le 25/10 : le réglage SMTP (serveur, mot de passe d'application) bloquait les premiers pas ; un nouveau client doit pouvoir facturer sans rien régler |
+| 16b | API payantes : Google Maps et Pappers | M | 9c2 (fonctions serveur) | Ajoutée le 24/10 : cartes Google, surveillance et fiche complète des locataires, clés de CIPL sur le serveur |
+| 18 | Plateforme agréée de facturation électronique | M | — | Obligations de 2027 (rapport du 22/10). **Avancée avant 16c et 17 le 24/10** : il faut savoir comment chaque société de chaque client est ouverte sur la plateforme avant de vendre |
+| 16c | Revue complète du code (Fable) | M | toutes sauf 17 | Ajoutée le 24/10 : relire tout le code, plateforme comprise, avant d'ouvrir à de vrais clients |
 | 17 | Passage en réel | M | toutes | Réglages de production, juridique, RGPD |
-| 18 | Plateforme agréée de facturation électronique | M | — | Obligations de 2027 (voir le rapport du 22/10) |
 
 ### 10. Pappers sur le serveur — **faite et validée le 23/10** (parcours AI)
 - **Révisé le 23/10** : CIPL n'utilise pas l'API payante de Pappers mais l'annuaire public de l'État (sans clé). Décisions : vérification depuis CIPL, sans fonction serveur ; tournée des résumés d'entreprise une fois par jour, sur le premier poste qui ouvre l'entreprise (`prendre_tournee_annuaire`), fiches en cours de modification sautées ; « Ajouter une entreprise » pré-remplit le nom et affiche la forme et le siège, refuse une société fermée ou introuvable.
@@ -332,16 +336,34 @@ Ordre proposé : chaque étape ne dépend que des précédentes. Taille : S (une
 - **Testable** : le contenu et l'arborescence de l'export ; l'export puis l'import local redonnent les mêmes fiches.
 - **À décider** : admin seulement (décision « Sauvegardes » du 09/10) ou tout le monde quand l'abonnement a expiré (§13) ? Dossier ou fichier ZIP unique ? L'import d'un export (pour changer de compte, ou revenir hors cloud) fait-il partie de l'étape ?
 
-### 12. Mot de passe oublié — **faite le 23/10, à tester en Play** (parcours AN)
+### 12. Mot de passe oublié — **faite et validée le 23/10** (parcours AN)
 - **Décisions du 23/10** : maquette validée telle quelle (lien sur l'écran de connexion ; l'adresse, puis le code et le nouveau mot de passe dans la même fenêtre) ; connecté(e) directement une fois changé ; la même fenêtre dans le menu Compte, « Changer mon mot de passe ». Modèle « Reset Password » de Supabase en français avec `{{ .Token }}`. Fait : `RegleMotDePasse` (testée), `SessionCloud.DemanderCode` / `ChangerMotDePasse`, `EcransCloud.AfficherMotDePasse`.
 - **Contenu prévu** : sur l'écran de connexion, « Mot de passe oublié » : l'adresse → un **code à 6 chiffres** par e-mail (code de récupération de Supabase, sans lien à ouvrir, comme les invitations), puis le code et le nouveau mot de passe dans CIPL.
 - **Testable** : la vérification du formulaire (code, mot de passe ×2), sur le modèle de `VerifierRejoindre`.
 - **À décider** : les e-mails de Supabase partent par défaut d'un service limité à quelques envois par heure ; pour la vente, un serveur d'envoi dédié (étape 17). Le modèle d'e-mail de Supabase est à personnaliser en français.
 
-### 13. Inscription libre-service
-- **Contenu** (§13) : « Créer mon compte » sur l'écran de connexion → Société (SIRET vérifié par l'étape 10, refus si radiée ou déjà sur CIPL : « demandez une invitation à son administrateur ») ou Particulier (nom, prénom, adresse ; « Patrimoine de … ») → compte admin, groupe en essai de 14 jours, première entreprise vide. Premier lancement : Se connecter / Créer mon compte / J'ai reçu une invitation.
+### 13. Inscription libre-service — **faite le 23/10, validée le 25/10** (parcours AO)
+- **Décisions du 23/10** : maquette validée telle quelle ; adresse prouvée par un code à 6 chiffres (modèles « Magic Link » et « Confirm signup » de Supabase, `{{ .Token }}`), « Confirm email » restant décoché ; **un seul groupe par adresse e-mail** (une adresse déjà membre d'un groupe, même invitée, n'en crée pas d'autre ; une autre adresse le peut) ; Réglages de départ tirés de ce qui est saisi (bas de page, lieu d'émission, expéditeur) à la place de ceux de CIPL. Fait : `Serveur/etape13_supabase.sql` (`inscrire`), `RegleInscription` (testée), `SessionCloud.Inscrire`, `EcransCloud.AfficherInscription`.
+- **Contenu prévu** (§13) : « Créer mon compte » sur l'écran de connexion → Société (SIRET vérifié par l'étape 10, refus si radiée ou déjà sur CIPL : « demandez une invitation à son administrateur ») ou Particulier (nom, prénom, adresse ; « Patrimoine de … ») → compte admin, groupe en essai de 14 jours, première entreprise vide. Premier lancement : Se connecter / Créer mon compte / J'ai reçu une invitation.
 - **Testable** : la vérification du formulaire ; le nom par défaut d'un particulier ; les refus.
 - **À décider** : comment prouver l'adresse e-mail ? « Confirm email » est décoché depuis 9b (le code d'invitation prouve la boîte). Proposition : un code à 6 chiffres envoyé à l'inscription, comme pour le mot de passe oublié, plutôt qu'un lien. Une même personne peut-elle créer plusieurs groupes ?
+
+### 13b. Premiers pas (tuto) — ajoutée le 24/10, **faite et validée le 25/10** (parcours AP)
+- **Décisions du 25/10** : maquettes validées telles quelles. La carte pour **tout le monde** : l'admin a les 8 lignes ; un collègue, les 3 qu'il peut faire (bâtiment, locataire, facture). « Masquer » vaut **pour la personne** (retenu dans son compte Supabase, `user_metadata`, donc sur tous ses PC). La visite est montrée **une fois à chaque nouvelle personne** (même mémoire), relançable par Compte › « Revoir la visite guidée ». Une carte dont tout est fait disparaît d'elle-même.
+- **Fait** : `PremiersPas` (règle testée, carte sous l'en-tête de l'accueil, « Y aller »), `VisiteGuidee` (6 bulles : À traiter, Vos bâtiments, Créances, Les onglets, Réglages, Compte ; zone absente sautée), `SessionCloud.Retenu` / `Retenir`. Pas de SQL.
+- **Retour du 25/10, 13b-2 et 13b-3** : « le tuto doit être plus explicatif, interactif, et vos premiers pas plus accompagnés ». Décisions (maquettes validées) : la visite (5 bulles, « Précédent » et « Suivant ») finit par « C'est parti », qui lance le guide de la première étape ; la carte met la prochaine étape en avant et dit à quoi sert chaque ligne et combien de temps elle prend ; chaque ligne a un guide pas à pas (la zone éclairée reste utilisable, la bulle avance quand l'étape est faite), puis « Vos RIB sont prêts » propose la suivante ; un bâtiment d'exemple (fictif, à supprimer ensuite, rien envoyé ni déposé chez Pennylane, hors du décompte).
+  - **13b-2 — faite et validée le 25/10** (parcours AP) : `Bulles` (les bulles, les repères par texte), la visite et la carte revues, les guides des lignes réglées dans Réglages (logo, RIB, envoi, inviter, abonnement). Retours du 25/10 pendant le test : une bulle pour toute la fenêtre du RIB et la saisie contrôlée (`RegleRib`) ; la bulle qui attend dit ce qui manque ; **une entreprise créée par « Créer mon compte » démarre en envoi par e-mail**, serveur d'envoi vide (décision du 25/10).
+  - **13b-3 — guides faits et validés le 25/10 (parcours AP6b à AP6d) ; bâtiment d'exemple fait et validé le 25/10 (parcours AQ).** L'étape 13b est terminée. Le guide du locataire suit les quatre étapes du parcours de la fiche (général, bail, loyer, dépôt), sans lesquelles la facturation est refusée. Contenu prévu : les guides bâtiment (« + », nom, adresse, « Sauvegarder »), locataire (« + Ajouter », nom ou SIRET, e-mail, dates du bail, loyer) et facture (aperçu, « Émettre ») ; le bâtiment d'exemple (« Essayer avec un exemple » sur la carte, bandeau « Supprimer l'exemple »).
+- **Parcours d'un nouveau client** : recevoir le lien → installer (15) → « Créer mon compte » (13) → application vide → régler l'entreprise → saisir bâtiments et locataires → première facture → inviter → choisir l'abonnement avant la fin de l'essai (bandeau des 7 derniers jours, e-mails de l'étape 14).
+- **Décisions du 24/10** :
+  - **Les deux formes de tuto** : une carte « Premiers pas » sur l'accueil, et une courte visite guidée des écrans principaux au premier lancement.
+  - **Pas d'import** depuis un tableur pour l'instant : saisie à la main, guidée par la liste (import si des clients le demandent).
+  - **Téléchargement** : un lien pour commencer (envoyé à la demande et dans l'e-mail d'invitation) ; le site web plus tard (voir 15).
+- **Contenu proposé** (à valider avec les maquettes) :
+  - Carte « Premiers pas » : 1. votre entreprise (logo, bas de page, lieu d'émission), 2. vos RIB, 3. l'envoi des factures (e-mail ou Pennylane, avec le « Tester » de l'étape 16), 4. un premier bâtiment, 5. un locataire (bail, loyer), 6. une première facture (aperçu), 7. inviter un collègue, 8. choisir l'abonnement. Chaque ligne se coche seule d'après les données, « Y aller » ouvre le bon écran ; masquable ; pour l'admin (un utilisateur invité voit une liste réduite ?).
+  - Visite guidée : quelques bulles au premier lancement (accueil, onglets des bâtiments, fiche, suivi de facturation, Réglages, Compte), « Passer » à tout moment, relançable depuis le menu Compte.
+- **Testable** : quelles étapes sont faites d'après les données (règle pure) ; l'ordre et le masquage ; la visite montrée une seule fois par personne.
+- **À décider** : le contenu exact de la liste et de la visite (maquettes) ; ce que voit un utilisateur invité ; « Masquer » vaut-il pour ce PC ou pour la personne ?
 
 ### 14. E-mails de l'abonnement
 - **Contenu** : fin d'essai à J-7 et J-1 (§13), puis expiration ; paiement refusé et reçus de paiement (Stripe sait les envoyer lui-même : à activer dans ses réglages) ; confirmation de résiliation. Une tâche planifiée sur le serveur (une fois par jour) choisit les groupes concernés.
@@ -351,11 +373,53 @@ Ordre proposé : chaque étape ne dépend que des précédentes. Taille : S (une
 ### 15. Installation et mises à jour
 - **Contenu** : un installeur Windows ; l'enregistrement du protocole `cipl://` (déjà vérifié à l'étape 1) ; au lancement, la version la plus récente est lue sur le serveur et proposée au téléchargement ; un lien de téléchargement dans l'e-mail d'invitation (aujourd'hui : « demandez le lien à l'admin »).
 - **Testable** : la comparaison des versions ; le choix « mise à jour obligatoire / proposée ».
-- **À décider** : où héberger l'installeur (site cipl.fr ?) ; signature du code (certificat payant, sans lequel Windows affiche un avertissement à l'installation) ; mise à jour obligatoire quand le serveur change (nouvelle version du SQL) ?
+- **Décision du 24/10** : d'abord un **lien** de téléchargement (envoyé à la demande, et dans l'e-mail d'invitation), le site web ensuite (un site simple peut être hébergé gratuitement ; seul le nom de domaine se paie, `cipl.fr` semble déjà acquis).
+- **À décider** : où héberger le fichier de l'installeur (stockage Supabase limité en taille de fichier sur l'offre gratuite ; GitHub Releases d'un dépôt public ; un Drive partagé) ; signature du code (certificat payant, sans lequel Windows affiche un avertissement à l'installation) ; mise à jour obligatoire quand le serveur change (nouvelle version du SQL) ?
 
 ### 16. Boutons « Tester » des intégrations
 - **Contenu** : Réglages › Intégrations : un « Tester » par service, qui dit quel identifiant ne marche pas. Le test SMTP existe déjà (« Envoyer un email de test ») ; à ajouter : Pennylane (appel de lecture), Mapbox (une tuile).
 - **Testable** : la traduction des erreurs en messages clairs.
+
+### 16a. Envoi des e-mails par CIPL — ajoutée le 25/10
+- **Pourquoi** : pendant les premiers pas (parcours AP), le réglage SMTP a bloqué plusieurs fois : serveur mal orthographié, serveur de CIPL resté par défaut, mot de passe d'application à créer chez Gmail ou Outlook. Un nouveau client doit pouvoir envoyer ses factures sans rien régler.
+- **Décision du 25/10** : l'envoi par CIPL devient le mode par défaut. Les factures, relances et invitations partent d'une adresse de CIPL (par exemple `factures@cipl.fr`), au nom de l'entreprise (« SCI (JBC) »), avec « Répondre à » l'adresse du client : les réponses des locataires arrivent chez lui. Le réglage SMTP actuel reste, pour qui veut partir de sa propre adresse.
+- **Contenu prévu** : un service d'envoi transactionnel, appelé par une fonction serveur (clé de CIPL dans les Secrets de Supabase, jamais sur les PC, comme en 16b) ; le domaine d'envoi de CIPL authentifié (SPF, DKIM, DMARC) pour ne pas finir en indésirables ; Réglages › Intégrations : « Envoi par CIPL » (par défaut) ou « Ma messagerie (SMTP) » ; « Créer mon compte » démarre en envoi par CIPL ; le guide « L'envoi des factures » se réduit alors à vérifier le nom et l'adresse de réponse ; le PDF en pièce jointe.
+- **Testable** : le choix du mode et de l'expéditeur (nom, « Répondre à ») ; le corps envoyé à la fonction serveur ; la traduction des refus du service.
+- **À décider** : le service (hébergé dans l'UE pour le RGPD ; prix au volume) ; le domaine d'envoi ; quotas par entreprise pour éviter les abus ; suivi des e-mails refusés (adresse du locataire fausse) ; plus tard, en option, « Se connecter avec Google » (API Gmail, validation de l'application par Google) ou « avec Microsoft » (Microsoft Graph) pour partir de sa vraie adresse sans mot de passe d'application.
+
+### 16b. API payantes : Google Maps et Pappers — ajoutée le 24/10
+- **Aujourd'hui** : images satellites par Mapbox, clé rangée sur chaque PC (Réglages › Documents › Cartes) ; adresses géocodées par `api-adresse.data.gouv.fr` (gratuit, gardé) ; sociétés lues dans l'annuaire public de l'État (gratuit, gardé pour le SIRET), pas dans l'API payante de Pappers.
+- **Décisions du 24/10** :
+  - **Cartes : passer à Google Maps** (images satellites, Static Maps), à la place de Mapbox.
+  - **Clés de CIPL, sur le serveur** : les clés Google et Pappers restent dans les Secrets de Supabase et ne vont jamais sur les PC (décision du 12/10, « la clé ne quitte pas le serveur ») ; le coût est inclus dans l'abonnement. Le réglage « token Mapbox » disparaît.
+  - **Pappers : surveiller les locataires** (alerte quand un locataire entre en procédure collective — redressement, liquidation — ou est radié : risque d'impayé) et **fiche complète** (dirigeants, capital, chiffre d'affaires, résultat) sur la fiche du locataire.
+- **Contenu proposé** : deux fonctions serveur (Edge Functions), `cartes` et `pappers`, appelées avec le jeton de l'utilisateur (abonnement valable) ; une image de carte gardée sur le serveur une fois obtenue (une adresse = un appel payant, pas un par PC ni par ouverture) ; la tournée quotidienne de l'étape 10 interroge Pappers pour les locataires sociétés et dépose une alerte dans « À traiter ».
+- **Testable** : lecture des réponses Google et Pappers ; la règle d'alerte (procédure ouverte, radiation, déjà signalée) ; le corps envoyé aux fonctions (comparé au TypeScript, comme en 9c2).
+- **À décider** : la formule Pappers (crédits à l'appel ou abonnement de surveillance) et le plafond de dépense ; ce que montre la fiche quand Pappers ne répond pas ; le budget mensuel Google (environ 10 000 images gratuites par mois, payant au-delà).
+
+### 18. Plateforme agréée de facturation électronique — **avancée avant 16c et 17 le 24/10**
+D'après le rapport `reports/Plateformes agréées facturation électronique.md` (22/10) :
+- **Sans code, dès maintenant** : chaque SCI gérée doit avoir choisi une plateforme de réception (obligatoire depuis le 1/9/2026, amende après mise en demeure) ; un compte gratuit suffit.
+- **Avant le 1/9/2027** : choisir la plateforme d'émission des loyers soumis à TVA (Pennylane, Super PDP ou B2Brouter), tester son API avec un vrai Factur-X, et l'intégrer à la place de Pennylane si elle est retenue ; déclarer le statut « encaissée ».
+- **Pour CIPL lui-même** : émettre ses propres factures d'abonnement par une plateforme agréée.
+- **À décider** : les questions aux fournisseurs listées à la fin du rapport.
+- **Ouvrir les sociétés des clients sur la plateforme** (question du 24/10, à régler avant la vente) : chaque SCI soumise à TVA d'un client doit pouvoir émettre par la plateforme retenue. Aujourd'hui chez Pennylane : une société = son dossier, son abonnement et son jeton d'API (Essentiel au minimum) ; l'accès par OAuth est réservé aux partenaires d'intégration. À trancher :
+  - qui ouvre les sociétés : le client lui-même (CIPL le guide pas à pas et il colle son jeton dans Réglages › Intégrations), ou CIPL pour lui (programme partenaire Pennylane avec OAuth, ou plateforme qui gère plusieurs sociétés sous un compte CIPL, comme Super PDP ou B2Brouter) ;
+  - qui paie : le client directement à la plateforme, ou CIPL qui refacture dans l'abonnement ;
+  - les SCI sans TVA (location nue d'habitation, local professionnel sans option) : PDF par e-mail, sans plateforme ; seule la réception reste obligatoire pour toutes.
+- **Recherche du 25/10** (`reports/Ouverture sociétés clientes plateforme agréée.md`) — recommandation, **à confirmer par les réponses des fournisseurs** :
+  - **Qui ouvre** : le gérant, une fois par SCI soumise à TVA, par un parcours lancé depuis CIPL et pré-rempli (vérification d'identité sur mobile, accord d'annuaire). L'arrêté du 27/07/2026 demande la signature du représentant légal pour désigner la plateforme de réception ; aucune plateforme ne laisse un éditeur tout faire seul, sauf l'offre éditeur de B2Brouter (eDocSync, sur devis).
+  - **Qui paie** : CIPL. Chez Super PDP, les SCI sont rattachées à l'abonnement de l'éditeur.
+  - **Quelle plateforme** : **Super PDP** en principale (0,01 € HT par facture, 2 € HT de vérification d'identité par SCI une fois, minimum 10 € HT/an pour tout CIPL ; Factur-X déposé tel quel ; statut « Encaissée » par une route dédiée ; bac à sable). Exemple : 5 SCI dont 3 soumises à TVA, 10 loyers par mois chacune → 3,60 € HT/an, contre 330 € chez B2Brouter et 864 € chez Pennylane (abonnement Essentiel par SCI). **B2Brouter** en secours.
+  - **Côté CIPL** : un jeton par SCI (autorisation OAuth, renouvelé à chaque usage), gardé sur le serveur ; pas encore de notification automatique chez Super PDP : CIPL interroge la plateforme pour les factures reçues et les statuts.
+  - **Règles** : pas de mandat de facturation tant que le gérant déclenche l'envoi depuis CIPL ; émission et réception peuvent passer par deux plateformes différentes (une SCI qui reçoit déjà chez sa banque n'a rien à changer) ; le statut « Encaissée » (date, montant payé par taux de TVA) part de la plateforme d'émission, pour les factures émises à partir du 1/9/2027.
+  - **Réserves** : Super PDP est une petite équipe, sans engagement de disponibilité ni notifications automatiques à ce jour, API encore en bêta ; liste officielle des plateformes non relue (impots.gouv.fr en maintenance du 22 au 25/10) ; sources contradictoires sur l'inscription à l'annuaire des SCI sans TVA (à trancher avec l'expert-comptable ou le service des impôts).
+- **Avant de coder** : demander un devis à B2Brouter (eDocSync) et à Iopole (le gérant n'ouvre qu'un lien) ; poser à Super PDP les questions du rapport (les factures reçues sont-elles payantes, un seul parcours peut-il couvrir plusieurs SCI du même gérant, date des notifications automatiques). Puis décision, et maquette du parcours dans CIPL (Réglages › Intégrations, liste « Premiers pas »).
+
+### 16c. Revue complète du code (Fable) — ajoutée le 24/10
+- **Décision du 24/10** : une grosse revue avec le modèle Fable, **juste avant le passage en réel** (17).
+- **Contenu proposé** : tout le code, par domaine, chaque domaine relu à part : cloud et synchronisation (verrous, écriture par fiche, documents, hors ligne) ; facturation (numérotation, émission, envoi, Pennylane) ; données et documents (sauvegarde, rangement, renommages, export) ; abonnement et comptes (Stripe, inscription, mot de passe) ; écrans. Puis la liste des défauts classés par gravité, validée avec toi, et les corrections, chacune avec son test.
+- **À décider** : la liste des domaines et l'ordre ; ce qui bloque le passage en réel (gravité à partir de laquelle on corrige avant).
 
 ### 17. Passage en réel
 Surtout des réglages, mais à ne pas oublier :
@@ -363,10 +427,3 @@ Surtout des réglages, mais à ne pas oublier :
 - **Supabase** : offre payante (l'offre gratuite **met le projet en pause** après une semaine sans activité, et n'a pas de sauvegarde quotidienne, promise par la décision « Sauvegardes » du 09/10) ; serveur d'envoi d'e-mails dédié ; modèles d'e-mails en français.
 - **Juridique** : CGV et CGU, mentions légales, politique de confidentialité ; RGPD (contrat de sous-traitance avec Supabase et Stripe, registre des traitements ; données hébergées en UE : projet Supabase en Irlande).
 - **Factures de CIPL lui-même** : à partir du 1/9/2027, les factures d'abonnement émises à des entreprises françaises devront passer par une plateforme agréée ; les factures Stripe ne le font pas (voir l'étape 18).
-
-### 18. Plateforme agréée de facturation électronique
-D'après le rapport `reports/Plateformes agréées facturation électronique.md` (22/10) :
-- **Sans code, dès maintenant** : chaque SCI gérée doit avoir choisi une plateforme de réception (obligatoire depuis le 1/9/2026, amende après mise en demeure) ; un compte gratuit suffit.
-- **Avant le 1/9/2027** : choisir la plateforme d'émission des loyers soumis à TVA (Pennylane, Super PDP ou B2Brouter), tester son API avec un vrai Factur-X, et l'intégrer à la place de Pennylane si elle est retenue ; déclarer le statut « encaissée ».
-- **Pour CIPL lui-même** : émettre ses propres factures d'abonnement par une plateforme agréée.
-- **À décider** : les questions aux fournisseurs listées à la fin du rapport.

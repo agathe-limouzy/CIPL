@@ -377,7 +377,7 @@ public class ReglagePanel : MonoBehaviour
     {
         var body = UIFactory.Section(parent, "Logo de la facture", CoPetrole, CoPetroleL);
         UIFactory.Text(body.transform,
-            "Le logo apparaît en haut de la facture (remplace le logo CIPL par défaut).",
+            "Le logo apparaît en haut des factures. Sans logo, le haut de la facture reste vide.",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         var previewBg = UIFactory.Panel("LogoPreview", body.transform, Color.white);
@@ -398,9 +398,10 @@ public class ReglagePanel : MonoBehaviour
         var pick = UIFactory.Button(row.transform, "Choisir un logo…", CoPetroleL, CoPetrole, 40, UITheme.Role.Bouton);
         UIFactory.LE(pick.gameObject, flexW: 1);
         pick.onClick.AddListener(ChoisirLogo);
-        var reset = UIFactory.Button(row.transform, "Logo CIPL par défaut", UITheme.Carte, UITheme.TexteSecondaire, 40, UITheme.Role.Action);
+        // Retour du 25/10 : un client n'a pas à prendre le logo de CIPL ; « Retirer » = aucun logo.
+        var reset = UIFactory.Button(row.transform, "Retirer le logo", UITheme.Carte, UITheme.TexteSecondaire, 40, UITheme.Role.Action);
         UIFactory.Border(reset.gameObject); UIFactory.LE(reset.gameObject, prefW: 240, flexW: 0);
-        reset.onClick.AddListener(() => { R.logoPath = ""; ReglageService.Save(); RefreshLogo(); });
+        reset.onClick.AddListener(() => { R.logoPath = ""; R.sansLogo = true; ReglageService.Save(); RefreshLogo(); });
         _reserveAdmin.Add(row.gameObject);   // étape 9b : logo réservé à l'admin (décision du 11/10)
 
         RefreshLogo();
@@ -432,9 +433,9 @@ public class ReglagePanel : MonoBehaviour
     void RefreshLogo()
     {
         string logo = DossiersDonnees.VersAbsolu(R.logoPath);
-        string path = !string.IsNullOrEmpty(logo) && File.Exists(logo)
-            ? logo : Path.Combine(Application.streamingAssetsPath, "logo_cipl.png");
-        var tex = PhotoService.Charger(path);
+        bool perso = !string.IsNullOrEmpty(logo) && File.Exists(logo);
+        string path = perso ? logo : Path.Combine(Application.streamingAssetsPath, "logo_cipl.png");
+        var tex = perso || !R.sansLogo ? PhotoService.Charger(path) : null;
         if (_logoPreview != null)
         {
             _logoPreview.texture = tex;
@@ -443,9 +444,9 @@ public class ReglagePanel : MonoBehaviour
         if (_logoAspect != null && tex != null && tex.height > 0)
             _logoAspect.aspectRatio = (float)tex.width / tex.height;
         if (_logoInfo != null)
-            _logoInfo.text = !string.IsNullOrEmpty(R.logoPath)
-                ? "Logo personnalisé : " + Path.GetFileName(R.logoPath)
-                : "Logo CIPL par défaut.";
+            _logoInfo.text = !string.IsNullOrEmpty(R.logoPath) ? "Logo personnalisé : " + Path.GetFileName(R.logoPath)
+                           : R.sansLogo ? "Aucun logo : cliquez sur « Choisir un logo… »."
+                           : "Logo CIPL par défaut.";
     }
 
     // ── Section RIB ────────────────────────────────────────────────────────────
@@ -490,21 +491,32 @@ public class ReglagePanel : MonoBehaviour
         }
     }
 
-    void OpenRibForm(RibData existing)
+    /// Retour du 25/10 : saisie contrôlée (RegleRib) ; un refus rouvre la fenêtre telle que remplie,
+    /// la zone en cause en rouge. Un n° de RIB laissé vide se remplit d'après l'IBAN.
+    void OpenRibForm(RibData existing, RibData saisie = null, string[] fautes = null)
     {
         var rib = existing ?? new RibData();
+        var v = saisie ?? rib;
         Modal(existing == null ? "Nouveau RIB" : "Modifier le RIB", body =>
         {
-            var fName = ModalField(body, "Nom du RIB (titre affiché dans la liste)", rib.name, "BNP Mazamet");
-            var fTit = ModalField(body, "Titulaire", rib.titulaire, "Groupe CIPL");
-            var fDom = ModalField(body, "Domiciliation", rib.domiciliation, "BNP PARIBAS Mazamet (00747)");
-            var fRib = ModalField(body, "RIB", rib.rib, "30004 00747 00021009833 38");
-            var fIban = ModalField(body, "IBAN", rib.iban, "FR76 3000 4007 4700 0210 0983 338");
-            var fBic = ModalField(body, "BIC", rib.bic, "BNPAFRPPALB");
+            var fName = ModalField(body, "Nom du RIB (titre affiché dans la liste)", v.name, "BNP Mazamet");
+            var fTit = ModalField(body, "Titulaire", v.titulaire, "Groupe CIPL");
+            var fDom = ModalField(body, "Domiciliation", v.domiciliation, "BNP PARIBAS Mazamet (00747)");
+            var fRib = ModalField(body, "RIB", v.rib, "30004 00747 00021009833 38");
+            var fIban = ModalField(body, "IBAN", v.iban, "FR76 3000 4007 4700 0210 0983 338");
+            var fBic = ModalField(body, "BIC", v.bic, "BNPAFRPPALB");
+            var zones = new EcransCloud.Zones();
+            zones.Ajouter(RegleRib.ChampTitulaire, fTit); zones.Ajouter(RegleRib.ChampRib, fRib);
+            zones.Ajouter(RegleRib.ChampIban, fIban); zones.Ajouter(RegleRib.ChampBic, fBic);
+            zones.Montrer(fautes);
             return () =>
             {
-                rib.name = fName.text; rib.titulaire = fTit.text; rib.domiciliation = fDom.text;
-                rib.rib = fRib.text; rib.iban = fIban.text; rib.bic = fBic.text;
+                var lu = new RibData { name = fName.text, titulaire = fTit.text, domiciliation = fDom.text, rib = fRib.text, iban = fIban.text, bic = fBic.text };
+                if (string.IsNullOrWhiteSpace(lu.rib)) lu.rib = RegleRib.RibDepuisIban(lu.iban) ?? "";
+                string refus = RegleRib.Refus(lu.titulaire, lu.rib, lu.iban, lu.bic, out var champs);
+                if (refus != null) { ConfirmDialog.Erreur(refus, () => OpenRibForm(existing, lu, champs)); return; }
+                rib.name = lu.name; rib.titulaire = lu.titulaire; rib.domiciliation = lu.domiciliation;
+                rib.rib = lu.rib; rib.iban = lu.iban; rib.bic = lu.bic;
                 if (existing == null) R.ribs.Add(rib);
                 ReglageService.Save(); RebuildRibList();
             };

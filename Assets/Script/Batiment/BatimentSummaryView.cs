@@ -199,6 +199,9 @@ public class BatimentSummaryView : MonoBehaviour
         EnsureATraiterCard();
         EnsureTwoColRow();
         EnsureLocatairesBand();
+        // Étape 13b-3 : « Bâtiment d'exemple · Supprimer l'exemple », en tête. Après les Ensure… :
+        // ils placent leurs cartes par position (« après la carte identité »).
+        BatimentExemple.Bandeau(Contenu, _bp);
         RefreshATraiter();
 
         RefreshVignette();

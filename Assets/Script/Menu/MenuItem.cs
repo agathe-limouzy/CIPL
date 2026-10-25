@@ -76,5 +76,16 @@ public class MenuItem : MonoBehaviour
         Afficher();
     }
 
-    void Afficher() => tabLabel.text = _libelle + RegleVerrou.Marque(_detenteur);
+    void Afficher()
+    {
+        tabLabel.text = _libelle + RegleVerrou.Marque(_detenteur);
+        // Retour du 25/10 (« Exemple · Les Tilleuls » débordait) : l'onglet s'élargit pour son nom,
+        // jusqu'à un maximum ; au-delà, « … ». La barre ne règle pas la largeur des onglets.
+        tabLabel.overflowMode = TextOverflowModes.Ellipsis;
+        var rt = (RectTransform)transform;
+        float voulu = tabLabel.GetPreferredValues(tabLabel.text, 9999f, rt.rect.height).x + 36f;   // marges de l'onglet (14 + 14) et un peu d'air
+        rt.sizeDelta = new Vector2(Mathf.Clamp(voulu, LargeurMin, LargeurMax), rt.sizeDelta.y);
+    }
+
+    const float LargeurMin = 160f, LargeurMax = 320f;   // 160 : la largeur du prefab
 }

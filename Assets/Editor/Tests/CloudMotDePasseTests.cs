@@ -28,6 +28,27 @@ public class CloudMotDePasseTests
     }
 
     [Test]
+    public void Chaque_refus_designe_la_zone_a_montrer_en_rouge()
+    {
+        // Retour du 25/10 : la zone en cause passe en rouge.
+        RegleMotDePasse.Refus("court", "court", out var c);
+        Assert.That(c, Is.EqualTo(new[] { RegleMotDePasse.ChampMdp }));
+        RegleMotDePasse.Refus("motdepasse", "autre1234", out c);
+        Assert.That(c, Is.EqualTo(new[] { RegleMotDePasse.ChampMdp, RegleMotDePasse.ChampConfirmation }), "les deux mots de passe");
+        RegleMotDePasse.Refus("motdepasse", "motdepasse", out c);
+        Assert.That(c, Is.Empty);
+        RegleMotDePasse.RefusAdresse("agathe", out c);
+        Assert.That(c, Is.EqualTo(new[] { RegleMotDePasse.ChampEmail }));
+        RegleMotDePasse.RefusCode("12", "motdepasse", "motdepasse", out c);
+        Assert.That(c, Is.EqualTo(new[] { RegleMotDePasse.ChampCode }));
+        Assert.That(RegleMotDePasse.ChampsCode(403), Is.EqualTo(new[] { RegleMotDePasse.ChampCode }), "code incorrect ou expiré");
+        Assert.That(RegleMotDePasse.ChampsCode(429), Is.Empty, "trop tôt : rien à corriger dans la fenêtre");
+        Assert.That(RegleMotDePasse.ChampsChangement(422), Is.EqualTo(new[] { RegleMotDePasse.ChampMdp, RegleMotDePasse.ChampConfirmation }));
+        UtilisateursCloud.VerifierRejoindre("a@b.fr", "K7F2", "motdepasse", "motdepasse", out c);
+        Assert.That(c, Is.EqualTo(new[] { RegleMotDePasse.ChampCode }), "invitation : le code");
+    }
+
+    [Test]
     public void Le_code_part_comme_Supabase_l_attend()
     {
         // /auth/v1/recover puis /auth/v1/verify (type recovery) : ni champ en trop, ni champ vide.

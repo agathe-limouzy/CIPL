@@ -995,3 +995,116 @@ Préalable, dans Supabase (une fois) :
   - Relancer le Play → la connexion gardée est reprise (pas d'écran de connexion).
   - Le build (Odile, autre compte) n'est pas touché. Un autre PC connecté au **même** compte devra se reconnecter : Supabase ferme les autres sessions d'un compte dont le mot de passe change.
 - [x] **AN8 · Nettoyage** : remettre ton mot de passe habituel (AN7 avec un nouveau code, ou plus tard).
+
+## AO. Étape 13 : créer mon compte (23/10) *(validé en Play le 25/10, AO1 à AO8)*
+
+Décisions du 23/10 : maquette validée telle quelle (« Créer mon compte » sur l'écran de connexion ; Société ou Particulier ; e-mail et mot de passe ; le code reçu par e-mail dans la même fenêtre) ; l'adresse prouvée par un code à 6 chiffres ; **un seul groupe par adresse e-mail** (une adresse déjà membre d'un groupe, même invitée, n'en crée pas d'autre ; une autre adresse le peut, par exemple celle de son patrimoine personnel) ; les Réglages de la nouvelle entreprise pré-remplis avec ce qui est saisi (plus ceux de CIPL).
+
+Préalable :
+- `Serveur/etape13_supabase.sql` passé dans Supabase (après etape10b).
+- Supabase › Authentication › Emails › Templates : **« Magic Link » et « Confirm signup »** (les deux : Supabase choisit selon que le compte existe déjà), avec le serveur d'envoi Gmail de l'étape 12 :
+  - Subject : `Votre code CIPL`
+  - Body (remplacer tout) :
+    ```html
+    <h2>Votre code CIPL</h2>
+    <p>Bonjour,</p>
+    <p>Voici votre code pour créer votre compte CIPL :</p>
+    <p style="font-size:26px;font-weight:bold;letter-spacing:4px">{{ .Token }}</p>
+    <p>Il est valable 1 heure. Saisissez-le dans CIPL, dans la fenêtre « Créer mon compte ».</p>
+    <p>Si vous n'avez rien demandé, ignorez ce message.</p>
+    ```
+- Authentication › Sign In / Providers › Email : « Allow new users to sign up » activé ; « Confirm email » reste **décoché** (étape 9b).
+- Adresses de test : `agathelimouzy+societe@gmail.com`, `agathelimouzy+particulier@gmail.com`, `agathelimouzy+doublon@gmail.com` (Gmail les livre dans ta boîte ; le « + » est ignoré). Le parcours envoie 4 codes.
+- Éditeur ; dans CIPL, Compte › Se déconnecter avant chaque cas.
+
+- [x] **AO1 · La porte d'entrée** : écran de connexion → trois boutons « J'ai reçu une invitation », « Créer mon compte », « Se connecter ». « Créer mon compte » → fenêtre « CIPL — Créer mon compte », « Société » choisi, « Essai gratuit de 14 jours, sans carte. ». « Retour » → la connexion, l'adresse saisie toujours là.
+- [x] **AO2 · Société et annuaire** : SIRET `528 808 678 00023` (« SCI (JBC) », Meudon, active dans l'annuaire le 25/10 ; `732 829 320 00074`, donné d'abord, n'y existe pas) → au 14e chiffre, « Recherche dans l'annuaire… », puis la forme et le siège ; « Nom de l'entreprise » se remplit avec la raison sociale (modifiable).
+  - SIRET « 123 » puis « Recevoir le code » → « Le SIRET compte 14 chiffres. » ; au OK, la fenêtre est toujours là.
+- [x] **AO3 · Le formulaire** (la fenêtre garde tout ; retour du 25/10 : la zone en cause passe en rouge, bordure et libellé, et redevient normale dès qu'on la modifie — mots de passe différents : les deux champs ; SIRET, adresse e-mail, code : le champ concerné ; même chose dans la connexion, l'invitation et le mot de passe oublié) : « Votre nom » vide → « Saisissez votre nom : il est affiché à vos collègues. » ; adresse « agathe » → « Saisissez l'adresse e-mail de votre compte. » ; mots de passe différents → « … pas identiques. »
+- [x] **AO4 · Le code** (1er e-mail) : SIRET d'AO2, ton nom, `agathelimouzy+societe@gmail.com`, un mot de passe ×2 → « Recevoir le code » → « Un code vient de partir à … Il est valable 1 heure. » ; l'adresse se grise ; « Code reçu par e-mail » et « Renvoyer le code » apparaissent ; le bouton devient « Créer mon compte ». E-mail reçu : « Votre code CIPL ».
+  - Code `000000` → « Ce code est incorrect ou a expiré… ».
+- [x] **AO5 · Le compte de la société** : le bon code → « Créer mon compte » → message en bas « Bienvenue sur CIPL : « … » est créée, essai gratuit de 14 jours. », et la nouvelle entreprise s'ouvre, vide, sans demander « Votre nom ».
+  - Réglages › Abonnement : « Essai gratuit · 14 jours restants », l'entreprise avec 3 licences (1 utilisée).
+  - Réglages › Facturation › Textes fixes : bas de page « SCI (JBC) - … - Siret : 528 808 678 00023 », puis « Siège social : 3 B RUE JEAN BRUNET 92190 MEUDON » ; lieu d'émission : « Meudon » (plus « St Marcel Paulel » ni le SIRET de CIPL).
+  - Réglages › Facturation › Logo (retour du 25/10) : aperçu vide, « Aucun logo : cliquez sur « Choisir un logo… ». » ; le bouton s'appelle « Retirer le logo » (plus « Logo CIPL par défaut ») ; l'aperçu d'une facture n'a pas de logo en haut. Lieu d'émission : un nom de ville (« Meudon »), jamais un nombre (le code INSEE « 92048 » sortait avant la correction).
+  - Réglages › Utilisateurs : toi seul(e), admin, avec ton nom.
+  - Compte › Se déconnecter, puis se reconnecter avec cette adresse et ce mot de passe → la même entreprise.
+- [x] **AO6 · Particulier** (2e e-mail) : « Créer mon compte » › « Particulier » → Prénom et Nom (« Jean », « Martin ») ; « Nom de l'entreprise » propose « Patrimoine de Jean Martin ».
+  - Adresse « 4 rue des Lilas » → « Adresse : terminez par le code postal et la ville… » ; puis « 4 rue des Lilas, 31000 Toulouse ».
+  - `agathelimouzy+particulier@gmail.com`, code → « Patrimoine de Jean Martin » s'ouvre. Réglages : bas de page « Jean Martin - 4 rue des Lilas, 31000 Toulouse », lieu d'émission « Toulouse ».
+- [x] **AO7 · Un seul groupe par adresse** (retour du 25/10 : refus **avant** l'envoi du code ; il faut le SQL d'etape13 repassé, qui ajoute `adresse_deja_membre`) : « Créer mon compte » avec `agathelimouzy@gmail.com`, un SIRET libre, un mot de passe → « Recevoir le code » → aucun code envoyé ; refus au centre « Cette adresse e-mail a déjà un compte CIPL : connectez-vous avec… » (sans nommer le groupe), le champ « E-mail » en rouge. Puis « Retour » et « Se connecter » avec ton mot de passe habituel → Démo CIPL.
+  - Ancien déroulé, gardé comme filet de sécurité si le serveur ne répond pas à la vérification (3e e-mail) : « Créer mon compte » avec `agathelimouzy@gmail.com` (déjà admin de Démo CIPL), un SIRET libre (`106 463 284 00013`, « SCI (OLTRA CAPITAL) ») et un mot de passe **différent** du tien → code → refus « Cette adresse e-mail a déjà un compte CIPL (« … ») : connectez-vous avec… » ; « Retour », puis « Se connecter » avec **ton mot de passe habituel** → Démo CIPL (il n'a pas changé).
+- [x] **AO8 · Société déjà sur CIPL** (retour du 25/10 : refus **avant** le code ; SQL d'etape13 repassé, `siret_deja_sur_cipl`) : « Créer mon compte » › Société, le SIRET d'AO5, `agathelimouzy+doublon@gmail.com`, un mot de passe → « Recevoir le code » → aucun code envoyé ; « Cette société est déjà sur CIPL : demandez une invitation à son administrateur. », le champ « SIRET » en rouge.
+- [ ] **AO9 · Nettoyage** (SQL Editor) :
+  ```sql
+  delete from public.groupes where titulaire in (select id from auth.users where email in
+    ('agathelimouzy+societe@gmail.com', 'agathelimouzy+particulier@gmail.com', 'agathelimouzy+doublon@gmail.com'));
+  delete from auth.users where email in
+    ('agathelimouzy+societe@gmail.com', 'agathelimouzy+particulier@gmail.com', 'agathelimouzy+doublon@gmail.com');
+  ```
+  Puis, dans CIPL, se reconnecter avec ton compte habituel.
+
+## AP. Étapes 13b et 13b-2 : premiers pas accompagnés (25/10) *(validé en Play le 25/10, AP1 à AP10 ; AP8 jusqu'à « Le paiement »)*
+
+Décisions du 25/10 : la carte « Premiers pas » pour tout le monde (l'admin : 8 lignes ; un collègue : les 3 qu'il peut faire) ; « Masquer » et « visite déjà vue » retenus **pour la personne** (dans son compte, donc sur tous ses PC) ; la visite montrée une fois à chaque nouvelle personne. Retour du 25/10 (« plus explicatif, interactif, accompagné »), maquettes 13b-2 validées : la visite (5 bulles, « Précédent » et « Suivant ») finit par « C'est parti » qui lance le guide de la première étape ; la carte met la prochaine étape en avant et dit à quoi sert chaque ligne et combien de temps elle prend ; « Commencer » ouvre l'écran et, pour les lignes réglées dans Réglages (logo, RIB, envoi, inviter, abonnement), un guide pas à pas : la zone éclairée reste utilisable, la bulle avance d'elle-même quand l'étape est faite ; à la fin, « Vos RIB sont prêts » propose la suivante. Les guides bâtiment, locataire, facture et le bâtiment d'exemple viendront en 13b-3.
+
+Préalable :
+- Rien à passer sur le serveur (pas de SQL).
+- Éditeur. Fais AP **avant** le nettoyage AO9 : on se sert du compte de la société d'AO5 (`agathelimouzy+societe@gmail.com`, « SCI (JBC) », vide).
+- Ne clique jamais « Tout envoyer ».
+- Pour revoir la carte masquée ou la visite automatique sur un compte (SQL Editor), puis relancer le Play :
+  ```sql
+  update auth.users set raw_user_meta_data = raw_user_meta_data - 'cipl_visite_vue' - 'cipl_premiers_pas_masques'
+    where email = 'agathelimouzy+societe@gmail.com';
+  ```
+
+- **Repartir de zéro** (retour du 25/10 : des lignes cochées sans avoir été faites par le tutoriel) :
+  1. Supabase › SQL Editor : le nettoyage d'AO9 (il efface les trois comptes de test, SCI (JBC) et tout ce qu'elle contient : bâtiments, Réglages, secrets).
+  2. Dans l'Explorateur, renommer `C:\Users\agath\Documents\CIPL\SCI (JBC)` en `SCI (JBC) ancien` (sinon le logo et les PDF des essais repartiraient dans la nouvelle entreprise).
+  3. Play → l'écran de connexion (le compte gardé n'existe plus) → « Créer mon compte » › Société, SIRET `528 808 678 00023`, `agathelimouzy+societe@gmail.com`, un mot de passe, le code reçu → la nouvelle SCI (JBC) s'ouvre : la visite démarre (AP1), carte « 0 / 8 », envoi par e-mail, serveur d'envoi vide.
+
+- [x] **AP1 · La visite** : le SQL ci-dessus, puis Play avec `+societe` → SCI (JBC) s'ouvre ; une fois l'accueil seul à l'écran, l'écran s'assombrit et la bulle « Bienvenue dans CIPL » apparaît au centre, « 1 / 5 ». « Suivant › » → « Vos bâtiments », cadre blanc autour du « + » de la barre des onglets (« 2 / 5 ») ; « ‹ Précédent » revient à la bienvenue. Puis « Créances » (la section), « Réglages et compte » (les boutons de l'en-tête) et « C'est parti » avec « Plus tard » et « Commencer › ». Pendant la visite, rien ne se clique sous le voile ; aucun « Compte » coupé avant son « » ».
+  - « Plus tard » → l'accueil, avec la carte (retour du 25/10 : juste après la création du compte, elle n'était apparue qu'après une relance ; si ça se reproduit, me le dire). Relancer le Play → la visite ne revient pas.
+- [x] **AP2 · La carte** : sous l'en-tête, « Premiers pas · 0 / 8 » et « Masquer » ; la barre de progression ; le cadre vert « Prochaine étape · 1 min », « Votre logo », sa phrase (« Votre logo s'imprime en haut de chaque facture… ») et « Commencer › ». Puis les 8 lignes sur deux colonnes, chacune avec à quoi elle sert et sa durée (« Vos RIB — Imprimés sur les factures · 2 min »…, « Choisir l'abonnement — Essai : 14 jours restants ») et « Commencer » ; une ligne faite est barrée et garde « Refaire » (retour du 25/10), qui relance son guide (un logo, un RIB, un bâtiment… de plus).
+- [x] **AP3 · Le guide du logo** : Compte › « Revoir la visite guidée » → jusqu'à « C'est parti » → « Commencer › » → Réglage › Facturation, bulle « Votre logo · étape 1 sur 2 » sur « Choisir un logo… », avec « La suite s'affiche dès que le logo est choisi. » et « Quitter le guide ». Choisir une image PNG → la bulle passe d'elle-même à « Le bas de page et le lieu » ; l'écran défile jusqu'à « Textes fixes », cadré de blanc. « Terminer » → bulle « Votre logo est en place · 1 étape sur 8. Prochaine étape : Vos RIB (Imprimés sur les factures · 2 min). », « Plus tard » et « Continuer › ».
+- [x] **AP4 · Le guide des RIB** (retour du 25/10 : une bulle pour toute la fenêtre, et la saisie contrôlée) : si un RIB est déjà dans la liste (« (RIB sans nom) » de ton premier essai), le supprimer d'abord, pour que « Vos RIB » ne soit pas barré. « Continuer › » (ou « Commencer » de la ligne) → bulle sur « + Ajouter un RIB » ; le cliquer → la fenêtre « Nouveau RIB » s'ouvre et une seule bulle, à droite, liste les six champs et ce qu'il faut y mettre, avec « La suite s'affiche dès que le RIB est validé. »
+  - Refus, sans rien enregistrer : laisser « Titulaire » vide, IBAN `FR76 3000 6000 0112 3456 7890 189`, « Valider » → au centre « Saisissez le titulaire du compte : il s'imprime sur les factures. » ; au OK, la fenêtre revient avec l'IBAN, le RIB rempli d'après l'IBAN (`30006 00001 12345678901 89`) et « Titulaire » en rouge (bordure et libellé), qui redevient normal dès qu'on y tape.
+  - IBAN terminé par `188` au lieu de `189` → « Cet IBAN n'est pas valide… », IBAN en rouge. BIC `AGRI` → « Le BIC compte 8 ou 11 lettres et chiffres… ». RIB `30004 00747 00021009833 38` avec l'IBAN de test → « Le n° de RIB ne correspond pas à l'IBAN… », RIB et IBAN en rouge.
+  - Puis le RIB de test en entier : nom `Banque test`, titulaire `SCI (JBC)`, domiciliation `Agence test Meudon`, RIB vide (il se remplit), IBAN `FR76 3000 6000 0112 3456 7890 189`, BIC `AGRIFRPP` → « Valider » → « Vos RIB sont prêts · 2 étapes sur 8. Prochaine étape : L'envoi des factures (E-mail ou Pennylane · 3 min). » → « Plus tard ».
+  - « ← Retour » → l'accueil : « 2 / 8 », logo et RIB barrés, « Prochaine étape · 3 min — L'envoi des factures ».
+- [x] **AP5 · Le guide de l'envoi (e-mail)** (retour du 25/10 : la bulle « Enregistrer » dit ce qui manque ; une entreprise créée par « Créer mon compte » démarre en e-mail, serveur vide) : « Commencer › » du cadre → Réglage › Intégrations, bulle sur la case « Envoyer via Pennylane » : « Case cochée : … Pennylane (il faudra sa clé). Case décochée : … par e-mail… ». Sur SCI (JBC), créée avant ce changement, la case est encore cochée : la décocher → « Suivant › » → « Votre serveur d'envoi » (`smtp.gmail.com`, pas `smtp.office365.com`) → « L'adresse d'expédition » (`agathelimouzy@gmail.com`) → « Le mot de passe » (ton mot de passe d'application Gmail, saisi par toi) → « Enregistrer ».
+  - Retour du 25/10 : « Votre serveur d'envoi », « L'adresse d'expédition » et « Le mot de passe » n'ont plus de « Suivant » quand le champ est vide : « Suivant › » apparaît dès que le champ est rempli, même en cours de frappe (retour du 25/10) ; le quitter rempli fait aussi avancer la bulle. Sur « Enregistrer », la bulle se met à droite et ne cache plus les champs. Un champ déjà rempli (l'adresse d'expédition, ou en revenant par « ‹ Précédent ») ne repart plus seul : la bulle propose « Suivant » ; si on modifie le champ puis qu'on clique ailleurs, elle avance.
+  - Avant d'avoir tout rempli, « Enregistrer » → la bulle reste et ajoute sous « La suite s'affiche… » ce qui manque (par exemple « Le mot de passe SMTP n'est pas enregistré… »). Complet et enregistré → « Un e-mail de test » ; le cliquer → « Envoyé à … » sous le bouton (s'il est refusé : « 535 Authentication unsuccessful » = serveur ou mot de passe faux) → « Terminer » → « L'envoi des factures est réglé ».
+  - Variante, sans enregistrer : relancer le guide (ligne de la carte, si elle n'est pas encore barrée), cocher « Envoyer via Pennylane », « Suivant › » → « La clé Pennylane » (les étapes de l'e-mail sont sautées) → « Suivant › » → « Enregistrer » sans clé : la bulle ajoute « Il manque la clé Pennylane : collez-la plus haut et enregistrez, ou décochez « Envoyer via Pennylane »… ». Décocher, « Quitter le guide », « ← Retour » sans enregistrer.
+  - Pour refaire ce guide une fois la ligne barrée : effacer le mot de passe dans Intégrations et « Enregistrer ».
+- [x] **AP6 · Le guide de l'invitation** : « Commencer » de « Inviter un collègue » → Réglage › Utilisateurs, bulle sur « Inviter » → le cliquer → la bulle cadre la fenêtre « Inviter un collègue » → « Suivant › » → bulle sur « Envoyer l'invitation » ; adresse `agathelimouzy+doublon@gmail.com`, rôle Utilisateur, puis l'envoyer (garder le code pour AP7) → « Invitation envoyée », prochaine étape : « Un premier bâtiment ».
+- [x] **AP6b · Le guide du locataire** (13b-3, 25/10 : les quatre étapes du parcours de la fiche — général, bail, loyer, dépôt — sans lesquelles la facturation reste bloquée) : sur la carte, « Commencer » d'« Un locataire » → le résumé du premier bâtiment (« Nouveau »), bulle « Un locataire · étape 1 sur 7 » et cadre blanc sur « + Ajouter ». Le cliquer → la fiche du locataire s'ouvre, la bulle passe sur le nom.
+  - Nom (`Boulangerie Test`), puis cliquer ailleurs → « Son e-mail » (`agathelimouzy@gmail.com`) → « Suivant › » → « Le bail » (type, début `01/10/2026`, fin `30/09/2035`) → « Suivant › » → « Sauvegarder » sur le bouton de la fiche ; le cliquer → « Le loyer », cadre sur « Initialiser » dans « Loyer ».
+  - Si le bail n'a pas été enregistré, la bulle ajoute « Étape 2 — Bail : saisissez les dates… » (le message du parcours).
+  - « Initialiser » → la fenêtre du loyer s'ouvre, la bulle descend en bas sans cadre ; un loyer (`1 200` € par mois), « Enregistrer » → « Le dépôt de garantie », cadre sur « Initialiser » ; le cliquer → la fenêtre du dépôt est cadrée ; la remplir et la valider → « Votre locataire est prêt », prochaine étape : « Une première facture ».
+- [x] **AP6c · Le guide de la facture** (retour du 25/10 : la facture du tutoriel est émise sans être envoyée) : « Continuer › » (ou « Commencer » d'« Une première facture ») → la facture de loyer du locataire s'ouvre, le bouton du bas dit « Émettre (sans envoyer) ». Bulle « La période » → « Suivant › » → « L'aperçu » sur « Générer facture » ; le cliquer → l'aperçu à droite → « Suivant › » → « Émettre » sur le bouton du bas ; le cliquer → aucune fenêtre d'envoi, message en bas « … Émise sans envoi (premiers pas) : elle attend dans le suivi de facturation. » → « Votre première facture est émise ».
+  - Même avec un e-mail mal réglé (serveur faux), rien ne bloque : rien ne part.
+  - Après le guide (« Terminer » ou « Quitter le guide »), rouvrir la facture d'un locataire : le bouton redit « Sauvegarder et envoyer » (ou « Enregistrer pour l'envoi du … »).
+  - Dans le suivi de facturation du locataire, la facture est « en attente d'envoi » : elle s'envoie de là (jamais « Tout envoyer » pendant les tests).
+  - Sans locataire complet : « Commencer » d'« Une première facture » ouvre sa fiche et affiche au centre « Facturation possible une fois le locataire complet… » (pas de guide). Sans locataire du tout : c'est le guide du locataire qui démarre ; sans bâtiment, celui du bâtiment.
+- [x] **AP6d · Le guide du bâtiment** (à faire sur une autre entreprise vide, ou après avoir supprimé « Nouveau ») : « Commencer » d'« Un premier bâtiment » → l'accueil, cadre sur le « + » de la barre des onglets (plus de bâtiment créé d'office) ; le cliquer → la fiche « Nouveau » en modification, bulle sur le nom ; nom puis cliquer ailleurs → « Son adresse » (le champ et « Chercher ») ; adresse puis cliquer ailleurs → « Sauvegarder » ; le cliquer → « Votre premier bâtiment est créé ».
+- [x] **AP7 · Un collègue** : Compte › Se déconnecter ; « J'ai reçu une invitation » avec `agathelimouzy+doublon@gmail.com`, le code et un mot de passe → SCI (JBC) s'ouvre et la visite démarre (nouvelle personne), jusqu'à « C'est parti ». La carte : « Premiers pas · 0 / 3 », « Prochaine étape · 2 min — Un premier bâtiment », et seulement bâtiment, locataire, facture. « Commencer › » → la création d'un bâtiment (pas encore de guide : étape 13b-3) ; ne rien enregistrer, revenir à l'accueil.
+- [x] **AP8 · Le guide de l'abonnement** : se reconnecter avec `+societe` (pas de visite). « Commencer » de « Choisir l'abonnement » → Réglage › Abonnement : bulles « Mensuel ou annuel », « Les licences », puis « Le paiement » sur « Continuer vers le paiement » (« La suite s'affiche dès que le paiement est validé. »). Tu peux t'arrêter là (« Quitter le guide »), ou payer en mode test comme en AH (carte de test Stripe, saisie par toi) → « Abonnement choisi ».
+  - Retour du 25/10 : s'arrêter sur « Le paiement » suffit (pas de carte à saisir) ; le passage à « Abonnement choisi » ne dépend que de l'abonnement enregistré par Stripe, déjà validé en AH.
+- [x] **AP9 · Masquer, pour la personne** : « Masquer » → la carte disparaît. Relancer le Play → toujours absente ; Se déconnecter puis se reconnecter → toujours absente.
+  - Retour du 25/10 : menu Compte → « Réafficher les premiers pas » (le lien n'y est que si la carte est masquée) → la carte revient, et reste là après une relance.
+- [x] **AP10 · Ton compte habituel** : se reconnecter avec `agathelimouzy@gmail.com` → Démo CIPL. Si la proposition d'envoi des factures s'affiche, elle passe d'abord (« Plus tard ») ; puis la visite, une fois. La carte ne montre que ce qui reste à faire ; si tout est fait, ni carte ni bulle « C'est parti ».
+- [ ] **AP11 · Nettoyage** : AO9 (`agathelimouzy+doublon@gmail.com` y est déjà ; le logo et les RIB de SCI (JBC) partent avec elle).
+
+## AQ. Étape 13b-3 : le bâtiment d'exemple (25/10) *(validé en Play le 25/10, AQ1 à AQ4)*
+
+Décisions (maquette 5 validée le 25/10) : « Essayer avec un exemple » sur la carte Premiers pas crée un bâtiment fictif, « Exemple · Les Tilleuls », avec un locataire complet (« Exemple Boulangerie », bail depuis le 1er de ce mois, 1 200 € HT par mois, dépôt initialisé, sans e-mail) ; rien n'en part (facture de loyer émise sans envoi, hors de l'envoi automatique) ; il ne compte pas dans les premiers pas ; un bandeau le signale, avec « Supprimer l'exemple ».
+
+Préalable : Play avec `agathelimouzy+societe@gmail.com` (SCI (JBC)), pas ton compte habituel : l'exemple serait créé dans Démo CIPL.
+
+- [x] **AQ1 · Créer l'exemple** : accueil, bandeau de la carte « Premiers pas » → « Essayer avec un exemple » → message en bas « Bâtiment d'exemple créé : essayez tout, rien n'est envoyé ni déposé chez Pennylane. » ; l'onglet « Exemple · Les Tilleuls » s'ouvre sur son résumé, avec en tête un bandeau orange « Bâtiment d'exemple : … » et « Supprimer l'exemple » ; dessous, la carte du bâtiment, les chiffres, puis « À traiter » et « Locataires » (« Exemple Boulangerie »), dans cet ordre.
+- [x] **AQ2 · Il ne compte pas** : « Accueil » → la carte « Premiers pas » affiche le même compte qu'avant (l'exemple ne coche ni « Un premier bâtiment » ni « Un locataire ») ; le lien dit maintenant « Voir l'exemple » ; le cliquer → l'exemple se rouvre, sans en créer un second.
+- [x] **AQ3 · Facturer l'exemple** : fiche d'« Exemple Boulangerie » → facture de loyer → le bouton du bas dit « Émettre (sans envoyer) » ; « Générer facture », puis ce bouton → pas de fenêtre d'envoi, message en bas se terminant par « Bâtiment d'exemple : rien n'est envoyé. » ; la facture est « en attente d'envoi » dans le suivi du locataire.
+  - Relancer le Play → la fenêtre d'envoi automatique ne propose pas cette facture.
+  - Une facture de dépôt, de régularisation ou de refacturation de l'exemple → refusée, « Aucune adresse email pour ce locataire… » : rien ne part.
+- [x] **AQ4 · Supprimer l'exemple** : bandeau → « Supprimer l'exemple » → « Supprimer l'exemple ? » → « Supprimer » → l'onglet disparaît, retour à l'accueil ; le lien redit « Essayer avec un exemple ».

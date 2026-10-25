@@ -10,7 +10,11 @@ using UnityEngine.Networking;
 /// l'application ne passe encore par le cloud. Voir CONCEPTION_MULTIUTILISATEUR.md.
 public static class CloudClient
 {
-    [Serializable] public class Utilisateur { public string id; public string email; }
+    [Serializable] public class Utilisateur { public string id; public string email; public Metadonnees user_metadata; }
+
+    /// Étape 13b : ce que CIPL retient pour la personne, dans son compte Supabase (donc sur tous ses
+    /// PC, décision du 25/10) : carte « Premiers pas » masquée, visite guidée déjà vue.
+    [Serializable] public class Metadonnees { public bool cipl_premiers_pas_masques, cipl_visite_vue; }
 
     /// Réponse de /auth/v1/token : le jeton (« badge ») valable environ 1 h, et de quoi le renouveler.
     [Serializable] public class Session
@@ -53,20 +57,36 @@ public static class CloudClient
     [Serializable] class Adresse { public string email; }
     [Serializable] class CodeRecupere { public string type, email, token; }
     [Serializable] class NouveauMotDePasse { public string password; }
+    [Serializable] class DemandeInscription { public string email; public bool create_user; }
 
     public static string CorpsDemande(string email) => JsonUtility.ToJson(new Adresse { email = email });
-    public static string CorpsCode(string email, string code) => JsonUtility.ToJson(new CodeRecupere { type = "recovery", email = email, token = code });
+    public static string CorpsDemandeInscription(string email) => JsonUtility.ToJson(new DemandeInscription { email = email, create_user = true });
+    /// `type` : « recovery » (mot de passe oublié), « email » (code d'inscription, étape 13).
+    public static string CorpsCode(string email, string code, string type = "recovery") =>
+        JsonUtility.ToJson(new CodeRecupere { type = type, email = email, token = code });
+
+    /// Étape 13 : code d'inscription (modèles « Confirm signup » et « Magic Link » de Supabase,
+    /// {{ .Token }}) ; le compte est créé s'il n'existe pas, sans mot de passe tant que le code n'est pas saisi.
+    public static Task<Reponse> DemanderCodeInscription(string url, string cle, string email) =>
+        Envoyer("POST", url + "/auth/v1/otp", cle, null, CorpsDemandeInscription(email));
 
     /// Envoie un code de récupération ; même réponse que le compte existe ou non.
     public static Task<Reponse> DemanderCode(string url, string cle, string email) =>
         Envoyer("POST", url + "/auth/v1/recover", cle, null, CorpsDemande(email));
 
     /// Le code contre une session : il prouve la boîte mail.
-    public static Task<Reponse> VerifierCode(string url, string cle, string email, string code) =>
-        Envoyer("POST", url + "/auth/v1/verify", cle, null, CorpsCode(email, code));
+    public static Task<Reponse> VerifierCode(string url, string cle, string email, string code, string type = "recovery") =>
+        Envoyer("POST", url + "/auth/v1/verify", cle, null, CorpsCode(email, code, type));
 
     public static Task<Reponse> ChangerMotDePasse(string url, string cle, string jeton, string motDePasse) =>
         Envoyer("PUT", url + "/auth/v1/user", cle, jeton, JsonUtility.ToJson(new NouveauMotDePasse { password = motDePasse }));
+
+    /// Étape 13b : pose un choix (`nom` = champ de Metadonnees) à vrai dans le compte ; Supabase
+    /// fusionne avec ce qui y est déjà.
+    public static string CorpsMetadonnee(string nom, bool valeur = true) => "{\"data\":{\"" + nom + "\":" + (valeur ? "true" : "false") + "}}";
+
+    public static Task<Reponse> RetenirMetadonnee(string url, string cle, string jeton, string nom, bool valeur = true) =>
+        Envoyer("PUT", url + "/auth/v1/user", cle, jeton, CorpsMetadonnee(nom, valeur));
 
     public static Task<Reponse> Renouveler(string url, string cle, string refreshToken) =>
         Envoyer("POST", url + "/auth/v1/token?grant_type=refresh_token", cle, null,

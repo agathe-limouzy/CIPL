@@ -170,6 +170,8 @@ public class FactureEnvoiAuto : MonoBehaviour
             return;
         }
 
+        // Étape 13b-3 : rien ne part d'un bâtiment d'exemple.
+        bps = bps.Where(bp => bp != null && !BatimentExemple.Est(bp.getBatiment())).ToList();
         var liste = Selection(bps, DateTime.Today);
         if (liste.Count == 0)
         {

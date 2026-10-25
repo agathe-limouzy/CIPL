@@ -16,6 +16,7 @@ public class Batiment : Data
     public ParkingState parkingEtat;
     public string cadastral;            // référence cadastrale du bâtiment
     public string dateAcquisitionISO;   // date d'acquisition saisie manuellement ("yyyy-MM-dd")
+    public bool exemple;                // étape 13b-3 : bâtiment d'exemple (rien n'en part ; hors des premiers pas)
 
     // Photos du bâtiment (chemins absolus dans le dossier de sauvegarde)
     public List<string> photos = new List<string>();

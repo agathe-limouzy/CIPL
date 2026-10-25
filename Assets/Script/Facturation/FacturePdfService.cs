@@ -410,24 +410,28 @@ public static class FacturePdfService
         return RunEdge(BuildRegulHtml(d), ScreenshotArgs(pngPath, width, height, scale), pngPath, out error);
     }
 
-    // Logo à placer sur la facture : celui du Réglage s'il est défini, sinon le
-    // logo CIPL par défaut (StreamingAssets/logo_cipl.png). Retourné en data-URI.
+    // Image vide (1 × 1 transparente) : sans logo, ni image cassée ni texte « GROUPE CIPL » à sa place.
+    const string AucunLogo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+
+    // Logo à placer sur la facture : celui du Réglage s'il est défini, sinon aucun
+    // (`sansLogo`) ou le logo CIPL par défaut (StreamingAssets/logo_cipl.png). Retourné en data-URI.
     static string LogoDataUri()
     {
         try
         {
             // Relatif depuis l'étape 6b (Réglages partagés par un Drive), absolu avant.
             string custom = ReglageService.Current != null ? DossiersDonnees.VersAbsolu(ReglageService.Current.logoPath) : null;
-            string path = (!string.IsNullOrEmpty(custom) && File.Exists(custom))
-                ? custom : Path.Combine(Application.streamingAssetsPath, "logo_cipl.png");
-            if (!File.Exists(path)) return "";
+            bool perso = !string.IsNullOrEmpty(custom) && File.Exists(custom);
+            if (!perso && ReglageService.Current?.sansLogo == true) return AucunLogo;
+            string path = perso ? custom : Path.Combine(Application.streamingAssetsPath, "logo_cipl.png");
+            if (!File.Exists(path)) return AucunLogo;
             byte[] bytes = File.ReadAllBytes(path);
             string ext = Path.GetExtension(path).ToLowerInvariant();
             string mime = ext == ".jpg" || ext == ".jpeg" ? "image/jpeg"
                 : ext == ".gif" ? "image/gif" : "image/png";
             return $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
         }
-        catch { return ""; }
+        catch { return AucunLogo; }
     }
 
     static string FindEdge()

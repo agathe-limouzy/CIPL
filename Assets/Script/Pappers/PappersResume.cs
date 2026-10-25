@@ -60,7 +60,7 @@ public static class PappersResume
             sb.AppendLine();
             sb.AppendLine("── Siège ──");
             sb.AppendLine(data.siege.adresse);
-            sb.AppendLine($"{data.siege.code_postal} {data.siege.commune}");
+            sb.AppendLine($"{data.siege.code_postal} {data.siege.Ville}");
         }
         sb.AppendLine();
         sb.AppendLine("── Finances ──");
@@ -92,7 +92,7 @@ public static class PappersResume
         if (data == null) return "";
         string siege = data.siege == null ? null
                      : !string.IsNullOrWhiteSpace(data.siege.adresse) ? data.siege.adresse
-                     : $"{data.siege.code_postal} {data.siege.commune}".Trim();
+                     : $"{data.siege.code_postal} {data.siege.Ville}".Trim();
         return string.Join(" · ", new[] { data.libelle_nature_juridique, siege }.Where(x => !string.IsNullOrWhiteSpace(x)));
     }
 

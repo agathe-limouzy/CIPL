@@ -11,28 +11,47 @@ public static class RegleMotDePasse
 {
     public const int Minimum = 8;
 
+    // Les zones en cause d'un refus (retour du 25/10 : elles passent en rouge dans la fenêtre).
+    public const string ChampEmail = "email", ChampCode = "code", ChampMdp = "mdp", ChampConfirmation = "confirmation";
+    static readonly string[] Aucun = new string[0];
+
     /// Null si le mot de passe convient, sinon le motif.
-    public static string Refus(string mdp, string confirmation)
+    public static string Refus(string mdp, string confirmation) => Refus(mdp, confirmation, out _);
+
+    public static string Refus(string mdp, string confirmation, out string[] champs)
     {
-        if ((mdp ?? "").Length < Minimum) return $"Le mot de passe doit faire au moins {Minimum} caractères.";
-        if (mdp != confirmation) return "Les deux mots de passe ne sont pas identiques.";
+        champs = Aucun;
+        if ((mdp ?? "").Length < Minimum) { champs = new[] { ChampMdp }; return $"Le mot de passe doit faire au moins {Minimum} caractères."; }
+        if (mdp != confirmation) { champs = new[] { ChampMdp, ChampConfirmation }; return "Les deux mots de passe ne sont pas identiques."; }
         return null;
     }
 
-    public static string RefusAdresse(string email) =>
-        string.IsNullOrWhiteSpace(email) || !email.Contains("@") ? "Saisissez l'adresse e-mail de votre compte." : null;
+    public static string RefusAdresse(string email) => RefusAdresse(email, out _);
+
+    public static string RefusAdresse(string email, out string[] champs)
+    {
+        bool faute = string.IsNullOrWhiteSpace(email) || !email.Contains("@");
+        champs = faute ? new[] { ChampEmail } : Aucun;
+        return faute ? "Saisissez l'adresse e-mail de votre compte." : null;
+    }
 
     /// Le code de l'e-mail sans espaces ni tirets (« 123 456 » → « 123456 »).
     public static string Code(string saisie) => new string((saisie ?? "").Where(char.IsDigit).ToArray());
 
     /// Le code et le nouveau mot de passe : null si complets, sinon ce qu'il manque. Supabase envoie
     /// 6 chiffres par défaut (réglable jusqu'à 10).
-    public static string RefusCode(string code, string mdp, string confirmation)
+    public static string RefusCode(string code, string mdp, string confirmation) => RefusCode(code, mdp, confirmation, out _);
+
+    public static string RefusCode(string code, string mdp, string confirmation, out string[] champs)
     {
         int n = Code(code).Length;
-        if (n < 6 || n > 10) return "Saisissez le code à 6 chiffres reçu par e-mail.";
-        return Refus(mdp, confirmation);
+        if (n < 6 || n > 10) { champs = new[] { ChampCode }; return "Saisissez le code à 6 chiffres reçu par e-mail."; }
+        return Refus(mdp, confirmation, out champs);
     }
+
+    /// Zones en cause d'un code refusé par Supabase (incorrect ou expiré), ou d'un mot de passe refusé.
+    public static string[] ChampsCode(long code) => code >= 400 && code < 500 && code != 429 ? new[] { ChampCode } : Aucun;
+    public static string[] ChampsChangement(long code) => code == 422 ? new[] { ChampMdp, ChampConfirmation } : Aucun;
 
     // Les refus de Supabase, en clair.
 
@@ -90,12 +109,14 @@ public static class SessionCloud
     /// ponytail: distinction pour le développement seulement ; l'application vendue n'a que cipl_session.dat.
     static string Fichier => Path.Combine(Application.persistentDataPath, Application.isEditor ? "cipl_session_editeur.dat" : "cipl_session.dat");
 
+    public const string Incorrect = "E-mail ou mot de passe incorrect.";
+
     /// Null si la connexion a réussi, sinon le motif à afficher.
     public static async Task<string> SeConnecter(string email, string motDePasse, bool memoriser)
     {
         var r = await CloudClient.SeConnecter(Url, Cle, (email ?? "").Trim(), motDePasse ?? "");
         if (!r.Ok)
-            return r.Code == 400 ? "E-mail ou mot de passe incorrect." : "Connexion impossible : " + r.Erreur;
+            return r.Code == 400 ? Incorrect : "Connexion impossible : " + r.Erreur;
         var s = CloudClient.LireSession(r.Corps);
         if (s == null) return "Réponse du serveur illisible.";
         Session = s;
@@ -194,7 +215,7 @@ public static class SessionCloud
     /// Le code de l'e-mail, puis le nouveau mot de passe. Null si changé : la session est alors celle
     /// du compte (décision du 23/10 : connecté(e) directement), gardée sur ce PC — sauf depuis le menu
     /// Compte, où la connexion garde le choix fait à l'ouverture.
-    public static async Task<string> ChangerMotDePasse(string email, string code, string motDePasse)
+    public static async Task<(string motif, string[] champs)> ChangerMotDePasse(string email, string code, string motDePasse)
     {
         email = (email ?? "").Trim();
         // Un code ne sert qu'une fois : vérifié, sa session attend un mot de passe accepté (refusé s'il
@@ -203,19 +224,111 @@ public static class SessionCloud
         {
             var v = await CloudClient.VerifierCode(Url, Cle, email, RegleMotDePasse.Code(code));
             var s = v.Ok ? CloudClient.LireSession(v.Corps) : null;
-            if (s == null) return v.Ok ? "Réponse du serveur illisible." : RegleMotDePasse.MotifCode(v.Code, v.Erreur);
+            if (s == null) return v.Ok ? ("Réponse du serveur illisible.", null)
+                                       : (RegleMotDePasse.MotifCode(v.Code, v.Erreur), RegleMotDePasse.ChampsCode(v.Code));
             _recuperation = s;
             _recuperationEmail = email.ToLowerInvariant();
         }
         var r = await CloudClient.ChangerMotDePasse(Url, Cle, _recuperation.access_token, motDePasse ?? "");
-        if (!r.Ok) return RegleMotDePasse.MotifChangement(r.Code, r.Erreur);
+        if (!r.Ok) return (RegleMotDePasse.MotifChangement(r.Code, r.Erreur), RegleMotDePasse.ChampsChangement(r.Code));
 
         bool garder = Session == null || _memoriser;
         Session = _recuperation;
         _recuperation = null;
         _memoriser = garder;
         if (garder) Memoriser();
-        return null;
+        return (null, null);
+    }
+
+    // ── Étape 13 : créer mon compte ────────────────────────────────────────────
+
+    static CloudClient.Session _inscription;   // code vérifié, compte pas encore prêt
+    static string _inscriptionEmail;
+    static bool _inscriptionCreee;
+
+    /// Retour du 25/10 : l'adresse appartient-elle déjà à un groupe ? Demandé avant l'envoi du code, sans
+    /// être connecté (le serveur ne dit que oui ou non). Pas de réponse : faux, `inscrire` refusera après le code.
+    public static async Task<bool> AdresseDejaMembre(string email)
+    {
+        var r = await CloudClient.FonctionJson(Url, Cle, null, "adresse_deja_membre", RegleInscription.CorpsAdresse(email));
+        return r.Ok && r.Corps.Trim() == "true";
+    }
+
+    /// Retour du 25/10 (AO8) : la société est-elle déjà sur CIPL ? Même principe qu'AdresseDejaMembre.
+    public static async Task<bool> SiretDejaSurCipl(string siret)
+    {
+        var r = await CloudClient.FonctionJson(Url, Cle, null, "siret_deja_sur_cipl", RegleInscription.CorpsSiret(siret));
+        return r.Ok && r.Corps.Trim() == "true";
+    }
+
+    public static async Task<string> DemanderCodeInscription(string email)
+    {
+        _inscription = null;
+        _inscriptionCreee = false;
+        var r = await CloudClient.DemanderCodeInscription(Url, Cle, (email ?? "").Trim());
+        return r.Ok ? null : RegleMotDePasse.MotifEnvoi(r.Code, r.Erreur);
+    }
+
+    /// Le code, puis le groupe et l'entreprise (fonction inscrire), puis le mot de passe. Null si le
+    /// compte est prêt : la session est ouverte et gardée sur ce PC. Après un refus, on reprend où l'on
+    /// en était sans nouveau code (un code ne sert qu'une fois) ; une adresse déjà membre d'un groupe
+    /// est refusée sans que son mot de passe change.
+    public static async Task<(string motif, string[] champs)> Inscrire(string email, string code, string motDePasse,
+                                              string type, string nom, string siret, string monNom, ReglageData reglages)
+    {
+        email = (email ?? "").Trim();
+        if (_inscription == null || _inscriptionEmail != email.ToLowerInvariant() || _inscription.ExpireLe < DateTime.Now)
+        {
+            var v = await CloudClient.VerifierCode(Url, Cle, email, RegleMotDePasse.Code(code), "email");
+            var s = v.Ok ? CloudClient.LireSession(v.Corps) : null;
+            if (s == null) return v.Ok ? ("Réponse du serveur illisible.", null)
+                                       : (RegleMotDePasse.MotifCode(v.Code, v.Erreur), RegleMotDePasse.ChampsCode(v.Code));
+            _inscription = s;
+            _inscriptionEmail = email.ToLowerInvariant();
+            _inscriptionCreee = false;
+        }
+        if (!_inscriptionCreee)
+        {
+            var r = await CloudClient.FonctionJson(Url, Cle, _inscription.access_token, "inscrire",
+                RegleInscription.Corps(type, nom, siret, monNom, JsonUtility.ToJson(reglages)));
+            var res = r.Ok ? JsonUtility.FromJson<RegleInscription.Resultat>(r.Corps) : null;
+            if (res?.ok != true)
+            {
+                if (res?.refus == "deja_membre") _inscription = null;   // compte existant : sa session n'est pas gardée
+                return r.Ok ? (RegleInscription.Motif(res), RegleInscription.Champs(res)) : ("Création du compte impossible : " + r.Erreur, null);
+            }
+            _inscriptionCreee = true;
+        }
+        var p = await CloudClient.ChangerMotDePasse(Url, Cle, _inscription.access_token, motDePasse ?? "");
+        if (!p.Ok) return (RegleMotDePasse.MotifChangement(p.Code, p.Erreur), RegleMotDePasse.ChampsChangement(p.Code));
+
+        Session = _inscription;
+        _inscription = null;
+        _inscriptionCreee = false;
+        _memoriser = true;
+        Memoriser();
+        return (null, null);
+    }
+
+    // ── Étape 13b : ce que CIPL retient pour la personne ───────────────────────
+
+    public const string PremiersPasMasques = nameof(CloudClient.Metadonnees.cipl_premiers_pas_masques),
+                        VisiteVue = nameof(CloudClient.Metadonnees.cipl_visite_vue);
+
+    public static CloudClient.Metadonnees Retenu => Session?.user?.user_metadata ?? new CloudClient.Metadonnees();
+
+    /// Retient un choix (PremiersPasMasques, VisiteVue) dans le compte de la personne : il vaut sur tous
+    /// ses PC. Gardé pour cette session même si le serveur ne répond pas.
+    /// `valeur` faux : le choix est défait (retour du 25/10 : « Masquer » n'avait pas de retour).
+    public static async void Retenir(string nom, bool valeur = true)
+    {
+        var u = Session?.user;
+        if (u == null) return;
+        if (u.user_metadata == null) u.user_metadata = new CloudClient.Metadonnees();
+        if (nom == PremiersPasMasques) u.user_metadata.cipl_premiers_pas_masques = valeur;
+        else if (nom == VisiteVue) u.user_metadata.cipl_visite_vue = valeur;
+        var r = await CloudClient.RetenirMetadonnee(Url, Cle, await Jeton(), nom, valeur);
+        if (!r.Ok) Debug.LogWarning($"[Cloud] « {nom} » non retenu dans le compte : {r.Erreur}");
     }
 
     /// Se déconnecter : oublie la session et efface le jeton gardé sur ce PC.
