@@ -4,6 +4,7 @@
 // (statut, licences, formule, échéance, résiliation). « Verify JWT » DÉSACTIVÉ : Stripe n'a pas
 // de jeton Supabase, il SIGNE ses messages (secret STRIPE_WEBHOOK_SECRET, whsec_…).
 // Elle sert aussi la page de retour du navigateur après le paiement (texte simple).
+// Étape 14 : résiliation et fin d'abonnement → e-mail aux admins (fonction emails-abonnement).
 // Secrets : STRIPE_SECRET_KEY et STRIPE_WEBHOOK_SECRET (Supabase › Edge Functions › Secrets).
 // ════════════════════════════════════════════════════════════════════════════
 import Stripe from "npm:stripe@17";
@@ -28,23 +29,44 @@ function statut(s: string): string {
   return "actif";   // trialing, active, incomplete (prélèvement SEPA en cours de traitement)
 }
 
-async function appliquer(sub: Stripe.Subscription) {
+const jourIso = (t: number | null | undefined) => t ? new Date(t * 1000).toISOString().slice(0, 10) : null;
+
+async function appliquer(sub: Stripe.Subscription): Promise<{ groupe: string; echeance: string | null } | null> {
   const g = sub.metadata?.groupe_id;
-  if (!g) return;   // abonnement créé hors de CIPL
+  if (!g) return null;   // abonnement créé hors de CIPL
   const st = statut(sub.status);
   const licence = sub.items.data.find((i) => i.price.lookup_key?.startsWith("cipl_licence_"));
   // L'échéance est sur l'abonnement, ou sur ses lignes selon la version de l'API Stripe.
   // deno-lint-ignore no-explicit-any
-  const fin: number | undefined = (sub as any).current_period_end ?? (sub.items.data[0] as any)?.current_period_end;
+  const echeance = jourIso((sub as any).current_period_end ?? (sub.items.data[0] as any)?.current_period_end);
   const { error } = await service.from("groupes").update({
     statut: st,
     stripe_abonnement: st === "expire" ? null : sub.id,
     licences_max: licence?.quantity ?? undefined,
     formule: sub.items.data[0]?.price.recurring?.interval === "year" ? "annuel" : "mensuel",
-    echeance: fin ? new Date(fin * 1000).toISOString().slice(0, 10) : null,
+    echeance,
     resilie: sub.cancel_at_period_end,
   }).eq("id", g);
   if (error) throw error;   // réponse 500 : Stripe renverra l'événement
+  return { groupe: g, echeance };
+}
+
+/** Étape 14 : l'e-mail « résiliation enregistrée » ou « abonnement terminé » aux admins
+ *  (fonction emails-abonnement, qui ne l'envoie qu'une fois par date). ponytail: un échec est
+ *  seulement journalisé, l'état du groupe est déjà à jour ; faire échouer l'événement (Stripe le
+ *  renvoie pendant 3 jours) si des e-mails se perdent. */
+async function prevenir(groupe: string, sorte: string, date: string | null) {
+  if (!date) return;
+  try {
+    const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/emails-abonnement`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+      body: JSON.stringify({ groupe, sorte, date }),
+    });
+    console.log("emails-abonnement", r.status, await r.text());
+  } catch (e) {
+    console.error("emails-abonnement", e);
+  }
 }
 
 /** Licences par entreprise (décision du 23/10) : la répartition choisie avant le paiement
@@ -79,7 +101,11 @@ Deno.serve(async (req) => {
     // le désordre, l'état relu est toujours le dernier.
     const sub = await stripe.subscriptions.retrieve((evt.data.object as Stripe.Subscription).id);
     if (evt.type === "customer.subscription.created") await repartir(sub);
-    await appliquer(sub);
+    const r = await appliquer(sub);
+    // Sur l'état relu, pas sur le type d'événement : un « updated » arrivé après la fin ne
+    // redonne pas « résiliation enregistrée ». Fin : le jour réel (paiements refusés : avant l'échéance).
+    if (r && sub.status === "canceled") await prevenir(r.groupe, "abonnement_fin", jourIso(sub.ended_at) ?? r.echeance);
+    else if (r && sub.cancel_at_period_end) await prevenir(r.groupe, "resiliation", r.echeance);
   }
   return new Response("ok");
 });

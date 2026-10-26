@@ -173,7 +173,16 @@
       "Bash(grep -v \"Microsoft.Extensions\\\\|IvanMurzak\\\\|^UnityEngine\\\\.\\\\|^System\\\\.\\\\|^ *$\\\\|\\(Filename:\\\\|^[A-Za-z<>_\\\\`0-9]*[/:].*\\(at \\\\|^\\\\[MCP\\\\|McpPlugin\\\\|SignalR\")",
       "Bash(grep -v \"Microsoft.Extensions\\\\|IvanMurzak\\\\|^UnityEngine\\\\.\\\\|^System\\\\.\\\\|^ *$\\\\|\\(Filename:\\\\|^R3\\\\.\\\\|McpPlugin\")",
       "Bash(awk 'NR>251946' /c/Users/agath/AppData/Local/Unity/Editor/Editor.log)",
-      "PowerShell(New-Item -ItemType Directory -Path \"C:\\\\Users\\\\agath\\\\Documents\\\\CIPL\\\\SCI \\(JBC\\)\" | Select-Object FullName; \\(Get-ChildItem \"C:\\\\Users\\\\agath\\\\Documents\\\\CIPL\\\\SCI \\(JBC\\)\" -Force | Measure-Object\\).Count)"
+      "PowerShell(New-Item -ItemType Directory -Path \"C:\\\\Users\\\\agath\\\\Documents\\\\CIPL\\\\SCI \\(JBC\\)\" | Select-Object FullName; \\(Get-ChildItem \"C:\\\\Users\\\\agath\\\\Documents\\\\CIPL\\\\SCI \\(JBC\\)\" -Force | Measure-Object\\).Count)",
+      "PowerShell($l = Get-Content \"C:\\\\Users\\\\agath\\\\Documents\\\\CIPL\\\\CIPL_Git\\\\CIPL\\\\REVUE_CODE_CIPL.md\" -Encoding UTF8; \"lignes: $\\($l.Count\\)\"; $l[655..\\($l.Count-1\\)] | ForEach-Object { if \\($_.Length -gt 600\\) { $_.Substring\\(0,600\\) + \" […]\" } else { $_ } })",
+      "PowerShell($l = Get-Content \"C:\\\\Users\\\\agath\\\\Documents\\\\CIPL\\\\CIPL_Git\\\\CIPL\\\\REVUE_CODE_CIPL.md\" -Encoding UTF8; for \\($i=659; $i -le 672; $i++\\) { $t = $l[$i]; if \\($t.Length -gt 300\\) { $t = $t.Substring\\(0,300\\) + \" […]\" }; \"$\\($i+1\\): $t\" })",
+      "PowerShell($l = Get-Content \"C:\\\\Users\\\\agath\\\\Documents\\\\CIPL\\\\CIPL_Git\\\\CIPL\\\\ARCHITECTURE_CIPL.md\" -Encoding UTF8; for \\($i=70; $i -le 82; $i++\\) { $t = $l[$i]; if \\($t.Length -gt 400\\) { $t = $t.Substring\\(0,400\\) + \" […] \\(\" + $t.Length + \" car.\\)\" }; \"$\\($i+1\\): $t\" })",
+      "PowerShell(python -I \"C:\\\\Users\\\\agath\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-agath-Documents-CIPL-CIPL-Git-CIPL\\\\e64728c1-a395-4eec-8787-0142fd15f40b\\\\scratchpad\\\\docs14.py\")",
+      "PowerShell($t = [Text.Encoding]::UTF8.GetString\\([IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\agath\\\\Documents\\\\CIPL\\\\CIPL_Git\\\\CIPL\\\\PARCOURS_TEST_CIPL.md\"\\)\\); \"LF seuls: \" + \\([regex]::Matches\\($t, \"\\(?<!\\\\r\\)\\\\n\"\\).Count\\); git -C \"C:\\\\Users\\\\agath\\\\Documents\\\\CIPL\\\\CIPL_Git\\\\CIPL\" status --short)",
+      "PowerShell(python -I \"C:\\\\Users\\\\agath\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-agath-Documents-CIPL-CIPL-Git-CIPL\\\\e64728c1-a395-4eec-8787-0142fd15f40b\\\\scratchpad\\\\dates_ar.py\")",
+      "WebFetch(domain:deno.land)",
+      "PowerShell($l = Get-Content \"C:\\\\Users\\\\agath\\\\AppData\\\\Local\\\\Unity\\\\Editor\\\\Editor.log\"; \\($l | Select-String -Pattern \"error CS|Reloading assemblies|CloudAbonnementTests|EnteredPlayMode|ExitingPlayMode\" | Select-Object -Last 8\\) | ForEach-Object { \"$\\($_.LineNumber\\): $\\($_.Line\\)\" }; \"lignes: $\\($l.Count\\)\")",
+      "PowerShell(python -I \"C:\\\\Users\\\\agath\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-agath-Documents-CIPL-CIPL-Git-CIPL\\\\e64728c1-a395-4eec-8787-0142fd15f40b\\\\scratchpad\\\\ar_valide.py\")"
     ]
   },
   "enableAllProjectMcpServers": true,

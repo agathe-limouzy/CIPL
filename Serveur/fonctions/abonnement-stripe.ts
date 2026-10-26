@@ -96,7 +96,8 @@ Deno.serve(async (req) => {
       let client = groupe.stripe_client;
       if (!client) {
         const { data: moi } = await utilisateur.auth.getUser(jeton.replace(/^Bearer\s+/i, ""));
-        client = (await stripe.customers.create({ email: moi.user?.email, name: groupe.nom, metadata: { groupe_id: g } })).id;
+        // Étape 14 : les reçus, paiements refusés et cartes qui expirent sont envoyés par Stripe, en français.
+        client = (await stripe.customers.create({ email: moi.user?.email, name: groupe.nom, preferred_locales: ["fr"], metadata: { groupe_id: g } })).id;
         const { error } = await service.from("groupes").update({ stripe_client: client }).eq("id", g);
         if (error) throw error;
       }

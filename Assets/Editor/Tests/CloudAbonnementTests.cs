@@ -210,4 +210,72 @@ public class CloudAbonnementTests
         var champs = type.GetFields(BindingFlags.Public | BindingFlags.Instance).Select(f => f.Name).OrderBy(x => x);
         Assert.That(champs, Is.EqualTo(attendus));
     }
+
+    // ── Étape 14 : e-mails de l'abonnement (fonction serveur emails-abonnement) ─────────────
+
+    static string Sql14 => File.ReadAllText(Path.Combine("Serveur", "etape14_supabase.sql"));
+    static string Emails => File.ReadAllText(Path.Combine("Serveur", "fonctions", "emails-abonnement.ts"));
+
+    /// Les adresses des admins et la clé de la tâche : jamais lisibles par CIPL ni par un visiteur.
+    [Test]
+    public void Les_fonctions_des_emails_sont_reservees_au_serveur()
+    {
+        string sql = Sql14;
+        var fonctions = Regex.Matches(sql, @"create or replace function public\.(\w+)\(").Cast<Match>().Select(m => m.Groups[1].Value).ToList();
+        Assert.That(fonctions, Has.Count.EqualTo(5));
+        foreach (var f in fonctions)
+        {
+            Assert.That(Regex.IsMatch(sql, @"revoke all on function public\." + f + @"\([^)]*\) from public, anon, authenticated;"), f + " : révocation absente");
+            Assert.That(Regex.IsMatch(sql, @"grant execute on function public\." + f + @"\([^)]*\) to service_role;"), f + " : droit du serveur absent");
+        }
+        Assert.That(sql, Does.Contain("enable row level security"), "envois_abonnement doit être fermée");
+    }
+
+    /// Même piège qu'en 9b : un paramètre mal nommé rend la fonction SQL introuvable.
+    [Test]
+    public void Les_appels_de_la_fonction_serveur_ont_les_parametres_du_SQL()
+    {
+        string sql = Sql14;
+        var appels = Regex.Matches(Emails, @"service\.rpc\(""(\w+)"", \{([^}]*)\}\)").Cast<Match>().ToList();
+        Assert.That(appels, Has.Count.EqualTo(5));
+        foreach (var a in appels)
+        {
+            var sig = Regex.Match(sql, @"function public\." + a.Groups[1].Value + @"\(([^)]*)\)");
+            Assert.That(sig.Success, Is.True, a.Groups[1].Value + " absente du SQL");
+            var parametres = sig.Groups[1].Value.Split(',').Where(p => p.Trim() != "").ToList();
+            var envoyes = a.Groups[2].Value.Split(',').Where(p => p.Trim() != "").Select(p => p.Split(':')[0].Trim()).ToList();
+            var obligatoires = parametres.Where(p => !p.Contains(" default ")).Select(p => p.Trim().Split(' ')[0]);
+            Assert.That(envoyes, Is.SubsetOf(parametres.Select(p => p.Trim().Split(' ')[0])), a.Groups[1].Value);
+            Assert.That(obligatoires, Is.SubsetOf(envoyes), a.Groups[1].Value);
+        }
+    }
+
+    /// Chaque e-mail demandé (par le SQL du matin ou par stripe-webhook) a son texte.
+    [Test]
+    public void Chaque_email_demande_a_son_texte()
+    {
+        string webhook = File.ReadAllText(Path.Combine("Serveur", "fonctions", "stripe-webhook.ts"));
+        var sortes = Regex.Matches(Sql14, @"then '(\w+)'").Cast<Match>().Select(m => m.Groups[1].Value)
+            .Concat(Regex.Matches(webhook, @"prevenir\(r\.groupe, ""(\w+)""").Cast<Match>().Select(m => m.Groups[1].Value)).ToList();
+        Assert.That(sortes, Is.EquivalentTo(new[] { "essai_j7", "essai_j1", "essai_fin", "abonnement_fin", "resiliation" }));
+        foreach (var s in sortes) Assert.That(Emails, Does.Contain($"case \"{s}\":"), s);
+    }
+
+    /// Retour du 26/10 (« L'c3©quipe ») : le quoted-printable de denomailer 1.6.0 perd un accent à
+    /// sa dernière coupure, après 74 caractères encodés. Le corps est donc encodé en base64 par la
+    /// fonction ; l'objet, encodé par denomailer, doit rester sous les 74.
+    [Test]
+    public void Les_emails_evitent_le_quoted_printable_de_denomailer()
+    {
+        string ts = Emails;
+        Assert.That(ts, Does.Contain("transferEncoding: \"base64\""));
+        Assert.That(Regex.IsMatch(ts, @"\b(content|html): lignes"), Is.False, "corps confié à denomailer");
+        var objets = Regex.Matches(ts, @"objet: [`""]([^`""]*)[`""]").Cast<Match>().Select(m => m.Groups[1].Value).ToList();
+        Assert.That(objets, Has.Count.EqualTo(5));
+        foreach (var o in objets)
+        {
+            int encode = o.Sum(c => c >= 32 && c <= 126 && c != '=' ? 1 : 3 * System.Text.Encoding.UTF8.GetByteCount(c.ToString()));
+            Assert.That(encode, Is.LessThanOrEqualTo(74), o);
+        }
+    }
 }

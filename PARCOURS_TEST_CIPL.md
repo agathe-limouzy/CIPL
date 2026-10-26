@@ -1108,3 +1108,63 @@ Préalable : Play avec `agathelimouzy+societe@gmail.com` (SCI (JBC)), pas ton co
   - Relancer le Play → la fenêtre d'envoi automatique ne propose pas cette facture.
   - Une facture de dépôt, de régularisation ou de refacturation de l'exemple → refusée, « Aucune adresse email pour ce locataire… » : rien ne part.
 - [x] **AQ4 · Supprimer l'exemple** : bandeau → « Supprimer l'exemple » → « Supprimer l'exemple ? » → « Supprimer » → l'onglet disparaît, retour à l'accueil ; le lien redit « Essayer avec un exemple ».
+
+## AR. Étape 14 : e-mails de l'abonnement (25/10) *(validé le 26/10, AR1 à AR6 et AR8 ; AR7 le 27/10 au matin)*
+
+Décisions du 25/10 : les e-mails partent du Gmail de CIPL (pour l'instant ; un service d'envoi, type Brevo, avant l'étape 17), **aux admins du groupe seulement**. CIPL en envoie 5 (maquettes validées telles quelles) : l'essai se termine dans N jours (dès 7 jours avant), demain (la veille), l'essai est terminé (le lendemain), la résiliation est enregistrée, l'abonnement est terminé. Les reçus, le paiement refusé et la carte qui expire sont envoyés par **Stripe** lui-même. Chaque e-mail ne part qu'une fois. Ceux de l'essai partent chaque matin à 9 h (10 h l'été), par une tâche planifiée du serveur ; ceux de l'abonnement, dès que Stripe prévient le serveur.
+
+Préalable (une fois) :
+1. **Supabase › Edge Functions › Secrets** : ajoute `CIPL_GMAIL` = `agathelimouzy@gmail.com`, et `CIPL_GMAIL_MOT_DE_PASSE` = un mot de passe d'application Gmail (celui de l'étape 12 convient), **saisi par toi seulement**.
+2. **Edge Functions › Deploy a new function › Via Editor** : nom `emails-abonnement`, colle tout `Serveur/fonctions/emails-abonnement.ts` à la place du modèle → Deploy, puis dans ses réglages **désactive « Verify JWT »** (Enforce JWT verification) → Save. Comme `stripe-webhook` en AH : la tâche du matin n'a pas de jeton, elle présente une clé rangée dans le coffre du serveur.
+3. **Recoller** `Serveur/fonctions/stripe-webhook.ts` (« Verify JWT » reste désactivé) et `abonnement-stripe.ts` (reste activé) : Code › Deploy.
+4. **SQL Editor** : `Serveur/etape14_supabase.sql` → Run (après etape13). Vérifier la tâche : `select jobname, schedule from cron.job;` → `cipl-emails-abonnement`, `0 8 * * *` (8 h UTC).
+5. **Stripe** : rien à faire maintenant. Constaté le 26/10 : ces réglages sont grisés en mode test (« modifiables en mode production ») ; ils passent à l'étape 17 (CONCEPTION §17) : https://dashboard.stripe.com/settings/emails › « Paiements réussis » ; https://dashboard.stripe.com/revenue_recovery/emails › échec des paiements par carte bancaire, échec des paiements par prélèvement bancaire, cartes arrivant à expiration. De toute façon, en mode test, Stripe n'écrit qu'aux adresses de l'équipe de ton compte Stripe.
+
+Tout se fait dans le SQL Editor, sur SCI (JBC) (`agathelimouzy+societe@gmail.com`, toi seul(e) admin) : les e-mails arrivent dans ta boîte. Dans CIPL, seulement AR4.
+
+- [x] **AR1 · L'aperçu, sans rien envoyer** :
+  ```sql
+  select fin_essai, statut from public.groupes
+    where titulaire = (select id from auth.users where email = 'agathelimouzy+societe@gmail.com');
+  ```
+  → note la date (`2026-11-08` si le compte date du 25/10) ; statut `essai`. Puis :
+  ```sql
+  update public.groupes set fin_essai = current_date + 7
+    where titulaire = (select id from auth.users where email = 'agathelimouzy+societe@gmail.com');
+  select public.emails_abonnement_du_jour();
+  ```
+  → `[{"groupe" : "…", "sorte" : "essai_j7", "date" : "2026-11-02"}]` (aujourd'hui + 7 jours ; dates d'AR1 et AR2 pour un test le 26/10, à décaler un autre jour). Rien n'est parti. D'autres groupes de test peuvent apparaître si leur essai finit bientôt : ils recevront aussi leur e-mail, dans ta boîte. Pour voir ce que donnerait un autre jour : `select public.emails_abonnement_du_jour('2026-11-01');` → `essai_j1`.
+- [x] **AR2 · « Se termine dans 7 jours »** : lancer tout de suite l'envoi du matin :
+  ```sql
+  select net.http_post(
+    url := 'https://ehxskfjmiioesmipzsad.supabase.co/functions/v1/emails-abonnement',
+    headers := jsonb_build_object('Content-Type', 'application/json',
+      'x-cipl-cron', (select decrypted_secret from vault.decrypted_secrets where name = 'cipl_cron')),
+    body := '{}'::jsonb);
+  ```
+  puis, quelques secondes après : `select status_code, content from net._http_response order by created desc limit 1;` → `200` et `{"… · essai_j7 · 2026-11-02":"envoyé à 1 admin(s)"}`.
+  - E-mail reçu, expéditeur « CIPL » : « Votre essai CIPL se termine dans 7 jours » ; « Bonjour <ton nom>, L'essai gratuit de CIPL pour SCI (JBC) se termine le 2 novembre 2026… » ; « … passera en lecture seule le 3 novembre 2026… » ; signé « L'équipe CIPL ».
+  - Retour du 26/10 : « L'équipe » arrivait en « L'c3©quipe » (défaut de la bibliothèque d'envoi, denomailer) → le texte part maintenant en base64. Recoller `Serveur/fonctions/emails-abonnement.ts` (Code › Deploy), puis, pour recevoir de nouveau l'e-mail : `delete from public.envois_abonnement where groupe_id = (select id from public.groupes where titulaire = (select id from auth.users where email = 'agathelimouzy+societe@gmail.com'));` et le `net.http_post` ci-dessus → tous les accents justes, « L'équipe CIPL » compris.
+  - Relancer le même `net.http_post` → `{"envoyes":0}` : pas de second e-mail.
+  - Dans `content`, `échec : … 535 …` : adresse ou mot de passe d'application faux dans les secrets (préalable 1). Un `401` : « Verify JWT » est encore actif (préalable 2 : désactiver, enregistrer, redéployer).
+- [x] **AR3 · « Se termine demain »** : `update public.groupes set fin_essai = current_date + 1` (même `where` qu'en AR1), puis le `net.http_post` d'AR2 → « Votre essai CIPL se termine demain ».
+- [x] **AR4 · « Essai terminé »** : `fin_essai = current_date - 1`, puis le `net.http_post` → « Votre essai CIPL est terminé ». Play avec `+societe` → SCI (JBC) en lecture seule (comme en AG).
+- [x] **AR5 · Résiliation et fin d'abonnement** (sans carte : on demande l'e-mail comme le fait `stripe-webhook`) :
+  ```sql
+  select net.http_post(
+    url := 'https://ehxskfjmiioesmipzsad.supabase.co/functions/v1/emails-abonnement',
+    headers := jsonb_build_object('Content-Type', 'application/json',
+      'x-cipl-cron', (select decrypted_secret from vault.decrypted_secrets where name = 'cipl_cron')),
+    body := jsonb_build_object('groupe', (select id from public.groupes
+              where titulaire = (select id from auth.users where email = 'agathelimouzy+societe@gmail.com')),
+            'sorte', 'resiliation', 'date', '2026-11-25'));
+  ```
+  → « Votre résiliation CIPL est enregistrée » ; « Il reste actif jusqu'au 25 novembre 2026… ». La même commande avec `'abonnement_fin'` → « Votre abonnement CIPL est terminé » ; « … a pris fin le 25 novembre 2026… ».
+  - Le vrai chemin, facultatif (il faut un abonnement de test payé, comme en AH) : Réglage › Abonnement › « Résilier » → l'e-mail de résiliation arrive aux admins ; « Reprendre l'abonnement », puis « Résilier » de nouveau → pas de second e-mail (même échéance).
+- [x] **AR6 · Personne d'autre ne peut l'appeler** : dans PowerShell,
+  ```powershell
+  curl.exe -s -X POST https://ehxskfjmiioesmipzsad.supabase.co/functions/v1/emails-abonnement
+  ```
+  → `{"erreur":"Refusé."}`, aucun e-mail.
+- [ ] **AR7 · Le lendemain matin** (après 9 h) : `select status, start_time from cron.job_run_details order by start_time desc limit 3;` → `succeeded` ; aucun e-mail en double.
+- [x] **AR8 · Remise en état** : `update public.groupes set fin_essai = '<la date notée en AR1>'` (même `where`) → SCI (JBC) redevient modifiable. Les e-mails de l'essai repartiront pour cette date, au bon moment (dès 7 jours avant).
