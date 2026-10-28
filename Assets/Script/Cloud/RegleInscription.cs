@@ -90,7 +90,7 @@ public static class RegleInscription
         if (societe)
         {
             string s = new string((siret ?? "").Where(char.IsDigit).ToArray());
-            string lisible = s.Length == 14 ? $"{s.Substring(0, 3)} {s.Substring(3, 3)} {s.Substring(6, 3)} {s.Substring(9)}" : s;
+            string lisible = RegleAbonnement.SiretLisible(s);
             r.basDePage = string.Join(" - ", new[] { annuaire?.nom_complet ?? r.entrepriseNom, annuaire?.libelle_nature_juridique, "Siret : " + lisible }
                                              .Where(x => !string.IsNullOrWhiteSpace(x)));
             if (!string.IsNullOrWhiteSpace(annuaire?.siege?.adresse)) r.basDePage += "\nSiège social : " + annuaire.siege.adresse.Trim();

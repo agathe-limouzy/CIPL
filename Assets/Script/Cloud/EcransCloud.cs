@@ -708,6 +708,8 @@ public static class EcransCloud
                 SessionCloud.Retenir(SessionCloud.PremiersPasMasques, false);
                 GeneralMenuPanel.Instance?.Refresh();
             });
+        // Étape 15 (maquette 4 du 26/10) : la version installée, pour le support et les mises à jour.
+        UIFactory.Text(corps.transform, "CIPL version " + Application.version, UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         var pied = UIFactory.HBox(carte.transform, 8, false, "Pied");
         pied.padding = new RectOffset(18, 18, 6, 16);
@@ -719,6 +721,29 @@ public static class EcransCloud
         fermer.onClick.AddListener(() => fermerVoile());
         chg.onClick.AddListener(() => { fermerVoile(); changer(); });
         deco.onClick.AddListener(() => { fermerVoile(); deconnecter(); });
+    }
+
+    // ── 5. Mise à jour obligatoire (étape 15, maquette 3 du 26/10) ─────────────
+
+    /// Fenêtre bloquante : « Quitter CIPL » ou « Mettre à jour ». `afficher` montre l'avancement du
+    /// téléchargement dans la fenêtre ; null la remet comme au début (après un échec).
+    public static (GameObject voile, Action<string> afficher) MiseAJourObligatoire(Canvas canvas, string actuelle, string derniere, Action mettreAJour)
+    {
+        var (voile, carte) = Fenetre(canvas, "Mise à jour nécessaire", 480, false);
+        var corps = UIFactory.VBox(carte.transform, 10, 18, 18, 14, 6, "Corps");
+        var texte = UIFactory.Text(corps.transform, RegleVersion.TexteObligatoire(actuelle, derniere), UITheme.Role.Donnee, UITheme.TextePrincipal);
+        var pied = Pied(carte.transform);
+        var quitter = Bouton(pied.transform, "Quitter CIPL", false);
+        var maj = Bouton(pied.transform, "Mettre à jour", true);
+        quitter.onClick.AddListener(Application.Quit);
+        // « Quitter CIPL » reste toujours possible (sur Mac, c'est la suite après le lien de téléchargement).
+        maj.onClick.AddListener(() => { maj.interactable = false; mettreAJour(); });
+        Action<string> afficher = t =>
+        {
+            texte.text = t ?? RegleVersion.TexteObligatoire(actuelle, derniere);
+            if (t == null) maj.interactable = true;
+        };
+        return (voile.gameObject, afficher);
     }
 
     static GameObject _pastille;

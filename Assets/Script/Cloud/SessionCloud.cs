@@ -85,6 +85,7 @@ public class EntrepriseCloud
     public string id, nom, type, role;
     public int nb_batiments;
     public string mode_documents;   // étape 6b : « cipl » (chaque PC reçoit sa copie) ou « drive » (Drive partagé)
+    public string siret;            // 27/10 : affiché dans Réglages › Entreprise (vide : serveur pas encore à jour, ou particulier)
     public bool EstAdmin => role == "admin";
     public bool ModeDrive => mode_documents == "drive";
 }
@@ -147,13 +148,11 @@ public static class SessionCloud
     /// Reprend la connexion gardée sur ce PC. Faux s'il n'y en a pas ou si elle n'est plus valable.
     public static async Task<bool> Restaurer()
     {
-        if (!File.Exists(Fichier)) return false;
-        byte[] clair;
-        try { clair = Dpapi.Deproteger(File.ReadAllBytes(Fichier)); }
-        catch (Exception) { clair = null; }
-        if (clair == null) { EffacerFichier(); return false; }
+        string garde = JetonGarde();
+        if (garde == null) return false;
+        if (garde == "") { EffacerFichier(); return false; }
 
-        var r = await CloudClient.Renouveler(Url, Cle, Encoding.UTF8.GetString(clair));
+        var r = await CloudClient.Renouveler(Url, Cle, garde);
         var s = r.Ok ? CloudClient.LireSession(r.Corps) : null;
         if (s == null)
         {
@@ -174,12 +173,10 @@ public static class SessionCloud
     /// L'utilisateur vient de la copie locale. Faux sans connexion gardée sur ce PC.
     public static bool RestaurerHorsLigne(CloudClient.Utilisateur u)
     {
-        if (u == null || string.IsNullOrEmpty(u.id) || !File.Exists(Fichier)) return false;
-        byte[] clair;
-        try { clair = Dpapi.Deproteger(File.ReadAllBytes(Fichier)); }
-        catch (Exception) { clair = null; }
-        if (clair == null) return false;
-        Session = new CloudClient.Session { access_token = "", refresh_token = Encoding.UTF8.GetString(clair), expires_at = 0, user = u };
+        if (u == null || string.IsNullOrEmpty(u.id)) return false;
+        string garde = JetonGarde();
+        if (string.IsNullOrEmpty(garde)) return false;
+        Session = new CloudClient.Session { access_token = "", refresh_token = garde, expires_at = 0, user = u };
         _memoriser = true;
         return true;
     }
@@ -340,8 +337,28 @@ public static class SessionCloud
         EffacerFichier();
     }
 
+    /// Étape 15b : sur Mac, le jeton est dans le trousseau, au nom du fichier qu'il aurait sous Windows.
+    static string Compte => Path.GetFileNameWithoutExtension(Fichier);
+
+    /// Le jeton gardé sur cet ordinateur : null s'il n'y en a pas, "" s'il est illisible (autre compte,
+    /// autre PC). Windows : chiffré par Dpapi dans `Fichier` ; Mac : dans le trousseau.
+    static string JetonGarde()
+    {
+        if (Plateforme.Mac) return Trousseau.Lire(Compte);
+        if (!File.Exists(Fichier)) return null;
+        byte[] clair;
+        try { clair = Dpapi.Deproteger(File.ReadAllBytes(Fichier)); }
+        catch (Exception) { clair = null; }
+        return clair == null ? "" : Encoding.UTF8.GetString(clair);
+    }
+
     static void Memoriser()
     {
+        if (Plateforme.Mac)
+        {
+            if (!Trousseau.Ecrire(Compte, Session.refresh_token ?? "")) Debug.LogWarning("[SessionCloud] Trousseau indisponible : connexion non gardée.");
+            return;
+        }
         var chiffre = Dpapi.Proteger(Encoding.UTF8.GetBytes(Session.refresh_token ?? ""));
         if (chiffre == null) { Debug.LogWarning("[SessionCloud] Chiffrement Windows indisponible : connexion non gardée."); return; }
         try { File.WriteAllBytes(Fichier, chiffre); }
@@ -350,6 +367,7 @@ public static class SessionCloud
 
     static void EffacerFichier()
     {
+        if (Plateforme.Mac) { Trousseau.Effacer(Compte); return; }
         try { if (File.Exists(Fichier)) File.Delete(Fichier); }
         catch (Exception e) { Debug.LogWarning("[SessionCloud] " + e.Message); }
     }

@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using NUnit.Framework;
 
 /// Essai technique (étape 1) : tout ce qui se vérifie sans réseau. Les réponses de
-/// Supabase, les messages du temps réel, le lien cipl:// et le libellé du verrou.
+/// Supabase, les messages du temps réel et le libellé du verrou (les liens cipl:// ont été retirés
+/// le 26/10 : invitations, mot de passe et inscription passent par des codes).
 public class CloudTests
 {
     // ── Réponses REST ──────────────────────────────────────────────────────────
@@ -125,53 +126,6 @@ public class CloudTests
         Assert.That(m.payload.status, Is.EqualTo("error"));
         Assert.That(m.payload.response.reason, Is.EqualTo("Invalid JWT"));
         Assert.That(m.@ref, Is.EqualTo("1"));
-    }
-
-    // ── Lien cipl:// ───────────────────────────────────────────────────────────
-
-    [Test]
-    public void Un_lien_valide_donne_son_type_et_son_jeton()
-    {
-        Assert.That(LienCipl.Analyser("cipl://invitation?jeton=Ab12Cd34Ef", out var l), Is.True);
-        Assert.That((l.Type, l.Jeton), Is.EqualTo(("invitation", "Ab12Cd34Ef")));
-
-        // Windows ajoute parfois une barre et des guillemets ; majuscules acceptées.
-        Assert.That(LienCipl.Analyser("\"CIPL://MotDePasse/?jeton=xyz_1234-AB&lang=fr\"", out l), Is.True);
-        Assert.That((l.Type, l.Jeton), Is.EqualTo(("motdepasse", "xyz_1234-AB")));
-    }
-
-    [Test]
-    public void Un_lien_douteux_est_refuse()
-    {
-        Assert.That(LienCipl.Analyser("cipl://supprimer?jeton=Ab12Cd34Ef", out _), Is.False, "type inconnu");
-        Assert.That(LienCipl.Analyser("cipl://invitation?code=Ab12Cd34Ef", out _), Is.False, "pas de jeton");
-        Assert.That(LienCipl.Analyser("cipl://invitation?jeton=court", out _), Is.False, "jeton trop court");
-        Assert.That(LienCipl.Analyser("cipl://invitation?jeton=Ab12%22%3Bdel", out _), Is.False, "caractères interdits");
-        Assert.That(LienCipl.Analyser("https://cipl.app/o/invitation?jeton=Ab12Cd34Ef", out _), Is.False, "autre protocole");
-        Assert.That(LienCipl.Analyser(null, out _), Is.False);
-    }
-
-    [Test]
-    public void Le_lien_est_trouve_parmi_les_arguments_de_lancement()
-    {
-        var args = new[] { @"C:\CIPL\CIPL.exe", "-logFile", "log.txt", "cipl://confirmation?jeton=Zz99Yy88Xx" };
-        Assert.That(LienCipl.TrouverDansArguments(args, out var l, out string brut), Is.True);
-        Assert.That(l.Type, Is.EqualTo("confirmation"));
-        Assert.That(brut, Is.EqualTo(args[3]));
-
-        Assert.That(LienCipl.TrouverDansArguments(new[] { @"C:\CIPL\CIPL.exe" }, out _, out brut), Is.False);
-        Assert.That(brut, Is.Null);
-    }
-
-    [Test]
-    public void Windows_relance_CIPL_avec_le_lien_entre_guillemets()
-    {
-        var cmd = LienCipl.CommandesRegistre(@"C:\Program Files\CIPL\CIPL.exe");
-        Assert.That(cmd.Length, Is.EqualTo(3));
-        StringAssert.Contains(@"HKCU\Software\Classes\cipl", cmd[0]);
-        StringAssert.Contains("\"URL Protocol\"", cmd[1]);
-        // Valeur de la commande : "C:\Program Files\CIPL\CIPL.exe" "%1" (guillemets échappés pour reg.exe).
-        StringAssert.Contains("/d \"\\\"C:\\Program Files\\CIPL\\CIPL.exe\\\" \\\"%1\\\"\"", cmd[2]);
     }
 
     // ── Verrou : ce que l'écran affiche ────────────────────────────────────────

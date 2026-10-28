@@ -145,8 +145,26 @@ public static class AbonnementCloud
     /// l'abonnement se recale seulement sur les entreprises du groupe).
     public static async Task<string> Ajuster(string cible, int licences) => (await Serveur("ajuster", null, licences, cible)).erreur;
 
+    [Serializable] class PSiret { public string p_entreprise, p_siret; }
+
+    /// Réglages › Entreprise (27/10) : l'admin change le SIRET. Mêmes refus qu'à l'ajout (`Motif`).
+    public static async Task<Ajout> ChangerSiret(string siret)
+    {
+        var r = await CloudClient.Fonction(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "changer_siret",
+            new PSiret { p_entreprise = SessionCloud.Entreprise?.id, p_siret = siret });
+        if (!r.Ok) return new Ajout { refus = "erreur", erreur = r.Erreur };
+        try { return JsonUtility.FromJson<Ajout>(r.Corps) ?? new Ajout { refus = "erreur", erreur = "Réponse illisible." }; }
+        catch (Exception ex) { return new Ajout { refus = "erreur", erreur = ex.Message }; }
+    }
+
+    public static string MotifSiret(Ajout a) =>
+        a?.refus == "abonnement" ? "Abonnement expiré : le SIRET ne peut plus changer."
+      : a?.refus == "erreur" || a == null ? "Changement impossible : " + (a?.erreur ?? "réponse vide.")
+      : Motif(a);
+
     public static string Motif(Ajout a) =>
         a?.refus == "siret" ? "Le SIRET compte 14 chiffres."
+      : a?.refus == "particulier" ? "Un particulier n'a pas de SIRET."
       : a?.refus == "nom" ? "Saisissez la raison sociale."
       : a?.refus == "deja_sur_cipl" ? "Cette société est déjà sur CIPL. Si elle n'est pas dans votre groupe, demandez une invitation à son administrateur."
       : a?.refus == "abonnement" ? "Abonnement expiré : aucune entreprise ne peut être ajoutée."

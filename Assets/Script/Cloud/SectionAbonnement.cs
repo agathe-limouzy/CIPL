@@ -261,42 +261,54 @@ public class SectionAbonnement
                 foreach (var go in champsSiret) go.SetActive(i == 0);
                 aideParticulier.gameObject.SetActive(i == 1);
             }, 40);
-            var libelleSiret = UIFactory.Text(body.transform, "SIRET (14 chiffres)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
-            siret = UIFactory.Input(body.transform, "123 456 789 00012");
-            siret.text = siretAvant ?? "";
-            // Étape 10 (décision du 23/10) : aux 14 chiffres, l'annuaire des entreprises est
-            // interrogé ; la raison sociale remplit le nom, la forme et le siège s'affichent ici.
-            var infoAnnuaire = UIFactory.Text(body.transform, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
-            champsSiret = new[] { libelleSiret.gameObject, siret.gameObject, infoAnnuaire.gameObject };
+            string nomAuto = null;
+            siret = ChampSiret(body.transform, siretAvant, trouve =>
+            {
+                if (string.IsNullOrWhiteSpace(nom.text) || nom.text == nomAuto) nom.text = nomAuto = trouve;
+            }, out champsSiret);
             foreach (var go in champsSiret) go.SetActive(!particulier);
             nom = _panel.ModalField(body, "Nom de l'entreprise", nomAvant, "SCI Rivoli");
-
-            string cherche = null, nomAuto = null;
-            async void Rechercher(string chiffres)
-            {
-                cherche = chiffres;
-                infoAnnuaire.color = UITheme.TexteSecondaire;
-                infoAnnuaire.text = "Recherche dans l'annuaire des entreprises…";
-                var (data, _, introuvable) = await PapperService.Chercher(chiffres);
-                if (infoAnnuaire == null || cherche != chiffres) return;   // fenêtre fermée, ou autre SIRET saisi depuis
-                string refus = PappersResume.Refus(chiffres, data, introuvable);
-                if (refus != null) { infoAnnuaire.color = UITheme.Alerte; infoAnnuaire.text = refus; return; }
-                if (data == null) { infoAnnuaire.text = "Annuaire des entreprises injoignable : le SIRET n'a pas pu être vérifié."; return; }
-                infoAnnuaire.text = PappersResume.Description(data);
-                if (string.IsNullOrWhiteSpace(nom.text) || nom.text == nomAuto) nom.text = nomAuto = data.nom_complet;
-            }
-            void SurSiret(string v)
-            {
-                string chiffres = new string((v ?? "").Where(char.IsDigit).ToArray());
-                if (chiffres.Length == 14 && chiffres != cherche) Rechercher(chiffres);
-                else if (chiffres.Length != 14) { cherche = null; infoAnnuaire.text = ""; }
-            }
-            siret.onValueChanged.AddListener(SurSiret);
-            SurSiret(siret.text);   // fenêtre rouverte après un refus : le SIRET déjà saisi
+            siret.onValueChanged.Invoke(siret.text);   // fenêtre rouverte après un refus : le SIRET déjà saisi (après `nom`)
             aideParticulier = UIFactory.Text(body.transform, "Laissé vide : « Patrimoine de » suivi de votre nom.", UITheme.Role.Aide, UITheme.TexteSecondaire);
             aideParticulier.gameObject.SetActive(particulier);
             return () => Ajouter(nom.text.Trim(), type.SelectedId, siret.text);
         }, "Ajouter");
+    }
+
+    /// Le champ SIRET et sa ligne d'annuaire. Étape 10 (décision du 23/10) : aux 14 chiffres,
+    /// l'annuaire des entreprises est interrogé ; la forme et le siège s'affichent dessous, et
+    /// `trouve` reçoit la raison sociale. Aussi pour Réglages › Entreprise › SIRET (27/10).
+    /// La première recherche part au premier changement : l'appelant fait `onValueChanged.Invoke`
+    /// une fois ses autres champs construits.
+    public static TMP_InputField ChampSiret(Transform body, string avant, Action<string> trouve, out GameObject[] elements)
+    {
+        var libelle = UIFactory.Text(body, "SIRET (14 chiffres)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        var siret = UIFactory.Input(body, "123 456 789 00012");
+        siret.text = avant ?? "";
+        var info = UIFactory.Text(body, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        elements = new[] { libelle.gameObject, siret.gameObject, info.gameObject };
+
+        string cherche = null;
+        async void Rechercher(string chiffres)
+        {
+            cherche = chiffres;
+            info.color = UITheme.TexteSecondaire;
+            info.text = "Recherche dans l'annuaire des entreprises…";
+            var (data, _, introuvable) = await PapperService.Chercher(chiffres);
+            if (info == null || cherche != chiffres) return;   // fenêtre fermée, ou autre SIRET saisi depuis
+            string refus = PappersResume.Refus(chiffres, data, introuvable);
+            if (refus != null) { info.color = UITheme.Alerte; info.text = refus; return; }
+            if (data == null) { info.text = "Annuaire des entreprises injoignable : le SIRET n'a pas pu être vérifié."; return; }
+            info.text = PappersResume.Description(data);
+            trouve?.Invoke(data.nom_complet);
+        }
+        siret.onValueChanged.AddListener(v =>
+        {
+            string chiffres = new string((v ?? "").Where(char.IsDigit).ToArray());
+            if (chiffres.Length == 14 && chiffres != cherche) Rechercher(chiffres);
+            else if (chiffres.Length != 14) { cherche = null; info.text = ""; }
+        });
+        return siret;
     }
 
     async void Ajouter(string nom, string type, string siret)

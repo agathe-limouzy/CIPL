@@ -381,6 +381,7 @@ public static class PremiersPas
         int ribsAvant = a.ribs;
         const string Pennylane = "Envoyer via Pennylane (e-facture Factur-X)";
         Func<bool> pennylane = () => Bulles.Coche(Pennylane, Reglages);
+        Func<bool> sansSmtp = () => pennylane() || Messagerie.Relie(ReglageService.Current?.smtp) || ReglagePanel.Instance?.ZoneRelier != null;
         switch (l)
         {
             case Ligne.Logo: return new List<Bulles.Etape>
@@ -417,12 +418,16 @@ public static class PremiersPas
                   () => Bulles.Champ("Clé API Pennylane", Reglages), sauter: () => !pennylane()),
                 // Retour du 25/10 : ces champs ne se passent plus vides (« Suivant » menait à « Enregistrer »,
                 // qui attendait sans fin) ; « Suivant » apparaît dès qu'ils sont remplis (Saisir).
-                Saisir("Votre serveur d'envoi", "Le serveur de votre messagerie : smtp.gmail.com pour Gmail, smtp.office365.com pour Outlook (les autres sont listés au-dessus), avec le port 587.",
-                  () => Saisie("Serveur SMTP"), sauter: pennylane),
-                Saisir("L'adresse d'expédition", "L'adresse qui envoie vos factures : vos locataires la voient et peuvent y répondre. Le nom d'expédition s'affiche à côté.",
+                // Étape 16a : l'adresse d'abord ; Gmail, Outlook, Hotmail… se relient, les autres en SMTP.
+                Saisir("L'adresse d'expédition", "L'adresse qui envoie vos factures : vos locataires la voient et peuvent y répondre. Gmail, Outlook ou Hotmail : CIPL proposera de la relier, sans mot de passe.",
                   () => Saisie("Adresse d'expédition"), sauter: pennylane),
-                Saisir("Le mot de passe", "Gmail et Outlook demandent un mot de passe d'application, créé dans la sécurité de votre compte, et non votre mot de passe habituel.",
-                  () => Saisie("Mot de passe (d'application)"), sauter: pennylane,
+                E("Relier votre adresse", "Cliquez sur le bouton vert « Se connecter avec … » : la fenêtre de Google ou de Microsoft s'ouvre dans votre navigateur. Connectez-vous, autorisez CIPL, puis revenez ici.",
+                  () => ReglagePanel.Instance?.ZoneRelier, () => Messagerie.Relie(ReglageService.Current?.smtp),
+                  "La suite s'affiche dès que l'adresse est reliée.", sauter: () => pennylane() || ReglagePanel.Instance?.ZoneRelier == null),
+                Saisir("Votre serveur d'envoi", "Rempli d'après votre adresse quand CIPL connaît votre messagerie ; sinon, celui de votre messagerie, avec le port 587.",
+                  () => Saisie("Serveur SMTP"), sauter: sansSmtp),
+                Saisir("Le mot de passe", "La plupart des messageries demandent un mot de passe d'application, créé dans la sécurité de votre compte, et non votre mot de passe habituel.",
+                  () => Saisie("Mot de passe (d'application)"), sauter: sansSmtp,
                   deja: () => !string.IsNullOrWhiteSpace(ReglageService.GetSmtpPassword())),
                 new Bulles.Etape
                 {
@@ -529,8 +534,8 @@ public static class PremiersPas
         if (!reglages && ReglagePanel.Instance != null) ReglagePanel.Instance.Close();
         switch (l)
         {
-            case Ligne.Logo:
-            case Ligne.Rib: ReglagePanel.OuvrirOnglet(ReglagePanel.OFacturation); break;
+            case Ligne.Logo: ReglagePanel.OuvrirOnglet(ReglagePanel.OFacturation); break;
+            case Ligne.Rib: ReglagePanel.OuvrirOnglet(ReglagePanel.OEntreprise); break;   // RIB dans Entreprise depuis le 27/10
             case Ligne.Envoi: ReglagePanel.OuvrirOnglet(ReglagePanel.OIntegrations); break;
             case Ligne.Inviter: ReglagePanel.OuvrirOnglet(ReglagePanel.OUtilisateurs); break;
             case Ligne.Abonnement: ReglagePanel.OuvrirOnglet(ReglagePanel.OAbonnement); break;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Mail;
+using System.Net.Sockets;
 using System.Threading;
 
 /// Envoi d'emails par SMTP.
@@ -54,12 +55,18 @@ public static class EmailService
 
     /// Vérifie que les réglages permettent un envoi. Renvoie null si tout est en
     /// place, sinon ce qui manque — formulé pour l'utilisatrice, pas pour un log.
-    public static string CeQuiManque()
+    /// Sans argument : les réglages enregistrés. Étape 16 : le test des Réglages passe ce
+    /// qui est tapé à l'écran, pas encore enregistré.
+    public static string CeQuiManque(SmtpConfig s = null, string motDePasse = null)
     {
-        var s = ReglageService.Current?.smtp;
+        s ??= ReglageService.Current?.smtp;
         if (s == null) return "Les réglages SMTP sont introuvables.";
 
-        if (string.IsNullOrWhiteSpace(s.host))      return "Le serveur SMTP n'est pas renseigné (Réglages → Connexion & envoi).";
+        // Étape 16a : adresse reliée à Google ou Microsoft, ni serveur ni mot de passe.
+        if (Messagerie.Relie(s))
+            return string.IsNullOrWhiteSpace(s.fromEmail) ? "L'adresse d'expédition n'est pas renseignée." : null;
+
+        if (string.IsNullOrWhiteSpace(s.host))      return "Le serveur SMTP n'est pas renseigné (Réglages → Intégrations → E-mail).";
         if (s.port <= 0)                            return "Le port SMTP est invalide.";
         if (string.IsNullOrWhiteSpace(s.fromEmail)) return "L'adresse d'expédition n'est pas renseignée.";
 
@@ -70,8 +77,8 @@ public static class EmailService
         if (s.port == 465)
             return "Le port 465 (SSL implicite) n'est pas géré. Utilise le port 587, "
                  + "proposé par toutes les messageries courantes (Gmail, Outlook, OVH, Free, Orange).";
-        if (string.IsNullOrWhiteSpace(ReglageService.GetSmtpPassword()))
-            return "Le mot de passe SMTP n'est pas enregistré (Réglages → Connexion & envoi).";
+        if (string.IsNullOrWhiteSpace(motDePasse ?? ReglageService.GetSmtpPassword()))
+            return "Le mot de passe SMTP n'est pas enregistré (Réglages → Intégrations → E-mail).";
 
         return null;
     }
@@ -84,7 +91,8 @@ public static class EmailService
     /// Renvoie toujours un `Envoi` : en cas de réglage incomplet il revient déjà
     /// terminé et en échec, ce qui évite à l'appelant un second chemin de code.
     public static Envoi Envoyer(string destinataire, string objet, string corps,
-                                IEnumerable<string> piecesJointes = null)
+                                IEnumerable<string> piecesJointes = null,
+                                SmtpConfig reglage = null, string motDePasse = null)
     {
         var envoi = new Envoi();
 
@@ -94,16 +102,16 @@ public static class EmailService
             return envoi;
         }
 
-        string manque = CeQuiManque();
+        string manque = CeQuiManque(reglage, motDePasse);
         if (manque != null) { envoi.Echoue(manque); return envoi; }
 
         // Copie des réglages AVANT de quitter le thread principal : `ReglageService`
         // touche à Unity, qui n'est pas accessible depuis un thread de fond.
-        var s = ReglageService.Current.smtp;
+        var s = reglage ?? ReglageService.Current.smtp;
         string host = s.host, fromEmail = s.fromEmail, fromName = s.fromName;
         int port = s.port;
         bool ssl = s.useStartTls;
-        string motDePasse = ReglageService.GetSmtpPassword();
+        motDePasse ??= ReglageService.GetSmtpPassword();
 
         // L'identifiant peut différer de l'adresse d'expédition — c'est le cas chez
         // la plupart des fournisseurs dès qu'on envoie depuis un alias.
@@ -121,6 +129,12 @@ public static class EmailService
                 }
                 fichiers.Add(p);
             }
+
+        if (Messagerie.Relie(s))   // étape 16a : par l'API de Google ou de Microsoft
+        {
+            Messagerie.Envoyer(envoi, s.fournisseur, fromEmail, fromName, destinataire, objet, corps, fichiers);
+            return envoi;
+        }
 
         var t = new Thread(() => Expedier(envoi, host, port, ssl, fromEmail, fromName,
                                           identifiant, motDePasse, destinataire, objet, corps, fichiers))
@@ -175,18 +189,49 @@ public static class EmailService
         {
             // `StatusCode` distingue un refus d'authentification d'un serveur
             // injoignable — c'est la première question qu'on se pose en cas d'échec.
-            envoi.Echoue($"Envoi refusé par le serveur ({e.StatusCode}) : {e.Message}");
+            envoi.Echoue(Clair(e, host, port, $"Envoi refusé par le serveur ({e.StatusCode}) : {e.Message}{Cause(e)}"));
         }
         catch (Exception e)
         {
             // Jamais le mot de passe dans le message : il transiterait vers la console
             // et les journaux. `e.Message` de System.Net.Mail ne le contient pas.
-            envoi.Echoue($"Échec de l'envoi : {e.Message}");
+            envoi.Echoue(Clair(e, host, port, $"Échec de l'envoi : {e.Message}{Cause(e)}"));
         }
         finally
         {
             foreach (var a in pieces) { try { a.Dispose(); } catch { /* best effort */ } }
         }
+    }
+
+    /// Retour du 26/10 (build 1.0.3) : « GeneralFailure : Message could not be sent. » seul ne disait
+    /// rien ; la vraie raison (ici, serveur « stmp.gmail.com » introuvable) est dans l'exception intérieure.
+    public static string Cause(Exception e)
+    {
+        var b = e?.GetBaseException();
+        return b == null || b == e || string.IsNullOrWhiteSpace(b.Message) ? "" : $" — {b.GetType().Name} : {b.Message}";
+    }
+
+    /// Étape 16 : ce qu'il faut vérifier, en clair, puis le message technique. Les
+    /// textes des serveurs varient : on lit le code d'abord, quelques mots ensuite.
+    public static string Clair(Exception e, string host, int port, string technique)
+    {
+        var b = e?.GetBaseException();
+        var so = b as SocketException;
+        int code = e is SmtpException se ? (int)se.StatusCode : 0;
+        string tout = $"{e?.Message} {b?.Message}";
+        bool Dit(params string[] mots) { foreach (var m in mots) if (tout.Contains(m)) return true; return false; }
+
+        string clair =
+              so?.SocketErrorCode == SocketError.HostNotFound || Dit("resolve host")
+                ? $"Serveur « {host} » introuvable : vérifiez l'orthographe (Gmail : smtp.gmail.com, Outlook : smtp.office365.com) et la connexion internet."
+            : Dit("5.7.139", "SmtpClientAuthentication is disabled")
+                ? "Microsoft refuse l'envoi par mot de passe pour cette adresse : reliez-la avec « Se connecter avec Microsoft » (Réglages → Intégrations → E-mail)."
+            : code == 534 || code == 535 || Dit("5.7.8", "5.7.3", "5.7.9", "Username and Password not accepted", "Authentication unsuccessful")
+                ? "Identifiant ou mot de passe refusé. Gmail et Outlook demandent un mot de passe d'application (créé dans la sécurité du compte), pas le mot de passe habituel."
+            : so?.SocketErrorCode == SocketError.TimedOut || so?.SocketErrorCode == SocketError.ConnectionRefused || Dit("timed out")
+                ? $"« {host} » ne répond pas sur le port {port} : vérifiez le port (587) et la connexion internet."
+            : null;
+        return clair == null ? technique : clair + "\nDétail technique : " + technique;
     }
 
     // ── Message d'accompagnement d'une facture ─────────────────────────────────

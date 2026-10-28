@@ -60,11 +60,7 @@ public static class SaveIO
     public static void OpenFolder(string path)
     {
         if (!Directory.Exists(path)) return;
-#if UNITY_EDITOR || UNITY_STANDALONE_WIN
-        System.Diagnostics.Process.Start("explorer.exe", path.Replace('/', '\\'));
-#else
-        Application.OpenURL(path);
-#endif
+        Plateforme.OuvrirDossier(path);   // étape 15b : Explorateur ou Finder
     }
 
     public static int CountBatiments()

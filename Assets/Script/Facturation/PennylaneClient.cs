@@ -161,7 +161,7 @@ public static class PennylaneClient
         Adresse adresse = null;
 
         string manque =
-              string.IsNullOrWhiteSpace(cle) ? "Clé API Pennylane absente (Réglages → Connexion & envoi)."
+              string.IsNullOrWhiteSpace(cle) ? "Clé API Pennylane absente (Réglages → Intégrations → Pennylane)."
             : siren == null ? "SIRET manquant : la facture électronique concerne les entreprises. Pour un particulier, passe par l'email."
             : !NumeroValide(d.numero) ? $"Numéro « {d.numero} » refusé par Pennylane (35 caractères max : lettres, chiffres, - + _ /, sans espace). Une facture électronique déjà émise se corrige par un avoir."
             : !DecouperAdresse(f.destAdresse, out adresse) ? "Adresse du destinataire sans code postal + ville reconnaissables (ex. « 12 rue X, 31000 Toulouse »)."
@@ -255,9 +255,50 @@ public static class PennylaneClient
     // Le corps de réponse dit POURQUOI (champ manquant, lignes déséquilibrées…).
     static string Motif(string etape, UnityWebRequest r)
     {
-        string corps = r.downloadHandler?.text ?? "";
+        string corps = r.responseCode == 0 ? r.error ?? "" : r.downloadHandler?.text ?? "";
         if (corps.Length > 300) corps = corps.Substring(0, 300) + "…";
-        return $"Pennylane — {etape} : HTTP {r.responseCode} {corps}".Trim();
+        string technique = $"HTTP {r.responseCode} {corps}".Trim();
+        string clair = Clair(r.responseCode);
+        return clair == null ? $"Pennylane — {etape} : {technique}" : $"Pennylane — {etape} : {clair}\nDétail technique : {technique}";
+    }
+
+    /// Étape 16 : la cause en clair, ou null quand le corps de réponse la dit déjà (champ refusé…).
+    public static string Clair(long code) =>
+          code == 0 ? "Pennylane injoignable : vérifiez la connexion internet."
+        : code == 401 ? "Clé refusée par Pennylane : recopiez-la en entier, ou créez-en une nouvelle (Pennylane → Paramètres → Connectivité → Développeurs)."
+        : code == 403 ? "La clé n'a pas les droits nécessaires : recréez-la avec la lecture et l'écriture sur les clients, les factures clients et les fichiers joints (customers, customer_invoices, file_attachments)."
+        : code == 429 ? "Trop de demandes à Pennylane : réessayez dans une minute."
+        : code >= 500 ? "Pennylane est indisponible pour le moment : réessayez plus tard."
+        : null;
+
+    [Serializable] class Societe { public string name, reg_no; }
+    [Serializable] class Moi { public Societe company; }
+
+    /// Étape 16, bouton « Tester la clé » : `/me` répond à toute clé valide quels que soient
+    /// ses droits et nomme la société ; la lecture des clients et des factures vérifie les droits.
+    /// L'écriture ne se teste pas sans rien créer : un refus au dépôt reste possible.
+    public static IEnumerator Tester(string cle, Action<bool, string> fin)
+    {
+        if (string.IsNullOrWhiteSpace(cle)) { fin(false, "Collez d'abord la clé API Pennylane."); yield break; }
+
+        string societe = "";
+        using (var r = Requete("GET", "/me", cle))
+        {
+            yield return r.SendWebRequest();
+            if (r.result != UnityWebRequest.Result.Success) { fin(false, Motif("test de la clé", r)); yield break; }
+            var c = JsonUtility.FromJson<Moi>(r.downloadHandler.text)?.company;
+            if (!string.IsNullOrEmpty(c?.name))
+                societe = $" : société « {c.name} »" + (string.IsNullOrEmpty(c.reg_no) ? "" : $" (SIREN {c.reg_no})");
+        }
+
+        foreach (var (chemin, quoi) in new[] { ("/customers?limit=1", "lecture des clients"), ("/customer_invoices?limit=1", "lecture des factures") })
+            using (var r = Requete("GET", chemin, cle))
+            {
+                yield return r.SendWebRequest();
+                if (r.result != UnityWebRequest.Result.Success) { fin(false, $"Clé reconnue{societe}, mais refusée pour la {quoi}. " + Motif(quoi, r)); yield break; }
+            }
+
+        fin(true, $"Clé valide{societe}. Lecture des clients et des factures : autorisée.");
     }
 
     static void Echec(Depot res, string motif)

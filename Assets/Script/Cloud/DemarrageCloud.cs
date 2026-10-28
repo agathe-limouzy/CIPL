@@ -17,6 +17,7 @@ public static class DemarrageCloud
     public static async void Lancer(BatimentManager bm)
     {
         _bm = bm;
+        MiseAJour.Verifier(() => Canvas);   // étape 15 : en parallèle, sans retarder la connexion
         if (!SessionCloud.Configure)
         {
             ConfirmDialog.Erreur("Adresse du projet cloud non renseignée : dans Unity, menu CIPL › Essai cloud (étape 1).");

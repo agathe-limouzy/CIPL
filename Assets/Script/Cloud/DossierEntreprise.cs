@@ -12,8 +12,11 @@ public static class DossierEntreprise
     /// seul, Drive choisi à la main, ou dossier hors du Drive (« Continuer sans le dossier »).
     public const string DriveAuto = "drive-auto", DriveMain = "drive-main", HorsDrive = "hors-drive";
 
+    static readonly string[] DrivesGoogle = { "Mon Drive", "My Drive", "Drives partagés", "Shared drives" };
+
     /// Où chercher : OneDrive (variables de Windows, dossiers « OneDrive… » du profil) et Google
-    /// Drive (« Mon Drive » à la racine d'un lecteur, « Google Drive » dans le profil).
+    /// Drive (« Mon Drive » à la racine d'un lecteur, « Google Drive » dans le profil). Mac (étape 15b) :
+    /// les dossiers de ~/Library/CloudStorage (« OneDrive-… », « GoogleDrive-<adresse>/Mon Drive »).
     /// ponytail: les bibliothèques SharePoint synchronisées (profil\<organisation>\…) ne sont pas
     /// devinées : « Choisir à la main » les couvre.
     public static List<string> Racines(Func<string, string> env, IEnumerable<string> dossiersProfil, IEnumerable<string> lecteurs)
@@ -29,9 +32,11 @@ public static class DossierEntreprise
             string nom = Path.GetFileName(d.TrimEnd('\\', '/'));
             if (nom.StartsWith("OneDrive", StringComparison.OrdinalIgnoreCase) || nom.Equals("Google Drive", StringComparison.OrdinalIgnoreCase))
                 r.Add(d);
+            else if (nom.StartsWith("GoogleDrive", StringComparison.OrdinalIgnoreCase))   // Mac : CloudStorage/GoogleDrive-<adresse>
+                foreach (var s in DrivesGoogle) r.Add(Path.Combine(d, s));
         }
         foreach (var l in lecteurs)
-            foreach (var s in new[] { "Mon Drive", "My Drive", "Drives partagés", "Shared drives" })
+            foreach (var s in DrivesGoogle)
                 r.Add(Path.Combine(l, s));
         return r.Select(p => p.TrimEnd('\\', '/')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
@@ -39,8 +44,10 @@ public static class DossierEntreprise
     public static List<string> RacinesDuPC()
     {
         string profil = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        string[] dossiers;
-        try { dossiers = Directory.GetDirectories(profil); } catch (Exception) { dossiers = new string[0]; }
+        var dossiers = new List<string>();
+        foreach (var d in new[] { profil, Path.Combine(profil, "Library", "CloudStorage") })   // le 2e : Mac seulement
+            if (Directory.Exists(d))
+                try { dossiers.AddRange(Directory.GetDirectories(d)); } catch (Exception) { /* dossier illisible : on s'en passe */ }
         var lecteurs = new List<string>();
         try
         {

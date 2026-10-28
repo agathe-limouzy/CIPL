@@ -105,7 +105,10 @@ public static class UtilisateursCloud
         $"Votre code d'invitation : {code}\n" +
         $"Il est valable jusqu'au {expire:dd'/'MM'/'yyyy}.\n\n" +
         "Pour rejoindre l'entreprise :\n" +
-        $"1. Installez CIPL (demandez le lien d'installation à {qui}).\n" +
+        // Étape 15 (maquette 5 du 26/10) : le lien de la dernière version ; le Mac quand il sera publié (15b).
+        $"1. Installez CIPL sur votre PC Windows : {MiseAJour.LienWindows}\n" +
+        "   Si Windows affiche « Windows a protégé votre ordinateur », cliquez sur « Informations complémentaires », puis « Exécuter quand même ».\n" +
+        (MiseAJour.LienMac != null ? $"   Sur Mac : {MiseAJour.LienMac}\n" : "") +
         "2. À l'écran de connexion, choisissez « J'ai reçu une invitation ».\n" +
         "3. Saisissez cette adresse e-mail et le code ci-dessus, puis choisissez votre mot de passe.\n\n" +
         "À bientôt sur CIPL.";

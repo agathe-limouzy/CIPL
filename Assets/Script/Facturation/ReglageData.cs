@@ -56,6 +56,10 @@ public class SmtpConfig
 
     public string fromEmail = "";              // ex "contact@cipl.fr"
     public string fromName = "GROUPE CIPL";
+
+    // Étape 16a : « google » ou « microsoft » quand l'adresse d'expédition est reliée (l'envoi passe
+    // alors par leur API, sans serveur ni mot de passe) ; vide : SMTP.
+    public string fournisseur = "";
 }
 
 /// Réglages globaux de l'app (facturation). Persistés dans <SaveRoot>/reglage.json.

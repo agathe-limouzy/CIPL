@@ -305,7 +305,7 @@ public static class DocumentsCloud
     {
         if (string.IsNullOrEmpty(absolu)) return;
         string nom = Path.GetFileName(absolu);
-        if (File.Exists(absolu)) { Application.OpenURL("file:///" + absolu.Replace('\\', '/')); return; }
+        if (File.Exists(absolu)) { Application.OpenURL(Plateforme.UrlFichier(absolu)); return; }
         if (!SessionCloud.Active || SessionCloud.Entreprise == null) { ConfirmDialog.Erreur($"« {nom} » est introuvable."); return; }
         try
         {
@@ -326,7 +326,7 @@ public static class DocumentsCloud
             Directory.CreateDirectory(Path.GetDirectoryName(tmp));
             File.WriteAllBytes(tmp, contenu);
             UndoToast.Instance?.ShowInfo($"« {nom} » lu depuis le cloud : votre Drive ne l'a pas encore recopié.");
-            Application.OpenURL("file:///" + tmp.Replace('\\', '/'));
+            Application.OpenURL(Plateforme.UrlFichier(tmp));
         }
         catch (Exception ex) { ConfirmDialog.Erreur($"« {nom} » : ouverture impossible ({ex.Message})."); }
     }

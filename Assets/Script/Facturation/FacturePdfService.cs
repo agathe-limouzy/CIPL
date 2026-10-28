@@ -203,7 +203,7 @@ public static class FacturePdfService
         try
         {
             string edge = FindEdge();
-            if (edge == null) { error = "Microsoft Edge introuvable (rendu de la facture)."; return false; }
+            if (edge == null) { error = Plateforme.Mac ? SansNavigateurMac : "Microsoft Edge introuvable (rendu de la facture)."; return false; }
 
             htmlPath = Path.Combine(Path.GetTempPath(), "cipl_facture_" + Guid.NewGuid().ToString("N") + ".html");
             File.WriteAllText(htmlPath, html, new System.Text.UTF8Encoding(false));
@@ -236,7 +236,7 @@ public static class FacturePdfService
             psi.ArgumentList.Add("--disable-gpu");
             psi.ArgumentList.Add("--user-data-dir=" + udd);
             foreach (string a in outputArgs) psi.ArgumentList.Add(a);
-            psi.ArgumentList.Add("file:///" + htmlPath.Replace("\\", "/"));
+            psi.ArgumentList.Add(Plateforme.UrlFichier(htmlPath));
             using (var proc = Process.Start(psi))
             {
                 if (!proc.WaitForExit(30000)) { try { proc.Kill(); } catch { } error = "Edge : délai dépassé."; return false; }
@@ -434,14 +434,30 @@ public static class FacturePdfService
         catch { return AucunLogo; }
     }
 
-    static string FindEdge()
-    {
-        string[] paths =
+    /// Le navigateur qui rend les factures (PDF et aperçu, en mode invisible). Étape 15b (décision du
+    /// 26/10) : sur Mac, Google Chrome ou Microsoft Edge s'il est installé ; mêmes options.
+    public static string[] Navigateurs(bool mac, string maison) => mac
+        ? new[]
+        {
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            maison + "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            maison + "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        }
+        : new[]
         {
             @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
             @"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
         };
-        foreach (var p in paths) if (File.Exists(p)) return p;
+
+    public const string SansNavigateurMac =
+        "Pour créer les PDF des factures sur Mac, CIPL a besoin de Google Chrome ou de Microsoft Edge (gratuits). " +
+        "Installez l'un des deux (google.com/chrome), puis recommencez.";
+
+    static string FindEdge()
+    {
+        foreach (var p in Navigateurs(Plateforme.Mac, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)))
+            if (File.Exists(p)) return p;
         return null;
     }
 

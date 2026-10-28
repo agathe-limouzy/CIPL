@@ -43,7 +43,7 @@ public static class FactureQuittanceService
             ConfirmDialog.Erreur("Échec de la quittance : " + err);
             return;
         }
-        Application.OpenURL("file:///" + pdf.Replace("\\", "/"));
+        Application.OpenURL(Plateforme.UrlFichier(pdf));
         UndoToast.Instance?.ShowInfo("Quittance de loyer générée (PDF).");
     }
 

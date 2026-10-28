@@ -144,4 +144,17 @@ public static class RegleAbonnement
         bool laPoste = s.StartsWith("356000000") && s.Sum(c => c - '0') % 5 == 0;
         return somme % 10 == 0 || laPoste ? null : "Ce SIRET n'existe pas : vérifiez les chiffres.";
     }
+
+    /// « 123 456 789 00012 » ; tel quel s'il n'a pas 14 chiffres.
+    public static string SiretLisible(string siret)
+    {
+        string s = new string((siret ?? "").Where(char.IsDigit).ToArray());
+        return s.Length == 14 ? $"{s.Substring(0, 3)} {s.Substring(3, 3)} {s.Substring(6, 3)} {s.Substring(9)}" : (siret ?? "").Trim();
+    }
+
+    /// La ligne SIRET de Réglages › Entreprise (27/10).
+    public static string LigneSiret(string type, string siret) =>
+          type == "particulier" ? "Particulier : pas de SIRET"
+        : string.IsNullOrWhiteSpace(siret) ? "Non renseigné"
+        : SiretLisible(siret);
 }

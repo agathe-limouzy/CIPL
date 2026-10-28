@@ -27,7 +27,6 @@ public class ReglagePanel : MonoBehaviour
     TMP_InputField _phraseRetard, _basDePage, _entrepriseNom, _lieuEmission;
     TMP_InputField _tvaDebits, _tvaEncaissements;
     Toggle _modePennylane;
-    GameObject _smtpCard;
     TMP_Text _reglePar;   // étape 9a : « Réglé par l'administrateur », à la place des champs d'admin
     readonly List<GameObject> _reserveAdmin = new List<GameObject>();
 
@@ -43,18 +42,19 @@ public class ReglagePanel : MonoBehaviour
 
     // ── Onglets (étape 9c1, maquette validée le 19/10) ─────────────────────────
     public const string OEntreprise = "Entreprise", OFacturation = "Facturation", OUtilisateurs = "Utilisateurs",
-                        OAbonnement = "Abonnement", ODocuments = "Documents", OIntegrations = "Intégrations";
+                        OAbonnement = "Abonnement", ODocuments = "Documents et affichage", OIntegrations = "Intégrations";
     readonly Dictionary<string, GameObject> _pages = new Dictionary<string, GameObject>();
     Transform _barreOnglets;
     GameObject _footer;
     string _onglet = OEntreprise;
 
-    /// Un utilisateur du cloud ne voit que Entreprise (lecture), Facturation et Documents
-    /// (décision du 11/10) ; hors cloud, ni Utilisateurs ni Abonnement.
+    /// Un utilisateur du cloud ne voit ni Utilisateurs ni Abonnement (décision du 11/10) ; il voit
+    /// Intégrations depuis le 27/10, pour le token Mapbox de son PC (le reste y est réservé à l'admin).
+    /// Hors cloud, ni Utilisateurs ni Abonnement.
     public static string[] Onglets(bool cloud, bool admin) =>
         !cloud ? new[] { OEntreprise, OFacturation, ODocuments, OIntegrations }
       : admin ? new[] { OEntreprise, OFacturation, OUtilisateurs, OAbonnement, ODocuments, OIntegrations }
-      : new[] { OEntreprise, OFacturation, ODocuments };
+      : new[] { OEntreprise, OFacturation, ODocuments, OIntegrations };
 
     /// Bandeau « Voir l'abonnement » : Réglages ouvert sur cet onglet.
     public static void OuvrirOnglet(string onglet)
@@ -71,7 +71,7 @@ public class ReglagePanel : MonoBehaviour
         // Utilisateurs (lu à l'ouverture de Réglages seulement). Chaque onglet se relit à l'affichage.
         if (onglet == OUtilisateurs) _utilisateurs?.Rafraichir();
         else if (onglet == OAbonnement) _abonnement?.Rafraichir();
-        else if (onglet == ODocuments) _export?.Rafraichir();
+        else if (onglet == OEntreprise) _export?.Rafraichir();
         if (_scroll != null) _scroll.verticalNormalizedPosition = 1f;   // chaque onglet s'ouvre en haut
     }
 
@@ -177,11 +177,15 @@ public class ReglagePanel : MonoBehaviour
         // Scroll : une page par onglet
         var content = MakeScroll(col.transform);
 
-        BuildEntreprise(Page(content, OEntreprise));
+        // Réorganisés le 27/10 : Entreprise décrit la société, Facturation sert à rédiger les
+        // factures, Intégrations a une carte par service.
+        var entreprise = Page(content, OEntreprise);
+        BuildEntreprise(entreprise);
+        BuildRibs(entreprise);
+        _export = new SectionExport(entreprise);   // étape 11 : « Exporter toutes les données »
 
         var facturation = Page(content, OFacturation);
         BuildLogo(facturation);
-        BuildRibs(facturation);
         BuildEntetes(facturation);
         BuildListesCharges(facturation);
         BuildTextes(facturation);
@@ -189,14 +193,12 @@ public class ReglagePanel : MonoBehaviour
         _utilisateurs = new SectionUtilisateurs(this, Page(content, OUtilisateurs));   // étape 9b
         _abonnement = new SectionAbonnement(this, Page(content, OAbonnement));
 
-        var documents = Page(content, ODocuments);   // ce qui se règle sur cet ordinateur
+        var documents = Page(content, ODocuments);
         BuildDocuments(documents);   // sur le cloud (étape 6b), à la place de l'emplacement de sauvegarde
         BuildSauvegarde(documents);
-        _export = new SectionExport(documents);   // étape 11 : « Exporter toutes les données »
         BuildAffichage(documents);
-        BuildCartes(documents);
 
-        BuildConnexion(Page(content, OIntegrations));
+        BuildIntegrations(Page(content, OIntegrations));
 
         // Footer
         var footer = UIFactory.HBox(col.transform, 12, false, "Footer");
@@ -232,9 +234,10 @@ public class ReglagePanel : MonoBehaviour
         return content.transform;
     }
 
-    // ── Section Connexion + mode d'envoi ───────────────────────────────────────
+    // ── Onglet Entreprise : nom et SIRET (lecture seule pour un utilisateur du cloud) ──
 
-    // ── Onglet Entreprise : nom (lecture seule pour un utilisateur du cloud) ────
+    GameObject _siretBloc, _siretModifier;
+    TMP_Text _siret;
 
     void BuildEntreprise(Transform parent)
     {
@@ -242,103 +245,335 @@ public class ReglagePanel : MonoBehaviour
         UIFactory.Text(body.transform, "Nom de l'entreprise", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _entrepriseNom = UIFactory.Input(body.transform, "GROUPE CIPL");
 
-        // Étape 9a : pour un utilisateur (non admin) sur le cloud, l'envoi des factures est
-        // « Réglé par l'administrateur » (décision du 19/10) ; l'onglet Intégrations lui est caché.
-        _reglePar = UIFactory.Text(body.transform, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        // 27/10 : le SIRET saisi à la création, que l'admin peut changer (sur le cloud seulement).
+        var bloc = UIFactory.VBox(body.transform, 6, 0, 0, 0, 0, "Siret");
+        _siretBloc = bloc.gameObject;
+        UIFactory.Text(bloc.transform, "SIRET", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        var ligne = UIFactory.HBox(bloc.transform, 8, false, "SiretLigne");
+        _siret = UIFactory.Text(ligne.transform, "", UITheme.Role.Donnee, UITheme.TextePrincipal);
+        UIFactory.LE(_siret.gameObject, flexW: 1);
+        var modifier = UIFactory.Button(ligne.transform, "Modifier", UITheme.Carte, UITheme.TextePrincipal, 34, UITheme.Role.Action);
+        UIFactory.Border(modifier.gameObject);
+        UIFactory.LargeurDuTexte(modifier);
+        modifier.onClick.AddListener(() => OuvrirSiret(SessionCloud.Entreprise?.siret ?? ""));
+        _siretModifier = modifier.gameObject;
+    }
+
+    void RefreshSiret()
+    {
+        var e = SessionCloud.Active ? SessionCloud.Entreprise : null;
+        _siretBloc.SetActive(e != null);
+        if (e == null) return;
+        _siret.text = RegleAbonnement.LigneSiret(e.type, e.siret);
+        _siretModifier.SetActive(e.EstAdmin && e.type != "particulier");
+    }
+
+    /// Après un refus, la fenêtre se rouvre telle qu'elle était remplie.
+    void OuvrirSiret(string avant)
+    {
+        TMP_InputField siret = null;
+        Modal("Modifier le SIRET", body =>
+        {
+            UIFactory.Text(body.transform, "Le SIRET de l'entreprise, vérifié dans l'annuaire des entreprises. "
+                + "Le bas de page des factures ne change pas : corrigez-le dans Facturation › Textes fixes si besoin.",
+                UITheme.Role.Aide, UITheme.TexteSecondaire);
+            siret = SectionAbonnement.ChampSiret(body.transform, avant, null, out _);
+            siret.onValueChanged.Invoke(siret.text);   // l'annuaire, pour le SIRET déjà là
+            return () => ChangerSiret(siret.text);
+        }, "Enregistrer");
+    }
+
+    async void ChangerSiret(string siret)
+    {
+        Action reprendre = () => OuvrirSiret(siret);
+        string motif = RegleAbonnement.VerifierSiret(siret);
+        if (motif == null)   // société fermée ou introuvable dans l'annuaire : refus, comme à l'ajout
+        {
+            var (data, _, introuvable) = await PapperService.Chercher(new string(siret.Where(char.IsDigit).ToArray()));
+            motif = PappersResume.Refus(siret, data, introuvable);
+        }
+        if (motif != null) { ConfirmDialog.Erreur(motif, reprendre); return; }
+        var res = await AbonnementCloud.ChangerSiret(siret);
+        if (res?.ok != true) { ConfirmDialog.Erreur(AbonnementCloud.MotifSiret(res), reprendre); return; }
+        if (SessionCloud.Entreprise != null) SessionCloud.Entreprise.siret = new string(siret.Where(char.IsDigit).ToArray());
+        UndoToast.Instance?.ShowInfo("SIRET enregistré.");
+        if (this != null) RefreshSiret();
+    }
+
+    // ── Onglet Intégrations (réorganisé le 27/10) : une carte par service ──────
+
+    void BuildIntegrations(Transform parent)
+    {
+        // Envoi des factures : le choix de l'admin. Un utilisateur lit « Réglé par l'administrateur »
+        // (étape 9a, décision du 19/10).
+        var envoi = UIFactory.Section(parent, "Envoi des factures", CoVert, CoVertL);
+        _reglePar = UIFactory.Text(envoi.transform, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
         _reglePar.gameObject.SetActive(false);
-    }
-
-    // ── Cartes : token Mapbox, propre à chaque ordinateur ──────────────────────
-
-    void BuildCartes(Transform parent)
-    {
-        var body = UIFactory.Section(parent, "Cartes", CoPetrole, CoPetroleL);
-        // Token Mapbox : saisi ici plutôt que dans le champ public de TileLoader, qui
-        // était sérialisé en clair dans Maps.prefab et donc commité dans le dépôt.
-        UIFactory.Text(body.transform, "Token Mapbox (sur cet ordinateur)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
-        _mapboxToken = UIFactory.Input(body.transform, "Collez votre token Mapbox…");
-        _mapboxToken.contentType = TMP_InputField.ContentType.Password;
-    }
-
-    // ── Onglet Intégrations : Pennylane, mode d'envoi, SMTP (admin) ────────────
-
-    void BuildConnexion(Transform parent)
-    {
-        var body = UIFactory.Section(parent, "Connexion & envoi", CoVert, CoVertL);
-
-        _reserveAdmin.Add(UIFactory.Text(body.transform, "Clé API Pennylane", UITheme.Role.Libelle, UITheme.TexteSecondaire).gameObject);
-        _apiKey = UIFactory.Input(body.transform, "Collez votre clé API…");
-        _apiKey.contentType = TMP_InputField.ContentType.Password;
-        _reserveAdmin.Add(_apiKey.gameObject);
-
-        _modePennylane = UIFactory.Toggle(body.transform, "Envoyer via Pennylane (e-facture Factur-X)", true);
+        _modePennylane = UIFactory.Toggle(envoi.transform, "Envoyer via Pennylane (e-facture Factur-X)", true);
         _reserveAdmin.Add(_modePennylane.gameObject);
-
         // Cette case ne gouverne QUE l'envoi des factures. Les réglages SMTP restent
         // visibles dans les deux modes : les relances d'impayé partent par email même
         // en Pennylane, donc les masquer les rendait inconfigurables.
-        _reserveAdmin.Add(UIFactory.Text(body.transform,
+        _reserveAdmin.Add(UIFactory.Text(envoi.transform,
             "Cette case choisit comment partent les FACTURES. Les relances d'impayé passent "
             + "par email dans tous les cas : les réglages SMTP ci-dessous servent donc toujours. "
             + "(Pennylane : loyers seulement pour l'instant, déposés sans être émis.)",
             UITheme.Role.Aide, UITheme.TexteSecondaire).gameObject);
 
-        // Sous-carte SMTP (mode Email)
-        var smtpBody = UIFactory.Card(body.transform);
-        _smtpCard = smtpBody.gameObject; // la carte SMTP (le VLG est porté par la carte)
-        _reserveAdmin.Add(_smtpCard);
-        UIFactory.Text(smtpBody.transform, "Envoi par email (SMTP)", UITheme.Role.Libelle, UITheme.TextePrincipal, true);
-        UIFactory.Text(smtpBody.transform,
-            "Sert aux relances d'impayé dans tous les cas, et à l'envoi des factures si le mode "
-            + "email est choisi ci-dessus. N'importe quelle messagerie convient, avec le port 587 :",
-            UITheme.Role.Aide, UITheme.TexteSecondaire);
-        UIFactory.Text(smtpBody.transform,
-            "Gmail : smtp.gmail.com  ·  Outlook / Microsoft 365 : smtp.office365.com  ·  "
-            + "OVH : ssl0.ovh.net  ·  Free : smtp.free.fr  ·  Orange : smtp.orange.fr",
-            UITheme.Role.Aide, UITheme.TexteSecondaire);
-        UIFactory.Text(smtpBody.transform,
-            "Attention : Gmail et Outlook exigent un mot de passe d'application (créé dans les réglages de "
-            + "sécurité du compte), pas le mot de passe habituel. Sur Microsoft 365, SMTP AUTH est "
-            + "souvent à activer côté administrateur. Le port 465 n'est pas géré : utilise 587.",
-            UITheme.Role.Aide, UITheme.Alerte);
+        var pennylane = UIFactory.Section(parent, "Pennylane", CoBleu, CoBleuL);
+        _reserveAdmin.Add(pennylane.transform.parent.gameObject);
+        UIFactory.Text(pennylane.transform, "Clé API Pennylane", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _apiKey = ChampTeste(pennylane.transform, "Collez votre clé API…", "Tester la clé", PennylaneClient.Tester,
+                             "Le test lit le nom de la société de la clé et vérifie ses droits, sans rien créer dans Pennylane.");
 
-        _smtpHost = LabeledInput(smtpBody.transform, "Serveur SMTP", "smtp.office365.com");
-        _smtpPort = LabeledInput(smtpBody.transform, "Port", "587");
+        BuildSmtp(parent);
+        BuildCartes(parent);
+    }
+
+    // ── Cartes : token Mapbox, propre à chaque ordinateur (tout le monde, 27/10) ──
+
+    void BuildCartes(Transform parent)
+    {
+        var body = UIFactory.Section(parent, "Cartes (Mapbox)", CoPetrole, CoPetroleL);
+        // Token Mapbox : saisi ici plutôt que dans le champ public de TileLoader, qui
+        // était sérialisé en clair dans Maps.prefab et donc commité dans le dépôt.
+        UIFactory.Text(body.transform, "Token Mapbox (sur cet ordinateur)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _mapboxToken = ChampTeste(body.transform, "Collez votre token Mapbox…", "Tester le jeton", TileLoader.Tester,
+                                  "Le test demande une toute petite carte à Mapbox.");
+    }
+
+    /// Étape 16 : un champ secret, son bouton « Tester » à droite et le résultat dessous.
+    /// Le test porte sur ce qui est tapé, sans enregistrer (décision du 26/10).
+    TMP_InputField ChampTeste(Transform parent, string exemple, string bouton,
+                              Func<string, Action<bool, string>, IEnumerator> test, string aide)
+    {
+        var ligne = UIFactory.HBox(parent, 8, false, "ChampTeste");
+        var champ = UIFactory.Input(ligne.transform, exemple);
+        champ.contentType = TMP_InputField.ContentType.Password;
+        UIFactory.LE(champ.gameObject, flexW: 1);
+        var b = UIFactory.Button(ligne.transform, bouton, UITheme.Carte, UITheme.TextePrincipal, 40, UITheme.Role.Bouton);
+        UIFactory.Border(b.gameObject);
+        UIFactory.LargeurDuTexte(b);
+        var res = UIFactory.Text(parent, aide, UITheme.Role.Aide, UITheme.TexteSecondaire);
+        b.onClick.AddListener(() =>
+        {
+            res.color = UITheme.TexteSecondaire;
+            res.text = "Test en cours…";
+            StartCoroutine(test(champ.text.Trim(), (ok, message) => Resultat(res, ok, message)));
+        });
+        return champ;
+    }
+
+    /// En vert ou en rouge sous le bouton ; un échec aussi au centre.
+    static void Resultat(TMP_Text t, bool ok, string message)
+    {
+        t.color = ok ? UITheme.Primaire : UITheme.Alerte;
+        t.text = message;
+        if (!ok) ConfirmDialog.Erreur(message);
+    }
+
+    // ── E-mail, admin : relances toujours, invitations, factures en mode e-mail ──
+    // Étape 16a (maquette du 27/10) : Gmail, Google Workspace, Outlook, Hotmail, Microsoft 365 se
+    // relient (« Se connecter avec … »), sans mot de passe ; les autres messageries passent par le
+    // SMTP, serveur rempli d'après l'adresse.
+
+    GameObject _zoneRelier, _zoneSmtp;
+    TMP_Text _relierTexte, _relierAide, _smtpTrouve;
+    Button _relierBouton, _relierAutre, _versSmtp;
+    string _devine = "", _messagerie = "", _serveurAuto = "";
+    bool _forceSmtp, _inconnu;
+
+    /// Pour les premiers pas : la zone « Se connecter avec … », si elle est affichée.
+    public RectTransform ZoneRelier =>
+        _zoneRelier != null && _zoneRelier.activeInHierarchy ? (RectTransform)_zoneRelier.transform : null;
+
+    void BuildSmtp(Transform parent)
+    {
+        var corps = UIFactory.Section(parent, "E-mail", CoAmbre, CoAmbreL).transform;
+        _reserveAdmin.Add(corps.parent.gameObject);
+        UIFactory.Text(corps, "Sert aux relances d'impayé dans tous les cas, aux invitations, et à l'envoi des factures "
+            + "si le mode e-mail est choisi ci-dessus.", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        _smtpFromEmail = LabeledInput(corps, "Adresse d'expédition", "contact@sci-rivoli.fr");
+        _smtpFromEmail.onEndEdit.AddListener(_ => Detecter());
+        _smtpFromName = LabeledInput(corps, "Nom d'expédition", "SCI Rivoli");
+
+        var relier = UIFactory.VBox(corps, 8, 0, 0, 4, 4, "Relier");
+        _zoneRelier = relier.gameObject;
+        _relierTexte = UIFactory.Text(relier.transform, "", UITheme.Role.Donnee, UITheme.TextePrincipal);
+        var boutons = UIFactory.HBox(relier.transform, 8, false, "Boutons");
+        _relierBouton = UIFactory.Button(boutons.transform, "Se connecter", UITheme.Primaire, Color.white, 40, UITheme.Role.Bouton);
+        UIFactory.LargeurDuTexte(_relierBouton);
+        _relierBouton.onClick.AddListener(RelierOuDelier);
+        // Toujours les deux (28/10) : le conseillé en vert, l'autre en gris (vert aussi quand on ne sait pas).
+        _relierAutre = UIFactory.Button(boutons.transform, "Se connecter avec Microsoft", UITheme.Primaire, Color.white, 40, UITheme.Role.Bouton);
+        UIFactory.Border(_relierAutre.gameObject);
+        UIFactory.LargeurDuTexte(_relierAutre);
+        _relierAutre.onClick.AddListener(RelierAutre);
+        _versSmtp = UIFactory.Button(boutons.transform, "Utiliser plutôt un serveur SMTP", UITheme.Carte, UITheme.TextePrincipal,
+                                     40, UITheme.Role.Action, false);
+        UIFactory.Border(_versSmtp.gameObject);
+        UIFactory.LargeurDuTexte(_versSmtp);
+        _versSmtp.onClick.AddListener(() => { _forceSmtp = true; AfficherEmail(); });
+        _relierAide = UIFactory.Text(relier.transform, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
+
+        var smtp = UIFactory.VBox(corps, 8, 0, 0, 0, 0, "Smtp");
+        _zoneSmtp = smtp.gameObject;
+        var z = smtp.transform;
+        _smtpTrouve = UIFactory.Text(z, "", UITheme.Role.Aide, UITheme.Primaire);
+        UIFactory.Text(z, "N'importe quelle messagerie convient, avec le port 587 : OVH : ssl0.ovh.net  ·  Free : smtp.free.fr  ·  "
+            + "Orange : smtp.orange.fr  ·  iCloud : smtp.mail.me.com", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        UIFactory.Text(z, "La plupart des messageries demandent un mot de passe d'application (créé dans la sécurité du compte), "
+            + "pas le mot de passe habituel. Le port 465 n'est pas géré : utilisez 587.", UITheme.Role.Aide, UITheme.Alerte);
+        _smtpHost = LabeledInput(z, "Serveur SMTP", "smtp.exemple.fr");
+        _smtpPort = LabeledInput(z, "Port", "587");
         _smtpPort.contentType = TMP_InputField.ContentType.IntegerNumber;
-        _smtpFromEmail = LabeledInput(smtpBody.transform, "Adresse d'expédition", "contact@cipl.fr");
-        _smtpFromName = LabeledInput(smtpBody.transform, "Nom d'expédition", "GROUPE CIPL");
-        _smtpUser = LabeledInput(smtpBody.transform,
-            "Identifiant SMTP (si différent de l'adresse d'expédition)", "laisser vide si identique");
-        _smtpPwd = LabeledInput(smtpBody.transform, "Mot de passe (d'application)", "••••••");
+        _smtpUser = LabeledInput(z, "Identifiant SMTP (si différent de l'adresse d'expédition)", "laisser vide si identique");
+        _smtpPwd = LabeledInput(z, "Mot de passe (d'application)", "••••••");
         _smtpPwd.contentType = TMP_InputField.ContentType.Password;
 
         // Test d'envoi. Il écrit à l'adresse d'EXPÉDITION, jamais à un locataire :
-        // c'est le seul moyen de valider serveur, port, mot de passe et STARTTLS
-        // sans qu'un vrai destinataire puisse recevoir quoi que ce soit.
-        _testEmail = UIFactory.Button(smtpBody.transform, "Envoyer un email de test",
-                                      UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
+        // c'est le seul moyen de valider le réglage sans qu'un vrai destinataire
+        // puisse recevoir quoi que ce soit.
+        _testEmail = UIFactory.Button(corps, "Envoyer un email de test", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(_testEmail.gameObject);
         _testEmail.onClick.AddListener(TesterEnvoi);
+        _testInfo = UIFactory.Text(corps, "Le test part vers l'adresse d'expédition ci-dessus, avec ce qui est tapé : inutile d'enregistrer avant.",
+                                   UITheme.Role.Aide, UITheme.TexteSecondaire);
+    }
 
-        _testInfo = UIFactory.Text(smtpBody.transform,
-            "Le test part vers l'adresse d'expédition ci-dessus. Enregistre les réglages avant.",
-            UITheme.Role.Aide, UITheme.TexteSecondaire);
+    /// Relier (Google, Microsoft) ou SMTP, selon l'adresse et ce qui est déjà relié. Une adresse
+    /// reliée ne se modifie plus : pour en changer, « Se déconnecter ».
+    void AfficherEmail()
+    {
+        string relie = R.smtp.fournisseur ?? "";
+        string f = relie != "" ? relie : _forceSmtp || !SessionCloud.Active ? "" : Recommande;
+        _zoneRelier.SetActive(f != "");
+        _zoneSmtp.SetActive(f == "");
+        _smtpFromEmail.interactable = relie == "";
+        if (f == "") return;
+        string nom = Messagerie.Nom(f);
+        bool estRelie = relie != "";
+        _relierTexte.text = estRelie ? $"Reliée à {nom} : {R.smtp.fromEmail}"
+            : _inconnu ? "CIPL ne reconnaît pas la messagerie de cette adresse : choisissez celle où vous recevez vos e-mails."
+            : $"Cette adresse est chez {(_messagerie != "" ? _messagerie : nom)} : reliez-la avec {nom} (en vert), sans mot de passe à recopier.";
+        _relierTexte.color = estRelie ? UITheme.Primaire : UITheme.TextePrincipal;
+        _relierBouton.GetComponentInChildren<TMP_Text>().text = estRelie ? "Se déconnecter" : $"Se connecter avec {nom}";
+        _relierAutre.gameObject.SetActive(!estRelie);
+        _relierAutre.GetComponentInChildren<TMP_Text>().text = $"Se connecter avec {Messagerie.Nom(Autre)}";
+        _relierAutre.image.color = _inconnu ? UITheme.Primaire : UITheme.Carte;
+        _relierAutre.GetComponentInChildren<TMP_Text>().color = _inconnu ? Color.white : UITheme.TextePrincipal;
+        _relierAutre.GetComponent<Outline>().enabled = !_inconnu;
+        _versSmtp.gameObject.SetActive(!estRelie);
+        _relierAide.text = estRelie
+            ? "Toute l'entreprise envoie par cette adresse, depuis chaque ordinateur. Pour en changer : « Se déconnecter »."
+            : "La fenêtre s'ouvre dans votre navigateur : vous autorisez CIPL à envoyer des e-mails en votre nom, rien d'autre "
+              + "(il ne lit pas votre messagerie). Si ce n'est pas la bonne messagerie, l'e-mail de test le dira.";
+    }
+
+    /// Le bouton vert : la messagerie devinée, Google si on ne sait pas. L'autre bouton : l'autre des deux.
+    string Recommande => _inconnu ? Messagerie.Google : _devine;
+    string Autre => Recommande == Messagerie.Google ? Messagerie.Microsoft : Messagerie.Google;
+
+    /// La messagerie de l'adresse tapée : connue d'après le domaine, sinon d'après ses serveurs de courrier.
+    async void Detecter()
+    {
+        string adresse = _smtpFromEmail.text.Trim();
+        var c = await Messagerie.DevinerEnLigne(adresse);
+        if (this == null || _smtpFromEmail.text.Trim() != adresse) return;   // autre adresse tapée entre-temps
+        _devine = c.fournisseur;
+        _messagerie = c.nom;
+        _inconnu = c.inconnu;
+        _forceSmtp = false;
+        bool auto = string.IsNullOrWhiteSpace(_smtpHost.text) || _smtpHost.text.Trim() == _serveurAuto;
+        if (c.serveur != "" && auto)
+        {
+            _smtpHost.text = _serveurAuto = c.serveur;
+            if (string.IsNullOrWhiteSpace(_smtpPort.text)) _smtpPort.text = "587";
+        }
+        _smtpTrouve.text = c.serveur != "" && auto ? $"Messagerie {c.nom} : le serveur est rempli. Il reste le mot de passe." : "";
+        AfficherEmail();
+    }
+
+    void RelierOuDelier()
+    {
+        string relie = R.smtp.fournisseur ?? "";
+        if (relie != "")
+        {
+            ConfirmDialog.Instance?.Show($"Se déconnecter de {Messagerie.Nom(relie)} ?",
+                "Les e-mails ne partiront plus de cette adresse tant qu'elle n'est pas reliée de nouveau, ou réglée en SMTP.",
+                Delier, "Se déconnecter");
+            return;
+        }
+        RelierAvec(Recommande);
+    }
+
+    /// Le bouton gris : constaté le 28/10, une adresse Gmail reliée par Microsoft envoie, mais l'e-mail
+    /// arrive dans les indésirables. Pas d'avertissement quand la messagerie ne se devine pas (deux verts).
+    void RelierAutre()
+    {
+        if (_inconnu) { RelierAvec(Autre); return; }
+        string conseille = Messagerie.Nom(Recommande), autre = Messagerie.Nom(Autre);
+        ConfirmDialog.Instance?.Show($"Relier avec {autre} ?",
+            $"Cette adresse est chez {(_messagerie != "" ? _messagerie : conseille)}. Envoyés par {autre}, ses e-mails risquent "
+            + $"d'arriver dans les indésirables des destinataires (constaté à l'essai). Le bouton vert, {conseille}, est conseillé.",
+            () => RelierAvec(Autre), "Relier quand même");
+    }
+
+    async void RelierAvec(string f)
+    {
+        string nom = Messagerie.Nom(f), tapee = _smtpFromEmail.text.Trim();
+        _relierBouton.interactable = _relierAutre.interactable = false;
+        _relierAide.text = $"La fenêtre de {nom} est ouverte dans votre navigateur : connectez-vous, autorisez CIPL, puis revenez ici.";
+        var (adresse, refus) = await Messagerie.Relier(f, tapee);
+        if (this == null) return;
+        _relierBouton.interactable = _relierAutre.interactable = true;
+        if (refus != null) { ConfirmDialog.Erreur(refus); AfficherEmail(); return; }
+        R.smtp.fournisseur = f;
+        R.smtp.fromEmail = _smtpFromEmail.text = adresse;
+        if (ReglageService.Save())
+            UndoToast.Instance?.ShowInfo(string.Equals(tapee, adresse, StringComparison.OrdinalIgnoreCase)
+                ? $"Adresse reliée à {nom} : {adresse}."
+                : $"Adresse reliée à {nom} : {adresse} (le compte choisi dans la fenêtre de {nom}).");
+        AfficherEmail();
+    }
+
+    async void Delier()
+    {
+        string refus = await Messagerie.Delier();
+        if (this == null) return;
+        if (refus != null) { ConfirmDialog.Erreur(refus); return; }
+        R.smtp.fournisseur = "";
+        if (ReglageService.Save()) UndoToast.Instance?.ShowInfo("Adresse déliée : reliez-la de nouveau, ou réglez le SMTP.");
+        Detecter();
     }
 
     // ── Test d'envoi SMTP ──────────────────────────────────────────────────────
 
+    /// Les champs SMTP tels qu'ils sont tapés (étape 16 : le test n'attend pas « Enregistrer »).
+    SmtpConfig SmtpSaisi()
+    {
+        int.TryParse(_smtpPort.text.Trim(), out int port);
+        return new SmtpConfig
+        {
+            host = _smtpHost.text.Trim(), port = port == 0 ? 587 : port, useStartTls = R.smtp.useStartTls,
+            fromEmail = _smtpFromEmail.text.Trim(), fromName = _smtpFromName.text.Trim(), username = _smtpUser.text.Trim(),
+            fournisseur = R.smtp.fournisseur ?? "",   // étape 16a : relié par « Se connecter avec … », pas par Enregistrer
+        };
+    }
+
     void TesterEnvoi()
     {
-        string manque = EmailService.CeQuiManque();
-        if (manque != null) { _testInfo.text = manque; _testInfo.color = UITheme.Alerte; return; }
+        var s = SmtpSaisi();
+        string manque = EmailService.CeQuiManque(s, _smtpPwd.text);
+        if (manque != null) { Resultat(_testInfo, false, manque); return; }
 
-        string destinataire = ReglageService.Current.smtp.fromEmail;
+        string destinataire = s.fromEmail;
 
         _testEmail.interactable = false;
         _testInfo.color = UITheme.TexteSecondaire;
         _testInfo.text = $"Envoi en cours vers {destinataire}…";
 
-        var envoi = EmailService.Envoyer(destinataire, EmailService.TestObjet, EmailService.TestCorps());
+        var envoi = EmailService.Envoyer(destinataire, EmailService.TestObjet, EmailService.TestCorps(), null, s, _smtpPwd.text);
         StartCoroutine(AttendreEnvoi(envoi, destinataire));
     }
 
@@ -357,12 +592,7 @@ public class ReglagePanel : MonoBehaviour
                            + "regarde les indésirables avant de conclure à un échec.";
             UndoToast.Instance?.ShowInfo("Email de test envoyé.");
         }
-        else
-        {
-            _testInfo.color = UITheme.Alerte;
-            _testInfo.text = envoi.Erreur;
-            ConfirmDialog.Erreur("Échec du test d'envoi — détail sous le bouton.");
-        }
+        else Resultat(_testInfo, false, envoi.Erreur);
     }
 
     TMP_InputField LabeledInput(Transform parent, string label, string placeholder)
@@ -907,6 +1137,7 @@ public class ReglagePanel : MonoBehaviour
                          : $"par e-mail ({(string.IsNullOrEmpty(R.smtp.fromEmail) ? "adresse non réglée" : R.smtp.fromEmail)})")
                          + ". Réglé par l'administrateur.";
         _entrepriseNom.text = R.entrepriseNom ?? "";
+        RefreshSiret();
         _apiKey.text = ReglageService.GetApiKey();
         if (_mapboxToken != null) _mapboxToken.text = ReglageService.GetMapboxToken();
         _modePennylane.isOn = R.modeEnvoi == ModeEnvoi.Pennylane;
@@ -918,6 +1149,12 @@ public class ReglagePanel : MonoBehaviour
         _smtpFromName.text = R.smtp.fromName;
         _smtpUser.text = R.smtp.username;
         _smtpPwd.text = ReglageService.GetSmtpPassword();
+        _testEmail.interactable = true;   // Réglages fermé pendant un test : l'attente s'est arrêtée avec le panneau
+        _relierBouton.interactable = _relierAutre.interactable = true;
+        _devine = _messagerie = _serveurAuto = "";
+        _forceSmtp = _inconnu = false;
+        AfficherEmail();
+        Detecter();   // étape 16a : Google, Microsoft, ou le SMTP de la messagerie
         _lieuEmission.text = FacturePdfService.Texte(R.lieuEmission, FacturePdfService.LieuDefaut);
         _phraseRetard.text = R.phraseRetard;
         _basDePage.text = R.basDePage;
@@ -944,11 +1181,7 @@ public class ReglagePanel : MonoBehaviour
         {
             ReglageService.SetApiKey(_apiKey.text.Trim());
             R.modeEnvoi = _modePennylane.isOn ? ModeEnvoi.Pennylane : ModeEnvoi.Email;
-            R.smtp.host = _smtpHost.text.Trim();
-            int.TryParse(_smtpPort.text.Trim(), out int port); R.smtp.port = port == 0 ? 587 : port;
-            R.smtp.fromEmail = _smtpFromEmail.text.Trim();
-            R.smtp.fromName = _smtpFromName.text.Trim();
-            R.smtp.username = _smtpUser.text.Trim();
+            R.smtp = SmtpSaisi();
             ReglageService.SetSmtpPassword(_smtpPwd.text);
         }
         R.lieuEmission = _lieuEmission.text.Trim();

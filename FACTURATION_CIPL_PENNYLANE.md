@@ -444,7 +444,7 @@ Le statut est mis à jour **directement** (`statut = "Envoye"`), sans repasser p
 
 **Abonnement expiré (étape 9c1, 19/10)** :
 - Tout le groupe passe en lecture seule : aucune facture ne peut être émise, marquée payée ou modifiée, et la fenêtre « N factures sont à envoyer » n'est plus proposée (envoyer change le statut des factures).
-- Réglages : la section Pennylane, le mode d'envoi et le SMTP sont dans l'onglet Intégrations (admin) ; logo, RIB, entêtes, listes de charges et textes fixes dans l'onglet Facturation.
+- Réglages (réorganisés le 27/10) : onglet Intégrations, une carte par service — Envoi des factures (le mode), Pennylane, E-mail (SMTP), réservées à l'admin, et Cartes (Mapbox) pour tous ; RIB dans l'onglet Entreprise (avec le nom et le SIRET) ; logo, entêtes, listes de charges et textes fixes dans l'onglet Facturation.
 
 **Limites connues** : l'application doit être lancée pour que l'envoi soit proposé · seul l'email existe (aucun appel à l'API Pennylane dans le code) · l'adresse `@cipl.fr` reste bloquée côté Microsoft 365, l'envoi part donc du compte configuré.
 
@@ -569,6 +569,10 @@ Deux gardes : un double clic ne peut pas produire deux envois, et **sans boîte 
 
 **État côté CIPL** : le locataire Microsoft 365 interdit les mots de passe d'application et n'a pas SMTP AUTH activé — `@cipl.fr` reste inutilisable sans intervention d'un administrateur. Validé avec Gmail en attendant ; le code ne dépend d'aucun fournisseur.
 
+**Retour du 26/10 (version installée 1.0.3)** : l'invitation n'est pas partie, « Envoi refusé par le serveur (GeneralFailure) : Message could not be sent. ». Ce message seul ne disait rien : le message d'échec donne maintenant la cause intérieure (`EmailService.Cause`), qui a montré `SocketException : Could not resolve host 'stmp.gmail.com'` : le serveur d'envoi de SCI (JBC) était mal orthographié (« stmp » au lieu de « smtp »). Aucune différence entre l'éditeur et le build (une première piste, les encodages de Mono absents du build, était fausse et a été retirée). Une faute de frappe dans le serveur reste le piège n° 1 du réglage SMTP : c'est l'objet des étapes 16 (« Tester ») et 16a.
+
+**Étape 16a (28/10)** : une adresse Gmail, Google Workspace, Outlook, Hotmail ou Microsoft 365 se **relie** (Réglages → Intégrations → E-mail → « Se connecter avec Google / Microsoft ») : factures, relances et invitations partent alors par l'API Gmail ou Microsoft Graph, sans serveur ni mot de passe d'application ; l'autorisation reste sur le serveur (fonction `messagerie`). Les autres messageries gardent le SMTP, serveur rempli d'après l'adresse. Mêmes garanties qu'avant : rien sans destinataire, `Succes` seulement si le service a accepté, pièce jointe illisible = rien ne part.
+
 ### Modèle de données (esquisse)
 - **Reglage** : apiKey ; **modeEnvoi (Pennylane | Email)** ; **smtp{host, port, fromEmail, cred (hors repo)}** ; ribs[{id, name, titulaire, domiciliation, rib, iban, bic}] ; entetes[{id, nom, texte+variables}] ; phraseRetard ; basDePage ; emplacementSauvegarde.
 - **Locataire** : + ribId, enteteId, enProvisionPourCharge(bool), tauxRentabilite, factureState{ Loyer:{champs+cases}, Refacturation:{…}, Regularisation:{…}, DepotGarantie:{…} }.
@@ -610,7 +614,13 @@ Règles centralisées dans `ListesCharges.cs` et `ChargeBatiment.cs` — ne pas 
 
 > Mis à jour 2026-09-29. Génération PDF locale (Edge headless). **Pennylane (Voie 2) : dépôt implémenté pour le Loyer** (`PennylaneClient`, import incomplet + Factur-X, testé de bout en bout le 29/09, §5) — **finalisation et transmission (`send_to_pa`) NON écrites**, en attente de la réponse Pennylane sur l'éligibilité des factures importées. Clé API : secrets de l'entreprise (Réglages), jamais dans le dépôt.
 
+> **Étape 16 (26/10)** : boutons « Tester » dans Réglages (clé Pennylane : `GET /me` donne la société de la clé, puis lecture des clients et des factures ; e-mail de test avec ce qui est tapé). Les refus sont traduits en clair partout, factures comprises : `EmailService.Clair` (serveur introuvable, identifiant refusé, SMTP désactivé chez Microsoft 365, pas de réponse) et `PennylaneClient.Clair` (401 clé refusée, 403 droits manquants, 429, 5xx, pas de connexion), puis « Détail technique : … ». Parcours AU.
+
+> **Étape 16a (28/10)** : envoi depuis l'adresse du client par Google ou Microsoft (`Messagerie`), SMTP sinon ; refus traduits (`Messagerie.Clair` : autorisation retirée, limite du jour de Gmail, adresse sans boîte chez le fournisseur choisi, approbation de l'administrateur Microsoft 365…) ; les deux boutons toujours, le conseillé en vert, l'autre demande confirmation (une adresse Gmail envoyée par Microsoft arrive en indésirables). Parcours AW, validé le 28/10.
+
 ### 16.1 Génération de factures (PDF local, aperçu in-app)
+
+- **Mac (étape 15b, 26/10)** : les PDF et les aperçus sont faits par Google Chrome ou Microsoft Edge installé sur le Mac (`FacturePdfService.Navigateurs`, mêmes options qu'avec Edge sous Windows) ; sans l'un des deux, message au centre (`SansNavigateurMac`). Les PDF s'ouvrent par `Plateforme.UrlFichier` (adresse inchangée sous Windows).
 `FacturePdfService` (HTML StreamingAssets + Edge `--print-to-pdf` / screenshot PNG). 4 types validés visuellement :
 - **Loyer** (`FactureLoyerPanel`), **Régularisation** (`FactureRegulPanel`, détail charges page 2), **Refacturation** (`FactureRefacPanel`), **Révision dépôt** (`FactureDepotPanel`, sans TVA). Aperçu PDF zoomable (`FacturePreviewViewer`).
 - **Période proposée par défaut = période EN COURS (2026-09-14)** : à l'ouverture de « Facturer le loyer » sans facture mémorisée, le menu « Période » proposait **toujours la 1re** période (`DefaultPeriodeIndex` renvoyait `1` sauf en mensuel) → on facturait le « 1er trimestre » par erreur. Corrigé : défaut = **période courante d'après la date du jour** (mensuel → mois ; trimestriel → `(mois-1)/3+1`, ex. sept → 3e trim ; bi-annuel → semestre ; annuel → 1). ⚠ L'**échéance** affichée pour une facture émise reste sa **date de paiement mémorisée** (date de facture + 30 j), distincte de la date calendaire de la période — d'où un « 1er trim » émis pouvant apparaître à une échéance d'octobre dans le Suivi.

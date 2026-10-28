@@ -204,4 +204,21 @@ public class PrefabLayoutTests
             "override identique à la source — l'instance ne suivra plus son prefab :\n  "
             + string.Join("\n  ", fautifs));
     }
+
+    /// Retour du 26/10 : un trait blanc au-dessus de « Rentabilité », en build seulement. La
+    /// barre de défilement replace les ancres de sa poignée, jamais son décalage : celle de
+    /// la fiche bâtiment, décalée de (-460, 1101), tombait hors de l'écran en 1920 × 1080 et
+    /// dépassait en haut en 16:10 (1920 × 1200). Trois autres avaient le même défaut.
+    [Test]
+    public void Aucune_poignee_de_barre_de_defilement_n_est_decalee()
+    {
+        var fautifs = new List<string>();
+
+        foreach (var prefab in Prefabs())
+        foreach (var barre in prefab.GetComponentsInChildren<Scrollbar>(true))
+            if (barre.handleRect != null && barre.handleRect.anchoredPosition.sqrMagnitude > 0.01f)
+                fautifs.Add($"{prefab.name} : {Chemin(barre.transform)} {barre.handleRect.anchoredPosition}");
+
+        Assert.That(fautifs, Is.Empty, "poignée décalée de sa barre :\n  " + string.Join("\n  ", fautifs));
+    }
 }

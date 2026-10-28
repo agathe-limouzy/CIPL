@@ -75,13 +75,31 @@ public class CloudAbonnementTests
     [Test]
     public void Onglets_de_Reglages_selon_le_role()
     {
+        // 27/10 : un utilisateur voit Intégrations (le token Mapbox de son PC) ; « Documents et affichage ».
         Assert.That(ReglagePanel.Onglets(cloud: true, admin: false),
-                    Is.EqualTo(new[] { "Entreprise", "Facturation", "Documents" }));
+                    Is.EqualTo(new[] { "Entreprise", "Facturation", "Documents et affichage", "Intégrations" }));
         Assert.That(ReglagePanel.Onglets(cloud: true, admin: true),
-                    Is.EqualTo(new[] { "Entreprise", "Facturation", "Utilisateurs", "Abonnement", "Documents", "Intégrations" }));
+                    Is.EqualTo(new[] { "Entreprise", "Facturation", "Utilisateurs", "Abonnement", "Documents et affichage", "Intégrations" }));
         var local = ReglagePanel.Onglets(cloud: false, admin: true);
         Assert.That(local, Does.Contain("Intégrations"));
         Assert.That(local, Does.Not.Contain("Utilisateurs").And.Not.Contain("Abonnement"));
+    }
+
+    [Test]
+    public void Le_SIRET_de_l_entreprise_s_affiche_et_ses_refus_se_lisent()
+    {
+        Assert.That(RegleAbonnement.LigneSiret("societe", "12345678900012"), Is.EqualTo("123 456 789 00012"));
+        Assert.That(RegleAbonnement.LigneSiret("particulier", null), Is.EqualTo("Particulier : pas de SIRET"));
+        Assert.That(RegleAbonnement.LigneSiret("societe", ""), Is.EqualTo("Non renseigné"), "serveur pas encore à jour");
+
+        // Chaque refus de changer_siret (etape16_supabase.sql) a son message, pas « Changement impossible ».
+        string sql = System.IO.File.ReadAllText(System.IO.Path.Combine(UnityEngine.Application.dataPath, "..", "Serveur", "etape16_supabase.sql"));
+        foreach (var refus in new[] { "siret", "deja_sur_cipl", "particulier", "abonnement" })
+        {
+            StringAssert.Contains($"'refus', '{refus}'", sql);
+            StringAssert.DoesNotStartWith("Changement impossible", AbonnementCloud.MotifSiret(new AbonnementCloud.Ajout { refus = refus }));
+        }
+        StringAssert.StartsWith("Changement impossible : ", AbonnementCloud.MotifSiret(new AbonnementCloud.Ajout { refus = "erreur", erreur = "x" }));
     }
 
     // ── Étape 9c2 : paiement avec Stripe (décisions du 22/10) ──────────────────

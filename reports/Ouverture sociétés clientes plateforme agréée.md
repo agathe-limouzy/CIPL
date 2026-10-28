@@ -15,7 +15,7 @@ Ce rapport emploie des termes techniques et juridiques. Voici leur sens, en une 
 | **Annuaire** | Registre central tenu par l'État. Il indique, pour chaque numéro SIREN, sur quelle PA l'entreprise reçoit ses factures. Seule une PA peut y inscrire une société. |
 | **Accord formel** | Document daté et signé par lequel une société désigne sa PA de réception. La PA le conserve. |
 | **Mandat de facturation** | Autorisation qu'une société donne à un tiers pour émettre des factures en son nom. |
-| **Factur-X** | Facture au format PDF qui contient aussi un fichier de données (XML) lisible par un logiciel. C'est l'un des trois formats admis. CIPL le produit déjà. |
+| **Factur-X** | Facture au format PDF qui contient aussi un fichier de données (XML) lisible par un logiciel. C'est l'un des trois formats admis. *Correction du 26/10 : CIPL ne le produit pas lui-même ; Pennylane le fabrique à partir du PDF de CIPL, et Super PDP le peut aussi (`POST /v1.beta/invoices/convert`, PDF + données EN 16931). Voir CONCEPTION §18.* |
 | **API** | Porte d'entrée technique par laquelle un logiciel commande un autre logiciel, sans intervention humaine. Une « route » est une fonction précise de cette API. |
 | **OAuth** | Méthode standard pour qu'un utilisateur autorise une application à agir sur son compte sans lui donner son mot de passe. L'application reçoit en échange un jeton. |
 | **Jeton (token)** | Clé numérique qui ouvre l'accès à un compte. Le jeton d'accès dure peu. Le **jeton de rafraîchissement** dure longtemps et sert à obtenir de nouveaux jetons d'accès. |
