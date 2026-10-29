@@ -1,35 +1,19 @@
-using UnityEngine;
-using UnityEngine.Networking;
-using UnityEngine.UI;
+using System;
 using System.Collections;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+using UnityEngine.UI;
 
+/// La carte satellite d'une fiche bâtiment. Étape 16b (décisions des 24 et 28/10) : Google Maps (Maps Static
+/// API), demandée par la fonction serveur « cartes », qui garde la clé de CIPL ; le token Mapbox de chaque PC
+/// a disparu. Sur le cloud seulement. Les images ne sont gardées que le temps de la session (conditions de
+/// Google) : MapController ne recharge pas une adresse déjà affichée, MapThumbnailService a son cache.
 public class TileLoader : MonoBehaviour
 {
-    [Header("Mapbox")]
-    // ⚠ Ce champ est sérialisé dans le prefab, donc COMMITÉ dans le dépôt : n'y mettez
-    // jamais un vrai token. Le token réel se saisit dans Réglages et vit dans
-    // <SaveRoot>/pennylane_secrets.dat, hors repo et hors backup.
-    public string mapboxAccessToken = "VOTRE-TOKEN-MAPBOX-ICI";
-
-    public const string TOKEN_PLACEHOLDER = "VOTRE-TOKEN-MAPBOX-ICI";
-
-    /// Token à utiliser : celui des Réglages (hors repo) en priorité, sinon le champ
-    /// de l'inspecteur — conservé uniquement comme dépannage local.
-    public string TokenEffectif
-    {
-        get
-        {
-            string secret = ReglageService.GetMapboxToken();
-            if (!string.IsNullOrWhiteSpace(secret)) return secret;
-            return mapboxAccessToken == TOKEN_PLACEHOLDER ? "" : mapboxAccessToken;
-        }
-    }
-
-    /// Vrai si un token exploitable est disponible.
-    public bool ATokenValide => !string.IsNullOrWhiteSpace(TokenEffectif);
-
-    [Header("Style")]
-    public MapboxStyle mapStyle = MapboxStyle.satellite_streets_v12;
+    /// Les zooms des prefabs datent de Mapbox (tuiles de 512 px) ; Google compte en tuiles de 256 px :
+    /// un cran de plus pour le même cadrage.
+    public const int DecalageZoom = 1;
 
     [Header("Paramètres carte")]
     [Range(10, 18)] public int zoomLevel = 17;
@@ -39,109 +23,73 @@ public class TileLoader : MonoBehaviour
     [Header("UI")]
     public RawImage targetImage;
 
-    public enum MapboxStyle
-    {
-        satellite_v9,           // Satellite pur
-        satellite_streets_v12,  // Satellite + rues
-        streets_v12,            // Carte classique
-        light_v11,              // Thème clair
-        dark_v11,               // Thème sombre
-        outdoors_v12,           // Outdoor/randonnée
-        navigation_day_v1       // Navigation jour
-    }
-
     public IEnumerator LoadMapAt(double centerLat, double centerLon, double pinLat, double pinLon)
     {
-        // Mapbox : longitude AVANT latitude, tirets dans le nom du style
-        string styleName = mapStyle.ToString().Replace('_', '-');
-        // Retire le dernier "-vXX" pour reconstruire correctement
-        // ex: satellite_streets_v12 → satellite-streets-v12
+        if (!SessionCloud.Active) { Debug.LogWarning("[Cartes] Hors cloud : pas de carte (la clé Google est sur le serveur)."); yield break; }
 
-        // Pin format Mapbox : pin-s+COULEUR(lon,lat)
-        string pin = string.Format(
-            System.Globalization.CultureInfo.InvariantCulture,
-            "pin-l+ff0000({0},{1})",
-            pinLon, pinLat
-        );
-
-        // Sans token, la requête partirait avec « access_token= » vide et Mapbox
-        // répondrait un 401 « Not Authorized » incompréhensible. On sort avant, avec
-        // un message qui dit quoi faire.
-        if (!ATokenValide)
+        var t = Image(centerLat, centerLon, zoomLevel + DecalageZoom, imageWidth, imageHeight, pinLat, pinLon);
+        yield return new WaitUntil(() => t.IsCompleted);
+        var (tex, refus) = t.Result;
+        if (tex == null)
         {
-            Debug.LogError("[Mapbox] Aucun token configuré — carte non chargée. " +
-                           "Saisissez-le dans Réglages → Intégrations → Cartes (Mapbox).");
-            UndoToast.Instance?.ShowInfo("Carte indisponible : renseignez le token Mapbox dans Réglages → Intégrations.");
+            Debug.LogWarning("[Cartes] " + refus);
+            UndoToast.Instance?.ShowInfo("Carte indisponible. " + refus.Split('\n')[0]);
             yield break;
         }
-
-        string url = string.Format(
-            System.Globalization.CultureInfo.InvariantCulture,
-            "https://api.mapbox.com/styles/v1/mapbox/{0}/static/{1}/{2},{3},{4}/{5}x{6}?access_token={7}",
-            styleName,
-            pin,
-            centerLon, centerLat,  // ← Mapbox : lon avant lat
-            zoomLevel,
-            imageWidth, imageHeight,
-            TokenEffectif
-        );
-
-        // On ne journalise JAMAIS l'URL complète : elle contient le token d'accès.
-        Debug.Log($"[Mapbox] Requête style={styleName} zoom={zoomLevel} {imageWidth}x{imageHeight}");
-
-        using (UnityWebRequest req = UnityWebRequestTexture.GetTexture(url))
+        if (targetImage != null)
         {
-            req.SetRequestHeader("User-Agent", "CIPLApp/1.0");
-            yield return req.SendWebRequest();
-
-            if (req.result != UnityWebRequest.Result.Success)
-            {
-                Debug.LogError($"[Mapbox] Erreur {req.responseCode}: {req.error}");
-                Debug.LogError($"[Mapbox] Body: {req.downloadHandler.text}");
-                string clair = Clair(req.responseCode);
-                if (clair != null) UndoToast.Instance?.ShowInfo("Carte indisponible. " + clair);
-                yield break;
-            }
-
-            Texture2D tex = DownloadHandlerTexture.GetContent(req);
-            if (tex == null)
-            {
-                Debug.LogError("[Mapbox] Texture null !");
-                yield break;
-            }
-
-            tex.filterMode = FilterMode.Bilinear;
-            tex.wrapMode = TextureWrapMode.Clamp;
-
-            if (targetImage != null)
-            {
-                targetImage.texture = tex;
-                targetImage.color = Color.white;
-            }
-
-            Debug.Log($"[Mapbox] Carte chargée : {tex.width}x{tex.height}");
+            targetImage.texture = tex;
+            targetImage.color = Color.white;
         }
     }
 
-    /// Étape 16 : la cause en clair d'un refus de Mapbox, ou null.
-    public static string Clair(long code) =>
-          code == 0 ? "Mapbox injoignable : vérifiez la connexion internet."
-        : code == 401 ? "Jeton refusé par Mapbox : recopiez-le en entier (il commence par pk.) depuis account.mapbox.com → Tokens."
-        : code == 403 ? "Jeton reconnu mais interdit ici : retirez sa restriction d'adresse (URL) sur account.mapbox.com, ou prenez le « Default public token »."
-        : code == 429 ? "Trop de cartes demandées à Mapbox : réessayez dans une minute."
-        : code >= 500 ? "Mapbox est indisponible pour le moment : réessayez plus tard."
-        : null;
-
-    /// Étape 16, bouton « Tester le jeton » : une carte de 1 × 1 pixel, demandée comme les vraies.
-    public static IEnumerator Tester(string jeton, System.Action<bool, string> fin)
+    /// Le corps envoyé à la fonction « cartes » (mêmes noms que dans Serveur/fonctions/cartes.ts).
+    [Serializable] public class DemandeCarte
     {
-        if (string.IsNullOrWhiteSpace(jeton)) { fin(false, "Collez d'abord le token Mapbox."); yield break; }
-        using var req = UnityWebRequest.Get("https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/2.35,48.85,10/1x1?access_token="
-                                            + UnityWebRequest.EscapeURL(jeton.Trim()));
-        req.SetRequestHeader("User-Agent", "CIPLApp/1.0");
-        yield return req.SendWebRequest();
-        if (req.result == UnityWebRequest.Result.Success) fin(true, "Jeton valide : Mapbox a renvoyé une carte.");
-        else fin(false, (Clair(req.responseCode) ?? "Mapbox a refusé la carte.") + $"\nDétail technique : HTTP {req.responseCode} {req.error}");
+        public string entreprise;
+        public double lat, lon, epingle_lat, epingle_lon;
+        public int zoom, largeur, hauteur;
     }
 
+    [Serializable] class RefusCarte { public string refus, erreur; public long code; }
+
+    /// L'image demandée au serveur, ou le motif en clair (suivi du détail technique).
+    public static async Task<(Texture2D tex, string refus)> Image(double lat, double lon, int zoom, int largeur, int hauteur,
+                                                                  double epingleLat, double epingleLon)
+    {
+        var d = new DemandeCarte { entreprise = SessionCloud.Entreprise?.id, lat = lat, lon = lon, zoom = zoom,
+                                   largeur = largeur, hauteur = hauteur, epingle_lat = epingleLat, epingle_lon = epingleLon };
+        var (rep, octets) = await CloudClient.FonctionBrute(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(),
+                                                            "cartes", JsonUtility.ToJson(d));
+        if (rep.Ok && octets != null)
+        {
+            var tex = new Texture2D(2, 2) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            if (tex.LoadImage(octets)) return (tex, null);
+            UnityEngine.Object.Destroy(tex);
+        }
+        // Un refus arrive en JSON : avec un statut 200 (clé absente) ou une erreur (accès, Google).
+        string corps = rep.Ok ? (octets == null ? "" : Encoding.UTF8.GetString(octets)) : rep.Corps;
+        RefusCarte r = null;
+        try { r = JsonUtility.FromJson<RefusCarte>(corps); } catch (Exception) { /* pas du JSON */ }
+        return (null, Motif(rep.Code, r?.refus, r?.code ?? 0, r?.erreur ?? rep.Erreur));
+    }
+
+    /// Étapes 16 et 16b : la cause en clair d'une carte refusée, puis le détail technique.
+    public static string Motif(long code, string refus, long codeGoogle, string erreur)
+    {
+        string e = erreur ?? "";
+        string clair =
+              code == 0 ? "Serveur de CIPL injoignable : vérifiez la connexion internet."
+            : refus == "config" ? "Les cartes ne sont pas encore réglées sur le serveur (Supabase › Edge Functions › Secrets : GOOGLE_MAPS_KEY)."
+            : refus == "acces" ? "Cette entreprise ne vous est pas ouverte."
+            : refus == "google" && (codeGoogle == 429 || e.IndexOf("quota", StringComparison.OrdinalIgnoreCase) >= 0)
+                ? "Limite de cartes du jour atteinte : réessayez demain."
+            : refus == "google" && codeGoogle == 403 ? "Google refuse la carte : la clé de CIPL est refusée, ou l'API Maps Static n'est pas activée."
+            : refus == "google" && codeGoogle >= 500 ? "Google Maps est indisponible pour le moment : réessayez plus tard."
+            : code == 404 ? "La fonction « cartes » n'est pas déployée sur le serveur."
+            : "Le serveur n'a pas pu fournir la carte.";
+        string detail = $"HTTP {code}" + (string.IsNullOrEmpty(refus) ? "" : " · " + refus) + (codeGoogle > 0 ? $" {codeGoogle}" : "")
+                      + (e == "" ? "" : " " + (e.Length > 200 ? e.Substring(0, 200) + "…" : e));
+        return clair + "\nDétail technique : " + detail;
+    }
 }

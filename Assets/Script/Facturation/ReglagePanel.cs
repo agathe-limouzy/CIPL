@@ -23,7 +23,6 @@ public class ReglagePanel : MonoBehaviour
 
     // Références UI
     TMP_InputField _apiKey, _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd, _smtpUser;
-    TMP_InputField _mapboxToken;
     TMP_InputField _phraseRetard, _basDePage, _entrepriseNom, _lieuEmission;
     TMP_InputField _tvaDebits, _tvaEncaissements;
     Toggle _modePennylane;
@@ -48,13 +47,13 @@ public class ReglagePanel : MonoBehaviour
     GameObject _footer;
     string _onglet = OEntreprise;
 
-    /// Un utilisateur du cloud ne voit ni Utilisateurs ni Abonnement (décision du 11/10) ; il voit
-    /// Intégrations depuis le 27/10, pour le token Mapbox de son PC (le reste y est réservé à l'admin).
+    /// Un utilisateur du cloud ne voit ni Utilisateurs ni Abonnement (décision du 11/10), ni Intégrations
+    /// depuis l'étape 16b : le token Mapbox de son PC a disparu, le reste y est réservé à l'admin.
     /// Hors cloud, ni Utilisateurs ni Abonnement.
     public static string[] Onglets(bool cloud, bool admin) =>
         !cloud ? new[] { OEntreprise, OFacturation, ODocuments, OIntegrations }
       : admin ? new[] { OEntreprise, OFacturation, OUtilisateurs, OAbonnement, ODocuments, OIntegrations }
-      : new[] { OEntreprise, OFacturation, ODocuments, OIntegrations };
+      : new[] { OEntreprise, OFacturation, ODocuments };
 
     /// Bandeau « Voir l'abonnement » : Réglages ouvert sur cet onglet.
     public static void OuvrirOnglet(string onglet)
@@ -327,19 +326,7 @@ public class ReglagePanel : MonoBehaviour
                              "Le test lit le nom de la société de la clé et vérifie ses droits, sans rien créer dans Pennylane.");
 
         BuildSmtp(parent);
-        BuildCartes(parent);
-    }
-
-    // ── Cartes : token Mapbox, propre à chaque ordinateur (tout le monde, 27/10) ──
-
-    void BuildCartes(Transform parent)
-    {
-        var body = UIFactory.Section(parent, "Cartes (Mapbox)", CoPetrole, CoPetroleL);
-        // Token Mapbox : saisi ici plutôt que dans le champ public de TileLoader, qui
-        // était sérialisé en clair dans Maps.prefab et donc commité dans le dépôt.
-        UIFactory.Text(body.transform, "Token Mapbox (sur cet ordinateur)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
-        _mapboxToken = ChampTeste(body.transform, "Collez votre token Mapbox…", "Tester le jeton", TileLoader.Tester,
-                                  "Le test demande une toute petite carte à Mapbox.");
+        // Étape 16b : plus de carte « Cartes (Mapbox) » ; les cartes passent par le serveur (clé de CIPL).
     }
 
     /// Étape 16 : un champ secret, son bouton « Tester » à droite et le résultat dessous.
@@ -1139,7 +1126,6 @@ public class ReglagePanel : MonoBehaviour
         _entrepriseNom.text = R.entrepriseNom ?? "";
         RefreshSiret();
         _apiKey.text = ReglageService.GetApiKey();
-        if (_mapboxToken != null) _mapboxToken.text = ReglageService.GetMapboxToken();
         _modePennylane.isOn = R.modeEnvoi == ModeEnvoi.Pennylane;
         // La carte SMTP reste visible quel que soit le mode : les relances d'impayé
         // partent par email même quand les factures passent par Pennylane.
@@ -1176,7 +1162,6 @@ public class ReglagePanel : MonoBehaviour
     {
         R.entrepriseNom = _entrepriseNom.text.Trim();
         EntrepriseService.Register(R.entrepriseNom, SaveLocationService.GetSaveRoot());
-        if (_mapboxToken != null) ReglageService.SetMapboxToken(_mapboxToken.text.Trim());
         if (Admin)   // étape 9a : envoi et secrets réglés par l'admin seulement
         {
             ReglageService.SetApiKey(_apiKey.text.Trim());

@@ -322,7 +322,14 @@ public class LocatairePrefab : PrefabBatLoc
         var content = locataireScrollContent.GetComponent<RectTransform>();
         var scr = locataireScrollContent.GetComponentInParent<ScrollRect>();
         var vlg = content.GetComponent<VerticalLayoutGroup>();
-        if (vlg != null) vlg.childForceExpandHeight = false;
+        if (vlg != null)
+        {
+            vlg.childForceExpandHeight = false;
+            // La fiche s'arrête avant la barre de la page (10 px, posée à 4 px du bord ci-dessous) : par-dessus,
+            // elle prenait les clics destinés à la barre du commentaire (constaté le 29/10).
+            if (vlg.padding.right != 18)   // par la propriété : la mise en page est recalculée
+                vlg.padding = new RectOffset(vlg.padding.left, 18, vlg.padding.top, vlg.padding.bottom);
+        }
         var csf = content.GetComponent<ContentSizeFitter>() ?? content.gameObject.AddComponent<ContentSizeFitter>();
         csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         content.anchorMin = new Vector2(0, 1);
@@ -334,8 +341,8 @@ public class LocatairePrefab : PrefabBatLoc
             scr.vertical = true;
             scr.movementType = ScrollRect.MovementType.Clamped;
             scr.scrollSensitivity = 40f;
-            // Barre de défilement toujours visible et ramenée dans la zone à l'écran
-            // (la fiche déborde légèrement à droite → la barre tomberait hors écran).
+            // Barre de défilement toujours visible, contre le bord droit de la zone de défilement
+            // (29/10 : 26 px de retrait laissaient un grand vide une fois la fiche arrêtée avant elle).
             var vbar = scr.verticalScrollbar;
             if (vbar != null)
             {
@@ -345,8 +352,8 @@ public class LocatairePrefab : PrefabBatLoc
                 vrt.anchorMin = new Vector2(1, 0);
                 vrt.anchorMax = new Vector2(1, 1);
                 vrt.pivot = new Vector2(1, 1);
-                vrt.sizeDelta = new Vector2(16, 0);
-                vrt.anchoredPosition = new Vector2(-26, 0);
+                vrt.sizeDelta = new Vector2(10, 0);
+                vrt.anchoredPosition = new Vector2(-4, 0);
                 var barImg = vbar.GetComponent<Image>();
                 if (barImg != null) barImg.color = new Color(0f, 0f, 0f, 0.08f);
                 if (vbar.handleRect != null)

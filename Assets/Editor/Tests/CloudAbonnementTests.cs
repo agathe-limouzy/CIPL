@@ -75,9 +75,9 @@ public class CloudAbonnementTests
     [Test]
     public void Onglets_de_Reglages_selon_le_role()
     {
-        // 27/10 : un utilisateur voit Intégrations (le token Mapbox de son PC) ; « Documents et affichage ».
+        // Étape 16b : plus de token Mapbox, un utilisateur ne voit plus Intégrations (réservé à l'admin).
         Assert.That(ReglagePanel.Onglets(cloud: true, admin: false),
-                    Is.EqualTo(new[] { "Entreprise", "Facturation", "Documents et affichage", "Intégrations" }));
+                    Is.EqualTo(new[] { "Entreprise", "Facturation", "Documents et affichage" }));
         Assert.That(ReglagePanel.Onglets(cloud: true, admin: true),
                     Is.EqualTo(new[] { "Entreprise", "Facturation", "Utilisateurs", "Abonnement", "Documents et affichage", "Intégrations" }));
         var local = ReglagePanel.Onglets(cloud: false, admin: true);

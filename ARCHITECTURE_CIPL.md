@@ -78,7 +78,7 @@ Le code se lit en cinq couches. La règle qui les relie est simple : **l'interfa
 | `Objectif/` | Objectifs (par bâtiment, locataire, et global) | `ObjectiveManager`, `GlobalObjectivesSection` |
 | `Maps/` | Carte, géocodage, tuiles, vignettes | `MapController`, `GeoCodingService`, `MapThumbnailService` |
 | `PLU/` | Urbanisme : zone PLU d'une adresse ou d'une parcelle | `PLUOverlayPanel`, `PLUService`, `CadastreService` |
-| `Pappers/` | Résumé d'entreprise des locataires (annuaire de l'État) | `PappersSync`, `PapperService`, `PappersResume` |
+| `Pappers/` | Résumé d'entreprise des locataires : sur le cloud, fiche Pappers par le serveur et procédures du BODACC (étape 16b) ; hors cloud, annuaire de l'État | `PappersSync`, `SocieteLocataire`, `PapperService`, `PappersResume` |
 | `Tools/` | Composants UI génériques et saisie ; ce qui diffère entre Windows et Mac (étape 15b) | `Plateforme`, `UITheme`, `UIZoom`, `CollapsibleSection`, `ColonnesAdaptatives`, `SaisieNumerique`, `SaisieDate`, `UndoToast`, `ConfirmDialog` |
 | `Calender/` | Saisie de date JJ/MM/AAAA | `DateInputController` |
 
@@ -174,7 +174,7 @@ Chacune de ces règles a coûté un défaut réel (voir `REVUE_CODE_CIPL.md`).
 - **`BackupService`** : copie datée au démarrage (JSON + `reglage.json`, **jamais les secrets**), purge après 30 jours.
 - **`ReglageService`** : `Current` est chargé à la demande. Si `reglage.json` est illisible, l'écriture est **refusée** pour ne pas écraser l'original. Les secrets vivent dans deux fichiers `clé=valeur`, hors JSON, hors sauvegardes et hors dépôt Git :
   - `<racine>/pennylane_secrets.dat` pour ceux de l'entreprise (clé Pennylane, mot de passe SMTP) ;
-  - `persistentDataPath/cipl_app_secrets.dat` pour ceux de l'application (jeton Mapbox), communs à toutes les entreprises.
+  - `persistentDataPath/cipl_app_secrets.dat` pour ceux de l'application (adresse et clé du cloud), communs à toutes les entreprises. Le jeton Mapbox n'y est plus lu depuis l'étape 16b.
 - **`EntrepriseService`** : registre global des entreprises dans `PlayerPrefs` (`cipl_entreprises`). Changer d'entreprise, c'est changer de racine, puis `ReglageService.Load()` et `BatimentManager.ReloadFromDisk()` **à chaud**.
 - **`MigrationDossiers`** : passage des dossiers nommés par GUID à des dossiers nommés par nom. Le plan est validé en entier avant tout déplacement, une sauvegarde est faite d'abord, et le marqueur n'est écrit qu'en cas de réussite complète.
 - **`TransfertEntreprise`** : déplace un bâtiment ou un locataire vers une autre entreprise, **sur le disque uniquement** (racines explicites). Fusion par nom, listes de charges retrouvées par nom, tous les identifiants réécrits.
@@ -322,12 +322,14 @@ La même collecte d'alertes alimente la carte « À traiter » du résumé de b�
 
 - `BatimentSummaryView` : carte d'identité, tuiles d'indicateurs, liste des locataires.
 - `RentabiliteGlobaleController`, `TravauxController`, `RentabiliteCalculator` : tableaux de rentabilité (loyers réels par année via `LoyerHistoryService`).
-- `MapController`, `GeoCodingService`, `TileLoader`, `MapThumbnailService` : carte Mapbox et géocodage, avec la carte conservée tant que l'adresse ne change pas.
+- `MapController`, `GeoCodingService`, `TileLoader`, `MapThumbnailService` : carte satellite et géocodage, avec la carte conservée tant que l'adresse ne change pas. Étape 16b : l'image vient de Google (Maps Static API) par la fonction serveur `cartes` (`TileLoader.Image`, sur le cloud seulement) ; les zooms des prefabs restent ceux de Mapbox, Google en prend un de plus (`TileLoader.DecalageZoom`).
 - `PLUOverlayPanel`, `PLUService`, `CadastreService` : zone PLU à partir d'une adresse ou d'une parcelle.
 
 ### 8.6 Résumé d'entreprise des locataires — `Pappers/`
 
 `PappersSync` interroge l'annuaire des entreprises pour tous les locataires (au lancement, et à l'enregistrement d'une fiche). `PappersResume` ne remplace que le bloc délimité dans le commentaire du locataire.
+
+Sur le cloud (étape 16b), la tournée du jour (`DemarrageCloud.TourneeAnnuaire`) et l'enregistrement d'une fiche passent par `PappersSync.ToutCloud` / `Appliquer` : le BODACC d'abord (40 sociétés par appel ; s'il ne répond pas, rien n'est écrit ce jour-là), puis la fiche de chaque locataire par la fonction serveur `pappers`, qui ne relit Pappers qu'une fois par mois et par SIREN pour tout CIPL (table `pappers_fiches`). `SocieteLocataire` (testé) construit le bloc (capital, dirigeants, finances, procédures, ligne « État » : Fermée, En difficulté, À surveiller, Saine) et crée les objectifs « Déclarer la créance au mandataire » (procédure ouverte publiée il y a moins de 2 mois, échéance à 2 mois) et « Vérifier le bail » (société fermée), une seule fois chacun (`Locataire.signalementsSociete`).
 
 ---
 
@@ -342,16 +344,18 @@ La même collecte d'alertes alimente la carte « À traiter » du résumé de b�
 | DNS de Google — `dns.google` | Serveurs de courrier (MX) d'un domaine propre, pour proposer le bon bouton ou le bon serveur SMTP | `Messagerie.DevinerEnLigne` | aucune |
 | Microsoft Edge (local) | HTML → PDF / PNG en mode headless | `FacturePdfService` | — (Edge doit être installé) |
 | Annuaire des entreprises — `recherche-entreprises.api.gouv.fr` | Résumé société par SIRET | `PapperService`, `PappersSync` | aucune |
-| Mapbox — `api.mapbox.com` | Tuiles et vignettes de carte | `TileLoader`, `MapThumbnailService` | jeton (secrets de l'application) |
+| Google Maps Static API — `maps.googleapis.com` (étape 16b, à la place de Mapbox) | Carte satellite de la fiche bâtiment et vignettes de l'accueil | `TileLoader.Image`, `MapThumbnailService`, par la fonction serveur `cartes` | clé de CIPL `GOOGLE_MAPS_KEY` (Secrets de Supabase), plafond par jour dans la console Google |
+| Pappers — `api.pappers.fr` (étape 16b) | Fiche des sociétés locataires (capital, dirigeants, finances, fermeture) | `PappersSync` (cloud), par la fonction serveur `pappers` | clé de CIPL `PAPPERS_API_KEY` (Secrets de Supabase) ; une lecture par société et par mois |
+| BODACC — `bodacc-datadila.opendatasoft.com` (étape 16b) | Procédures collectives des sociétés locataires | `PappersSync.Bodacc`, `SocieteLocataire.LireBodacc` | aucune |
 | Base Adresse Nationale — `api-adresse.data.gouv.fr`, puis Nominatim en repli | Adresse → coordonnées | `GeoCodingService`, `CadastreService` | aucune |
 | IGN — `apicarto.ign.fr` (`/api/cadastre`, `/api/gpu`) | Parcelle cadastrale, zone PLU | `CadastreService`, `PLUService` | aucune |
 | Géoportail de l'urbanisme | Lien ouvert dans le navigateur | `PLUOverlayPanel` | — |
 
 Tous les appels réseau passent par `UnityWebRequest` dans des coroutines, sauf l'envoi d'email : il tourne sur un thread de fond, et l'UI attend son résultat en coroutine.
 
-**Réglages (réorganisés le 27/10)** : onglets Entreprise (nom, SIRET modifiable par l'admin via `changer_siret`, RIB, export), Facturation (logo, entêtes, listes de charges, textes fixes), Utilisateurs et Abonnement (admin), Documents et affichage, Intégrations (une section par service : Envoi des factures, Pennylane, E-mail (SMTP) pour l'admin ; Cartes (Mapbox) pour tous). `ReglagePanel.Onglets` dit qui voit quoi.
+**Réglages (réorganisés le 27/10)** : onglets Entreprise (nom, SIRET modifiable par l'admin via `changer_siret`, RIB, export), Facturation (logo, entêtes, listes de charges, textes fixes), Utilisateurs et Abonnement (admin), Documents et affichage, Intégrations (une section par service, pour l'admin : Envoi des factures, Pennylane, E-mail ; la section Cartes (Mapbox) a disparu à l'étape 16b, et avec elle l'onglet pour les autres). `ReglagePanel.Onglets` dit qui voit quoi.
 
-**Boutons « Tester » et refus en clair (étape 16)** : les trois services qui demandent un identifiant ont un bouton « Tester » dans Réglages, à droite de leur champ (`ReglagePanel.ChampTeste`, résultat en vert ou en rouge dessous, échec aussi au centre). Le test porte sur ce qui est tapé, sans enregistrer. Pennylane : `PennylaneClient.Tester` (`GET /me`, qui nomme la société de la clé quels que soient ses droits, puis lecture d'un client et d'une facture). Mapbox : `TileLoader.Tester` (une carte de 1 × 1 pixel). SMTP : l'e-mail de test, avec `EmailService.Envoyer(…, reglage, motDePasse)`. Les refus sont traduits par `EmailService.Clair` (serveur introuvable, identifiant refusé, SMTP désactivé chez Microsoft 365, pas de réponse sur le port), `PennylaneClient.Clair` et `TileLoader.Clair` (codes HTTP 0, 401, 403, 429, 5xx), aussi pour les vrais envois : la phrase claire d'abord, puis « Détail technique : … ». Les autres services n'ont pas d'identifiant, donc rien à tester.
+**Boutons « Tester » et refus en clair (étape 16)** : les trois services qui demandent un identifiant ont un bouton « Tester » dans Réglages, à droite de leur champ (`ReglagePanel.ChampTeste`, résultat en vert ou en rouge dessous, échec aussi au centre). Le test porte sur ce qui est tapé, sans enregistrer. Pennylane : `PennylaneClient.Tester` (`GET /me`, qui nomme la société de la clé quels que soient ses droits, puis lecture d'un client et d'une facture). Mapbox : `TileLoader.Tester` (une carte de 1 × 1 pixel), retiré à l'étape 16b avec le token. SMTP : l'e-mail de test, avec `EmailService.Envoyer(…, reglage, motDePasse)`. Les refus sont traduits par `EmailService.Clair` (serveur introuvable, identifiant refusé, SMTP désactivé chez Microsoft 365, pas de réponse sur le port), `PennylaneClient.Clair` et `TileLoader.Clair` (codes HTTP 0, 401, 403, 429, 5xx), aussi pour les vrais envois : la phrase claire d'abord, puis « Détail technique : … ». Les autres services n'ont pas d'identifiant, donc rien à tester.
 
 ---
 

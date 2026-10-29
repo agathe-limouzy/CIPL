@@ -82,7 +82,7 @@ public class MapController : MonoBehaviour
         searchButton.gameObject.SetActive(false);
 
         // Carte déjà chargée pour cette adresse : rien à refaire. Chaque ouverture de
-        // fiche relançait sinon un géocodage ET un téléchargement de tuile Mapbox pour
+        // fiche relançait sinon un géocodage ET un téléchargement de carte pour
         // une adresse inchangée — le vrai coût de l'ouverture, mesuré en réseau et non
         // en code (le basculement d'onglet, lui, prend 0 ms).
         if (newAdress == _adresseAffichee)
@@ -140,7 +140,8 @@ public class MapController : MonoBehaviour
     {
         if (_isLoading) return;
 
-        double lonPerPixel = 360.0 / (256.0 * System.Math.Pow(2, _currentZoom));
+        // Tuiles de 256 px : le zoom de Google (étape 16b), un cran au-dessus de celui des prefabs.
+        double lonPerPixel = 360.0 / (256.0 * System.Math.Pow(2, _currentZoom + TileLoader.DecalageZoom));
         double latPerPixel = lonPerPixel * System.Math.Cos(_centerLat * System.Math.PI / 180.0);
 
         _centerLon -= pixelDelta.x * lonPerPixel;

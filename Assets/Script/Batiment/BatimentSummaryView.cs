@@ -9,7 +9,7 @@ using UnityEngine.UI;
 public class BatimentSummaryView : MonoBehaviour
 {
     [Header("Carte bâtiment")]
-    public RawImage vignetteCarte;     // miroir de la carte Mapbox de la fiche
+    public RawImage vignetteCarte;     // miroir de la carte satellite de la fiche
     public TMP_Text txtNom;
     public TMP_Text txtAdresse;
     public TMP_Text txtPiluleSurface;

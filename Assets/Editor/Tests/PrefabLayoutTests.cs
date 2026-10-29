@@ -221,4 +221,31 @@ public class PrefabLayoutTests
 
         Assert.That(fautifs, Is.Empty, "poignée décalée de sa barre :\n  " + string.Join("\n  ", fautifs));
     }
+
+    /// Le défaut du 29/10 : le texte du commentaire ne défilait plus. `InputFieldScrollFix`, posé sur ce
+    /// texte, y avait ajouté un `TMP_InputField` vide (RequireComponent). Sans texte relié, ce champ annonce
+    /// une hauteur de 0, et il passe avant le texte (priorité 1) : le contenu du défilement mesurait 0 px.
+    [Test]
+    public void Aucun_champ_de_saisie_sans_texte()
+    {
+        var fautifs = new List<string>();
+
+        foreach (var prefab in Prefabs())
+        foreach (var champ in prefab.GetComponentsInChildren<TMP_InputField>(true))
+            if (champ.textComponent == null)
+                fautifs.Add($"{prefab.name} : {Chemin(champ.transform)}");
+
+        Assert.That(fautifs, Is.Empty, "champ de saisie sans texte (hauteur 0 dans la mise en page) :\n  " + string.Join("\n  ", fautifs));
+    }
+
+    /// 29/10 : le commentaire avançait d'1 point par cran de molette (la valeur par défaut de Unity) : avec le
+    /// bloc Pappers, il fallait des dizaines de crans pour le lire. À 30, comme les pages, c'était trop brusque
+    /// pour un cadre de quelques lignes : 10.
+    [Test]
+    public void Le_commentaire_defile_a_une_vitesse_lisible()
+    {
+        var fiche = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefab/LocatairePrefab.prefab").GetComponent<LocatairePrefab>();
+        var defilement = fiche.Commentaire.transform.Find("Content/Commentaire scroll view").GetComponent<ScrollRect>();
+        Assert.That(defilement.scrollSensitivity, Is.InRange(5f, 20f));
+    }
 }

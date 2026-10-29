@@ -100,6 +100,11 @@ public static class CloudClient
     public static Task<Reponse> FonctionServeur(string url, string cle, string jeton, string nom, string corpsJson) =>
         Envoyer("POST", url + "/functions/v1/" + nom, cle, jeton, corpsJson);
 
+    /// Étape 16b : fonction serveur qui répond par un fichier (l'image d'une carte). Les octets sont
+    /// rendus aussi quand elle répond un refus en JSON avec un statut 200.
+    public static Task<(Reponse rep, byte[] octets)> FonctionBrute(string url, string cle, string jeton, string nom, string corpsJson) =>
+        EnvoyerBrut("POST", url + "/functions/v1/" + nom, cle, jeton, Encoding.UTF8.GetBytes(corpsJson));
+
     /// Même chose avec des paramètres déjà en JSON (quand l'un d'eux est un objet JSON de CIPL).
     public static Task<Reponse> FonctionJson(string url, string cle, string jeton, string nom, string corpsJson) =>
         Envoyer("POST", url + "/rest/v1/rpc/" + nom, cle, jeton, corpsJson);

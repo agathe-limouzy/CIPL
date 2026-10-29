@@ -17,7 +17,7 @@ public class BuildingCard : MonoBehaviour
     public Image pastille;           // pastille de couleur (coin vignette)
 
     [Header("Vignette")]
-    public RawImage vignetteCarte;   // miroir de la carte Mapbox du bâtiment
+    public RawImage vignetteCarte;   // miroir de la carte satellite du bâtiment
 
     public void Setup(BatimentPrefab batiment, Action<BatimentPrefab> onClick)
     {

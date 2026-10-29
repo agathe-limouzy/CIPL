@@ -80,10 +80,8 @@ public static class ReglageService
         return pc;
     }
 
-    // Secrets de l'APPLICATION, communs à toutes les entreprises. La clé Pennylane et
-    // le mot de passe SMTP appartiennent à une entreprise donnée ; le token Mapbox, lui,
-    // est une clé de l'app : le ranger par entreprise obligerait à le ressaisir à chaque
-    // fois qu'on en ouvre une autre.
+    // Secrets de l'APPLICATION, communs à toutes les entreprises (adresse et clé du cloud).
+    // La clé Pennylane et le mot de passe SMTP, eux, appartiennent à une entreprise donnée.
     private static string AppSecretsPath =>
         Path.Combine(Application.persistentDataPath, "cipl_app_secrets.dat");
 
@@ -245,12 +243,7 @@ public static class ReglageService
     public static string GetSmtpPassword() => ReadSecret("smtp_password");
     public static bool SetSmtpPassword(string v) => EcrireEtPartager("smtp_password", v);
 
-    // Token Mapbox : stocké hors du champ public de TileLoader, qui était sérialisé
-    // EN CLAIR dans Maps.prefab et donc commité dans le dépôt.
-    // Rangé au niveau APPLICATION (pas par entreprise) : c'est une clé de l'app, la
-    // mettre dans le fichier de l'entreprise obligerait à la ressaisir à chaque bascule.
-    public static string GetMapboxToken() => ReadSecretFrom(AppSecretsPath, "mapbox_token");
-    public static bool SetMapboxToken(string v) => WriteSecretTo(AppSecretsPath, "mapbox_token", v);
+    // Étape 16b : plus de token Mapbox sur les PC (cartes Google par le serveur, clé de CIPL).
 
     // Projet cloud (Supabase) : adresse et clé PUBLIQUE de l'app (publishable key).
     // Au niveau application, pour basculer d'un projet de test au projet réel sans recompiler.

@@ -41,15 +41,20 @@ public class IntegrationsTests
     }
 
     [Test]
-    public void Les_refus_de_Pennylane_et_de_Mapbox_sont_traduits()
+    public void Les_refus_de_Pennylane_et_des_cartes_sont_traduits()
     {
         StringAssert.StartsWith("Clé refusée", PennylaneClient.Clair(401));
         StringAssert.Contains("customer_invoices", PennylaneClient.Clair(403));
         StringAssert.Contains("connexion internet", PennylaneClient.Clair(0));
         Assert.That(PennylaneClient.Clair(422), Is.Null, "le corps de réponse dit déjà le champ refusé");
 
-        StringAssert.Contains("pk.", TileLoader.Clair(401));
-        StringAssert.Contains("restriction", TileLoader.Clair(403));
-        Assert.That(TileLoader.Clair(200), Is.Null);
+        // Étape 16b : les cartes de Google, par la fonction serveur « cartes ».
+        StringAssert.Contains("connexion internet", TileLoader.Motif(0, null, 0, "Cannot resolve destination host"));
+        StringAssert.Contains("GOOGLE_MAPS_KEY", TileLoader.Motif(200, "config", 0, null));
+        StringAssert.StartsWith("Limite de cartes du jour",
+            TileLoader.Motif(424, "google", 403, "You have exceeded your daily request quota for this API."));
+        StringAssert.Contains("Maps Static", TileLoader.Motif(424, "google", 403, "This API project is not authorized to use this API."));
+        StringAssert.Contains("pas déployée", TileLoader.Motif(404, null, 0, "Function not found"));
+        StringAssert.Contains("\nDétail technique : HTTP 424 · google 403", TileLoader.Motif(424, "google", 403, "refus"));
     }
 }

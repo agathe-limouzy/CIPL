@@ -192,6 +192,10 @@ public class Locataire : Data
     // Objectifs
     public ObjectiveList objectifs = new ObjectiveList();
 
+    // Étape 16b : ce qui a déjà donné un objectif automatique (« bodacc:<annonce> », « fermee:<siren> »),
+    // pour qu'un objectif supprimé ne revienne pas à la tournée suivante.
+    public List<string> signalementsSociete = new List<string>();
+
     // Propriété DateTime pratique (non sérialisée)
     [NonSerialized]
     private DateTime _dateDebutBail;
