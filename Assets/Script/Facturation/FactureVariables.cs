@@ -46,9 +46,12 @@ public static class FactureVariables
         new("{date}",            "Date du jour",            "Facture"),
         new("{periode}",         "Période facturée",        "Facture"),
         new("{numero}",          "N° de facture",           "Facture"),
+        new("{echeance}",        "Date d'échéance",         "Facture"),
         new("{loyer.ht}",        "Montant loyer HT",        "Facture"),
         new("{loyer.tva}",       "Montant TVA",             "Facture"),
         new("{loyer.ttc}",       "Montant TTC",             "Facture"),
+        new("{reste}",           "Reste à payer (rappel)",  "Facture"),
+        new("{retard}",          "Phrase de retard (Réglages)", "Facture"),
 
         // ── Société émettrice ──────────────────────────────────────
         new("{societe.nom}",     "Nom de la société",       "Société"),

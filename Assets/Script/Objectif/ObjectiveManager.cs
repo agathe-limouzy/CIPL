@@ -189,6 +189,8 @@ public class ObjectivesManager : MonoBehaviour
         var viewport = UIFactory.Rect("Viewport", defil);
         UIFactory.Stretch(viewport);
         viewport.gameObject.AddComponent<RectMask2D>();
+        // 30/10 : une surface transparente capte la molette aussi dans les vides entre les sections (sinon elle se perdait sur le fond).
+        if (viewport.GetComponent<Graphic>() == null) viewport.gameObject.AddComponent<Image>().color = Color.clear;
         var tab = UIFactory.HBox(viewport, 10, true, "Tableau");
         tab.childForceExpandHeight = true;
         tab.childAlignment = TextAnchor.UpperLeft;

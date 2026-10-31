@@ -73,6 +73,8 @@ public class EntreprisePanel : MonoBehaviour
         var viewport = UIFactory.Rect("Viewport", srGO);
         UIFactory.Stretch(viewport);
         viewport.gameObject.AddComponent<RectMask2D>();
+        // 30/10 : une surface transparente capte la molette aussi dans les vides entre les sections (sinon elle se perdait sur le fond).
+        if (viewport.GetComponent<Graphic>() == null) viewport.gameObject.AddComponent<Image>().color = Color.clear;
 
         var content = UIFactory.VBox(viewport, 16, 2, 8, 2, 12, "Content");
         var crt = (RectTransform)content.transform;

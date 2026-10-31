@@ -97,21 +97,38 @@ public static class UtilisateursCloud
         }
     }
 
-    public static string ObjetEmail(string entreprise) => $"Invitation à rejoindre {entreprise} sur CIPL";
+    // Modèle des Réglages › Facturation › Modèles d'e-mail (décision du 31/10). Ses variables à lui :
+    // {invitant}, {entreprise}, {code}, {expire}, {lien.windows}, et {mac} (la ligne du lien Mac, retirée tant
+    // que la version Mac n'est pas publiée, étape 15b).
+    public const string InvitationObjetDefaut = "Invitation à rejoindre {entreprise} sur CIPL";
 
-    public static string CorpsEmail(string qui, string entreprise, string code, DateTime expire) =>
+    public const string InvitationCorpsDefaut =
         "Bonjour,\n\n" +
-        $"{qui} vous invite à rejoindre {entreprise} sur CIPL, l'application de gestion locative.\n\n" +
-        $"Votre code d'invitation : {code}\n" +
-        $"Il est valable jusqu'au {expire:dd'/'MM'/'yyyy}.\n\n" +
+        "{invitant} vous invite à rejoindre {entreprise} sur CIPL, l'application de gestion locative.\n\n" +
+        "Votre code d'invitation : {code}\n" +
+        "Il est valable jusqu'au {expire}.\n\n" +
         "Pour rejoindre l'entreprise :\n" +
         // Étape 15 (maquette 5 du 26/10) : le lien de la dernière version ; le Mac quand il sera publié (15b).
-        $"1. Installez CIPL sur votre PC Windows : {MiseAJour.LienWindows}\n" +
+        "1. Installez CIPL sur votre PC Windows : {lien.windows}\n" +
         "   Si Windows affiche « Windows a protégé votre ordinateur », cliquez sur « Informations complémentaires », puis « Exécuter quand même ».\n" +
-        (MiseAJour.LienMac != null ? $"   Sur Mac : {MiseAJour.LienMac}\n" : "") +
+        "{mac}\n" +
         "2. À l'écran de connexion, choisissez « J'ai reçu une invitation ».\n" +
         "3. Saisissez cette adresse e-mail et le code ci-dessus, puis choisissez votre mot de passe.\n\n" +
         "À bientôt sur CIPL.";
+
+    public static string Remplir(string modele, string qui, string entreprise, string code, DateTime expire)
+    {
+        string mac = MiseAJour.LienMac != null ? $"   Sur Mac : {MiseAJour.LienMac}" : null;
+        return (modele ?? "").Replace("{invitant}", qui).Replace("{entreprise}", entreprise).Replace("{code}", code)
+            .Replace("{expire}", expire.ToString("dd'/'MM'/'yyyy")).Replace("{lien.windows}", MiseAJour.LienWindows)
+            .Replace("{mac}\n", mac == null ? "" : mac + "\n").Replace("{mac}", mac ?? "");
+    }
+
+    public static string ObjetEmail(string entreprise) =>
+        Remplir(FacturePdfService.Texte(ReglageService.Current?.invitationObjet, InvitationObjetDefaut), "", entreprise, "", DateTime.Today);
+
+    public static string CorpsEmail(string qui, string entreprise, string code, DateTime expire) =>
+        Remplir(FacturePdfService.Texte(ReglageService.Current?.invitationCorps, InvitationCorpsDefaut), qui, entreprise, code, expire);
 
     // ── Serveur ────────────────────────────────────────────────────────────────
 

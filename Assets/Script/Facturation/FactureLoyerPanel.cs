@@ -48,12 +48,17 @@ public class FactureLoyerPanel : MonoBehaviour
     FactureEtat _ligneCiblee;   // ligne du suivi cliquée : elle désigne la période à ouvrir
 
     TMP_Text _titre, _entetePreview, _modeInfo, _mTotalHT, _mTVA, _mTTC, _numeroPrefixe;
+    TMP_Text _avertPennylane;   // seulement en mode Pennylane (30/10 : elle s'affichait aussi en mode e-mail)
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _annee, _refInterne, _sommePhrase, _loyer, _provision, _emailEnvoi;
     TMP_InputField _texteTvaDebit, _texteMensuel;
     TMP_Text _provisionLabel;                              // provision générale
     Transform _provListesBox;                              // une provision par liste spécifique
     readonly List<(string id, TMP_InputField inp)> _provListes = new List<(string, TMP_InputField)>();
     TMP_InputField _emailObjet, _emailCorps;
+    TMP_Text _aideEmail;
+    // Étape 18b : les champs de l'e-mail sont ceux de la « copie » (loyer qui part aussi par la plateforme, avant
+    // la bascule) ou de la notification (après) ; sinon ceux de l'e-mail de facture.
+    bool _modeNotif, _modeCopie;
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _periodeDD;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
@@ -306,11 +311,11 @@ public class FactureLoyerPanel : MonoBehaviour
         UIFactory.Text(o.transform, "Corps du message", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _emailCorps = UIFactory.Input(o.transform, EmailService.CorpsDefaut, 110, true);
         SlashAutocomplete.Attach(_emailCorps);
-        UIFactory.Text(o.transform,
+        _aideEmail = UIFactory.Text(o.transform,
             "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement.",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
         _emailEnvoi = Labeled(o, "Email d'envoi");
-        UIFactory.Text(o.transform,
+        _avertPennylane = UIFactory.Text(o.transform,
             "Mode Pennylane : la facture est déposée sur Pennylane SANS être émise — à finaliser et transmettre depuis Pennylane.",
             UITheme.Role.Aide, UITheme.Alerte);
 
@@ -487,6 +492,29 @@ public class FactureLoyerPanel : MonoBehaviour
             return;
         }
 
+        // Étape 18b : dès la bascule (1/9/2027), un loyer qui part par la plateforme n'est plus envoyé en PDF ; le
+        // locataire reçoit un e-mail de notification une fois Super PDP d'accord (FactureElectronique.Notifier).
+        // Une transmission ne se rappelle pas : elle se confirme, comme un e-mail. Une correction d'une facture
+        // déjà transmise part aussi par la plateforme, comme facture rectificative (Finaliser, 31/10).
+        bool parPlateforme = FactureElectronique.Concerne(_loc, d.tva);
+        if (parPlateforme && FactureElectronique.NotificationSeule)
+        {
+            if (ConfirmDialog.Instance == null)
+            {
+                ConfirmDialog.Erreur("Confirmation indisponible : rien n'a été transmis. Le PDF est enregistré.");
+                return;
+            }
+            string adresse = (_emailEnvoi.text ?? "").Trim();
+            ConfirmDialog.Instance.Show("Transmettre la facture par la plateforme ?",
+                "La facture part par Super PDP, sans PDF par e-mail. "
+                + (adresse == "" ? "Aucune adresse e-mail : le locataire ne sera pas prévenu."
+                                 : $"Le locataire en sera prévenu par e-mail ({adresse}).")
+                + "\n\nUne facture transmise ne peut pas être rappelée.",
+                () => Finaliser(d, key, emission, correction, pdf, true, "  Transmise par la plateforme agréée."),
+                "Transmettre");
+            return;
+        }
+
         // Envoi demandé. On refuse AVANT d'ouvrir la confirmation si quelque chose
         // manque : mieux vaut un message net qu'une boîte de dialogue qui promet un
         // départ impossible.
@@ -502,10 +530,14 @@ public class FactureLoyerPanel : MonoBehaviour
         if (manque != null) { ConfirmDialog.Erreur(manque + " Le PDF est enregistré."); return; }
 
         var ctx = BuildContext();
-        string objet = FactureVarResolver.Resolve(
-            FacturePdfService.Texte(_emailObjet.text, EmailService.ObjetDefaut), _loc, _bat, ctx);
-        string corps = FactureVarResolver.Resolve(
-            FacturePdfService.Texte(_emailCorps.text, EmailService.CorpsDefaut), _loc, _bat, ctx);
+        // Le texte part tel qu'affiché (Charger : e-mail de facture, ou « copie » si elle part aussi par la
+        // plateforme). Formulaire ouvert en « copie », mais facture qui ne part finalement pas par la plateforme
+        // (TVA retirée du formulaire…) : l'e-mail de facture habituel, pas une « copie » fausse.
+        bool copieFausse = _modeCopie && !parPlateforme;
+        string objet = FactureVarResolver.Resolve(copieFausse ? EmailService.ObjetFacture(_loc.factureLoyer?.emailObjet)
+            : FacturePdfService.Texte(_emailObjet.text, _modeCopie ? EmailService.ObjetCopie() : EmailService.ObjetFacture()), _loc, _bat, ctx);
+        string corps = FactureVarResolver.Resolve(copieFausse ? EmailService.CorpsFacture(_loc.factureLoyer?.emailCorps)
+            : FacturePdfService.Texte(_emailCorps.text, _modeCopie ? EmailService.CorpsCopie() : EmailService.CorpsFacture()), _loc, _bat, ctx);
 
         // Sans boîte de confirmation disponible, on n'envoie PAS : un départ non
         // confirmé vaut moins qu'un PDF enregistré qu'on renverra plus tard.
@@ -611,6 +643,9 @@ public class FactureLoyerPanel : MonoBehaviour
                    bool correction, string pdf, bool envoye, string suffixeMessage = "")
     {
         var fl = _loc.factureLoyer;
+        // Étape 18b : correction d'une facture déjà transmise → facture rectificative, qui cite la dernière transmise
+        // (lue avant que l'enregistrement ne remplace la ligne).
+        var (precedentNumero, precedentDate) = FactureEn16931.Remplacee(_loc.facturesEtat?.Find(x => x.key == key));
 
         string message = FactureEmission.Enregistrer(_loc, key, "Loyer", emission,
             d.subtitle, fl.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
@@ -620,7 +655,20 @@ public class FactureLoyerPanel : MonoBehaviour
         var ligne = _loc.facturesEtat?.Find(x => x.key == key);
         if (ligne != null) ligne.loyerHT = d.totalPeriode;
 
+        // Étape 18b : la facture électronique est gardée sur la ligne ; elle part à la plateforme dès que la
+        // ligne est « Envoyé » (tout de suite ci-dessous, ou le jour de l'envoi différé).
+        if (ligne != null && FactureElectronique.Concerne(_loc, d.tva))
+            FactureElectronique.Preparer(ligne, FactureEn16931.Json(new FactureEn16931.Entree
+            {
+                numero = d.numero, dateISO = BuildContext().date.ToString("yyyy-MM-dd"), echeanceISO = fl.dateEcheanceISO,
+                vendeurNom = R.entrepriseNom, vendeurSiren = SocieteLocataire.Siren(SessionCloud.Entreprise?.siret),
+                acheteurNom = d.clientNom, acheteurSiren = SocieteLocataire.Siren(_loc.siretNumber), acheteurAdresse = _adresse.text,
+                lignes = FactureEn16931.Lignes(d), mention = d.tvaDebit ? d.texteTvaDebit : null, penalites = d.legal,
+                precedentNumero = precedentNumero, precedentDateISO = precedentDate,
+            }));
+
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+        FactureElectronique.Rattraper(_fiche.batimentPrefabOrigin, _loc);
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
 
         if (correction)
@@ -710,6 +758,8 @@ public class FactureLoyerPanel : MonoBehaviour
         var viewport = UIFactory.Rect("Viewport", srGO);
         UIFactory.Stretch(viewport);
         viewport.gameObject.AddComponent<RectMask2D>();
+        // 30/10 : une surface transparente capte la molette aussi dans les vides entre les sections (sinon elle se perdait sur le fond).
+        if (viewport.GetComponent<Graphic>() == null) viewport.gameObject.AddComponent<Image>().color = Color.clear;
         var vb = UIFactory.VBox(viewport, 16, 2, 8, 2, 12, "Content");
         var crt = (RectTransform)vb.transform;
         crt.anchorMin = new Vector2(0, 1); crt.anchorMax = new Vector2(1, 1); crt.pivot = new Vector2(.5f, 1);
@@ -798,6 +848,11 @@ public class FactureLoyerPanel : MonoBehaviour
 
         MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
         _retard.isOn = f?.ajouterRetard ?? true;
+        // Facture qui part sur la plateforme : la phrase de retard y est obligatoire (note PMD, règle BR-FR-05) ;
+        // la case reste cochée pour que le PDF dise la même chose (décision du 30/10).
+        bool plateforme = FactureElectronique.Concerne(_loc, 1f);
+        if (plateforme) _retard.isOn = true;
+        _retard.interactable = !plateforme;
         // Ligne « montant mensuel » : seulement pour un loyer non mensuel (trim / semestre / an).
         _mensuel.isOn = f?.ajouterMensuel ?? true;
         _mensuel.gameObject.SetActive(_loc.periodiciteLoyer != Periodicite.mensuel);
@@ -808,11 +863,31 @@ public class FactureLoyerPanel : MonoBehaviour
         // La phrase suit sa case : inutile de la montrer si la ligne ne s'imprime pas.
         _texteMensuel.gameObject.SetActive(_loc.periodiciteLoyer != Periodicite.mensuel);
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
-        _emailObjet.text = FacturePdfService.Texte(f?.emailObjet, EmailService.ObjetDefaut);
-        _emailCorps.text = FacturePdfService.Texte(f?.emailCorps, EmailService.CorpsDefaut);
+        // Étape 18b (31/10) : ce qui est affiché est ce qui part, d'après le modèle de Réglages › Modèles d'e-mail
+        // (modifiable pour cette facture). Un loyer qui part par la plateforme (une correction aussi, en
+        // rectificative) : avant la bascule, l'e-mail « copie » avec le PDF ; après, la notification sans PDF.
+        _modeNotif = plateforme && FactureElectronique.NotificationSeule;
+        _modeCopie = plateforme && !_modeNotif;
+        (_emailObjet.text, _emailCorps.text) =
+              _modeNotif ? (EmailService.ObjetNotif(f?.notifObjet), EmailService.CorpsNotif(f?.notifCorps))
+            : _modeCopie ? (EmailService.ObjetCopie(f?.copieObjet), EmailService.CorpsCopie(f?.copieCorps))
+            : (EmailService.ObjetFacture(f?.emailObjet), EmailService.CorpsFacture(f?.emailCorps));
+        _aideEmail.text = _modeNotif
+            ? "« / » ouvre la liste des variables. E-mail de notification, sans pièce jointe : la facture part par la plateforme. Modèle : Réglages › Modèles d'e-mail."
+            : _modeCopie
+            ? "« / » ouvre la liste des variables. La facture part aussi par la plateforme : cet e-mail en joint la copie PDF. Modèle : Réglages › Modèles d'e-mail."
+            : "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement. Modèle : Réglages › Modèles d'e-mail.";
         _modeInfo.text = R.modeEnvoi == ModeEnvoi.Pennylane
             ? "Mode global : Pennylane (e-facture Factur-X)."
+            : plateforme ? (FactureElectronique.NotificationSeule
+                ? "Envoi : plateforme agréée (Super PDP), puis un e-mail de notification au locataire. La phrase de retard y est obligatoire."
+                : "Envoi : plateforme agréée (Super PDP) + copie PDF par e-mail. La phrase de retard y est obligatoire.")
+            : FactureElectronique.SansSiret(_loc) ? "Envoi : e-mail seulement — ajoutez le SIRET du locataire pour la facture électronique (Super PDP)."
+            : FactureElectronique.Active ? "Envoi : e-mail (locataire non assujetti à la TVA : pas de facture électronique)."
+            : FactureElectronique.EnVerification ? "Envoi : e-mail seulement (Super PDP : vérification du gérant en cours, voir Réglages → Intégrations)."
             : "Mode global : Email direct (SMTP).";
+        _modeInfo.color = FactureElectronique.SansSiret(_loc) ? UITheme.Alerte : UITheme.TexteSecondaire;
+        if (_avertPennylane != null) _avertPennylane.gameObject.SetActive(R.modeEnvoi == ModeEnvoi.Pennylane);
 
         RefreshMontants();
         RefreshEntetePreview();
@@ -1173,8 +1248,24 @@ public class FactureLoyerPanel : MonoBehaviour
         f.ajouterMensuel = _mensuel.isOn;
         f.texteMensuel = _texteMensuel.text;
         f.emailDest = _emailEnvoi.text;
-        f.emailObjet = _emailObjet.text;
-        f.emailCorps = _emailCorps.text;
+        // Gardé sur la facture seulement s'il diffère du modèle des Réglages, dans la paire du mode affiché :
+        // e-mail de facture, « copie » (par la plateforme, avant la bascule) ou notification (après).
+        string eo = _emailObjet.text, ec = _emailCorps.text;
+        if (_modeNotif)
+        {
+            f.notifObjet = EmailService.AGarder(eo, EmailService.ObjetNotif());
+            f.notifCorps = EmailService.AGarder(ec, EmailService.CorpsNotif());
+        }
+        else if (_modeCopie)
+        {
+            f.copieObjet = EmailService.AGarder(eo, EmailService.ObjetCopie());
+            f.copieCorps = EmailService.AGarder(ec, EmailService.CorpsCopie());
+        }
+        else
+        {
+            f.emailObjet = EmailService.AGarder(eo, EmailService.ObjetFacture());
+            f.emailCorps = EmailService.AGarder(ec, EmailService.CorpsFacture());
+        }
         f.loyerMontant = ParseF(_loyer.text);
         f.provisionMontant = ParseF(_provision.text);
         f.provisionsListes = _provListes.Select(x => new MontantListe { listeId = x.id, montant = ParseF(x.inp.text) }).ToList();

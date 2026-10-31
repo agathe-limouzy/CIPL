@@ -60,9 +60,17 @@ public class FactureInfo
     // d'ENTREPRISE (Réglages → Connexion & envoi) ; le doubler par facture donnait
     // deux réglages pour une seule décision, dont l'un ignorait l'autre.
     public string emailDest;        // adresse d'envoi (pré-remplie depuis le locataire)
-    // Message d'accompagnement. Vides = modèle d'usine (`EmailService.*Defaut`).
+    // Message d'accompagnement. Vides = modèle des Réglages (`EmailService.ObjetFacture` / `CorpsFacture`).
     public string emailObjet;
     public string emailCorps;
+    // Étape 18b : jusqu'au 31/8/2027, l'e-mail « copie » d'un loyer qui part aussi par la plateforme.
+    // Vides = modèle des Réglages (`EmailService.ObjetCopie` / `CorpsCopie`).
+    public string copieObjet;
+    public string copieCorps;
+    // Étape 18b : l'e-mail de notification qui le remplace dès le 1/9/2027 (loyers par la plateforme).
+    // Vides = modèle des Réglages (`EmailService.ObjetNotif` / `CorpsNotif`).
+    public string notifObjet;
+    public string notifCorps;
     public string objet;            // objet/titre (ex « Loyer avril 2026 »), éditable
     public string refInterne;       // texte libre affiché avec le n° (ex « N° Interne Magasin 001048 »)
     // Régularisation : listes de charges régularisées ensemble ("" = générale). Une

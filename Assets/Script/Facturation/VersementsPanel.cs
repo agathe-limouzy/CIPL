@@ -117,6 +117,7 @@ public static class VersementsPanel
                 FacturationSuivi.SetStatut(loc, ligne, statut,
                     fiche.batimentPrefabOrigin != null ? fiche.batimentPrefabOrigin.getBatiment() : null);
             fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+            FactureElectronique.Rattraper(fiche.batimentPrefabOrigin, loc);   // étape 18b : « Encaissée » si réglée
             fermer();
             apres?.Invoke();
             float reste = total - payeApres;

@@ -336,6 +336,8 @@ public class FactureEnvoiAuto : MonoBehaviour
         var viewport = UIFactory.Rect("Viewport", srGO);
         UIFactory.Stretch(viewport);
         viewport.gameObject.AddComponent<RectMask2D>();
+        // 30/10 : une surface transparente capte la molette aussi dans les vides entre les sections (sinon elle se perdait sur le fond).
+        if (viewport.GetComponent<Graphic>() == null) viewport.gameObject.AddComponent<Image>().color = Color.clear;
         var vb = UIFactory.VBox(viewport, 4, 0, 0, 0, 0, "Content");
         var crt = (RectTransform)vb.transform;
         crt.anchorMin = new Vector2(0, 1); crt.anchorMax = new Vector2(1, 1); crt.pivot = new Vector2(.5f, 1);
@@ -427,18 +429,27 @@ public class FactureEnvoiAuto : MonoBehaviour
         // jour, que le verrou garde désormais tel quel.
         var c = (SessionCloud.Active ? Retrouver(choisie, BatimentManager.Instance?.BatimentPrefab) : null) ?? choisie;
 
-        var info = c.loc.FactureInfoDe(c.rec.type);
-        var ctx = Contexte(c.loc, c.rec);
-        var bat = c.bp != null ? c.bp.getBatiment() : null;
-        string objet = FactureVarResolver.Resolve(
-            FacturePdfService.Texte(info?.emailObjet, EmailService.ObjetDefaut), c.loc, bat, ctx);
-        string corps = FactureVarResolver.Resolve(
-            FacturePdfService.Texte(info?.emailCorps, EmailService.CorpsDefaut), c.loc, bat, ctx);
+        // Étape 18b : une facture qui part aussi par la plateforme. Avant la bascule (1/9/2027), le PDF part
+        // marqué « copie » ; après, plus de PDF : la plateforme l'envoie, puis la notification (Traiter). SCI
+        // plus reliée (ou pas encore relue) : le PDF part quand même, le locataire ne reste pas sans rien.
+        bool plateforme = !string.IsNullOrEmpty(c.rec.plateformeDonnees);
+        EmailService.Envoi envoi = null;
+        if (!(plateforme && FactureElectronique.NotificationSeule && FactureElectronique.Active))
+        {
+            var info = c.loc.FactureInfoDe(c.rec.type);
+            var ctx = Contexte(c.loc, c.rec);
+            var bat = c.bp != null ? c.bp.getBatiment() : null;
+            // Par la plateforme : l'e-mail « copie » (modèle des Réglages, ou le texte de cette facture).
+            string objet = FactureVarResolver.Resolve(plateforme ? EmailService.ObjetCopie(info?.copieObjet)
+                                                                 : EmailService.ObjetFacture(info?.emailObjet), c.loc, bat, ctx);
+            string corps = FactureVarResolver.Resolve(plateforme ? EmailService.CorpsCopie(info?.copieCorps)
+                                                                 : EmailService.CorpsFacture(info?.emailCorps), c.loc, bat, ctx);
 
-        var envoi = EmailService.Envoyer(c.destinataire, objet, corps, new[] { c.pdfAbsolu });
-        while (!envoi.Termine) yield return null;
+            envoi = EmailService.Envoyer(c.destinataire, objet, corps, new[] { c.pdfAbsolu });
+            while (!envoi.Termine) yield return null;
+        }
 
-        if (envoi.Succes)
+        if (envoi == null || envoi.Succes)
         {
             // Le PDF et le numéro existent déjà : on ne réémet rien, on constate le
             // départ. D'où la mise à jour du statut seul, sans passer par
@@ -449,9 +460,10 @@ public class FactureEnvoiAuto : MonoBehaviour
                 r.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
             }
             if (c.bp != null) c.bp.SaveAfterModifyToDoListLocataire();
+            FactureElectronique.Rattraper(c.bp, c.loc);   // étape 18b : la facture électronique part aussi
             issue.Partie = true;
         }
-        else issue.Erreur = envoi.Erreur;
+        else issue.Erreur = envoi?.Erreur;
         tenu = false;   // le verrou est rendu une fois le statut enregistré
     }
 
@@ -508,7 +520,7 @@ public class FactureEnvoiAuto : MonoBehaviour
     /// Contexte de résolution des variables du message. La facture étant déjà générée,
     /// ses valeurs se lisent sur la ligne de suivi — inutile de refaire les calculs du
     /// panneau. La TVA est déduite du TTC au taux normal, comme à l'émission.
-    static FactureContext Contexte(Locataire loc, FactureEtat rec)
+    public static FactureContext Contexte(Locataire loc, FactureEtat rec)
     {
         // Montant du DOCUMENT : une régularisation regroupée le répartit sur ses lignes.
         float ttc = FacturationSuivi.MemeFacture(loc, rec.key).DefaultIfEmpty(rec).Sum(r => r.montant);
@@ -520,7 +532,8 @@ public class FactureEnvoiAuto : MonoBehaviour
             numero = rec.numero ?? "",
             loyerHT = ht,
             tva = ttc - ht,
-            ttc = ttc
+            ttc = ttc,
+            echeance = FacturationSuivi.TryEcheance(rec.echeanceISO, out var ech) ? ech.ToString("dd/MM/yyyy") : ""
         };
     }
 }

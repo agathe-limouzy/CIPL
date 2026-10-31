@@ -339,7 +339,10 @@ public class LocataireSuiviInline : MonoBehaviour
             var lgn = l;
             var row = Ligne(prefab, cv.transform);
             var affiche = FacturationSuivi.EtatAffiche(_loc, l);   // « Partiel » : réglée en partie (08/10)
-            row.Setup(Libelle(l), Ech(l.echeanceISO), MontantLigne(l, etat), couleurs,
+            // Étape 18b : où en est la facture électronique (Plateforme, À renvoyer, Encaissée déclarée…).
+            string pastille = FactureElectronique.Pastille(l);
+            string libelle = pastille == null ? Libelle(l) : $"{Libelle(l)}  <size=80%><color=#16697A>· {pastille}</color></size>";
+            row.Setup(libelle, Ech(l.echeanceISO), MontantLigne(l, etat), couleurs,
                 FacturationSuivi.EtatLibelle(affiche), EtatBg(affiche), EtatFg(affiche),
                 // Ligne grisée (reprise, franchise, hors bail) : pastille statique, aucune action.
                 !clot, () => OpenStatutMenu(lgn, (RectTransform)row.pastille.transform),
@@ -433,6 +436,7 @@ public class LocataireSuiviInline : MonoBehaviour
             FacturationSuivi.SetStatut(_loc, ligne, statut,
                 _fiche.batimentPrefabOrigin != null ? _fiche.batimentPrefabOrigin.getBatiment() : null);
             _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+            FactureElectronique.Rattraper(_fiche.batimentPrefabOrigin, _loc);   // étape 18b : « Encaissée »
             Destroy(scrim.gameObject);
             RebuildTable();
             _fiche.RefreshParcours();   // « Payé » peut faire avancer le départ (archivage)

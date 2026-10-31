@@ -101,6 +101,23 @@ public class ReglageData
     public string mentionTvaDebits = FacturePdfService.TvaDebitDefaut;
     public string mentionTvaEncaissements = FacturePdfService.TvaEncaissementsDefaut;
 
+    // Modèles d'e-mail (décision du 31/10 ; Réglages › Facturation › Modèles d'e-mail), voir EmailService.Modele.
+    // La facture avec son PDF (les 4 types) ;
+    public string factureObjet = EmailService.ObjetDefaut;
+    public string factureCorps = EmailService.CorpsDefaut;
+    // étape 18b : jusqu'au 31/8/2027, la même, quand elle part aussi par la plateforme (le PDF en est la copie) ;
+    public string copieObjet = EmailService.CopieObjetDefaut;
+    public string copieCorps = EmailService.CopieCorpsDefaut;
+    // étape 18b : dès le 1/9/2027, un loyer qui part par la plateforme n'est plus envoyé en PDF, cet e-mail
+    // prévient le locataire une fois la facture acceptée (FactureElectronique.Notifier) ;
+    public string notifObjet = EmailService.NotifObjetDefaut;
+    public string notifCorps = EmailService.NotifCorpsDefaut;
+    // le brouillon de rappel d'impayé (FactureRappelService) ; l'invitation d'un collègue (UtilisateursCloud).
+    public string rappelObjet = EmailService.RappelObjetDefaut;
+    public string rappelCorps = EmailService.RappelCorpsDefaut;
+    public string invitationObjet = UtilisateursCloud.InvitationObjetDefaut;
+    public string invitationCorps = UtilisateursCloud.InvitationCorpsDefaut;
+
     // NB : les phrases de l'explication du dépôt ne sont PAS ici. Elles appartiennent
     // à la facture de dépôt (`FactureInfo.depot*`), pas à l'entreprise — seuls la
     // phrase de retard, le bas de page et les bases des mentions TVA sont des

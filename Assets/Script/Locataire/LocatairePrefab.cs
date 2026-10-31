@@ -208,6 +208,8 @@ public class LocatairePrefab : PrefabBatLoc
         if (facturationFields == null) facturationFields = gameObject.AddComponent<LocataireFacturationFields>();
         facturationFields.EnsureBuilt(this);
         BuildSiretRow();
+        BuildAssujettiTva();
+        AfficherAssujettiTva(newLocataire, NeedToModify);
 
         if (_parcours == null) _parcours = gameObject.AddComponent<ParcoursLocataireUI>();
         _parcours.EnsureBuilt(this);
@@ -464,6 +466,11 @@ public class LocatairePrefab : PrefabBatLoc
 
         SaveCorrectlyFloat(ref locataire.tauxDeRentabilité, tauxDeRentabilité.GetNewSave());
         locataire.siretNumber = siret.GetNewSave();
+        if (_assujettiTva != null)
+        {
+            if (_assujettiTouche) locataire.assujettiTva = _assujettiTva.isOn ? "oui" : "non";
+            AfficherAssujettiTva(locataire, false);
+        }
         locataire.commentaire = Commentaire.GetNewSave();
         facturationFields?.Save(locataire);
 
@@ -603,6 +610,7 @@ public class LocatairePrefab : PrefabBatLoc
         modifyBatiment.gameObject.SetActive(false);
         Delete.gameObject.SetActive(true);
         siret.Modify();
+        if (_assujettiTva != null) _assujettiTva.interactable = true;
         Commentaire.Modify();
         facturationFields?.Modify();
 
@@ -647,6 +655,36 @@ public class LocatairePrefab : PrefabBatLoc
         prt.anchorMin = new Vector2(1, 0); prt.anchorMax = new Vector2(1, 0); prt.pivot = new Vector2(1, 0);
         prt.sizeDelta = new Vector2(92, 26);
         prt.anchoredPosition = new Vector2(-8, 9);
+    }
+
+    // ── Étape 18b : « Assujetti à la TVA », sous la rangée du SIRET ────────────
+    // Destinataire des factures électroniques. Cochée d'office avec un SIRET, décochée pour un particulier
+    // (décision du 29/10) ; modifiable en « Modifier » (association, profession exonérée…).
+    private Toggle _assujettiTva;
+    private bool _assujettiTouche;
+
+    private void BuildAssujettiTva()
+    {
+        if (_assujettiTva != null || siret == null) return;
+        var rangee = siret.transform.parent;   // « Siret · Code comptable »
+        _assujettiTva = UIFactory.Toggle(rangee.parent,
+            "Assujetti à la TVA : reçoit les factures électroniques (décocher : association, profession exonérée…)", false);
+        _assujettiTva.transform.SetSiblingIndex(rangee.GetSiblingIndex() + 1);
+        _assujettiTva.onValueChanged.AddListener(_ => _assujettiTouche = true);
+        // Sans choix fait, la case suit le SIRET tapé.
+        siret.inputModify.onValueChanged.AddListener(t =>
+        {
+            if (!_assujettiTouche && (GetLocataire()?.assujettiTva ?? "") == "")
+                _assujettiTva.SetIsOnWithoutNotify(PappersResume.SiretExploitable(t));
+        });
+    }
+
+    private void AfficherAssujettiTva(Locataire l, bool modifiable)
+    {
+        if (_assujettiTva == null) return;
+        _assujettiTva.SetIsOnWithoutNotify(Locataire.AssujettiTva(l));
+        _assujettiTva.interactable = modifiable;
+        _assujettiTouche = false;
     }
 
     // ── Pappers ───────────────────────────────────────────────────────────────

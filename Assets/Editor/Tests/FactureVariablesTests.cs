@@ -87,6 +87,26 @@ public class FactureVariablesTests
     }
 
     [Test]
+    public void La_societe_est_celle_de_l_entreprise_ouverte()
+    {
+        // 30/10 : une SCI par entreprise. Avant, « GROUPE CIPL » sortait sur les factures et les e-mails de toutes.
+        var sci = new EntrepriseCloud { nom = "SCI (JBC) cloud", siret = "55203253400054" };
+
+        Assert.That(FactureVarResolver.Societe("SCI (JBC)", sci),
+                    Is.EqualTo(("SCI (JBC)", "552 032 534 00054", "FR 27 552 032 534")), "le nom des Réglages passe avant celui du cloud");
+        Assert.That(FactureVarResolver.Societe("  ", sci).nom, Is.EqualTo("SCI (JBC) cloud"), "Réglages sans nom : celui du cloud");
+        Assert.That(FactureVarResolver.Societe("SCI (JBC)", new EntrepriseCloud { nom = "x", type = "particulier" }),
+                    Is.EqualTo(("SCI (JBC)", "", "")), "sans SIRET : vide, jamais celui de GROUPE CIPL");
+        Assert.That(FactureVarResolver.Societe("SCI (JBC)", null), Is.EqualTo(("SCI (JBC)", "", "")), "mode local, pas de SIRET connu");
+        Assert.That(FactureVarResolver.Societe(null, null),
+                    Is.EqualTo((FactureVarResolver.SocieteNom, FactureVarResolver.SocieteSiret, FactureVarResolver.SocieteTva)),
+                    "rien de réglé : les constantes d'avant");
+        Assert.That(FactureVarResolver.Societe("GROUPE CIPL", new EntrepriseCloud { siret = "71722088300044" }),
+                    Is.EqualTo((FactureVarResolver.SocieteNom, FactureVarResolver.SocieteSiret, FactureVarResolver.SocieteTva)),
+                    "calculés, le SIRET et la TVA de GROUPE CIPL s'écrivent comme les constantes");
+    }
+
+    [Test]
     public void Un_texte_vide_ou_sans_variable_traverse_sans_dommage()
     {
         Assert.That(FactureVarResolver.Resolve("", Loc(), Bat(), Ctx()), Is.Empty);

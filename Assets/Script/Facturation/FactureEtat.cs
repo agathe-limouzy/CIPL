@@ -24,6 +24,17 @@ public class FactureEtat
     // Paiements reçus (paiement partiel, 08/10). Portés par la première ligne d'une facture
     // (voir FacturationSuivi.Porteuse). Absent des anciens fichiers = rien de reçu.
     public List<Versement> versements = new List<Versement>();
+
+    // Étape 18b : la facture électronique (plateforme agréée). `plateformeDonnees` = la facture au format
+    // EN 16931 (JSON), préparée à l'émission ; vide = pas concernée. `plateformeId` = son identifiant chez
+    // Super PDP une fois transmise. `plateformeEtat` : "" (à transmettre), "envoyee", "a_renvoyer" (plateforme
+    // injoignable : réessai au prochain lancement), "refusee" (rejetée : `plateformeErreur` dit pourquoi).
+    // `encaisseeDeclaree` : le statut « Encaissée » (fr:212) est parti.
+    public string plateformeDonnees;
+    public string plateformeId;
+    public string plateformeEtat;
+    public string plateformeErreur;
+    public bool encaisseeDeclaree;
 }
 
 /// Un paiement reçu sur une facture.

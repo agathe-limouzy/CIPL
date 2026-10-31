@@ -25,6 +25,11 @@ public class ReglagePanel : MonoBehaviour
     TMP_InputField _apiKey, _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd, _smtpUser;
     TMP_InputField _phraseRetard, _basDePage, _entrepriseNom, _lieuEmission;
     TMP_InputField _tvaDebits, _tvaEncaissements;
+    // Modèles d'e-mail (31/10) : facture avec le PDF, sa « copie » (par la plateforme, jusqu'au 31/8/2027),
+    // notification (dès le 1/9/2027), rappel, invitation.
+    TMP_InputField _factureObjet, _factureCorps, _copieObjet, _copieCorps, _notifObjet, _notifCorps,
+                   _rappelObjet, _rappelCorps, _invitObjet, _invitCorps;
+    readonly List<Button> _essais = new List<Button>();
     Toggle _modePennylane;
     TMP_Text _reglePar;   // étape 9a : « Réglé par l'administrateur », à la place des champs d'admin
     readonly List<GameObject> _reserveAdmin = new List<GameObject>();
@@ -92,7 +97,7 @@ public class ReglagePanel : MonoBehaviour
             b.onClick.AddListener(() => Montrer(nom));
         }
         foreach (var kv in _pages) kv.Value.SetActive(kv.Key == _onglet);
-        _footer.SetActive(_onglet != OUtilisateurs && _onglet != OAbonnement);   // rien à y enregistrer
+        _footer.SetActive(_onglet != OAbonnement);   // rien à y enregistrer ; Utilisateurs : le modèle d'invitation (31/10)
     }
 
     Transform Page(Transform content, string onglet)
@@ -188,8 +193,11 @@ public class ReglagePanel : MonoBehaviour
         BuildEntetes(facturation);
         BuildListesCharges(facturation);
         BuildTextes(facturation);
+        BuildModelesEmail(facturation);
 
-        _utilisateurs = new SectionUtilisateurs(this, Page(content, OUtilisateurs));   // étape 9b
+        var utilisateurs = Page(content, OUtilisateurs);
+        _utilisateurs = new SectionUtilisateurs(this, utilisateurs);   // étape 9b
+        BuildModeleInvitation(utilisateurs);   // 31/10 : le modèle de l'e-mail d'invitation, avec les utilisateurs
         _abonnement = new SectionAbonnement(this, Page(content, OAbonnement));
 
         var documents = Page(content, ODocuments);
@@ -220,6 +228,8 @@ public class ReglagePanel : MonoBehaviour
         var viewport = UIFactory.Rect("Viewport", srGO);
         UIFactory.Stretch(viewport);
         viewport.gameObject.AddComponent<RectMask2D>();
+        // 30/10 : une surface transparente capte la molette aussi dans les vides entre les sections (sinon elle se perdait sur le fond).
+        if (viewport.GetComponent<Graphic>() == null) viewport.gameObject.AddComponent<Image>().color = Color.clear;
 
         var content = UIFactory.VBox(viewport, 16, 2, 8, 2, 12, "Content");
         var crt = (RectTransform)content.transform;
@@ -325,9 +335,92 @@ public class ReglagePanel : MonoBehaviour
         _apiKey = ChampTeste(pennylane.transform, "Collez votre clé API…", "Tester la clé", PennylaneClient.Tester,
                              "Le test lit le nom de la société de la clé et vérifie ses droits, sans rien créer dans Pennylane.");
 
+        BuildFactureElectronique(parent);
         BuildSmtp(parent);
         // Étape 16b : plus de carte « Cartes (Mapbox) » ; les cartes passent par le serveur (clé de CIPL).
     }
+
+    // ── Étape 18a : facture électronique (plateforme agréée Super PDP), une par entreprise, admin ──
+
+    TMP_Text _feEtat, _feAide;
+    Button _feActiver, _feActualiser, _feDelier;
+    FactureElectronique.Reponse _fe;
+
+    void BuildFactureElectronique(Transform parent)
+    {
+        var corps = UIFactory.Section(parent, "Facture électronique (plateforme agréée)", CoPetrole, CoPetroleL).transform;
+        _reserveAdmin.Add(corps.parent.gameObject);
+        _feEtat = UIFactory.Text(corps, "", UITheme.Role.Donnee, UITheme.TextePrincipal);
+        UIFactory.Text(corps, "Obligatoire pour émettre les loyers soumis à TVA à partir du 1er septembre 2027. Le gérant de la SCI "
+            + "le fait une fois : environ 5 minutes, avec sa pièce d'identité sur son téléphone. Inclus dans l'abonnement CIPL.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+        var boutons = UIFactory.HBox(corps, 8, false, "Boutons");
+        _feActiver = UIFactory.Button(boutons.transform, "Activer avec Super PDP", UITheme.Primaire, Color.white, 40, UITheme.Role.Bouton);
+        UIFactory.LargeurDuTexte(_feActiver);
+        _feActiver.onClick.AddListener(ActiverFE);
+        _feActualiser = UIFactory.Button(boutons.transform, "Actualiser", UITheme.Carte, UITheme.TextePrincipal, 40, UITheme.Role.Action, false);
+        UIFactory.Border(_feActualiser.gameObject);
+        UIFactory.LargeurDuTexte(_feActualiser);
+        _feActualiser.onClick.AddListener(ChargerFE);
+        _feDelier = UIFactory.Button(boutons.transform, "Se déconnecter", UITheme.Carte, UITheme.TextePrincipal, 40, UITheme.Role.Action, false);
+        UIFactory.Border(_feDelier.gameObject);
+        UIFactory.LargeurDuTexte(_feDelier);
+        _feDelier.onClick.AddListener(DelierFE);
+        _feAide = UIFactory.Text(corps, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
+    }
+
+    async void ChargerFE()
+    {
+        _fe = null;
+        AfficherFE();
+        if (!SessionCloud.Active) return;
+        var e = await FactureElectronique.Etat();
+        if (this == null) return;
+        _fe = e;
+        AfficherFE();
+    }
+
+    void AfficherFE()
+    {
+        bool cloud = SessionCloud.Active, particulier = SessionCloud.Entreprise?.type == "particulier";
+        bool relie = _fe != null && _fe.ok && _fe.relie;
+        _feEtat.text = !cloud ? "Sur le cloud seulement."
+            : particulier ? "Sans objet pour un particulier : il n'émet pas de facture électronique."
+            : _fe == null ? "Lecture de l'état…"
+            : !_fe.ok ? FactureElectronique.Motif(_fe)
+            : FactureElectronique.Statut(_fe) ?? (_fe.configure ? "Non activée." : "Non activée : le serveur n'est pas encore réglé.");
+        _feEtat.color = relie && _fe.statut == "verified" ? UITheme.Primaire : UITheme.TextePrincipal;
+        _feActiver.gameObject.SetActive(cloud && !particulier && _fe != null && _fe.ok && !relie);
+        _feActualiser.gameObject.SetActive(relie && _fe.statut != "verified");
+        _feDelier.gameObject.SetActive(relie);
+        _feAide.text = _fe != null && _fe.bac_a_sable ? "Mode test (bac à sable) : les factures envoyées sont fictives." : "";
+    }
+
+    async void ActiverFE()
+    {
+        _feActiver.interactable = false;
+        _feAide.text = "La fenêtre de Super PDP est ouverte dans votre navigateur : le gérant confirme la SCI, vérifie son "
+                     + "identité et autorise CIPL. Revenez ici ensuite.";
+        var (etat, refus) = await FactureElectronique.Activer(() => this == null || !gameObject.activeInHierarchy);
+        if (this == null) return;
+        _feActiver.interactable = true;
+        if (refus != null) { ConfirmDialog.Erreur(refus); AfficherFE(); return; }
+        if (etat == null) return;   // Réglages fermé pendant l'attente : l'état se relira à la réouverture
+        _fe = etat;
+        AfficherFE();
+        UndoToast.Instance?.ShowInfo("SCI reliée à Super PDP.");
+    }
+
+    void DelierFE() => ConfirmDialog.Instance?.Show("Couper la facture électronique ?",
+        "Les factures de cette SCI ne partiront plus par Super PDP tant qu'elle n'est pas reliée de nouveau. Rien n'est effacé chez Super PDP.",
+        async () =>
+        {
+            string refus = await FactureElectronique.Delier();
+            if (this == null) return;
+            if (refus != null) { ConfirmDialog.Erreur(refus); return; }
+            UndoToast.Instance?.ShowInfo("Facture électronique coupée pour cette SCI.");
+            ChargerFE();
+        }, "Se déconnecter");
 
     /// Étape 16 : un champ secret, son bouton « Tester » à droite et le résultat dessous.
     /// Le test porte sur ce qui est tapé, sans enregistrer (décision du 26/10).
@@ -960,6 +1053,92 @@ public class ReglagePanel : MonoBehaviour
             UITheme.Role.Aide, UITheme.TexteSecondaire);
     }
 
+    // ── Section Modèles d'e-mail (décision du 31/10) ───────────────────────────
+    // Chaque e-mail part de son modèle ; dans un formulaire de facture, le texte se modifie pour cette facture
+    // seule (EmailService.Modele). Un essai part vers l'adresse d'expédition, avec des valeurs d'exemple.
+
+    void BuildModelesEmail(Transform parent)
+    {
+        var body = UIFactory.Section(parent, "Modèles d'e-mail", CoTaupe, CoTaupeL);
+        UIFactory.Text(body.transform,
+            "Chaque e-mail part de son modèle. Dans un formulaire de facture, le texte se modifie pour cette facture "
+            + "seule ; une facture dont on n'a pas changé le texte suit le modèle, même modifié plus tard. "
+            + "« M'envoyer un essai » l'envoie à l'adresse d'expédition (Intégrations › E-mail), avec des valeurs d'exemple.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+        (_factureObjet, _factureCorps) = BlocModele(body.transform, "E-mail de facture (avec le PDF)",
+            "Les quatre types de facture. Tapez « / » pour les variables.",
+            EmailService.ObjetDefaut, EmailService.CorpsDefaut, true, RemplirFacture);
+        (_copieObjet, _copieCorps) = BlocModele(body.transform, "E-mail de facture — copie (facture transmise par la plateforme)",
+            "Jusqu'au 31 août 2027, pour un loyer qui part aussi par la plateforme agréée : la facture électronique fait "
+            + "foi, cet e-mail en joint la copie PDF. Tapez « / » pour les variables.",
+            EmailService.CopieObjetDefaut, EmailService.CopieCorpsDefaut, true, RemplirFacture);
+        (_notifObjet, _notifCorps) = BlocModele(body.transform, "E-mail de notification — facture transmise par la plateforme",
+            "À partir du 1er septembre 2027, une facture de loyer qui part par la plateforme agréée n'est plus envoyée en "
+            + "PDF : ce message prévient le locataire, une fois la facture acceptée. D'ici là, c'est l'e-mail « copie » "
+            + "ci-dessus qui part.",
+            EmailService.NotifObjetDefaut, EmailService.NotifCorpsDefaut, true, RemplirFacture);
+        (_rappelObjet, _rappelCorps) = BlocModele(body.transform, "Rappel d'impayé",
+            "Le brouillon ouvert dans votre messagerie, que vous relisez avant de l'envoyer. {reste} : ce qui reste à "
+            + "payer ; {retard} : la phrase de retard (Textes fixes).",
+            EmailService.RappelObjetDefaut, EmailService.RappelCorpsDefaut, true, RemplirFacture);
+    }
+
+    /// L'e-mail d'invitation d'un collègue, sur la page Utilisateurs (remarque du 31/10), avec ses propres variables.
+    void BuildModeleInvitation(Transform parent)
+    {
+        var body = UIFactory.Section(parent, "E-mail d'invitation", CoTaupe, CoTaupeL);
+        (_invitObjet, _invitCorps) = BlocModele(body.transform, "Invitation d'un collègue",
+            "Le message envoyé quand vous invitez quelqu'un ci-dessus. Ses variables : {invitant}, {entreprise}, {code}, "
+            + "{expire}, {lien.windows}, {mac} (la ligne du lien Mac, retirée tant que la version Mac n'existe pas).",
+            UtilisateursCloud.InvitationObjetDefaut, UtilisateursCloud.InvitationCorpsDefaut, false,
+            s => UtilisateursCloud.Remplir(s, "Agathe (essai)", string.IsNullOrWhiteSpace(_entrepriseNom.text) ? "votre entreprise" : _entrepriseNom.text.Trim(),
+                                           "ESSAI-0000", DateTime.Today.AddDays(7)));
+    }
+
+    (TMP_InputField objet, TMP_InputField corps) BlocModele(Transform parent, string titre, string aide,
+        string objetDefaut, string corpsDefaut, bool variables, Func<string, string> remplir)
+    {
+        UIFactory.Text(parent, titre, UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        UIFactory.Text(parent, aide, UITheme.Role.Aide, UITheme.TexteSecondaire);
+        var objet = UIFactory.Input(parent, objetDefaut);
+        var corps = UIFactory.Input(parent, corpsDefaut, 110, true);
+        if (variables) { SlashAutocomplete.Attach(objet); SlashAutocomplete.Attach(corps); }
+        var essai = UIFactory.Button(parent, "M'envoyer un essai", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
+        UIFactory.Border(essai.gameObject);
+        var info = UIFactory.Text(parent, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        _essais.Add(essai);
+        essai.onClick.AddListener(() => Essai(essai, info,
+            remplir(FacturePdfService.Texte(objet.text, objetDefaut)), remplir(FacturePdfService.Texte(corps.text, corpsDefaut))));
+        return (objet, corps);
+    }
+
+    /// Une facture d'exemple pour les essais (le rappel y voit 400 € restant à payer sur 1 000 €).
+    static string RemplirFacture(string s) => FactureVarResolver.Resolve(s, new Locataire { Name = "Locataire d'exemple" }, null,
+        new FactureContext
+        {
+            date = DateTime.Today, numero = "2026/10003", periode = "Loyer Février 2026",
+            loyerHT = 833.33f, tva = 166.67f, ttc = 1000f, echeance = "01/02/2026", reste = 400f,
+        });
+
+    void Essai(Button bouton, TMP_Text info, string objet, string corps)
+    {
+        string manque = EmailService.CeQuiManque();
+        if (manque != null) { Resultat(info, false, manque); return; }
+        string destinataire = R.smtp.fromEmail;
+        bouton.interactable = false;
+        info.color = UITheme.TexteSecondaire;
+        info.text = $"Envoi en cours vers {destinataire}…";
+        StartCoroutine(AttendreEssai(EmailService.Envoyer(destinataire, "[Essai] " + objet, corps), bouton, info, destinataire));
+    }
+
+    IEnumerator AttendreEssai(EmailService.Envoi envoi, Button bouton, TMP_Text info, string destinataire)
+    {
+        while (!envoi.Termine) yield return null;
+        bouton.interactable = true;
+        if (envoi.Succes) Resultat(info, true, $"Essai envoyé à {destinataire} (regardez aussi les indésirables).");
+        else Resultat(info, false, envoi.Erreur);
+    }
+
     // ── Section Affichage ──────────────────────────────────────────────────────
 
     // Les boutons de taille sont reconstruits à chaque changement pour que le
@@ -1141,11 +1320,24 @@ public class ReglagePanel : MonoBehaviour
         _forceSmtp = _inconnu = false;
         AfficherEmail();
         Detecter();   // étape 16a : Google, Microsoft, ou le SMTP de la messagerie
+        _feActiver.interactable = true;
+        ChargerFE();  // étape 18a : la SCI est-elle reliée à Super PDP
         _lieuEmission.text = FacturePdfService.Texte(R.lieuEmission, FacturePdfService.LieuDefaut);
         _phraseRetard.text = R.phraseRetard;
         _basDePage.text = R.basDePage;
         _tvaDebits.text = MentionTva.Base(R, MentionTva.Debits);
         _tvaEncaissements.text = MentionTva.Base(R, MentionTva.Encaissements);
+        _factureObjet.text = FacturePdfService.Texte(R.factureObjet, EmailService.ObjetDefaut);
+        _factureCorps.text = FacturePdfService.Texte(R.factureCorps, EmailService.CorpsDefaut);
+        _copieObjet.text = FacturePdfService.Texte(R.copieObjet, EmailService.CopieObjetDefaut);
+        _copieCorps.text = FacturePdfService.Texte(R.copieCorps, EmailService.CopieCorpsDefaut);
+        _notifObjet.text = FacturePdfService.Texte(R.notifObjet, EmailService.NotifObjetDefaut);
+        _notifCorps.text = FacturePdfService.Texte(R.notifCorps, EmailService.NotifCorpsDefaut);
+        _rappelObjet.text = FacturePdfService.Texte(R.rappelObjet, EmailService.RappelObjetDefaut);
+        _rappelCorps.text = FacturePdfService.Texte(R.rappelCorps, EmailService.RappelCorpsDefaut);
+        _invitObjet.text = FacturePdfService.Texte(R.invitationObjet, UtilisateursCloud.InvitationObjetDefaut);
+        _invitCorps.text = FacturePdfService.Texte(R.invitationCorps, UtilisateursCloud.InvitationCorpsDefaut);
+        foreach (var b in _essais) b.interactable = true;   // Réglages fermé pendant un essai : l'attente s'est arrêtée avec le panneau
         if (_logoPreview != null) RefreshLogo();
         RebuildRibList();
         RebuildEnteteList();
@@ -1174,6 +1366,16 @@ public class ReglagePanel : MonoBehaviour
         R.basDePage = _basDePage.text;
         R.mentionTvaDebits = _tvaDebits.text;
         R.mentionTvaEncaissements = _tvaEncaissements.text;
+        R.factureObjet = _factureObjet.text;
+        R.factureCorps = _factureCorps.text;
+        R.copieObjet = _copieObjet.text;
+        R.copieCorps = _copieCorps.text;
+        R.notifObjet = _notifObjet.text;
+        R.notifCorps = _notifCorps.text;
+        R.rappelObjet = _rappelObjet.text;
+        R.rappelCorps = _rappelCorps.text;
+        R.invitationObjet = _invitObjet.text;
+        R.invitationCorps = _invitCorps.text;
         if (ReglageService.Save()) UndoToast.Instance?.ShowInfo("Réglages enregistrés");   // refusé : le motif est déjà affiché
     }
 

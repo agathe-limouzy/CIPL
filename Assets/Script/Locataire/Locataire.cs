@@ -196,6 +196,13 @@ public class Locataire : Data
     // pour qu'un objectif supprimé ne revienne pas à la tournée suivante.
     public List<string> signalementsSociete = new List<string>();
 
+    // Étape 18b : assujetti à la TVA, donc destinataire des factures électroniques. "" = d'après le SIRET
+    // (une société l'est d'office, un particulier non) ; "oui" / "non" = choisi sur la fiche.
+    public string assujettiTva = "";
+
+    public static bool AssujettiTva(Locataire l) =>
+        l != null && (l.assujettiTva == "oui" || (l.assujettiTva != "non" && PappersResume.SiretExploitable(l.siretNumber)));
+
     // Propriété DateTime pratique (non sérialisée)
     [NonSerialized]
     private DateTime _dateDebutBail;

@@ -334,8 +334,8 @@ public class FactureRegulPanel : MonoBehaviour
         MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
         _retard.isOn = f?.ajouterRetard ?? true;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
-        _emailObjet.text = FacturePdfService.Texte(f?.emailObjet, EmailService.ObjetDefaut);
-        _emailCorps.text = FacturePdfService.Texte(f?.emailCorps, EmailService.CorpsDefaut);
+        _emailObjet.text = EmailService.ObjetFacture(f?.emailObjet);
+        _emailCorps.text = EmailService.CorpsFacture(f?.emailCorps);
         _modeInfo.text = R.modeEnvoi == ModeEnvoi.Pennylane
             ? "Mode global : Pennylane (e-facture Factur-X)."
             : "Mode global : Email direct (SMTP).";
@@ -848,9 +848,9 @@ public class FactureRegulPanel : MonoBehaviour
 
         var ctx = BuildContext();
         string objet = FactureVarResolver.Resolve(
-            FacturePdfService.Texte(_emailObjet.text, EmailService.ObjetDefaut), _loc, _bat, ctx);
+            FacturePdfService.Texte(_emailObjet.text, EmailService.ObjetFacture()), _loc, _bat, ctx);
         string corps = FactureVarResolver.Resolve(
-            FacturePdfService.Texte(_emailCorps.text, EmailService.CorpsDefaut), _loc, _bat, ctx);
+            FacturePdfService.Texte(_emailCorps.text, EmailService.CorpsFacture()), _loc, _bat, ctx);
 
         // Sans confirmation disponible, rien ne part.
         if (ConfirmDialog.Instance == null)
@@ -1002,8 +1002,8 @@ public class FactureRegulPanel : MonoBehaviour
         MentionTva.Enregistrer(_mentionTva, _texteTvaDebit, f);
         f.ajouterRetard = _retard.isOn;
         f.emailDest = _emailEnvoi.text;
-        f.emailObjet = _emailObjet.text;
-        f.emailCorps = _emailCorps.text;
+        f.emailObjet = EmailService.AGarder(_emailObjet.text, EmailService.ObjetFacture());   // vide : suit le modèle des Réglages
+        f.emailCorps = EmailService.AGarder(_emailCorps.text, EmailService.CorpsFacture());
         f.refInterne = _refInterne.text;
         f.provisionMontant = ParseF(_provisions.text);
         f.anneePeriode = SelectedYear();
@@ -1064,6 +1064,8 @@ public class FactureRegulPanel : MonoBehaviour
         var viewport = UIFactory.Rect("Viewport", srGO);
         UIFactory.Stretch(viewport);
         viewport.gameObject.AddComponent<RectMask2D>();
+        // 30/10 : une surface transparente capte la molette aussi dans les vides entre les sections (sinon elle se perdait sur le fond).
+        if (viewport.GetComponent<Graphic>() == null) viewport.gameObject.AddComponent<Image>().color = Color.clear;
         var vb = UIFactory.VBox(viewport, 16, 2, 8, 2, 12, "Content");
         var crt = (RectTransform)vb.transform;
         crt.anchorMin = new Vector2(0, 1); crt.anchorMax = new Vector2(1, 1); crt.pivot = new Vector2(.5f, 1);

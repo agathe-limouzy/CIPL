@@ -113,6 +113,7 @@ public static class DemarrageCloud
             // 15/10) : la réservation de chaque facture empêche qu'elle parte deux fois.
             FactureEnvoiAuto.ProposerAuDemarrage(_bm.BatimentPrefab);
             TourneeAnnuaire(choix);
+            FactureElectronique.Demarrer(choix);   // étape 18b : envois en panne et « Encaissée » en attente
             VisiteGuidee.LancerSiNouvelle();   // étape 13b : une fois par personne, l'accueil seul à l'écran
             return;
         }

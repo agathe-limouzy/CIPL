@@ -10,16 +10,30 @@ public struct FactureContext
     public float loyerHT;      // total HT de la période (loyer + provision)
     public float tva;
     public float ttc;
+    public string echeance;    // « 01/02/2026 » (e-mail de notification, étape 18b)
+    public float reste;        // reste à payer (rappel d'impayé)
 }
 
 /// Remplace les tokens {loc.*}, {bat.*}, {societe.*}, {date}, {loyer.*}… d'un
 /// texte d'entête par les valeurs réelles (voir FactureVariables pour le catalogue).
 public static class FactureVarResolver
 {
-    // Société émettrice (fixe — Groupe CIPL).
+    // Société émettrice quand aucune entreprise n'a de nom (Groupe CIPL, comme avant le multi-entreprise).
     public const string SocieteNom = "GROUPE CIPL";
     public const string SocieteSiret = "717 220 883 00044";
     public const string SocieteTva = "FR 28 717 220 883";
+
+    /// L'entreprise ouverte (30/10 : une SCI par entreprise) : nom de Réglages › Entreprise, sinon celui du
+    /// cloud ; SIRET et TVA (calculée d'après le SIREN) du cloud. Sans aucun nom, les constantes. Un SIRET
+    /// inconnu reste vide : jamais celui de GROUPE CIPL sous le nom d'une autre société.
+    public static (string nom, string siret, string tva) Societe(string nomReglages, EntrepriseCloud ent)
+    {
+        string nom = !string.IsNullOrWhiteSpace(nomReglages) ? nomReglages.Trim() : ent?.nom?.Trim();
+        if (string.IsNullOrEmpty(nom)) return (SocieteNom, SocieteSiret, SocieteTva);
+        string siret = string.IsNullOrWhiteSpace(ent?.siret) ? "" : RegleAbonnement.SiretLisible(ent.siret);
+        string tva = FactureEn16931.TvaIntra(SocieteLocataire.Siren(ent?.siret));   // « FR28717220883 » ou vide
+        return (nom, siret, tva == "" ? "" : $"FR {tva.Substring(2, 2)} {tva.Substring(4, 3)} {tva.Substring(7, 3)} {tva.Substring(10)}");
+    }
 
     public static string Resolve(string texte, Locataire loc, Batiment bat, FactureContext ctx)
     {
@@ -66,14 +80,18 @@ public static class FactureVarResolver
         m["{date}"]            = ctx.date == default ? "" : ctx.date.ToString("dd/MM/yyyy");
         m["{periode}"]         = S(ctx.periode);
         m["{numero}"]          = S(ctx.numero);
+        m["{echeance}"]        = S(ctx.echeance);
         m["{loyer.ht}"]        = $"{ctx.loyerHT:N2} €";
         m["{loyer.tva}"]       = $"{ctx.tva:N2} €";
         m["{loyer.ttc}"]       = $"{ctx.ttc:N2} €";
+        m["{reste}"]           = $"{ctx.reste:N2} €";
+        m["{retard}"]          = S(ReglageService.Current?.phraseRetard);
 
         // ── Société ──
-        m["{societe.nom}"]     = SocieteNom;
-        m["{societe.siret}"]   = SocieteSiret;
-        m["{societe.tva}"]     = SocieteTva;
+        var (nom, siret, tva) = Societe(ReglageService.Current?.entrepriseNom, SessionCloud.Entreprise);
+        m["{societe.nom}"]     = nom;
+        m["{societe.siret}"]   = siret;
+        m["{societe.tva}"]     = tva;
         return m;
     }
 

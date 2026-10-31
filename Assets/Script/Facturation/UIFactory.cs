@@ -210,6 +210,9 @@ public static class UIFactory
         input.pointSize = fontSize;
         input.lineType = multiline ? TMP_InputField.LineType.MultiLineNewline
                                    : TMP_InputField.LineType.SingleLine;
+        // Un champ à plusieurs lignes garde la molette pour lui : la page ne défilait plus dès que la
+        // souris passait dessus (constaté le 30/10 dans Facturer). Le relais la rend à la page.
+        if (multiline) img.gameObject.AddComponent<InputFieldScrollFix>();
         input.richText = false;
         input.interactable = true;
         input.readOnly = false;

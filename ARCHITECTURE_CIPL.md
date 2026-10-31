@@ -287,7 +287,8 @@ Le chemin d'une facture :
  FacturePdfService                       ← gabarit HTML (StreamingAssets) → Edge headless → PDF + aperçu PNG
    ▼
  Envoi selon ReglageData.modeEnvoi :
-   ├─ EmailService (SMTP, confirmation obligatoire, rien sans destinataire explicite)
+   ├─ EmailService (SMTP, confirmation obligatoire, rien sans destinataire explicite ; texte : celui de la
+   │    facture, sinon le modèle de Réglages › Modèles d'e-mail, EmailService.Modele, 31/10)
    └─ PennylaneClient.Deposer (facture INCOMPLÈTE + Factur-X ; ni finalisation ni send_to_pa)
    ▼
  FactureEmission.Enregistrer             ← APRÈS un PDF réussi : FacturationSuivi.MarquerEnvoye / MarquerCorrige
@@ -346,6 +347,7 @@ Sur le cloud (étape 16b), la tournée du jour (`DemarrageCloud.TourneeAnnuaire`
 | Annuaire des entreprises — `recherche-entreprises.api.gouv.fr` | Résumé société par SIRET | `PapperService`, `PappersSync` | aucune |
 | Google Maps Static API — `maps.googleapis.com` (étape 16b, à la place de Mapbox) | Carte satellite de la fiche bâtiment et vignettes de l'accueil | `TileLoader.Image`, `MapThumbnailService`, par la fonction serveur `cartes` | clé de CIPL `GOOGLE_MAPS_KEY` (Secrets de Supabase), plafond par jour dans la console Google |
 | Pappers — `api.pappers.fr` (étape 16b) | Fiche des sociétés locataires (capital, dirigeants, finances, fermeture) | `PappersSync` (cloud), par la fonction serveur `pappers` | clé de CIPL `PAPPERS_API_KEY` (Secrets de Supabase) ; une lecture par société et par mois |
+| Super PDP — `api.superpdp.tech` (étape 18a, plateforme agréée) | Relier chaque SCI (fenêtre d'autorisation, vérification du gérant) ; 18b : transmettre les loyers des locataires assujettis avec un SIRET (`FactureEn16931` → Factur-X assemblé par Super PDP, UBL si le destinataire refuse le Factur-X ; adresse de l'acheteur lue dans l'annuaire ; en bac à sable, vendeur et acheteur repris de la facture d'essai `generate_test_invoice`) et déclarer « Encaissée » (fr:212) ; e-mail au locataire : copie du PDF, puis dès le 1/9/2027 (`FactureElectronique.Bascule`) une simple notification après l'acceptation (modèle `ReglageData.notifObjet` / `notifCorps`) | `FactureElectronique` (`Rattraper` après l'émission ou un paiement, `Demarrer` au lancement), par les fonctions serveur `facture-electronique` et `facture-electronique-retour` | application OAuth de CIPL (`SUPERPDP_CLIENT_ID`, `SUPERPDP_CLIENT_SECRET`) ; une autorisation par SCI, gardée et renouvelée sur le serveur (table `plateformes`) |
 | BODACC — `bodacc-datadila.opendatasoft.com` (étape 16b) | Procédures collectives des sociétés locataires | `PappersSync.Bodacc`, `SocieteLocataire.LireBodacc` | aucune |
 | Base Adresse Nationale — `api-adresse.data.gouv.fr`, puis Nominatim en repli | Adresse → coordonnées | `GeoCodingService`, `CadastreService` | aucune |
 | IGN — `apicarto.ign.fr` (`/api/cadastre`, `/api/gpu`) | Parcelle cadastrale, zone PLU | `CadastreService`, `PLUService` | aucune |

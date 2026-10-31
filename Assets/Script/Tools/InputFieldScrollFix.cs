@@ -17,6 +17,8 @@ public class InputFieldScrollFix : MonoBehaviour, IScrollHandler
 
     public void OnScroll(PointerEventData eventData)
     {
+        // Champ construit par code avant d'être rangé sous sa page : le défilement se cherche au premier usage.
+        if (_parentScrollRect == null) _parentScrollRect = GetComponentInParent<ScrollRect>();
         // Si le champ n'est pas actif/focus → scroll le parent
         if (!_inputField.isFocused && _parentScrollRect != null)
             _parentScrollRect.OnScroll(eventData);

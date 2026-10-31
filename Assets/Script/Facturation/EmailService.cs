@@ -248,6 +248,61 @@ public static class EmailService
         + "Cordialement,\n"
         + "{societe.nom}";
 
+    /// Étape 18b : jusqu'au 31/8/2027, l'e-mail avec le PDF d'un loyer qui part aussi par la plateforme. La
+    /// facture électronique fait foi, le PDF en est la copie (décisions des 30 et 31/10).
+    public const string CopieObjetDefaut = "{societe.nom} — facture {numero} — copie pour information";
+
+    public const string CopieCorpsDefaut =
+        "Bonjour,\n\n"
+        + "Votre facture {numero} concernant {periode} vous est transmise par notre plateforme agréée de facturation "
+        + "électronique : c'est elle qui fait foi. Vous trouverez ci-joint sa copie en PDF, pour information.\n\n"
+        + "Cordialement,\n"
+        + "{societe.nom}";
+
+    /// Étape 18b : l'e-mail de notification, sans PDF, à partir du 1/9/2027.
+    public const string NotifObjetDefaut = "{societe.nom} — facture {numero} transmise";
+
+    public const string NotifCorpsDefaut =
+        "Bonjour,\n\n"
+        + "Votre facture {numero} de {loyer.ttc} ({periode}, à régler le {echeance}) vous a été transmise par "
+        + "notre plateforme agréée de facturation électronique. Vous la trouverez sur votre plateforme de réception.\n\n"
+        + "Cordialement,\n"
+        + "{societe.nom}";
+
+    /// Le brouillon de rappel d'impayé (FactureRappelService) : {reste} est ce qui reste à payer, {retard} la
+    /// phrase de retard des Réglages.
+    public const string RappelObjetDefaut = "Rappel — {periode} — échéance dépassée";
+
+    public const string RappelCorpsDefaut =
+        "Bonjour,\n\n"
+        + "Sauf erreur de notre part, la facture « {periode} » (n° {numero}), d'un montant de {loyer.ttc}, échue le "
+        + "{echeance}, n'est pas réglée : il reste {reste} à payer à ce jour.\n\n"
+        + "Nous vous remercions de bien vouloir procéder à son règlement dans les meilleurs délais.\n\n"
+        + "{retard}\n\n"
+        + "Cordialement,\n"
+        + "{societe.nom}";
+
+    // ── Modèles des Réglages (décision du 31/10) ────────────────────────────────
+    // Réglages › Facturation › Modèles d'e-mail : chaque e-mail a son modèle, repris dans les formulaires et
+    // modifiable facture par facture. Une facture n'a son texte à elle que si on l'a changé : sinon elle suit
+    // le modèle, même modifié plus tard.
+
+    /// Le texte de la facture s'il lui est propre, sinon le modèle des Réglages, sinon celui d'usine. Un texte
+    /// enregistré égal au modèle d'usine (avant les modèles des Réglages, chaque facture gardait son texte)
+    /// compte comme « pas de texte à elle ».
+    public static string Modele(string propre, string reglage, string usine) =>
+        !string.IsNullOrWhiteSpace(propre) && propre.Trim() != usine.Trim() ? propre : FacturePdfService.Texte(reglage, usine);
+
+    public static string ObjetFacture(string propre = null) => Modele(propre, ReglageService.Current?.factureObjet, ObjetDefaut);
+    public static string CorpsFacture(string propre = null) => Modele(propre, ReglageService.Current?.factureCorps, CorpsDefaut);
+    public static string ObjetCopie(string propre = null) => Modele(propre, ReglageService.Current?.copieObjet, CopieObjetDefaut);
+    public static string CorpsCopie(string propre = null) => Modele(propre, ReglageService.Current?.copieCorps, CopieCorpsDefaut);
+    public static string ObjetNotif(string propre = null) => Modele(propre, ReglageService.Current?.notifObjet, NotifObjetDefaut);
+    public static string CorpsNotif(string propre = null) => Modele(propre, ReglageService.Current?.notifCorps, NotifCorpsDefaut);
+
+    /// À l'enregistrement d'une facture : vide si le texte est celui du modèle, qu'il continuera de suivre.
+    public static string AGarder(string texte, string modele) => (texte ?? "").Trim() == (modele ?? "").Trim() ? "" : texte;
+
     /// Objet et corps du message de test. Volontairement explicites : s'il arrive
     /// dans une vraie boîte, il doit se lire comme un test et pas comme une facture.
     public const string TestObjet = "CIPL — test d'envoi";

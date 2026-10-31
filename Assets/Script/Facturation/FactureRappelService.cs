@@ -1,6 +1,4 @@
 using System;
-using System.Globalization;
-using System.Text;
 using UnityEngine;
 
 /// Rappel d'échéance pour une facture impayée (diagramme : « option d'envoyer un
@@ -9,14 +7,11 @@ using UnityEngine;
 /// La date du rappel est mémorisée sur l'enregistrement stocké du suivi.
 public static class FactureRappelService
 {
-    static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
-
     public static void Demander(Locataire loc, FactureEtat l, Action onDone)
     {
         if (loc == null || l == null) return;
 
         string email    = (loc.emailLocataire ?? "").Trim();
-        string echeance = DateTime.TryParse(l.echeanceISO, out var e) ? e.ToString("dd/MM/yyyy") : "—";
         string dejaTxt  = DateTime.TryParse(l.dernierRappelISO, out var dr)
             ? $"\n\nUn rappel a déjà été préparé le {dr:dd/MM/yyyy}." : "";
 
@@ -30,9 +25,7 @@ public static class FactureRappelService
         {
             if (!string.IsNullOrEmpty(email))
             {
-                string sujet = $"Rappel — {l.libelle} — échéance dépassée";
-                FacturationSuivi.Solde(loc, l.key, out float total, out float paye);
-                string corps = BuildCorps(l, echeance, total, paye);
+                var (sujet, corps) = Texte(loc, l);
                 Application.OpenURL($"mailto:{email}?subject={Esc(sujet)}&body={Esc(corps)}");
             }
             FacturationSuivi.MarquerRappel(loc, l.key);
@@ -49,37 +42,18 @@ public static class FactureRappelService
             Confirmer();
     }
 
-    static string BuildCorps(FactureEtat l, string echeance, float total, float paye)
+    /// Le brouillon, d'après le modèle de Réglages › Facturation › Modèles d'e-mail (décision du 31/10).
+    /// Paiement partiel (08/10) : le rappel réclame le reste, pas le total ({reste}).
+    public static (string sujet, string corps) Texte(Locataire loc, FactureEtat l)
     {
         var R = ReglageService.Current;
-        string signature = R != null && R.smtp != null && !string.IsNullOrWhiteSpace(R.smtp.fromName)
-            ? R.smtp.fromName : "GROUPE CIPL";
+        var ctx = FactureEnvoiAuto.Contexte(loc, l);
+        FacturationSuivi.Solde(loc, l.key, out float total, out float paye);
         if (total <= 0f) total = l.montant;
-        string montant = total > 0f ? total.ToString("#,##0.00", Fr) + " €" : "";
-
-        var sb = new StringBuilder();
-        sb.AppendLine("Bonjour,");
-        sb.AppendLine();
-        sb.Append($"Sauf erreur de notre part, la facture « {l.libelle} »");
-        if (!string.IsNullOrEmpty(l.numero)) sb.Append($" (n° {l.numero})");
-        if (!string.IsNullOrEmpty(montant)) sb.Append($", d'un montant de {montant},");
-        // Paiement partiel (08/10) : le rappel réclame le reste, pas le total.
-        if (paye > 0f && paye < total)
-            sb.AppendLine($" échue le {echeance}, n'a été réglée qu'en partie : il reste "
-                + $"{(total - paye).ToString("#,##0.00", Fr)} € à payer.");
-        else
-            sb.AppendLine($" échue le {echeance}, demeure impayée à ce jour.");
-        sb.AppendLine();
-        sb.AppendLine("Nous vous remercions de bien vouloir procéder à son règlement dans les meilleurs délais.");
-        if (R != null && !string.IsNullOrWhiteSpace(R.phraseRetard))
-        {
-            sb.AppendLine();
-            sb.AppendLine(R.phraseRetard);
-        }
-        sb.AppendLine();
-        sb.AppendLine("Cordialement,");
-        sb.Append(signature);
-        return sb.ToString();
+        ctx.ttc = total;
+        ctx.reste = Math.Max(0f, total - paye);
+        return (FactureVarResolver.Resolve(FacturePdfService.Texte(R?.rappelObjet, EmailService.RappelObjetDefaut), loc, null, ctx),
+                FactureVarResolver.Resolve(FacturePdfService.Texte(R?.rappelCorps, EmailService.RappelCorpsDefaut), loc, null, ctx));
     }
 
     static string Esc(string s) => Uri.EscapeDataString(s ?? "");

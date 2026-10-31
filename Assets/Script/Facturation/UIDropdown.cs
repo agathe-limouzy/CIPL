@@ -91,6 +91,8 @@ public class UIDropdown : MonoBehaviour
         var viewport = UIFactory.Rect("Viewport", listBg.transform);
         UIFactory.Stretch(viewport);
         viewport.gameObject.AddComponent<RectMask2D>();
+        // 30/10 : une surface transparente capte la molette aussi dans les vides entre les sections (sinon elle se perdait sur le fond).
+        if (viewport.GetComponent<Graphic>() == null) viewport.gameObject.AddComponent<Image>().color = Color.clear;
         var content = UIFactory.Rect("Content", viewport);
         content.anchorMin = new Vector2(0, 1); content.anchorMax = new Vector2(1, 1);
         content.pivot = new Vector2(0.5f, 1); content.sizeDelta = Vector2.zero;

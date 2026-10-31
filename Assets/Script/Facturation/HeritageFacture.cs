@@ -43,6 +43,10 @@ public static class HeritageFacture
             // Message d'accompagnement de l'email : de la rédaction, pas une donnée.
             emailObjet     = src.emailObjet,
             emailCorps     = src.emailCorps,
+            copieObjet     = src.copieObjet,
+            copieCorps     = src.copieCorps,
+            notifObjet     = src.notifObjet,
+            notifCorps     = src.notifCorps,
 
             depotRappel    = src.depotRappel,
             depotDu        = src.depotDu,

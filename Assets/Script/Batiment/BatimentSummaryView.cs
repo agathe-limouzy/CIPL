@@ -382,6 +382,8 @@ public class BatimentSummaryView : MonoBehaviour
         var viewport = UIFactory.Rect("Viewport", defil);
         UIFactory.Stretch(viewport);
         viewport.gameObject.AddComponent<RectMask2D>();
+        // 30/10 : une surface transparente capte la molette aussi dans les vides entre les sections (sinon elle se perdait sur le fond).
+        if (viewport.GetComponent<Graphic>() == null) viewport.gameObject.AddComponent<Image>().color = Color.clear;
         var rows = UIFactory.VBox(viewport, 4, 0, 0, 0, 4, "Rows");
         var crt = (RectTransform)rows.transform;
         crt.anchorMin = new Vector2(0, 1); crt.anchorMax = new Vector2(1, 1); crt.pivot = new Vector2(.5f, 1);
