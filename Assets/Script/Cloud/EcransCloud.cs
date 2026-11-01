@@ -719,8 +719,10 @@ public static class EcransCloud
         var deco = Bouton(pied.transform, "Se déconnecter", true);
         Action fermerVoile = () => UnityEngine.Object.Destroy(voile.gameObject);
         fermer.onClick.AddListener(() => fermerVoile());
-        chg.onClick.AddListener(() => { fermerVoile(); changer(); });
-        deco.onClick.AddListener(() => { fermerVoile(); deconnecter(); });
+        // Revue 16c (D3-03) : une fiche en cours de modification serait fermée sans un mot (CONCEPTION §13 : FermetureGuard,
+        // comme Quitter). Le menu se ferme d'abord : la confirmation s'affiche par-dessus l'écran, pas sous le voile.
+        chg.onClick.AddListener(() => { fermerVoile(); FermetureGuard.ConfirmerPerteSaisies("Changer d'entreprise", changer); });
+        deco.onClick.AddListener(() => { fermerVoile(); FermetureGuard.ConfirmerPerteSaisies("Se déconnecter", deconnecter); });
     }
 
     // ── 5. Mise à jour obligatoire (étape 15, maquette 3 du 26/10) ─────────────

@@ -155,6 +155,122 @@ public class Revue16cTests
         Assert.That(ChargePanel.Ratios("Surface", new List<Locataire> { a }, Surface, null), Is.Empty, "un seul locataire : il paie tout");
     }
 
+    // ── Lot 2 : serveur, sécurité et argent (01/11) ───────────────────────────
+
+    static string Sql16c2 => Serveur("etape16c2_supabase.sql");
+    static string Fonction(string sql, string nom) =>
+        System.Text.RegularExpressions.Regex.Match(sql, @"create or replace function public\." + nom + @"\(.*?\$\$;", System.Text.RegularExpressions.RegexOptions.Singleline).Value;
+
+    [Test]
+    public void D1_03_le_serveur_reserve_RIB_logo_et_listes_a_l_admin()
+    {
+        string f = Fonction(Sql16c2, "enregistrer_reglages");
+        Assert.That(f, Is.Not.Empty);
+        foreach (var champ in new[] { "'ribs'", "'logoPath'", "'sansLogo'", "'listesCharges'" }) StringAssert.Contains(champ, f, champ);
+        Assert.That(System.Text.RegularExpressions.Regex.Matches(f, "'refus', 'admin'").Count, Is.EqualTo(2), "version 0 et modification");
+    }
+
+    [Test]
+    public void D1_04_l_import_suit_les_regles_du_groupe()
+    {
+        string f = Fonction(Sql16c2, "creer_entreprise_import");
+        StringAssert.Contains("ecriture_permise(g)", f);
+        StringAssert.Contains("case when st = 'essai' then 3 else 1 end", f);
+        StringAssert.Contains("r <> 'admin'", f);
+        StringAssert.DoesNotContain("do update set role = 'admin'", f, "un membre n'est plus promu admin par l'import");
+    }
+
+    [Test]
+    public void D1_05_pas_de_second_abonnement_Stripe()
+    {
+        string ts = Serveur("fonctions", "abonnement-stripe.ts");
+        string choisir = ts.Substring(ts.IndexOf("action === \"choisir\""), ts.IndexOf("action === \"portail\"") - ts.IndexOf("action === \"choisir\""));
+        StringAssert.Contains("stripe.subscriptions.list(", choisir);
+        StringAssert.Contains("checkout.sessions.expire(", choisir);
+    }
+
+    [Test]
+    public void D1_06_l_etat_de_la_plateforme_survit_a_une_panne()
+    {
+        StringAssert.Contains("indisponible: true", Serveur("fonctions", "facture-electronique.ts"));
+        var r = JsonUtility.FromJson<FactureElectronique.Reponse>("{\"ok\":true,\"relie\":true,\"statut\":\"verified\",\"indisponible\":true}");
+        Assert.That(r.ok && r.relie && r.indisponible && r.statut == "verified");
+        StringAssert.Contains("FactureElectronique.EtatInconnu ?", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", "FactureLoyerPanel.cs")));
+    }
+
+    [Test]
+    public void D1_07_un_jeton_refuse_est_relu_avant_de_conclure_retire()
+    {
+        string ts = Serveur("fonctions", "facture-electronique.ts");
+        int relu = ts.IndexOf("select(\"access_token, refresh_token, expire_le\")"), retire = ts.IndexOf("\"retire\"");
+        Assert.That(relu, Is.GreaterThan(0).And.LessThan(retire), "la relecture précède la réponse « retire »");
+        StringAssert.Contains("> 300_000", ts);
+    }
+
+    [Test]
+    public void D1_08_Stripe_avant_la_base_et_un_nombre_entier()
+    {
+        string ts = Serveur("fonctions", "abonnement-stripe.ts");
+        string ajuster = ts.Substring(ts.IndexOf("action === \"ajuster\""));
+        StringAssert.Contains("Number.isInteger(licences)", ajuster);
+        Assert.That(ajuster.IndexOf("subscriptionItems.update(l.id"), Is.LessThan(ajuster.IndexOf(".from(\"entreprises\").update({ licences_max")));
+    }
+
+    [Test]
+    public void D1_09_les_secrets_du_cloud_sont_chiffres_sur_ce_PC()
+    {
+        string dossier = Path.Combine(Path.GetTempPath(), "cipl_test_" + System.Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dossier);
+        try
+        {
+            string chemin = Path.Combine(dossier, "cipl_secrets_test.dat");
+            Assert.That(ReglageService.EcrireTexte(chemin, "pennylane_key=abc\nsmtp_password=xyz\n", out var erreur), Is.True, erreur);
+            string brut = File.ReadAllText(chemin);
+            StringAssert.StartsWith("DPAPI:", brut);
+            StringAssert.DoesNotContain("abc", brut); StringAssert.DoesNotContain("xyz", brut);
+            Assert.That(ReglageService.LireTexte(chemin), Is.EqualTo("pennylane_key=abc\nsmtp_password=xyz\n"));
+            File.WriteAllText(chemin, "smtp_password=clair\n");   // fichier d'avant le chiffrement
+            Assert.That(ReglageService.LireTexte(chemin), Is.EqualTo("smtp_password=clair\n"));
+            string app = Path.Combine(dossier, "cipl_app_secrets.dat");   // adresse du cloud : publique, en clair
+            Assert.That(ReglageService.EcrireTexte(app, "cloud_url=x\n", out erreur), Is.True, erreur);
+            Assert.That(File.ReadAllText(app), Is.EqualTo("cloud_url=x\n"));
+        }
+        finally { Directory.Delete(dossier, true); }
+    }
+
+    [Test]
+    public void D3_01_une_installation_neuve_connait_le_cloud()
+    {
+        StringAssert.StartsWith("https://", CloudDefaut.Url);
+        Assert.That(CloudDefaut.Cle.Length, Is.GreaterThan(20));
+        Assert.That(ReglageService.OuDefaut("", "https://x.supabase.co"), Is.EqualTo("https://x.supabase.co"));
+        Assert.That(ReglageService.OuDefaut("https://test.supabase.co", "https://x.supabase.co"), Is.EqualTo("https://test.supabase.co"), "le fichier l'emporte");
+    }
+
+    [Test]
+    public void D3_03_changer_d_entreprise_et_se_deconnecter_previennent()
+    {
+        string cs = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Cloud", "EcransCloud.cs"));
+        StringAssert.Contains("FermetureGuard.ConfirmerPerteSaisies(\"Changer d'entreprise\"", cs);
+        StringAssert.Contains("FermetureGuard.ConfirmerPerteSaisies(\"Se déconnecter\"", cs);
+    }
+
+    [Test]
+    public void D3_06_inscrire_exige_une_adresse_prouvee()
+    {
+        string f = Fonction(Sql16c2, "inscrire");
+        StringAssert.Contains("auth.jwt() -> 'amr'", f);
+        StringAssert.Contains("{\"method\":\"otp\"}", f);
+        StringAssert.DoesNotContain("\"password\"", f);
+    }
+
+    [Test]
+    public void D3_07_Stripe_unpaid_vaut_expire()
+    {
+        var ligne = Serveur("fonctions", "stripe-webhook.ts").Split('\n').First(l => l.Contains("\"unpaid\""));
+        StringAssert.Contains("\"expire\"", ligne);
+    }
+
     [Test]
     public void BC10_une_surface_saisie_reste_apres_enregistrement()
     {

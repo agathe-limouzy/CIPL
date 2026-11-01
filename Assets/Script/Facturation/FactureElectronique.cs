@@ -20,8 +20,13 @@ public static class FactureElectronique
     [Serializable] public class Reponse
     {
         public bool ok, relie, configure, bac_a_sable;
+        public bool indisponible;   // etat : Super PDP injoignable, dernier état connu (revue 16c, D1-06)
         public string refus, erreur, statut, url, id;
     }
+
+    /// L'état n'a pas pu être lu au lancement, même au second essai (serveur de CIPL injoignable, jeton) : les loyers
+    /// émis d'ici le prochain lancement partent par e-mail seul, et l'écran Facturer le dit (revue 16c, D5-04).
+    public static bool EtatInconnu { get; private set; }
 
     // L'état de la SCI ouverte, retenu à chaque lecture (démarrage, Réglages) : l'émission d'un loyer en a
     // besoin tout de suite, sans attendre le serveur.
@@ -44,6 +49,7 @@ public static class FactureElectronique
             _entreprise = SessionCloud.Entreprise.id;
             _relie = r.relie;
             _active = r.relie && r.statut == "verified";
+            EtatInconnu = false;
         }
         return r;
     }
@@ -218,9 +224,18 @@ public static class FactureElectronique
         {
             // L'état d'abord, tout de suite : l'écran Facturer en a besoin dès qu'on l'ouvre.
             if (SessionCloud.Entreprise != e || HorsLigne.Actif) return;
-            await Etat();
+            var etat = await Etat();
+            if (etat.ok && etat.relie && etat.indisponible)
+                UndoToast.Instance?.ShowInfo("Super PDP ne répond pas : CIPL garde son dernier état connu, les factures partiront dès qu'il répond.");
             await Task.Delay(35000);   // le rattrapage après la relecture des verrous et la tournée de l'annuaire
             if (SessionCloud.Entreprise != e || HorsLigne.Actif || AbonnementCloud.LectureSeule) return;
+            // Revue 16c (D1-06, D5-04) : un échec passager au lancement laissait la plateforme muette toute la session, sans un
+            // mot, et les loyers du jour partaient sans facture électronique. Second essai, puis avertissement.
+            if (!etat.ok && !(await Etat()).ok)
+            {
+                EtatInconnu = true;
+                UndoToast.Instance?.ShowInfo("Super PDP : état non lu. Les loyers émis d'ici le prochain lancement partiront par e-mail seul.");
+            }
             var bm = BatimentManager.Instance;
             if (!Active || bm == null) return;
             var libre = await EcritureCloud.LocatairesLibres();

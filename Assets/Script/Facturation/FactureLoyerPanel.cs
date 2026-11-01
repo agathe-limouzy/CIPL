@@ -895,6 +895,7 @@ public class FactureLoyerPanel : MonoBehaviour
             : FactureElectronique.SansSiret(_loc) ? "Envoi : e-mail seulement — ajoutez le SIRET du locataire pour la facture électronique (Super PDP)."
             : FactureElectronique.Active ? "Envoi : e-mail (locataire non assujetti à la TVA : pas de facture électronique)."
             : FactureElectronique.EnVerification ? "Envoi : e-mail seulement (Super PDP : vérification du gérant en cours, voir Réglages → Intégrations)."
+            : FactureElectronique.EtatInconnu ? "Envoi : e-mail seulement (Super PDP : état non lu au lancement ; relancez CIPL pour la facture électronique)."
             : "Mode global : Email direct (SMTP).";
         _modeInfo.color = FactureElectronique.SansSiret(_loc) ? UITheme.Alerte : UITheme.TexteSecondaire;
         if (_avertPennylane != null) _avertPennylane.gameObject.SetActive(R.modeEnvoi == ModeEnvoi.Pennylane);

@@ -22,10 +22,11 @@ const RETOURS: Record<string, string> = {
 };
 
 /** Le statut CIPL (groupes.statut) d'un abonnement Stripe. Paiement refusé : Stripe relance,
- *  CIPL reste modifiable ; toutes les relances échouées, Stripe annule : lecture seule. */
+ *  CIPL reste modifiable ; relances épuisées (« unpaid », réglage Stripe « marquer comme impayé » :
+ *  plus aucune tentative, revue 16c D3-07) ou abonnement annulé : lecture seule. */
 function statut(s: string): string {
-  if (s === "past_due" || s === "unpaid") return "refuse";
-  if (s === "canceled" || s === "incomplete_expired" || s === "paused") return "expire";
+  if (s === "past_due") return "refuse";
+  if (s === "unpaid" || s === "canceled" || s === "incomplete_expired" || s === "paused") return "expire";
   return "actif";   // trialing, active, incomplete (prélèvement SEPA en cours de traitement)
 }
 

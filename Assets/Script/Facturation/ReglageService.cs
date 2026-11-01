@@ -246,11 +246,58 @@ public static class ReglageService
     // Étape 16b : plus de token Mapbox sur les PC (cartes Google par le serveur, clé de CIPL).
 
     // Projet cloud (Supabase) : adresse et clé PUBLIQUE de l'app (publishable key).
-    // Au niveau application, pour basculer d'un projet de test au projet réel sans recompiler.
-    public static string GetCloudUrl() => ReadSecretFrom(AppSecretsPath, "cloud_url").Trim().TrimEnd('/');
+    // Revue 16c (D3-01) : le projet de CIPL est compilé (CloudDefaut) ; le fichier de ce PC, s'il est renseigné
+    // (CIPL › Essai cloud), l'emporte, pour viser un projet de test sans recompiler.
+    public static string GetCloudUrl() => OuDefaut(ReadSecretFrom(AppSecretsPath, "cloud_url").Trim().TrimEnd('/'), CloudDefaut.Url);
     public static bool SetCloudUrl(string v) => WriteSecretTo(AppSecretsPath, "cloud_url", (v ?? "").Trim().TrimEnd('/'));
-    public static string GetCloudCle() => ReadSecretFrom(AppSecretsPath, "cloud_cle").Trim();
+    public static string GetCloudCle() => OuDefaut(ReadSecretFrom(AppSecretsPath, "cloud_cle").Trim(), CloudDefaut.Cle);
     public static bool SetCloudCle(string v) => WriteSecretTo(AppSecretsPath, "cloud_cle", (v ?? "").Trim());
+    public static string OuDefaut(string lu, string defaut) => string.IsNullOrEmpty(lu) ? (defaut ?? "").Trim() : lu;
+
+    // Revue 16c (D1-09) : sur le cloud, la clé Pennylane et le mot de passe SMTP, recopiés du serveur sur chaque PC
+    // membre (cipl_secrets_<entreprise>.dat), ne sont plus en clair : chiffrés comme le jeton de session (DPAPI, lié
+    // au compte Windows ; trousseau sur Mac). Illisible (autre compte) : vide, les secrets reviennent du serveur à
+    // l'ouverture suivante. Hors cloud (dossier de l'entreprise) et adresse du cloud (publique) : en clair, comme avant.
+    const string Marque = "DPAPI:";
+    static bool Protege(string chemin) => Path.GetFileName(chemin).StartsWith("cipl_secrets_");
+    static string[] Lignes(string texte) => (texte ?? "").Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.RemoveEmptyEntries);
+
+    /// Le texte « clé=valeur » d'un fichier de secrets, déchiffré s'il l'est ; "" sans fichier, ou illisible par ce compte.
+    public static string LireTexte(string chemin)
+    {
+        if (Protege(chemin) && Plateforme.Mac)
+        {
+            string k = Trousseau.Lire(Path.GetFileNameWithoutExtension(chemin));
+            if (k != null) return Decoder(k);
+        }
+        if (!File.Exists(chemin)) return "";
+        string brut = File.ReadAllText(chemin);
+        if (!brut.StartsWith(Marque)) return brut;   // en clair : hors cloud, adresse du cloud, ou fichier d'avant le chiffrement
+        byte[] clair = Dpapi.Deproteger(System.Convert.FromBase64String(brut.Substring(Marque.Length).Trim()));
+        return clair == null ? "" : System.Text.Encoding.UTF8.GetString(clair);
+    }
+
+    static string Decoder(string base64)
+    {
+        try { return System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String(base64)); }
+        catch (System.FormatException) { return ""; }
+    }
+
+    public static bool EcrireTexte(string chemin, string texte, out string erreur)
+    {
+        erreur = null;
+        if (!Protege(chemin)) return AtomicFile.WriteAllText(chemin, texte, out erreur);
+        if (Plateforme.Mac)
+        {
+            if (!Trousseau.Ecrire(Path.GetFileNameWithoutExtension(chemin), System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(texte))))
+            { erreur = "trousseau indisponible"; return false; }
+            try { if (File.Exists(chemin)) File.Delete(chemin); } catch (System.Exception) { }   // l'ancien fichier en clair
+            return true;
+        }
+        byte[] chiffre = Dpapi.Proteger(System.Text.Encoding.UTF8.GetBytes(texte));
+        if (chiffre == null) { erreur = "chiffrement indisponible (DPAPI)"; return false; }
+        return AtomicFile.WriteAllText(chemin, Marque + System.Convert.ToBase64String(chiffre), out erreur);
+    }
 
     private static string ReadSecret(string key) => ReadSecretFrom(SecretsPath, key);
 
@@ -258,8 +305,7 @@ public static class ReglageService
     {
         try
         {
-            if (!File.Exists(chemin)) return "";   // pas encore de secret : normal
-            foreach (var line in File.ReadAllLines(chemin))
+            foreach (var line in Lignes(LireTexte(chemin)))   // "" sans fichier : pas encore de secret, normal
             {
                 int i = line.IndexOf('=');
                 if (i > 0 && line.Substring(0, i) == key)
@@ -286,22 +332,19 @@ public static class ReglageService
         // parvient PAS à le lire, on abandonne : réécrire avec un dictionnaire
         // incomplet effacerait les autres secrets (enregistrer le mot de passe SMTP
         // aurait supprimé la clé API Pennylane).
-        if (File.Exists(chemin))
+        try
         {
-            try
+            foreach (var line in Lignes(LireTexte(chemin)))
             {
-                foreach (var line in File.ReadAllLines(chemin))
-                {
-                    int i = line.IndexOf('=');
-                    if (i > 0) dict[line.Substring(0, i)] = line.Substring(i + 1);
-                }
+                int i = line.IndexOf('=');
+                if (i > 0) dict[line.Substring(0, i)] = line.Substring(i + 1);
             }
-            catch (System.Exception e)
-            {
-                Debug.LogError($"[ReglageService] Secrets illisibles ({e.Message}) — écriture annulée " +
-                               "pour ne pas effacer les autres secrets enregistrés.");
-                return false;
-            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[ReglageService] Secrets illisibles ({e.Message}) — écriture annulée " +
+                           "pour ne pas effacer les autres secrets enregistrés.");
+            return false;
         }
 
         dict[key] = value ?? "";
@@ -309,7 +352,7 @@ public static class ReglageService
         var sb = new StringBuilder();
         foreach (var kv in dict) sb.AppendLine(kv.Key + "=" + kv.Value);
 
-        if (!AtomicFile.WriteAllText(chemin, sb.ToString(), out string erreur))
+        if (!EcrireTexte(chemin, sb.ToString(), out string erreur))
         {
             Debug.LogError($"[ReglageService] ÉCHEC d'enregistrement des secrets — {erreur}");
             return false;

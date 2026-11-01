@@ -20,7 +20,8 @@ public static class DemarrageCloud
         MiseAJour.Verifier(() => Canvas);   // étape 15 : en parallèle, sans retarder la connexion
         if (!SessionCloud.Configure)
         {
-            ConfirmDialog.Erreur("Adresse du projet cloud non renseignée : dans Unity, menu CIPL › Essai cloud (étape 1).");
+            // Revue 16c (D3-01) : le projet de CIPL est compilé (CloudDefaut) ; ce cas ne reste possible qu'en développement.
+            ConfirmDialog.Erreur("CIPL n'est pas configuré pour le cloud : réinstallez-le. (Développement : menu CIPL › Essai cloud.)");
             return;
         }
         try

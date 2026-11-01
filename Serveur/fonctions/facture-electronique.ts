@@ -51,15 +51,25 @@ type Ligne = Record<string, any>;
 
 /** Un jeton d'accès valable : celui gardé, ou un nouveau (et le nouveau jeton de renouvellement est gardé). */
 async function jeton(lien: Ligne): Promise<{ jeton?: string; refus?: string; erreur?: string }> {
-  if (lien.access_token && new Date(lien.expire_le).getTime() - Date.now() > 60_000) return { jeton: lien.access_token };
+  // Marge de 5 min (revue 16c, D1-07) : moins de renouvellements, donc moins d'occasions d'en faire deux à la fois.
+  if (lien.access_token && new Date(lien.expire_le).getTime() - Date.now() > 300_000) return { jeton: lien.access_token };
   const r = await fetch(`${API}/oauth2/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: lien.refresh_token, client_id: ID, client_secret: SECRET }),
   });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok || !d.access_token) return { refus: d.error === "invalid_grant" ? "retire" : "jeton", erreur: d.error_description ?? d.error ?? `HTTP ${r.status}` };
-  // ponytail: deux appels au même instant renouvelleraient deux fois (le second serait refusé) ; un verrou si ça arrive.
+  if (!r.ok || !d.access_token) {
+    // Revue 16c (D1-07) : deux postes qui renouvellent le même jeton au même instant (deux ouvertures de CIPL le matin) :
+    // Super PDP refuse le second (« invalid_grant »), alors que le premier vient d'enregistrer un jeton valable. La ligne
+    // est relue avant de conclure que l'autorisation a été retirée. Le dernier renouvellement réussi reste celui enregistré
+    // (jeton de renouvellement à usage unique : c'est le plus récent qui vaut).
+    const { data: relu } = await service.from("plateformes").select("access_token, refresh_token, expire_le")
+      .eq("entreprise_id", lien.entreprise_id).maybeSingle();
+    if (relu?.access_token && relu.refresh_token !== lien.refresh_token && new Date(relu.expire_le).getTime() > Date.now())
+      return { jeton: relu.access_token };
+    return { refus: d.error === "invalid_grant" ? "retire" : "jeton", erreur: d.error_description ?? d.error ?? `HTTP ${r.status}` };
+  }
   await service.from("plateformes").update({
     access_token: d.access_token, refresh_token: d.refresh_token ?? lien.refresh_token,
     expire_le: new Date(Date.now() + (d.expires_in ?? 3600) * 1000).toISOString(), maj_le: new Date().toISOString(),
@@ -86,14 +96,25 @@ Deno.serve(async (req) => {
     if (action === "etat") {
       if (!lien) return json({ ok: true, relie: false, configure: ID !== "" && SECRET !== "", bac_a_sable: BAC_A_SABLE });
       // Où en est la vérification du gérant (tant qu'elle n'est pas « verified », Super PDP refuse le reste).
-      const j = await jeton(lien);
-      if (!j.jeton) return json({ ok: false, refus: j.refus, erreur: j.erreur });
-      const r = await fetch(`${API}/v1.beta/oauth2_sessions/me`, { headers: { Authorization: `Bearer ${j.jeton}` } });
-      const s = await r.json().catch(() => ({}));
-      const statut = String(s.company_verification_status ?? lien.statut ?? "");
-      if (statut !== lien.statut)
-        await service.from("plateformes").update({ statut, maj_le: new Date().toISOString() }).eq("entreprise_id", entreprise);
-      return json({ ok: true, relie: true, statut, bac_a_sable: BAC_A_SABLE });
+      // Super PDP injoignable, ou jeton indisponible sans que l'autorisation soit retirée : le dernier état connu
+      // (plateformes.statut), signalé par `indisponible` ; sinon la SCI passait pour non reliée et les loyers émis
+      // ce jour-là partaient sans facture électronique (revue 16c, D1-06).
+      try {
+        const j = await jeton(lien);
+        if (!j.jeton) {
+          if (j.refus === "retire") return json({ ok: false, refus: j.refus, erreur: j.erreur });
+          throw new Error(j.erreur ?? j.refus);
+        }
+        const r = await fetch(`${API}/v1.beta/oauth2_sessions/me`, { headers: { Authorization: `Bearer ${j.jeton}` } });
+        const s = await r.json().catch(() => ({}));
+        const statut = String(s.company_verification_status ?? lien.statut ?? "");
+        if (statut !== lien.statut)
+          await service.from("plateformes").update({ statut, maj_le: new Date().toISOString() }).eq("entreprise_id", entreprise);
+        return json({ ok: true, relie: true, statut, bac_a_sable: BAC_A_SABLE });
+      } catch (e) {
+        console.error("[facture-electronique] etat :", e);
+        return json({ ok: true, relie: true, statut: lien.statut ?? "", bac_a_sable: BAC_A_SABLE, indisponible: true });
+      }
     }
 
     if (action === "activer") {

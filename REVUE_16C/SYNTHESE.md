@@ -32,23 +32,23 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 
 | N° | Domaine | Défaut | Aussi trouvé par | Corrigé |
 |---|---|---|---|---|
-| D1-03 | D1 | Le serveur laisse un « Utilisateur » modifier les RIB, le logo et les listes réservés à l'admin | D3-02 | |
-| D1-04 | D1 | `creer_entreprise_import` reste ouverte à tout compte et contourne les règles d'`inscrire` et d'`ajouter_entreprise` |  | |
-| D1-05 | D1 | `choisir` peut créer un second abonnement Stripe pour le même groupe | D3-04 | |
-| D1-06 | D1 | `etat` échoue quand Super PDP ne répond pas : la SCI est vue « non reliée » et ses loyers ne sont jamais préparés pour la plateforme | D5-04 | |
-| D1-07 | D1 | Renouvellement du jeton Super PDP non protégé contre deux appels simultanés | D5-09 | |
-| D1-08 | D1 | `ajuster` écrit les licences en base avant Stripe et ne valide pas `licences` | D3-05 | |
-| D1-09 | D1 | Clé Pennylane et mot de passe SMTP en clair sur le disque, alors que le jeton de session est chiffré | D6-12 | |
+| D1-03 | D1 | Le serveur laisse un « Utilisateur » modifier les RIB, le logo et les listes réservés à l'admin | D3-02 | 01/11 (code et test ; parcours BD5) |
+| D1-04 | D1 | `creer_entreprise_import` reste ouverte à tout compte et contourne les règles d'`inscrire` et d'`ajouter_entreprise` |  | 01/11 (code et test) |
+| D1-05 | D1 | `choisir` peut créer un second abonnement Stripe pour le même groupe | D3-04 | 01/11 (code et test) |
+| D1-06 | D1 | `etat` échoue quand Super PDP ne répond pas : la SCI est vue « non reliée » et ses loyers ne sont jamais préparés pour la plateforme | D5-04 | 01/11 (code et test ; parcours BD4) |
+| D1-07 | D1 | Renouvellement du jeton Super PDP non protégé contre deux appels simultanés | D5-09 | 01/11 (code et test) |
+| D1-08 | D1 | `ajuster` écrit les licences en base avant Stripe et ne valide pas `licences` | D3-05 | 01/11 (code et test ; parcours BD6) |
+| D1-09 | D1 | Clé Pennylane et mot de passe SMTP en clair sur le disque, alors que le jeton de session est chiffré | D6-12 | 01/11 (code et test ; parcours BD2) |
 | D2-02 | D2 | Une cession de bail à date future n'est jamais appliquée sur le cloud | D7a-01 | |
 | D2-03 | D2 | Le dossier d'un bâtiment part en corbeille avant la réponse du serveur : un refus fait disparaître ses documents chez tout le monde |  | |
 | D2-04 | D2 | Un enregistrement refusé lancé par une tâche de fond (Pappers, factures en attente) ouvre un message et recharge tout : les saisies en cours de l'utilisateur sont perdues |  | |
 | D2-05 | D2 | Un second message d'erreur remplace le premier : `_refusOuverts` et `_abandonEnCours` restent bloqués pour la session |  | |
 | D2-06 | D2 | `Recharger` pendant un envoi de facture : le statut « Envoyé » n'est pas enregistré, la facture repart au prochain lancement |  | |
 | D2-07 | D2 | Un enregistrement encore en file après un rechargement repart avec les versions neuves : il peut écraser une modification d'un collègue |  | |
-| D3-01 | D3 | Une installation neuve n'a ni adresse ni clé du cloud : CIPL ne démarre pas chez un client |  | |
-| D3-03 | D3 | « Changer d'entreprise » et « Se déconnecter » ferment une fiche en cours de modification sans prévenir |  | |
-| D3-06 | D3 | `inscrire` accepte n'importe quel compte connecté : l'adresse e-mail n'est prouvée que côté client |  | |
-| D3-07 | D3 | Stripe « unpaid » (relances épuisées) laisse le groupe modifiable sans payer |  | |
+| D3-01 | D3 | Une installation neuve n'a ni adresse ni clé du cloud : CIPL ne démarre pas chez un client |  | 01/11 (code et test ; parcours BD1) |
+| D3-03 | D3 | « Changer d'entreprise » et « Se déconnecter » ferment une fiche en cours de modification sans prévenir |  | 01/11 (code et test ; parcours BD3) |
+| D3-06 | D3 | `inscrire` accepte n'importe quel compte connecté : l'adresse e-mail n'est prouvée que côté client |  | 01/11 (code et test ; parcours BD7) |
+| D3-07 | D3 | Stripe « unpaid » (relances épuisées) laisse le groupe modifiable sans payer |  | 01/11 (code et test) |
 | D4-02 | D4 | Fermer le panneau pendant l'envoi tue la coroutine : l'e-mail part, rien n'est enregistré, et le panneau reste « envoi en cours » jusqu'au redémarrage |  | 01/11 (code et test ; parcours BC9) |
 | D4-03 | D4 | Corriger une facture partie en repoussant son échéance promet un envoi différé qui n'aura jamais lieu, et l'échéance du suivi n'est pas mise à jour |  | |
 | D4-04 | D4 | La séquence ne suit pas un numéro saisi à la main : désordre, puis doublon ; aucun contrôle d'unicité par locataire |  | |
@@ -167,6 +167,10 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 | Résumé Pappers de DANONE : finances 2024 et 2025 identiques (CA 1 030 000 000 €, résultat 592 000 000 €) : Pappers, ou lecture qui confond deux exercices | à vérifier | avec les majeurs « données » |
 
 D4-02 (majeur) a été corrigé avant son lot : c'est lui qui a cassé BC4 (formulaire fermé pendant l'e-mail).
+
+## Lot 2 : majeurs « serveur, sécurité et argent » (01/11)
+
+Les 11 défauts D1-03 à D1-09, D3-01, D3-03, D3-06 et D3-07 sont codés et testés (`Revue16cTests`, tests texte sur le SQL et les fonctions, 590 tests verts). Décisions du 01/11 : **D3-01** l'adresse et la clé publique du projet sont compilées (`CloudDefaut`, générée depuis le fichier du PC sans passer par la conversation) et le fichier `cipl_app_secrets.dat` reste une surcharge ; **D1-09** secrets du cloud chiffrés par DPAPI sur Windows et par le trousseau sur Mac (hors cloud : inchangé). Serveur : `Serveur/etape16c2_supabase.sql` à exécuter ; `abonnement-stripe`, `stripe-webhook` et `facture-electronique` à redéployer. Parcours BD fait le 01/11 : BD1 à BD5 et BD7 bons ; BD6 à rejouer sur un groupe abonné (celui de SCI (JBC) est en essai, sans abonnement Stripe). Vérifié en réel (D3-06) : la session ouverte par le code porte `amr` = `otp` (`magiclink` et `email/signup` restent acceptés).
 
 ## Décisions de l'utilisatrice sur la liste (31/10)
 

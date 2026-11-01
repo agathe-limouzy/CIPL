@@ -79,6 +79,20 @@ Deno.serve(async (req) => {
 
     if (action === "choisir") {
       if (groupe.stripe_abonnement) return json({ erreur: "Un abonnement est déjà en cours : voyez « Paiement et factures »." });
+      // Revue 16c (D1-05) : `stripe_abonnement` n'est posé qu'à l'arrivée du webhook. S'il tarde ou a échoué, ou si une
+      // page de paiement est encore ouverte dans un navigateur, un second paiement créait un second abonnement, prélevé
+      // sans être visible dans CIPL. Un abonnement vivant chez Stripe est repris ici ; les pages ouvertes sont fermées.
+      if (groupe.stripe_client) {
+        const vivant = (await stripe.subscriptions.list({ customer: groupe.stripe_client, status: "all", limit: 20 })).data
+          .find((s) => s.status !== "canceled" && s.status !== "incomplete_expired");
+        if (vivant) {
+          const st = vivant.status === "active" || vivant.status === "trialing" ? { statut: "actif" } : {};
+          await service.from("groupes").update({ stripe_abonnement: vivant.id, ...st }).eq("id", g);
+          return json({ erreur: "Un abonnement est déjà en cours : voyez « Paiement et factures »." });
+        }
+        for (const s of (await stripe.checkout.sessions.list({ customer: groupe.stripe_client, status: "open", limit: 20 })).data)
+          await stripe.checkout.sessions.expire(s.id);
+      }
       const f = formule === "annuel" ? "annuel" : "mensuel";
 
       // Licences de chaque entreprise : au moins celles qu'elle utilise. Elles ne s'appliquent
@@ -148,18 +162,23 @@ Deno.serve(async (req) => {
       // Licences de l'entreprise `cible` (0 : inchangées) ; jamais moins que celles qu'elle
       // utilise. La ligne « licence » de Stripe suit le total des entreprises.
       if (licences && cible) {
+        // Revue 16c (D1-08) : un nombre entier, et Stripe d'abord : la base n'est écrite qu'une fois la facture à jour
+        // (avant, un échec de Stripe laissait des licences acceptées par CIPL mais jamais facturées).
+        if (!Number.isInteger(licences) || licences < 1) return json({ erreur: "Nombre de licences invalide." });
         const e = (ents ?? []).find((x) => x.id === cible);
         if (!e) return json({ erreur: "Cette entreprise n'est pas dans le groupe." });
         const u = await utilisees(cible);
         if (licences < Math.max(1, u)) return json({ erreur: `${e.nom} : ${u} licences sont utilisées, retirez quelqu'un avant de baisser le nombre de licences.` });
-        const { error } = await service.from("entreprises").update({ licences_max: licences }).eq("id", cible);
-        if (error) throw error;
         e.licences_max = licences;
       }
       const total = (ents ?? []).reduce((a, x) => a + x.licences_max, 0);
       const l = ligne("licence");
       if (!l) throw new Error("Ligne « licence » absente de l'abonnement.");
       if (l.quantity !== total) await stripe.subscriptionItems.update(l.id, { quantity: total, ...prorata });
+      if (licences && cible) {
+        const { error } = await service.from("entreprises").update({ licences_max: licences }).eq("id", cible);
+        if (error) throw error;
+      }
       const { error: e3 } = await service.from("groupes").update({ licences_max: total }).eq("id", g);
       if (e3) throw e3;
 
