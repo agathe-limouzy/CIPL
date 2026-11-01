@@ -225,7 +225,10 @@ public static class FacturationSuivi
         // Revue 16c (D5-03) : sans eux, la pastille de la plateforme (FactureElectronique.Pastille) ne s'affichait jamais.
         plateformeDonnees = r.plateformeDonnees, plateformeId = r.plateformeId, plateformeEtat = r.plateformeEtat,
         plateformeErreur = r.plateformeErreur, encaisseeDeclaree = r.encaisseeDeclaree,
-        encaisseeMontant = r.encaisseeMontant, encaisseeDateISO = r.encaisseeDateISO
+        encaisseeMontant = r.encaisseeMontant, encaisseeDateISO = r.encaisseeDateISO,
+        // Transfert (01/11, BG7) : oubliés ici, la pastille « transmise par SCI X » ne s'affichait jamais (la ligne affichée
+        // est cette copie, pas la ligne stockée). Le test Suivi_la_copie_affichee_porte_tous_les_champs veille.
+        plateformeOrigine = r.plateformeOrigine, plateformeOrigineId = r.plateformeOrigineId
     };
 
     // ── État d'une ligne ────────────────────────────────────────────────────────

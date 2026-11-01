@@ -502,7 +502,7 @@ Surtout des réglages, mais à ne pas oublier :
 - **Super PDP en réel (étape 18, noté le 30/10)** : créer une **seconde application OAuth en production** (bac à sable désactivé), au nom de la société commerciale, avec la même adresse de retour et le type « confidentielle » ; mettre ses identifiants dans les Secrets (`SUPERPDP_CLIENT_ID`, `SUPERPDP_CLIENT_SECRET`) et **supprimer `SUPERPDP_BAC_A_SABLE`** (la fenêtre s'ouvre alors sur le vrai SIREN de la SCI) ; **« Se déconnecter » puis « Activer »** pour chaque SCI reliée en test (SCI (JBC), reliée à l'entreprise fictive Burger Queen : une autorisation de bac à sable ne vaut rien en production) ; moyen de paiement du compte Super PDP de CIPL, et confirmation écrite que les SCI des clients sont facturées à CIPL.
 - **Factures de CIPL lui-même** : à partir du 1/9/2027, les factures d'abonnement émises à des entreprises françaises devront passer par une plateforme agréée ; les factures Stripe ne le font pas (voir l'étape 18).
 
-## 16c — lot 4 (01/11) : ce qui change sur le cloud
+## 15. Étape 16c, lot 4 (01/11) : ce qui change sur le cloud
 
 - **Écritures de fond** (tournée de l'annuaire, résultats de la plateforme) : un refus du serveur est journalisé et abandonné, sans message ni rechargement — les saisies en cours de l'utilisateur restent (`silencieux`).
 - **Suppression** : le dossier d'un bâtiment ou d'un locataire ne part en corbeille qu'après l'accord du serveur ; un refus (fiche prise, réseau) fait revenir la fiche avec ses documents intacts, rien n'est supprimé chez les collègues.
@@ -512,3 +512,112 @@ Surtout des réglages, mais à ne pas oublier :
 - **Galerie de photos** : ouverte sous réservation du bâtiment (refus avant tout déplacement de fichier).
 - **Racine des documents** : jamais de repli sur le dossier par défaut d'une autre entreprise ; export refusé si elle manque. Dossier absent ou vide alors que des fichiers étaient connus (Drive fermé, clé débranchée, dossier recréé par une écriture) : la synchronisation des documents est suspendue, rien n'est supprimé sur le cloud ; et un fusible refuse plus de 5 suppressions d'un coup au-delà de la moitié des fichiers connus. Elle reprend quand le dossier revient.
 - **Fermeture** : attend l'enregistrement en vol (« fermeture dans un instant… »), une seule confirmation, et la garde voit aussi les écrans qui tiennent une fiche (facture, achat, charge, révision, départ).
+
+## 16. Transfert d'un bâtiment ou d'un locataire entre deux entreprises du cloud (conception du 01/11)
+
+Le transfert local (`TransfertEntreprise`, entre deux dossiers du PC) est masqué sur le cloud depuis la revue 16c (D2-01, D8-01) : il écrivait dans un ancien dossier que CIPL ne lit plus et retirait la fiche du serveur pour tout le monde. Cette section remplace cette fonction par une **opération serveur**, validée avant le code.
+
+### 16.1 Décisions (01/11)
+
+| Sujet | Décision |
+|---|---|
+| Qui | **Un administrateur du groupe**, vers une entreprise du même groupe à laquelle il a accès. Un utilisateur ne voit pas le bouton |
+| Vers où | Les entreprises du groupe où l'admin a accès, sauf celle ouverte. Pas de création d'entreprise depuis le transfert |
+| Quoi | Un bâtiment entier (locataires, charges, achats, travaux, objectifs, photos, factures, baux) ou un seul locataire (vers le bâtiment homonyme de la destination, créé s'il manque) |
+| Super PDP | **Refus tant que ce n'est pas réglé** : une facture en attente de transmission, ou payée mais pas encore déclarée « Encaissée », bloque le transfert (message nommant la facture). Les factures déjà transmises suivent le locataire, marquées « transmise par SCI X » : rien n'y est renvoyé, mais « Encaissée » (et son annulation) se déclare **au nom de SCI X**, avec son jeton, par un membre de SCI X (décision du 01/11, BG7 : une facture envoyée ou impayée ne bloque pas le transfert, et c'est l'émettrice qui doit déclarer l'encaissement). Revenue chez SCI X, la facture redevient ordinaire. Les nouvelles factures passent par la plateforme de la destination si elle est reliée |
+| Homonyme | **Fusion**, comme le transfert local : le bâtiment transféré met à jour l'homonyme, un locataire du même nom est remplacé, les autres sont ajoutés ; la version de destination est gardée avant (corbeille serveur) |
+| Verrous | Refus si le bâtiment ou l'un de ses locataires est tenu par quelqu'un (message « en cours de modification par … »), comme toute écriture |
+| Documents | Copiés sur le serveur (même empreinte, même chemin relatif), puis marqués supprimés à l'origine : chaque poste de l'origine range ses copies en corbeille, chaque poste de la destination les télécharge (ou le Drive les recopie). Rien n'est effacé sans copie |
+| Numérotation | `factureSeq` suit le locataire : ses factures continuent de se numéroter à la suite. Les PDF déjà émis gardent l'entête de l'origine (ce sont des documents) |
+| Réglages | Listes de charges : retrouvées par **nom** dans la destination, créées si elles manquent (règle du transfert local). RIB et entêtes de l'origine : inconnus dans la destination, les factures suivantes reprennent les défauts |
+
+### 16.2 Ce que fait le serveur
+
+Une fonction serveur `transfert` (Verify JWT, rôle de service), appelée par le client avec `{ entreprise, vers, batiment, locataire?, apercu? }` :
+
+1. **Vérifications** : `est_admin(entreprise)` et `est_admin(vers)`, même groupe, groupe autorisé à écrire (`ecriture_permise`) ; aucun verrou tenu par un autre sur le bâtiment ni sur les locataires transférés (`detenteur_autre`) ; aucun locataire transféré avec une facture **en attente de transmission** (`plateformeDonnees` posé, `plateformeId` vide, pas « refusee ») ni **payée non déclarée** (`plateformeId` posé, statut `Paye`, `encaisseeDeclaree` faux). Un refus rend `{ ok: false, refus: "admin" | "verrou" | "plateforme", nom, motif }`.
+2. **Aperçu** (`apercu: true`) : rend ce que ferait le transfert sans rien écrire : `{ cree | fusion, locatairesAjoutes, locatairesRemplaces, documents, listesCreees[] }`. C'est ce que la fenêtre de confirmation affiche.
+3. **Documents d'abord** : pour chaque ligne `documents` vivante sous `Batiment/<bâtiment>/` (ou `Batiment/<bâtiment>/<locataire>/`), copie de l'objet `documents/<origine>/<empreinte>` vers `documents/<vers>/<empreinte>` (API Storage ; un objet déjà présent n'est pas recopié : le contenu est adressé par empreinte), puis ligne `documents` de la destination au même chemin (`documenter`, session « transfert »). Un échec ici arrête tout : des copies en plus dans la destination sont inoffensives.
+4. **Fiches, en une transaction** (fonction SQL `transferer_fiches`) : la ligne de destination d'un homonyme est d'abord copiée dans `transferts_corbeille (entreprise_id, type, id, data, le, par)` ; puis `batiments` et `locataires` changent d'`entreprise_id` (et de `batiment_id` pour un locataire seul, vers le bâtiment homonyme de la destination, créé s'il manque), `version = 1`, `maj_par = nom`, `maj_session = "transfert"`. Les identifiants de listes de charges sont remplacés par ceux de la destination (par nom ; `reglages` de la destination complétés). Sur chaque ligne de facture transmise à Super PDP : `plateformeOrigine = <nom de l'entreprise d'origine>`.
+5. **Origine ensuite** : les lignes `documents` d'origine sont marquées `supprime_le` ; les verrous éventuels du transfert sont rendus.
+6. Réponse `{ ok: true, batiment: <id dans la destination>, locataires: n, documents: n }`.
+
+Côté client : après `ok`, l'origine recharge l'entreprise (`DemarrageCloud.Recharger`) ; les postes de la destination reçoivent les fiches par la relecture en direct (« rivoli ajouté par Paul ») et leurs documents à la passe suivante de la synchronisation. Le transfert est une **action en un clic** : aucun verrou durable, refus si une fiche est prise.
+
+**Réalisation (01/11)** : pas de fonction Deno. Le poste de l'admin fait l'aperçu (`TransfertCloud.Preparer` : fiches de la destination par `EcritureCloud.Charger`, documents par la table `documents`), copie les documents vers la destination (`DocumentsCloud.CopierVers` : depuis ce PC, sinon depuis le cloud, puis `documenter`), appelle la fonction SQL `transferer_fiches` (vérifications admin / groupe / verrous / versions, homonymes gardés dans `transferts_corbeille`, fusion, Réglages de la destination complétés des listes de charges créées — `TransfertEntreprise.ReconcilierListes` réutilisée —, `plateformeOrigine` posé par le poste), puis marque supprimées les lignes `documents` d'origine (`DocumentsCloud.MarquerSupprime`). Les documents étant adressés par empreinte, une copie se fait avec les droits de l'admin, sans rôle de service. Script serveur : `Serveur/etape16c3_supabase.sql`. Parcours BG.
+
+### 16.3 Ce qui change dans l'application
+
+- `TransfertEntrepriseUI` : sur le cloud, le bouton « Transférer » revient, **pour un admin seulement** ; le choix de la destination lit les entreprises du groupe où l'admin a accès (`SessionCloud`, liste déjà connue du sélecteur d'entreprise) ; l'aperçu vient du serveur (`apercu: true`) ; la confirmation puis l'appel ; les messages de refus au centre, le résultat en bas.
+- `FactureEtat.plateformeOrigine` et `plateformeOrigineId` (vides sauf après un transfert) : le suivi montre « transmise par SCI X » (puis « Encaissée déclarée (SCI X) ») ; « Payé » déclare « Encaissée » avec `Demande.entreprise` = l'origine (la fonction `facture-electronique` vérifie que l'appelant a accès à cette entreprise et prend son jeton : rien à changer côté serveur) ; `FactureElectronique.ATraiter` traite ces lignes même si l'entreprise ouverte n'est pas reliée ; un non-membre reçoit le refus `origine` (message nommant SCI X), qui n'arrête pas la tournée ; `TransfertCloud.MarquerOrigine` pose la marque et l'efface au retour chez l'origine ; une marque sans identifiant (transfert d'avant) reste en lecture seule. La ligne affichée du suivi étant une copie (`FacturationSuivi.CopieDe`), elle recopie ces deux champs (oubli trouvé en BG7 le 01/11 : la pastille ne s'affichait jamais ; test `Suivi_la_copie_affichee_porte_tous_les_champs`).
+- `TransfertEntreprise` (disque) reste pour le mode local ; sur le cloud il n'est plus appelé.
+
+### 16.4 Maquettes (texte)
+
+Fiche bâtiment « rivoli » (admin, cloud) :
+
+    [ Modifier ]   [ Supprimer ]   [ Transférer ]
+
+Fenêtre « Transférer « rivoli » vers… » :
+
+    Vers quelle entreprise du groupe ?
+      ○ SCI Les Tilleuls
+      ○ SCI du Port
+    (seules les entreprises où vous avez accès)
+                              [ Annuler ]  [ Suivant ]
+
+Aperçu, bâtiment nouveau dans la destination :
+
+    « rivoli » sera créé dans SCI du Port avec ses 3 locataires
+    et 27 documents (factures, baux, photos).
+    La liste de charges « Taxe foncière » sera créée dans SCI du Port.
+    Dans SCI (JBC), « rivoli » disparaît ; ses documents restent
+    consultables dans la corbeille de chaque poste.
+                              [ Annuler ]  [ Transférer ]
+
+Aperçu, homonyme (fusion) :
+
+    « rivoli » existe déjà dans SCI du Port : ses informations
+    seront mises à jour, « Sephora » remplacera le locataire du
+    même nom, 2 locataires seront ajoutés. La version actuelle
+    de SCI du Port est gardée avant (corbeille du serveur).
+                              [ Annuler ]  [ Transférer ]
+
+Refus, plateforme :
+
+    ⚠ Impossible pour l'instant : « Loyer Novembre 2026 » de
+      Sephora est payé mais pas encore déclaré « Encaissée » chez
+      Super PDP (SCI (JBC)). Lancez l'application pour que la
+      déclaration parte, puis recommencez.
+                                                  [ OK ]
+
+Refus, fiche prise :
+
+    ⚠ « rivoli » : en cours de modification par Marie.
+      Réessayez quand la fiche est libre.
+                                                  [ OK ]
+
+Résultat (origine, en bas) :
+
+    « rivoli » transféré vers SCI du Port (3 locataires, 27 documents).
+
+Chez Marie, SCI du Port ouverte :
+
+    rivoli ajouté par Paul (transfert)          [ Voir ]
+
+Suivi de Sephora dans SCI du Port, facture transmise avant le transfert :
+
+    Loyer Octobre 2026    01/10/2026   1 000,00 €   Payé   · transmise par SCI (JBC)
+
+### 16.5 Découpage
+
+1. **Serveur** : table `transferts_corbeille`, fonction SQL `transferer_fiches` (vérifications, fusion, listes de charges, `plateformeOrigine`), fonction serveur `transfert` (aperçu, copie des documents, appel SQL, lignes d'origine). Test : un script SQL de parcours (deux entreprises du même groupe, un bâtiment avec deux locataires et trois documents) et la lecture des deux entreprises après.
+2. **Client** : `FactureEtat.plateformeOrigine` et son affichage (suivi, `EnAttente`), bouton admin sur le cloud, choix de la destination, aperçu et confirmation, rechargement. Tests EditMode sur les règles pures : « refus plateforme » (`FactureElectronique.BloqueTransfert(loc)` → libellé de la facture ou null), « ligne transférée ignorée » (`EnAttente`).
+3. **Docs et parcours** : CONCEPTION (cette section), ARCHITECTURE (fonction serveur et table), FACTURATION §16 (lignes « transmise par »), PARCOURS : un parcours **BG** (transfert d'un bâtiment, d'un locataire, refus plateforme, refus verrou, homonyme, documents retrouvés sur l'autre poste).
+
+### 16.6 Risques et questions ouvertes
+
+- La copie des documents est une boucle d'appels Storage : sur un gros bâtiment (centaines de photos), quelques dizaines de secondes ; la fenêtre affiche une progression et interdit un second clic.
+- Un échec entre l'étape 3 et l'étape 4 laisse des documents en plus dans la destination (invisibles : aucune fiche ne les cite) ; un échec dans l'étape 4 annule la transaction ; un échec à l'étape 5 laisse des documents « vivants » à l'origine, sans fiche : la passe suivante de la synchronisation ne les touche pas (ils existent encore sur les postes), un nettoyage serveur les marquera supprimés à la prochaine tentative.
+- Une facture transmise par l'origine et **refusée** plus tard par Super PDP (après le transfert) n'a plus personne pour la corriger : à surveiller côté origine (le suivi de l'origine n'a plus la ligne). À documenter pour l'utilisatrice : régler la plateforme avant de transférer.
+- Si les deux entreprises ont des documents au **même chemin** avec des contenus différents (homonyme, même nom de facture), la version transférée l'emporte, l'autre est rangée en corbeille sur chaque poste : même règle que le transfert local.

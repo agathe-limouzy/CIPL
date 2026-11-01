@@ -625,4 +625,109 @@ public class Revue16cTests
         Assert.That(SyncDocuments.SuppressionsSuspectes(6, 40), Is.False, "6 sur 40 : moins de la moitié");
         Assert.That(SyncDocuments.SuppressionsSuspectes(6, 10), Is.True);
     }
+
+    // ── Transfert entre entreprises du cloud (01/11, CONCEPTION §16) ─────────────────────────────────
+
+    [Test]
+    public void Transfert_bloque_tant_que_la_plateforme_a_du_travail()
+    {
+        string hier = System.DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd");
+        var attend = new FactureEtat { key = "loyer-2026-P11", type = "Loyer", libelle = "Loyer Novembre 2026", statut = "Envoye",
+                                       echeanceISO = hier, montant = 100f, plateformeDonnees = "{}", plateformeId = "" };
+        var loc = new Locataire { Name = "Sephora", facturesEtat = new List<FactureEtat> { attend } };
+        Assert.That(TransfertCloud.Bloque(new[] { loc }), Does.Contain("attend sa transmission"));
+
+        attend.plateformeId = "1612689"; attend.statut = "Paye";
+        Assert.That(TransfertCloud.Bloque(new[] { loc }), Does.Contain("pas encore déclarée"));
+
+        attend.encaisseeDeclaree = true;
+        Assert.That(TransfertCloud.Bloque(new[] { loc }), Is.Null, "tout est réglé chez Super PDP");
+
+        attend.encaisseeDeclaree = false; attend.plateformeOrigine = "SCI (JBC)";
+        Assert.That(TransfertCloud.Bloque(new[] { loc }), Is.Null, "marque sans identifiant (transfert d'avant) : lecture seule");
+        Assert.That(FactureElectronique.EnAttente(attend), Is.False);
+        Assert.That(FactureElectronique.Pastille(attend), Is.EqualTo("transmise par SCI (JBC)"));
+
+        // BG7 (01/11) : avec l'identifiant de l'origine, « Payé » se déclare en son nom : la ligne attend donc, et bloque.
+        attend.plateformeOrigineId = "ent-jbc";
+        Assert.That(FactureElectronique.EnAttente(attend), Is.True);
+        Assert.That(TransfertCloud.Bloque(new[] { loc }), Does.Contain("pas encore déclarée"));
+        attend.encaisseeDeclaree = true;
+        Assert.That(FactureElectronique.EnAttente(attend), Is.False);
+        Assert.That(FactureElectronique.Pastille(attend), Is.EqualTo("Encaissée déclarée (SCI (JBC))"));
+        attend.statut = "Impaye";
+        Assert.That(FactureElectronique.EnAttente(attend), Is.True, "plus payée : l'encaissement déclaré s'annule, au nom de l'origine");
+    }
+
+    [Test]
+    public void Transfert_facture_transmise_suit_le_locataire_et_revient()
+    {
+        var jbc = new EntrepriseCloud { id = "ent-jbc", nom = "SCI (JBC)" };
+        var test2 = new EntrepriseCloud { id = "ent-2", nom = "SCI test 2" };
+        var test3 = new EntrepriseCloud { id = "ent-3", nom = "SCI test 3" };
+        var f = new FactureEtat { key = "loyer-2026-P10", plateformeId = "1612689" };
+        TransfertCloud.MarquerOrigine(f, jbc, test2);
+        Assert.That(f.plateformeOrigine, Is.EqualTo("SCI (JBC)"), "transmise par SCI (JBC)");
+        Assert.That(f.plateformeOrigineId, Is.EqualTo("ent-jbc"), "déclarée en son nom");
+        TransfertCloud.MarquerOrigine(f, test2, test3);
+        Assert.That(f.plateformeOrigineId, Is.EqualTo("ent-jbc"), "un second transfert garde qui l'a transmise");
+        TransfertCloud.MarquerOrigine(f, test3, jbc);
+        Assert.That(f.plateformeOrigine + f.plateformeOrigineId, Is.Empty, "revenue chez qui l'a transmise : facture ordinaire");
+
+        var ancienne = new FactureEtat { plateformeId = "1612690", plateformeOrigine = "SCI (JBC)" };   // marque d'avant (nom seul)
+        TransfertCloud.MarquerOrigine(ancienne, test2, test3);
+        Assert.That(ancienne.plateformeOrigineId, Is.Null.Or.Empty, "nom seul : gardée telle quelle (lecture seule)");
+        TransfertCloud.MarquerOrigine(ancienne, test3, jbc);
+        Assert.That(ancienne.plateformeOrigine, Is.Empty, "retour reconnu par le nom");
+
+        var neuve = new FactureEtat { plateformeDonnees = "{}" };   // jamais transmise : rien à marquer
+        TransfertCloud.MarquerOrigine(neuve, jbc, test2);
+        Assert.That(neuve.plateformeOrigine, Is.Null.Or.Empty);
+    }
+
+    [Test]
+    public void Suivi_la_copie_affichee_porte_tous_les_champs()
+    {
+        // La ligne affichée dans le suivi est une copie (FacturationSuivi.CopieDe) : un champ oublié (plateformeOrigine,
+        // trouvé le 01/11 en BG7) rend une pastille fausse sans qu'aucun test ne le voie. Chaque champ public doit suivre.
+        var champs = typeof(FactureEtat).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        var r = new FactureEtat();
+        foreach (var f in champs)
+        {
+            if (f.FieldType == typeof(string)) f.SetValue(r, f.Name);
+            else if (f.FieldType == typeof(bool)) f.SetValue(r, true);
+            else if (f.FieldType == typeof(int)) f.SetValue(r, 7);
+            else if (f.FieldType == typeof(float)) f.SetValue(r, 7.5f);
+            else if (f.FieldType == typeof(List<Versement>)) f.SetValue(r, new List<Versement> { new Versement() });
+            else Assert.Fail($"type non prévu pour {f.Name} : {f.FieldType.Name} (compléter le test)");
+        }
+        var copieDe = typeof(FacturationSuivi).GetMethod("CopieDe", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.That(copieDe, Is.Not.Null, "FacturationSuivi.CopieDe");
+        var c = (FactureEtat)copieDe.Invoke(null, new object[] { r });
+        foreach (var f in champs)
+        {
+            if (f.FieldType == typeof(List<Versement>)) Assert.That(((List<Versement>)f.GetValue(c)).Count, Is.EqualTo(1), f.Name);
+            else Assert.That(f.GetValue(c), Is.EqualTo(f.GetValue(r)), $"champ oublié par CopieDe : {f.Name}");
+        }
+        Assert.That(FactureElectronique.Pastille(c), Is.EqualTo("Encaissée déclarée (plateformeOrigine)"));
+    }
+
+    [Test]
+    public void Transfert_listes_de_charges_retrouvees_par_nom()
+    {
+        var origine = new ReglageData { listesCharges = new List<ListeCharges> { new ListeCharges { id = "tf-1", nom = "Taxe foncière" } } };
+        var dest = new ReglageData { listesCharges = new List<ListeCharges> { new ListeCharges { id = "tf-9", nom = "taxe foncière " } } };
+        var bat = new Batiment { Name = "rivoli", charges = new List<ChargeBatiment> { new ChargeBatiment { listeId = "tf-1" } },
+                                 locataireDuBatiment = new List<Locataire>() };
+        var aEnvoyer = TransfertEntreprise.ReconcilierListes(bat, origine, dest);
+        Assert.That(aEnvoyer, Is.Null, "rien à créer : la liste existe déjà dans la destination");
+        Assert.That(bat.charges[0].listeId, Is.EqualTo("tf-9"), "la charge pointe sur la liste de la destination");
+
+        var dest2 = new ReglageData { listesCharges = new List<ListeCharges>() };
+        bat.charges[0].listeId = "tf-1";
+        var aEnvoyer2 = TransfertEntreprise.ReconcilierListes(bat, origine, dest2);
+        Assert.That(aEnvoyer2, Is.Not.Null, "la liste manque : les Réglages de destination sont à enregistrer");
+        Assert.That(aEnvoyer2.listesCharges.Count, Is.EqualTo(1));
+        Assert.That(bat.charges[0].listeId, Is.EqualTo(aEnvoyer2.listesCharges[0].id));
+    }
 }

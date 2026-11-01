@@ -35,6 +35,12 @@ public class FactureEtat
     public string plateformeEtat;
     public string plateformeErreur;
     public bool encaisseeDeclaree;
+    // Transfert entre entreprises (01/11, CONCEPTION §16) : transmise à Super PDP par l'entreprise d'origine, nommée
+    // ici ; rien n'y est renvoyé depuis la nouvelle entreprise. BG7 (01/11) : « Encaissée » (et son annulation) se
+    // déclare AU NOM de l'origine, avec son jeton, par un membre de celle-ci : `plateformeOrigineId` dit laquelle.
+    // Un nom sans identifiant (transfert d'avant) : lecture seule.
+    public string plateformeOrigine;
+    public string plateformeOrigineId;
     // Revue 16c (D5-07, D5-12) : ce qui a été déclaré (montant TTC, date d'encaissement), pour l'annuler du même
     // montant en négatif si la facture quitte « Payé ».
     public float encaisseeMontant;

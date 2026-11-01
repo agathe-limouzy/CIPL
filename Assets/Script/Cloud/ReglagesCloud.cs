@@ -50,6 +50,17 @@ public static class ReglagesCloud
         if (lu == false && e.EstAdmin) await MettreEnCommun(e);
     }
 
+    /// Les Réglages d'une autre entreprise du groupe (transfert, 01/11) : données et version, ou (null, 0) si elle n'en
+    /// a pas encore ; `erreur` si la lecture a échoué.
+    public static async Task<(ReglageData data, int version, string erreur)> LireDe(string entrepriseId)
+    {
+        var r = await CloudClient.Table("GET", Url, CleApi, await SessionCloud.Jeton(), "reglages",
+                                        $"entreprise_id=eq.{entrepriseId}&select=version,maj_par,data");
+        if (!r.Ok) return (null, 0, "lecture des réglages de la destination impossible : " + r.Erreur);
+        var l = JsonUtility.FromJson<LignesReglages>("{\"items\":" + r.Corps + "}")?.items?.FirstOrDefault();
+        return l?.data == null ? (null, 0, null) : (l.data, l.version, null);
+    }
+
     /// Null si la lecture a échoué ; faux si les Réglages ne sont pas encore partagés.
     static async Task<bool?> Lire(EntrepriseCloud e)
     {

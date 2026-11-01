@@ -423,3 +423,8 @@ Tous les appels réseau passent par `UnityWebRequest` dans des coroutines, sauf 
 | Changer un chemin de dossier sur le disque | `Save/DossiersDonnees.cs` (+ migration si des données existent) |
 | Changer une couleur, une taille de texte | `Tools/UITheme.cs`, `General/AppSectionColors.cs` |
 | Ajouter un réglage d'entreprise | `Facturation/ReglageData.cs` + `ReglagePanel.cs` (jamais de secret dans le JSON) |
+
+## Transfert entre entreprises du cloud (01/11)
+
+- **Client** : `TransfertCloud` (règle `Bloque` : refus tant que Super PDP a du travail en attente ; `Preparer` : aperçu ; `Executer` : documents copiés, fonction SQL, origine marquée), `TransfertEntrepriseUI` (bouton « Transférer » réservé à un admin sur le cloud, choix de l'entreprise du groupe, confirmation, rechargement). `FactureEtat.plateformeOrigine` / `plateformeOrigineId` : facture transmise par une autre entreprise (« transmise par SCI X ») ; rien n'y est renvoyé, mais « Encaissée » se déclare au nom de SCI X (`FactureElectronique.ATraiter`, `Demande.entreprise` = l'origine) ; `TransfertCloud.MarquerOrigine` efface la marque au retour chez l'origine.
+- **Serveur** (`Serveur/etape16c3_supabase.sql`) : fonction `transferer_fiches(p_de, p_vers, p_batiment, p_locataires, p_seul, p_versions, p_session, p_reglages, p_reglages_version)` — une transaction ; table `transferts_corbeille` (version de destination d'un homonyme, lisible par les admins). Les documents gardent leur chemin ; l'objet `documents/<entreprise>/<empreinte>` est copié sous le préfixe de la destination.

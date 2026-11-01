@@ -460,6 +460,28 @@ public static class DocumentsCloud
         return await Documenter(ent, chemin, contenu.LongLength, empreinte);
     }
 
+    /// Transfert entre entreprises (01/11) : copie d'un document de l'entreprise ouverte vers `entDest` (même chemin,
+    /// même empreinte), depuis la copie de ce PC, sinon depuis le cloud. Rend null, ou le motif de l'échec.
+    public static async Task<string> CopierVers(string entDest, string chemin, string empreinte)
+    {
+        byte[] contenu = null;
+        try { string abs = Absolu(_racine, chemin); if (File.Exists(abs)) contenu = File.ReadAllBytes(abs); } catch (Exception) { }
+        if (contenu == null || SyncDocuments.Empreinte(contenu) != empreinte)
+        {
+            var (lu, erreur) = await CloudClient.LireFichier(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(),
+                                                             Compartiment, _entreprise + "/" + empreinte);
+            if (lu == null) return "lecture impossible (" + erreur + ")";
+            contenu = lu;
+        }
+        var r = await CloudClient.DeposerFichier(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), Compartiment,
+                                                 entDest + "/" + empreinte, contenu);
+        if (!r.Ok) return "copie impossible (" + r.Erreur + ")";
+        return await Documenter(entDest, chemin, contenu.LongLength, empreinte) ? null : "index impossible";
+    }
+
+    /// Après un transfert : la ligne d'origine est marquée supprimée (chaque poste range sa copie en corbeille).
+    public static Task<bool> MarquerSupprime(string ent, string chemin) => SupprimerServeur(ent, chemin);
+
     static async Task<bool> Documenter(string ent, string chemin, long taille, string empreinte)
     {
         var d = await CloudClient.Fonction(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "documenter", new ParamsDoc

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using TMPro;
@@ -16,10 +17,9 @@ public static class TransfertEntrepriseUI
     {
         if (supprimer == null) return;
         var existant = supprimer.transform.parent.Find("Transferer");
-        // Revue 16c (D2-01, D8-01) : sur le cloud, ce transfert entre dossiers du PC écrivait la fiche dans un ancien
-        // dossier local, que CIPL ne lit plus, puis la retirait du serveur pour tout le monde. Masqué sur le cloud
-        // tant que le transfert entre entreprises du cloud (fonction serveur, décision du 31/10) n'existe pas.
-        if (SessionCloud.Active)
+        // Sur le cloud (01/11, CONCEPTION §16) : un administrateur seulement ; le transfert passe par le serveur
+        // (TransfertCloud), plus par les dossiers du PC (revue 16c, D2-01 / D8-01).
+        if (SessionCloud.Active && !(SessionCloud.Entreprise?.EstAdmin ?? false))
         {
             if (existant != null) existant.gameObject.SetActive(false);
             return;
@@ -41,6 +41,7 @@ public static class TransfertEntrepriseUI
     {
         var bat = bp?.getBatiment();
         if (bat == null) return;
+        if (SessionCloud.Active) { OuvrirCloud(bp, null); return; }
         Choisir($"Transférer « {bat.Name} »", dest => Confirmer(bat, null, dest, () => ExecuterBatiment(bp, dest)));
     }
 
@@ -49,6 +50,7 @@ public static class TransfertEntrepriseUI
         var bat = lp?.batimentPrefabOrigin?.getBatiment();
         var loc = lp?.GetLocataire();
         if (bat == null || loc == null) return;
+        if (SessionCloud.Active) { OuvrirCloud(lp.batimentPrefabOrigin, loc); return; }
         Choisir($"Transférer « {loc.Name} »", dest => Confirmer(bat, loc, dest, () => ExecuterLocataire(lp, dest)));
     }
 
@@ -128,7 +130,12 @@ public static class TransfertEntrepriseUI
     {
         var autres = EntrepriseService.All().Where(e => !EntrepriseService.EstActive(e)).ToList();
         if (autres.Count == 0) { ConfirmDialog.Erreur("Aucune autre entreprise : créez-en une depuis le menu Entreprises."); return; }
+        ChoisirParmi(titre, autres.Select(e => (e.nom, (Action)(() => onChoix(e)))).ToList());
+    }
 
+    /// La fenêtre de choix, pour le disque comme pour le cloud (01/11) : un bouton par entreprise.
+    static void ChoisirParmi(string titre, List<(string nom, Action choix)> options)
+    {
         // Une fiche en cours de modification serait transférée sans ses dernières saisies.
         FermetureGuard.ConfirmerPerteSaisies("Transférer", () =>
         {
@@ -155,18 +162,76 @@ public static class TransfertEntrepriseUI
             UIFactory.Text(v.transform, titre, UITheme.Role.Section, UITheme.TextePrincipal, true);
             UIFactory.Text(v.transform, "Vers quelle entreprise ?", UITheme.Role.Aide, UITheme.TexteSecondaire);
 
-            foreach (var e in autres)
+            foreach (var o in options)
             {
-                var e2 = e;
-                var b = UIFactory.Button(v.transform, string.IsNullOrWhiteSpace(e.nom) ? "(sans nom)" : e.nom,
+                var o2 = o;
+                var b = UIFactory.Button(v.transform, string.IsNullOrWhiteSpace(o.nom) ? "(sans nom)" : o.nom,
                                          UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
-                b.onClick.AddListener(() => { UnityEngine.Object.Destroy(scrim.gameObject); onChoix(e2); });
+                b.onClick.AddListener(() => { UnityEngine.Object.Destroy(scrim.gameObject); o2.choix(); });
             }
 
             var annuler = UIFactory.Button(v.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
             UIFactory.Border(annuler.gameObject);
             annuler.onClick.AddListener(() => UnityEngine.Object.Destroy(scrim.gameObject));
         });
+    }
+
+    // ── Cloud (01/11, CONCEPTION §16) ─────────────────────────────────────────
+
+    static async void OuvrirCloud(BatimentPrefab bp, Locataire seul)
+    {
+        var bat = bp?.getBatiment();
+        if (bat == null) return;
+        string bloque = TransfertCloud.Bloque(seul != null ? new[] { seul } : (bat.locataireDuBatiment ?? new List<Locataire>()).ToArray());
+        if (bloque != null)
+        {
+            ConfirmDialog.Erreur("Impossible pour l'instant : " + bloque + " Lancez l'application (ou cliquez « Payé » / « Envoyé » "
+                                 + "depuis le suivi) pour que cela parte, puis recommencez.");
+            return;
+        }
+        var (liste, erreur) = await DonneesCloud.MesEntreprises();
+        if (liste == null) { ConfirmDialog.Erreur("Liste des entreprises illisible : " + erreur); return; }
+        var autres = liste.Where(e => e != null && e.id != SessionCloud.Entreprise?.id && e.EstAdmin).ToList();
+        if (autres.Count == 0) { ConfirmDialog.Erreur("Aucune autre entreprise du groupe où vous êtes administrateur."); return; }
+        string quoi = seul != null ? seul.Name : bat.Name;
+        ChoisirParmi($"Transférer « {quoi} »", autres.Select(e => (e.nom, (Action)(() => ConfirmerCloud(bp, seul, e)))).ToList());
+    }
+
+    static async void ConfirmerCloud(BatimentPrefab bp, Locataire seul, EntrepriseCloud dest)
+    {
+        var bat = bp.getBatiment();
+        BatimentManager.Instance.SaveBatiment(bat);   // l'état affiché est celui qui part
+        var a = await TransfertCloud.Preparer(bat, seul, dest);
+        if (a.erreur != null) { ConfirmDialog.Erreur("Transfert impossible : " + a.erreur); return; }
+        string origine = SessionCloud.Entreprise?.nom ?? "l'entreprise actuelle";
+        string quoi;
+        if (seul == null)
+            quoi = a.batimentExistant
+                ? $"« {bat.Name} » existe déjà dans {dest.nom} : ses informations seront mises à jour, {a.locatairesRemplaces} locataire(s) "
+                  + $"remplacé(s), {a.locatairesAjoutes} ajouté(s) ; ceux qui n'existent que là-bas sont conservés"
+                : $"« {bat.Name} » sera créé dans {dest.nom} avec ses {a.locatairesAjoutes} locataire(s)";
+        else
+            quoi = !a.batimentExistant
+                ? $"« {bat.Name} » n'existe pas dans {dest.nom} : il y sera créé complet (achats, travaux, charges) avec « {seul.Name} » pour seul locataire"
+                : a.locatairesRemplaces > 0 ? $"« {seul.Name} » remplacera le locataire du même nom dans « {bat.Name} » ({dest.nom})"
+                                             : $"« {seul.Name} » sera ajouté au bâtiment « {bat.Name} » de {dest.nom}";
+        string detail = quoi + $", avec {a.documents} document(s) (factures, baux, photos).\n\n"
+            + $"Dans {origine}, " + (seul == null ? $"« {bat.Name} »" : $"« {seul.Name} »")
+            + " disparaît ; ses documents restent consultables dans la corbeille de chaque poste."
+            + (a.batimentExistant ? $"\nLa version actuelle de {dest.nom} est gardée avant (corbeille du serveur)." : "")
+            + "\n\nLes RIB et textes de facture sont propres à chaque entreprise : à re-choisir à la prochaine facture.";
+        if (ConfirmDialog.Instance == null) { ConfirmDialog.Erreur("Confirmation indisponible : rien n'a été transféré."); return; }
+        ConfirmDialog.Instance.Show("Transférer vers " + dest.nom + " ?", detail, () => ExecuterCloud(bat, seul, dest, a), "Transférer");
+    }
+
+    static async void ExecuterCloud(Batiment bat, Locataire seul, EntrepriseCloud dest, TransfertCloud.Apercu a)
+    {
+        string origine = SessionCloud.Entreprise?.nom ?? "l'entreprise actuelle";
+        string nom = seul != null ? seul.Name : bat.Name;
+        string erreur = await TransfertCloud.Executer(bat, seul, dest, Info);
+        if (erreur != null) { ConfirmDialog.Erreur($"Transfert annulé : {erreur} Rien n'a été retiré de {origine}."); return; }
+        Info($"« {nom} » transféré vers {dest.nom} ({a.locatairesAjoutes + a.locatairesRemplaces} locataire(s), {a.documents} document(s)).");
+        DemarrageCloud.Recharger();
     }
 
     static string NomActive()

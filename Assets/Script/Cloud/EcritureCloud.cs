@@ -27,6 +27,9 @@ public static class EcritureCloud
 
     public static string Cle(bool batiment, string id) => (batiment ? "b:" : "l:") + id;
 
+    /// La version du serveur telle que ce poste la connaît (0 : inconnue). Transfert (01/11) : le serveur refuse si elle a bougé.
+    public static int Version(bool batiment, string id) => _cache.TryGetValue(Cle(batiment, id), out var e) ? e.Version : 0;
+
     /// Retient l'état du serveur d'un bâtiment et de ses locataires (JSON de CIPL + versions).
     public static void Memoriser(IDictionary<string, Etat> cache, Batiment b, int versionBat, IDictionary<string, int> versionsLoc)
     {
@@ -148,7 +151,14 @@ public static class EcritureCloud
     static string Url => SessionCloud.Url;
     static string CleApi => SessionCloud.Cle;
 
-    public static async Task<(List<Batiment> batiments, string erreur)> Charger(string entrepriseId)
+    public static Task<(List<Batiment> batiments, string erreur)> Charger(string entrepriseId) => Charger(entrepriseId, _cache);
+
+    /// Les fiches d'une AUTRE entreprise, sans toucher au cache de celle qui est ouverte (transfert, 01/11 : lire la
+    /// destination vidait le cache de l'origine, et toute écriture suivante était refusée « version »).
+    public static Task<(List<Batiment> batiments, string erreur)> Consulter(string entrepriseId)
+        => Charger(entrepriseId, new Dictionary<string, Etat>());
+
+    static async Task<(List<Batiment> batiments, string erreur)> Charger(string entrepriseId, IDictionary<string, Etat> cache)
     {
         string jeton = await SessionCloud.Jeton();
         var rb = await CloudClient.Table("GET", Url, CleApi, jeton, "batiments", $"entreprise_id=eq.{entrepriseId}&select=id,version,data");
@@ -156,7 +166,7 @@ public static class EcritureCloud
         var rl = await CloudClient.Table("GET", Url, CleApi, jeton, "locataires",
                                          $"entreprise_id=eq.{entrepriseId}&select=id,batiment_id,ordre,version,data&order=ordre.asc");
         if (!rl.Ok) return (null, rl.Erreur);
-        try { var bats = Lire(rb.Corps, rl.Corps, _cache); _copieAEcrire = true; return (bats, null); }
+        try { var bats = Lire(rb.Corps, rl.Corps, cache); if (ReferenceEquals(cache, _cache)) _copieAEcrire = true; return (bats, null); }
         catch (Exception e) { return (null, "Données illisibles : " + e.Message); }
     }
 

@@ -151,6 +151,8 @@ public static class FactureElectronique
     public static bool EnAttente(FactureEtat r)
     {
         if (r == null) return false;
+        // Transférée d'une autre entreprise : déclarée en son nom (BG7) ; sans son identifiant (marque d'avant) : lecture seule.
+        if (!string.IsNullOrEmpty(r.plateformeOrigine) && string.IsNullOrEmpty(r.plateformeOrigineId)) return false;
         var e = FacturationSuivi.EtatDe(r);
         return (!string.IsNullOrEmpty(r.plateformeDonnees) && string.IsNullOrEmpty(r.plateformeId)
                 && r.plateformeEtat != "refusee" && r.plateformeEtat != "perimee" && Emise(e))
@@ -158,6 +160,19 @@ public static class FactureElectronique
             // Revue 16c (D5-12) : la facture a quitté « Payé » après la déclaration : l'annulation (212 négatif) attend.
             || (!string.IsNullOrEmpty(r.plateformeId) && r.encaisseeDeclaree && e != FacturationSuivi.Etat.Paye);
     }
+
+    /// Ce qui part d'ici : les lignes de la SCI ouverte si elle est reliée, et les lignes transmises par une autre
+    /// entreprise (déclarées en son nom, avec son jeton), même si la SCI ouverte ne l'est pas (BG7).
+    static bool ATraiter(FactureEtat r) => EnAttente(r) && (Active || !string.IsNullOrEmpty(r.plateformeOrigineId));
+
+    static string Noms(string a, string b) => string.IsNullOrEmpty(a) ? (b ?? "") : string.IsNullOrEmpty(b) || a.Contains(b) ? a : a + ", " + b;
+    static string AuNomDe(string noms) => string.IsNullOrEmpty(noms) ? "" : $" (au nom de {noms})";
+
+    /// Un 403 sur une ligne transmise par une autre entreprise : l'appelant n'en est pas membre (BG7). Le refus nommé, sinon null.
+    static Reponse RefusOrigine(Locataire loc, FactureEtat r, Reponse rep) =>
+        rep?.refus == "acces" && !string.IsNullOrEmpty(r.plateformeOrigineId)
+            ? new Reponse { refus = "origine", erreur = $"« {r.libelle} » de {loc?.Name} a été transmise par {r.plateformeOrigine} : seul un membre de {r.plateformeOrigine} peut déclarer son encaissement." }
+            : null;
 
     /// Ce que déclare « Encaissée » : le total TTC de la facture (toutes ses lignes) et la date du dernier versement
     /// saisi, sinon aujourd'hui (revue 16c, D5-07 ; décision du 01/11 : pour la TVA sur les encaissements, c'est la
@@ -177,6 +192,8 @@ public static class FactureElectronique
     public static string Pastille(FactureEtat r)
     {
         if (r == null) return null;
+        if (!string.IsNullOrEmpty(r.plateformeOrigine))
+            return r.encaisseeDeclaree ? $"Encaissée déclarée ({r.plateformeOrigine})" : "transmise par " + r.plateformeOrigine;
         if (r.encaisseeDeclaree) return "Encaissée déclarée";
         if (!string.IsNullOrEmpty(r.plateformeId)) return "Plateforme";
         if (r.plateformeEtat == "refusee") return "Refusée par la plateforme";
@@ -188,26 +205,26 @@ public static class FactureElectronique
     /// maintenant ; enregistré s'il y a du changement, annoncé en bas.
     public static async void Rattraper(BatimentPrefab bp, Locataire loc)
     {
-        if (!Active || bp == null || loc?.facturesEtat == null || !loc.facturesEtat.Any(EnAttente)) return;
+        if (bp == null || loc?.facturesEtat == null || !loc.facturesEtat.Any(ATraiter)) return;
         // Un traitement de ce locataire déjà en vol (« Payé » cliqué pendant la transmission…) : il ne repart pas
         // en double ; ce qu'il reste à faire est repris juste après (revue 16c, D5-02).
         if (!_enCours.Add(loc.id)) return;
         try
         {
             string batId = bp.getID();
-            var (envoyees, encaissees, annulees, change, panne) = await Traiter(loc, bp);
-            if (panne == null && loc.facturesEtat.Any(EnAttente))
+            var (envoyees, encaissees, annulees, change, panne, auNomDe) = await Traiter(loc, bp);
+            if (panne == null && loc.facturesEtat.Any(ATraiter))
             {
-                var (a, b, d, c, p) = await Traiter(loc, bp);
-                envoyees += a; encaissees += b; annulees += d; change |= c; panne = p;
+                var (a, b, d, c, p, n) = await Traiter(loc, bp);
+                envoyees += a; encaissees += b; annulees += d; change |= c; panne = p; auNomDe = Noms(auNomDe, n);
             }
             if (change) Enregistrer(batId, loc);
             RafraichirSuivi(loc);
             var morceaux = new List<string>();
             if (envoyees > 0) morceaux.Add(envoyees == 1 ? "Facture transmise à Super PDP." : $"{envoyees} factures transmises à Super PDP.");
-            if (encaissees > 0) morceaux.Add(encaissees == 1 ? "« Encaissée » déclaré à Super PDP." : $"{encaissees} « Encaissée » déclarés à Super PDP.");
-            if (annulees > 0) morceaux.Add(annulees == 1 ? "1 encaissement annulé chez Super PDP (facture plus payée)."
-                                                         : $"{annulees} encaissements annulés chez Super PDP (factures plus payées).");
+            if (encaissees > 0) morceaux.Add((encaissees == 1 ? "« Encaissée » déclaré à Super PDP" : $"{encaissees} « Encaissée » déclarés à Super PDP") + AuNomDe(auNomDe) + ".");
+            if (annulees > 0) morceaux.Add((annulees == 1 ? "1 encaissement annulé chez Super PDP" : $"{annulees} encaissements annulés chez Super PDP")
+                                           + AuNomDe(auNomDe) + (annulees == 1 ? " (facture plus payée)." : " (factures plus payées)."));
             if (panne != null) morceaux.Add(Panne(loc, panne));
             if (morceaux.Count > 0) UndoToast.Instance?.ShowInfo(string.Join(" ", morceaux));
         }
@@ -222,6 +239,7 @@ public static class FactureElectronique
     {
         string motif = Motif(panne) ?? "pas de réponse";
         Debug.LogWarning($"[FactureElectronique] {loc?.Name} : {motif}");
+        if (panne.refus == "origine") { ConfirmDialog.Erreur(panne.erreur); return "Déclaration impossible d'ici (voir le message)."; }
         if (panne.refus != "refusee") return "Plateforme injoignable : nouvel essai au prochain lancement.";
         ConfirmDialog.Erreur($"Super PDP a refusé une déclaration pour {loc?.Name}.\nDétail technique : {panne.erreur}\n\n"
                              + "Nouvel essai au prochain lancement ; si le refus se répète, signalez-le.");
@@ -280,52 +298,55 @@ public static class FactureElectronique
                 UndoToast.Instance?.ShowInfo("Super PDP : état non lu. Les loyers émis d'ici le prochain lancement partiront par e-mail seul.");
             }
             var bm = BatimentManager.Instance;
-            if (!Active || bm == null) return;
+            if (bm == null || !bm.BatimentPrefab.Any(b => (b?.listLocataire ?? new List<Locataire>()).Any(l => l?.facturesEtat != null && l.facturesEtat.Any(ATraiter)))) return;
             var libre = await EcritureCloud.LocatairesLibres();
             if (libre == null || SessionCloud.Entreprise != e) return;
             int envoyees = 0, encaissees = 0, annulees = 0;
+            string noms = "";
             Reponse panne = null; Locataire bloque = null;
             foreach (var bp in bm.BatimentPrefab.ToList())
             {
                 foreach (var loc in (bp?.listLocataire ?? new List<Locataire>()).ToList())
                 {
-                    if (loc?.facturesEtat == null || !libre(loc.id) || !loc.facturesEtat.Any(EnAttente)) continue;
+                    if (loc?.facturesEtat == null || !libre(loc.id) || !loc.facturesEtat.Any(ATraiter)) continue;
                     if (!_enCours.Add(loc.id)) continue;   // déjà en cours (Rattraper) : pas de double envoi (D5-02)
                     try
                     {
                         string batId = bp.getID();
-                        var (a, b, d, change, p) = await Traiter(loc, bp);
+                        var (a, b, d, change, p, n) = await Traiter(loc, bp);
                         if (change) Enregistrer(batId, loc);
-                        envoyees += a; encaissees += b; annulees += d;
-                        panne = p; if (p != null) bloque = loc;
+                        envoyees += a; encaissees += b; annulees += d; noms = Noms(noms, n);
+                        if (p != null) { panne = p; bloque = loc; }
                     }
                     finally { _enCours.Remove(loc.id); }
-                    if (panne != null) break;
+                    if (panne != null && panne.refus != "origine") break;   // « pas membre de l'origine » n'arrête pas les autres (BG7)
                 }
-                if (panne != null) break;
+                if (panne != null && panne.refus != "origine") break;
             }
             // Un locataire bloqué (refus, panne) arrête la tournée : son motif est dit, le reste repartira au prochain lancement.
             string fin = panne != null ? " " + Panne(bloque, panne) : "";
             if (envoyees + encaissees + annulees > 0 || fin != "")
-                UndoToast.Instance?.ShowInfo($"Super PDP : {envoyees} facture(s) transmise(s), {encaissees} « Encaissée » déclaré(s), {annulees} annulé(s).{fin}");
+                UndoToast.Instance?.ShowInfo($"Super PDP : {envoyees} facture(s) transmise(s), {encaissees} « Encaissée » déclaré(s), {annulees} annulé(s){AuNomDe(noms)}.{fin}");
         }
         catch (Exception ex) { Debug.LogWarning("[FactureElectronique] Démarrage : " + ex.Message); }
     }
 
     /// Les lignes d'un locataire qui attendent la plateforme, une par une. Plateforme injoignable (`panne`) :
     /// on s'arrête, la ligne garde son état et repartira au prochain lancement.
-    static async Task<(int envoyees, int encaissees, int annulees, bool change, Reponse panne)> Traiter(Locataire loc, BatimentPrefab bp)
+    static async Task<(int envoyees, int encaissees, int annulees, bool change, Reponse panne, string auNomDe)> Traiter(Locataire loc, BatimentPrefab bp)
     {
         int envoyees = 0, encaissees = 0, annulees = 0;
         bool change = false;
+        string auNomDe = "";           // les entreprises d'origine au nom desquelles on a déclaré (BG7)
+        Reponse refusOrigine = null;   // « pas membre de l'origine » : dit à la fin, sans arrêter le reste du locataire
         // Revue 16c (D5-11) : l'entreprise ouverte au départ ; si elle change pendant l'attente de Super PDP, on s'arrête
         // (sinon les factures de la SCI A partaient avec la session de la SCI B).
         var e = SessionCloud.Entreprise;
         var Changee = new Reponse { refus = "changee", erreur = "entreprise changée pendant le traitement" };
         foreach (var r in loc.facturesEtat.ToList())
         {
-            if (!EnAttente(r)) continue;
-            if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee);
+            if (!ATraiter(r)) continue;
+            if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee, auNomDe);
             if (string.IsNullOrEmpty(r.plateformeId))
             {
                 string cheminPdf = FacturationSuivi.CheminPdf(r, bp.getName(), loc.Name);
@@ -335,7 +356,7 @@ public static class FactureElectronique
                 // absent : la ligne reste à transmettre, elle n'est plus marquée « refusée » pour tout le monde.
                 if (pdf == null) pdf = await DocumentsCloud.LireOctets(cheminPdf);
                 if (pdf == null) { Debug.LogWarning($"[FactureElectronique] {loc.Name} · {r.libelle} : PDF introuvable ici et dans le cloud, transmission remise."); continue; }
-                if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee);
+                if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee, auNomDe);
                 var rep = await AppelerLong(new Demande { action = "envoyer", cle = Cle(loc, r), facture = r.plateformeDonnees, pdf = Convert.ToBase64String(pdf) });
                 if (rep.ok)
                 {
@@ -358,31 +379,33 @@ public static class FactureElectronique
                 else
                 {
                     if (r.plateformeEtat != "a_renvoyer") { r.plateformeEtat = "a_renvoyer"; change = true; }
-                    return (envoyees, encaissees, annulees, change, rep);
+                    return (envoyees, encaissees, annulees, change, rep, auNomDe);
                 }
             }
             var etat = FacturationSuivi.EtatDe(r);
             if (!string.IsNullOrEmpty(r.plateformeId) && !r.encaisseeDeclaree && etat == FacturationSuivi.Etat.Paye)
             {
                 var (montant, date) = Encaissement(loc, r);   // revue 16c, D5-07 : montant TTC et date du versement
-                if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee);
-                var rep = await Appeler(new Demande { action = "encaisser", id = r.plateformeId, montant = Montant(montant), date = date });
-                if (!rep.ok) return (envoyees, encaissees, annulees, change, rep);
+                if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee, auNomDe);
+                var rep = await Appeler(new Demande { action = "encaisser", entreprise = r.plateformeOrigineId, id = r.plateformeId, montant = Montant(montant), date = date });
+                if (!rep.ok) { if (RefusOrigine(loc, r, rep) is Reponse ro) { refusOrigine = ro; continue; } return (envoyees, encaissees, annulees, change, rep, auNomDe); }
                 r.encaisseeDeclaree = true; r.encaisseeMontant = montant; r.encaisseeDateISO = date; encaissees++; change = true;
+                auNomDe = Noms(auNomDe, r.plateformeOrigine);
             }
             else if (!string.IsNullOrEmpty(r.plateformeId) && r.encaisseeDeclaree && etat != FacturationSuivi.Etat.Paye)
             {
                 // Revue 16c (D5-12, décision du 31/10) : la facture a quitté « Payé » : l'encaissement déclaré est annulé par un
                 // second 212 du même montant en négatif (cas d'usage officiel « annulation d'encaissement »), daté du jour.
                 float montant = r.encaisseeMontant > 0f ? r.encaisseeMontant : Encaissement(loc, r).montant;
-                if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee);
-                var rep = await Appeler(new Demande { action = "encaisser", id = r.plateformeId, montant = Montant(-montant), date = DateTime.Today.ToString("yyyy-MM-dd") });
-                if (!rep.ok) return (envoyees, encaissees, annulees, change, rep);
+                if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee, auNomDe);
+                var rep = await Appeler(new Demande { action = "encaisser", entreprise = r.plateformeOrigineId, id = r.plateformeId, montant = Montant(-montant), date = DateTime.Today.ToString("yyyy-MM-dd") });
+                if (!rep.ok) { if (RefusOrigine(loc, r, rep) is Reponse ro) { refusOrigine = ro; continue; } return (envoyees, encaissees, annulees, change, rep, auNomDe); }
                 r.encaisseeDeclaree = false; r.encaisseeMontant = 0f; r.encaisseeDateISO = ""; change = true;
+                auNomDe = Noms(auNomDe, r.plateformeOrigine);
                 annulees++;   // dit dans le résumé (un message à part était recouvert par le suivant)
             }
         }
-        return (envoyees, encaissees, annulees, change, null);
+        return (envoyees, encaissees, annulees, change, refusOrigine, auNomDe);
     }
 
     /// Dès la bascule : le locataire apprend par e-mail que sa facture est transmise (modèle de Réglages › Textes
@@ -425,7 +448,7 @@ public static class FactureElectronique
     static async Task<Reponse> Appeler(Demande d)
     {
         if (!SessionCloud.Active || SessionCloud.Entreprise == null) return new Reponse { refus = "cloud" };
-        d.entreprise = SessionCloud.Entreprise.id;
+        if (string.IsNullOrEmpty(d.entreprise)) d.entreprise = SessionCloud.Entreprise.id;   // BG7 : l'origine d'une facture transférée, sinon la SCI ouverte
         var r = await CloudClient.FonctionServeur(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "facture-electronique",
                     JsonUtility.ToJson(d));
         return Lire(r.Ok, r.Corps, r.Erreur);
@@ -435,7 +458,7 @@ public static class FactureElectronique
     static async Task<Reponse> AppelerLong(Demande d)
     {
         if (!SessionCloud.Active || SessionCloud.Entreprise == null) return new Reponse { refus = "cloud" };
-        d.entreprise = SessionCloud.Entreprise.id;
+        if (string.IsNullOrEmpty(d.entreprise)) d.entreprise = SessionCloud.Entreprise.id;   // BG7 : l'origine d'une facture transférée, sinon la SCI ouverte
         var (r, octets) = await CloudClient.FonctionBrute(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "facture-electronique",
                               JsonUtility.ToJson(d));
         return Lire(r.Ok, r.Ok ? (octets == null ? "" : Encoding.UTF8.GetString(octets)) : r.Corps, r.Erreur);
@@ -466,6 +489,7 @@ public static class FactureElectronique
             case null: case "": return r == null ? "Pas de réponse du serveur de CIPL." : null;
             case "cloud": return "La facture électronique demande d'être connecté(e) au cloud de CIPL.";
             case "acces": return "Cette entreprise ne vous est pas ouverte.";
+            case "origine": return r.erreur;   // BG7 : pas membre de l'entreprise qui a transmis la facture
             case "admin": return "Seul un administrateur peut activer ou couper la facture électronique.";
             case "config": return "La facture électronique n'est pas encore réglée sur le serveur (Supabase › Edge Functions › Secrets : SUPERPDP_CLIENT_ID et SUPERPDP_CLIENT_SECRET).";
             case "siren": return "Cette entreprise n'a pas de SIRET : renseignez-le d'abord (Réglages → Entreprise).";

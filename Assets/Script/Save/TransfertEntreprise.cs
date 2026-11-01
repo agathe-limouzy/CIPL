@@ -271,16 +271,21 @@ public static class TransfertEntreprise
     /// avec les ids de destination. Renvoie les réglages de destination à enregistrer
     /// (null si rien à ajouter).
     static ReglageData ReconcilierListes(Batiment copie, string racineOrigine, string racineDest)
+        => ReconcilierListes(copie, LireReglage(racineOrigine), LireReglage(racineDest));
+
+    /// La même règle avec des Réglages déjà lus (transfert cloud, 01/11) : `copie` est réécrite avec les ids de la
+    /// destination ; rend les Réglages de destination à enregistrer, ou null si rien n'y a été ajouté.
+    public static ReglageData ReconcilierListes(Batiment copie, ReglageData reglagesOrigine, ReglageData reglagesDest)
     {
         // Tout ce qui désigne une liste : charges, dates/provisions et choix des listes
         // du locataire, et ce que ses factures mémorisent (provisions, listes régularisées).
-        var utilises = copie.charges.Select(c => c.listeId)
+        var utilises = (copie.charges ?? new List<ChargeBatiment>()).Select(c => c.listeId)
             .Concat(copie.locataireDuBatiment.SelectMany(IdsDeListes))
             .Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
         if (utilises.Count == 0) return null;
 
-        var origine = LireReglage(racineOrigine)?.listesCharges ?? new List<ListeCharges>();
-        var dest = LireReglage(racineDest) ?? new ReglageData();
+        var origine = reglagesOrigine?.listesCharges ?? new List<ListeCharges>();
+        var dest = reglagesDest ?? new ReglageData();
         dest.listesCharges ??= new List<ListeCharges>();
 
         var map = new Dictionary<string, string>();
@@ -301,7 +306,7 @@ public static class TransfertEntreprise
             map[id] = meme.id;
         }
 
-        foreach (var c in copie.charges)
+        foreach (var c in copie.charges ?? new List<ChargeBatiment>())
             if (!string.IsNullOrEmpty(c.listeId)) c.listeId = map[c.listeId];
         foreach (var l in copie.locataireDuBatiment)
         {
