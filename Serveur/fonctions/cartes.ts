@@ -47,6 +47,9 @@ Deno.serve(async (req) => {
     if (!r.ok) return json({ ok: false, refus: "google", code: r.status, erreur: (await r.text()).slice(0, 300) }, 424);
     return new Response(await r.arrayBuffer(), { headers: { "Content-Type": r.headers.get("Content-Type") ?? "image/png" } });
   } catch (e) {
-    return json({ ok: false, refus: "erreur", erreur: String((e as Error)?.message ?? e) }, 500);
+    // Revue 16c (D1-02) : le message d'une erreur réseau cite l'adresse appelée, qui contient la clé Google ;
+    // il reste dans le journal du serveur, jamais dans la réponse.
+    console.error("[cartes]", e);
+    return json({ ok: false, refus: "erreur", erreur: "erreur interne du serveur" }, 500);
   }
 });

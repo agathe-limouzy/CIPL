@@ -111,6 +111,8 @@ public class FactureRefacPanel : MonoBehaviour
     }
 
     public void Close() => gameObject.SetActive(false);
+    void Retour() { if (!FactureEmission.RefuseFermeture(_envoiEnCours)) Close(); }   // revue 16c, D4-02
+    void OnDisable() => _envoiEnCours = false;   // fermé de force pendant un envoi : pas bloqué ensuite
     void OnDestroy() { if (_previewTex != null) Destroy(_previewTex); }
 
     // ── Construction ───────────────────────────────────────────────────────────
@@ -127,7 +129,7 @@ public class FactureRefacPanel : MonoBehaviour
         UIFactory.LE(header.gameObject, minH: 52);
         var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(back.gameObject); UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
-        back.onClick.AddListener(Close);
+        back.onClick.AddListener(Retour);
         _titre = UIFactory.Text(header.transform, "Information Facture — Refacturation", UITheme.Role.Page, UITheme.TextePrincipal, true);
         UIFactory.LE(_titre.gameObject, flexW: 1);
 
@@ -652,7 +654,8 @@ public class FactureRefacPanel : MonoBehaviour
 
         string quoi = sel.Count == 1 ? sel[0].c.nom : $"{sel.Count} charges";
         string type = d.ttc < -0.005f ? "Avoir" : "Refacturation";
-        string fname = Sanitize($"{type}-{quoi}-{_nom.text}-{dt:MM-yyyy}{emission.SuffixeFichier}") + ".pdf";
+        // Le numéro dans le nom : deux refacturations du même mois (« 2 charges ») avaient le même PDF (D4-01).
+        string fname = Sanitize($"{type}-{emission.NumeroFichier}-{quoi}-{_nom.text}-{dt:MM-yyyy}{emission.SuffixeFichier}") + ".pdf";
         string pdf = DossiersDonnees.CheminFacture(dir, fname);
 
         if (!FacturePdfService.GeneratePdf(d, pdf, out string err))

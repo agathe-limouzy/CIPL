@@ -148,6 +148,22 @@ Deno.serve(async (req) => {
         return r?.ok ? json({ ok: true }) : await refus(r);
       }
 
+      // Revue 16c (D5-02) : une facture n'est transmise qu'une fois, même depuis deux postes ou pendant un réessai.
+      // La première réservation gagne ; une facture déjà transmise rend son identifiant ; un envoi en cours ailleurs
+      // (moins de 10 min) fait attendre ; au-delà, la réservation abandonnée est reprise (table plateformes_envois).
+      const k = String(cle ?? "").slice(0, 36);
+      const { data: prise } = await service.from("plateformes_envois")
+        .upsert({ entreprise_id: entreprise, cle: k }, { onConflict: "entreprise_id,cle", ignoreDuplicates: true }).select();
+      if (!prise?.length) {
+        const { data: deja } = await service.from("plateformes_envois").select("facture_id, cree_le")
+          .eq("entreprise_id", entreprise).eq("cle", k).maybeSingle();
+        if (deja?.facture_id) return json({ ok: true, id: deja.facture_id });
+        if (deja && Date.now() - new Date(deja.cree_le).getTime() < 10 * 60_000)
+          return json({ ok: false, refus: "indisponible", erreur: "transmission déjà en cours sur un autre poste" });
+        await service.from("plateformes_envois").update({ cree_le: new Date().toISOString() }).eq("entreprise_id", entreprise).eq("cle", k);
+      }
+      const liberer = () => service.from("plateformes_envois").delete().eq("entreprise_id", entreprise).eq("cle", k).is("facture_id", null);
+
       const fe = JSON.parse(String(facture ?? "{}"));
       if (BAC_A_SABLE) {
         // Bac à sable : vendeur et acheteur y sont des entreprises fictives. Super PDP refuse un vendeur autre que
@@ -186,8 +202,7 @@ Deno.serve(async (req) => {
         const c = await fetch(`${API}/v1.beta/invoices/convert?from=en16931&to=${format}`, { method: "POST", headers: entetes, body: corps })
           .catch(() => null);
         if (!c?.ok) return c;
-        // ponytail: un même external_id renvoyé après une réponse perdue sera sans doute refusé (doublon) ; à vérifier au bac à sable.
-        return await fetch(`${API}/v1.beta/invoices?external_id=${encodeURIComponent(String(cle ?? "").slice(0, 36))}`, {
+        return await fetch(`${API}/v1.beta/invoices?external_id=${encodeURIComponent(k)}`, {
           method: "POST", headers: { ...auth, "Content-Type": format === "ubl" ? "application/xml" : "application/pdf" },
           body: new Uint8Array(await c.arrayBuffer()),
         }).catch(() => null);
@@ -196,9 +211,11 @@ Deno.serve(async (req) => {
       // document », constaté en bac à sable le 30/10), la même facture part en UBL ; le PDF part toujours par e-mail.
       let s = await envoi("factur-x");
       if (s && !s.ok && (await s.clone().text()).includes("does not accept this document")) s = await envoi("ubl");
-      if (!s?.ok) return await refus(s);
+      if (!s?.ok) { await liberer(); return await refus(s); }
       const f = await s.json().catch(() => ({}));
-      return json({ ok: true, id: String(f.id ?? "") });
+      const fid = String(f.id ?? "");
+      await service.from("plateformes_envois").update({ facture_id: fid }).eq("entreprise_id", entreprise).eq("cle", k);
+      return json({ ok: true, id: fid });
     }
 
     return json({ ok: false, refus: "action" }, 400);

@@ -16,6 +16,14 @@ public static class TransfertEntrepriseUI
     {
         if (supprimer == null) return;
         var existant = supprimer.transform.parent.Find("Transferer");
+        // Revue 16c (D2-01, D8-01) : sur le cloud, ce transfert entre dossiers du PC écrivait la fiche dans un ancien
+        // dossier local, que CIPL ne lit plus, puis la retirait du serveur pour tout le monde. Masqué sur le cloud
+        // tant que le transfert entre entreprises du cloud (fonction serveur, décision du 31/10) n'existe pas.
+        if (SessionCloud.Active)
+        {
+            if (existant != null) existant.gameObject.SetActive(false);
+            return;
+        }
         var b = existant != null ? existant.GetComponent<Button>()
                                  : UnityEngine.Object.Instantiate(supprimer, supprimer.transform.parent);
         b.name = "Transferer";

@@ -291,7 +291,12 @@
       "Bash(python -I \"C:/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/e64728c1-a395-4eec-8787-0142fd15f40b/scratchpad/docs_modele_copie.py\" \"C:/Users/agath/Documents/CIPL/CIPL_Git/CIPL\")",
       "Bash(python -I \"C:/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/e64728c1-a395-4eec-8787-0142fd15f40b/scratchpad/docs_invitation_utilisateurs.py\" \"C:/Users/agath/Documents/CIPL/CIPL_Git/CIPL\")",
       "Bash(python -I \"C:/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/e64728c1-a395-4eec-8787-0142fd15f40b/scratchpad/docs_bb10.py\" \"C:/Users/agath/Documents/CIPL/CIPL_Git/CIPL\")",
-      "Bash(python -I \"C:/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/e64728c1-a395-4eec-8787-0142fd15f40b/scratchpad/docs_ax8.py\" \"C:/Users/agath/Documents/CIPL/CIPL_Git/CIPL\")"
+      "Bash(python -I \"C:/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/e64728c1-a395-4eec-8787-0142fd15f40b/scratchpad/docs_ax8.py\" \"C:/Users/agath/Documents/CIPL/CIPL_Git/CIPL\")",
+      "Bash(python -I \"C:/Users/agath/AppData/Local/Temp/claude/C--Users-agath-Documents-CIPL-CIPL-Git-CIPL/e64728c1-a395-4eec-8787-0142fd15f40b/scratchpad/docs_ba.py\" \"C:/Users/agath/Documents/CIPL/CIPL_Git/CIPL\")",
+      "Bash(grep -n -E \"^#{1,4} \" REVUE_CODE_CIPL.md)",
+      "Bash(grep -n -E \"^#{1,4} \" FACTURATION_CIPL_PENNYLANE.md)",
+      "PowerShell(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\agath\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-agath-Documents-CIPL-CIPL-Git-CIPL\\\\e64728c1-a395-4eec-8787-0142fd15f40b\\\\scratchpad\\\\revue16c\")",
+      "Bash(cd \"C:/Users/agath/Documents/CIPL\" && ls; find . -maxdepth 3 -iname \"*.exe\" -newer \"CIPL_Git/CIPL/Assets/Script/InputAndText.cs\" 2>/dev/null | head; echo \"--- InputAndText mtime:\"; stat -c '%y' CIPL_Git/CIPL/Assets/Script/InputAndText.cs CIPL_Git/CIPL/Assets/Script/Batiment/Batiment.cs; echo \"--- exe:\"; find . -maxdepth 4 -iname \"CIPL*.exe\" -printf '%TY-%Tm-%Td %TH:%TM %p\\\\n' 2>/dev/null | head)"
     ]
   },
   "enableAllProjectMcpServers": true,

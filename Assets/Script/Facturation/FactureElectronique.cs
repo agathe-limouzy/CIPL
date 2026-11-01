@@ -106,6 +106,19 @@ public static class FactureElectronique
     public static void Preparer(FactureEtat rec, string json)
     {
         if (rec == null) return;
+        // `json` null : refaite hors plateforme (locataire plus concerné, état de Super PDP non lu au lancement…). Une
+        // version jamais transmise ne doit plus partir, avec ses anciens montants (revue 16c, D5-01) : elle est
+        // « périmée », gardée pour sa référence éventuelle à la facture d'origine (Remplacee). Une version transmise
+        // ne bouge pas (FactureLoyerPanel prévient que la correction n'est pas allée à la plateforme).
+        if (json == null)
+        {
+            if (string.IsNullOrEmpty(rec.plateformeId) && !string.IsNullOrEmpty(rec.plateformeDonnees))
+            {
+                rec.plateformeEtat = "perimee";
+                rec.plateformeErreur = "";
+            }
+            return;
+        }
         rec.plateformeDonnees = json;
         rec.plateformeId = "";
         rec.plateformeEtat = "";
@@ -121,7 +134,8 @@ public static class FactureElectronique
     {
         if (r == null) return false;
         var e = FacturationSuivi.EtatDe(r);
-        return (!string.IsNullOrEmpty(r.plateformeDonnees) && string.IsNullOrEmpty(r.plateformeId) && r.plateformeEtat != "refusee" && Emise(e))
+        return (!string.IsNullOrEmpty(r.plateformeDonnees) && string.IsNullOrEmpty(r.plateformeId)
+                && r.plateformeEtat != "refusee" && r.plateformeEtat != "perimee" && Emise(e))
             || (!string.IsNullOrEmpty(r.plateformeId) && !r.encaisseeDeclaree && e == FacturationSuivi.Etat.Paye);
     }
 
@@ -132,6 +146,7 @@ public static class FactureElectronique
         if (r.encaisseeDeclaree) return "Encaissée déclarée";
         if (!string.IsNullOrEmpty(r.plateformeId)) return "Plateforme";
         if (r.plateformeEtat == "refusee") return "Refusée par la plateforme";
+        if (r.plateformeEtat == "perimee") return null;   // refaite hors plateforme : elle n'y part pas
         return !string.IsNullOrEmpty(r.plateformeDonnees) && Emise(FacturationSuivi.EtatDe(r)) ? "À renvoyer" : null;
     }
 
@@ -139,11 +154,20 @@ public static class FactureElectronique
     /// maintenant ; enregistré s'il y a du changement, annoncé en bas.
     public static async void Rattraper(BatimentPrefab bp, Locataire loc)
     {
+        if (!Active || bp == null || loc?.facturesEtat == null || !loc.facturesEtat.Any(EnAttente)) return;
+        // Un traitement de ce locataire déjà en vol (« Payé » cliqué pendant la transmission…) : il ne repart pas
+        // en double ; ce qu'il reste à faire est repris juste après (revue 16c, D5-02).
+        if (!_enCours.Add(loc.id)) return;
         try
         {
-            if (!Active || bp == null || loc?.facturesEtat == null || !loc.facturesEtat.Any(EnAttente)) return;
+            string batId = bp.getID();
             var (envoyees, encaissees, change, panne) = await Traiter(loc, bp);
-            if (change && bp != null) bp.SaveAfterModifyToDoListLocataire();
+            if (panne == null && loc.facturesEtat.Any(EnAttente))
+            {
+                var (a, b, c, p) = await Traiter(loc, bp);
+                envoyees += a; encaissees += b; change |= c; panne = p;
+            }
+            if (change) Enregistrer(batId, loc);
             RafraichirSuivi(loc);
             var morceaux = new List<string>();
             if (envoyees > 0) morceaux.Add(envoyees == 1 ? "Facture transmise à Super PDP." : $"{envoyees} factures transmises à Super PDP.");
@@ -152,6 +176,38 @@ public static class FactureElectronique
             if (morceaux.Count > 0) UndoToast.Instance?.ShowInfo(string.Join(" ", morceaux));
         }
         catch (Exception e) { Debug.LogWarning("[FactureElectronique] " + e.Message); }
+        finally { _enCours.Remove(loc.id); }
+    }
+
+    /// Locataires dont les factures sont en cours de transmission sur ce poste (un seul traitement à la fois).
+    static readonly HashSet<string> _enCours = new HashSet<string>();
+
+    /// Après l'attente de Super PDP, la fiche a pu être relue (collègue, temps réel, rechargement) : l'objet traité
+    /// est alors orphelin et son enregistrement perdu, la facture repartait au lancement suivant (revue 16c, D5-02).
+    /// Les résultats sont recopiés sur la fiche à jour, puis elle est enregistrée.
+    static void Enregistrer(string batId, Locataire loc)
+    {
+        var bp = BatimentManager.Instance?.BatimentPrefab.Find(b => b != null && b.getID() == batId);
+        var aJour = bp?.listLocataire.Find(l => l != null && l.id == loc.id);
+        if (aJour == null) { Debug.LogWarning($"[FactureElectronique] {loc.Name} : fiche introuvable, résultat non enregistré."); return; }
+        RecopierPlateforme(loc, aJour);
+        bp.SaveAfterModifyToDoListLocataire();
+    }
+
+    /// Les résultats de la plateforme d'un objet locataire sur un autre (même locataire relu), ligne par ligne, seulement
+    /// si c'est la même facture électronique : une facture refaite ailleurs entre-temps garde la sienne.
+    public static void RecopierPlateforme(Locataire de, Locataire vers)
+    {
+        if (de?.facturesEtat == null || vers?.facturesEtat == null || ReferenceEquals(de, vers)) return;
+        foreach (var r in de.facturesEtat)
+        {
+            var n = vers.facturesEtat.Find(x => x.key == r.key);
+            if (n == null || n.plateformeDonnees != r.plateformeDonnees) continue;
+            n.plateformeId = r.plateformeId;
+            n.plateformeEtat = r.plateformeEtat;
+            n.plateformeErreur = r.plateformeErreur;
+            n.encaisseeDeclaree = r.encaisseeDeclaree;
+        }
     }
 
     /// Au démarrage du cloud (DemarrageCloud) : l'état de la SCI, puis tout ce qui attend (envois en panne,
@@ -176,10 +232,17 @@ public static class FactureElectronique
                 foreach (var loc in (bp?.listLocataire ?? new List<Locataire>()).ToList())
                 {
                     if (loc?.facturesEtat == null || !libre(loc.id) || !loc.facturesEtat.Any(EnAttente)) continue;
-                    var (a, b, change, p) = await Traiter(loc, bp);
-                    if (change && bp != null) bp.SaveAfterModifyToDoListLocataire();
-                    envoyees += a; encaissees += b;
-                    if ((panne = p) != null) break;
+                    if (!_enCours.Add(loc.id)) continue;   // déjà en cours (Rattraper) : pas de double envoi (D5-02)
+                    try
+                    {
+                        string batId = bp.getID();
+                        var (a, b, change, p) = await Traiter(loc, bp);
+                        if (change) Enregistrer(batId, loc);
+                        envoyees += a; encaissees += b;
+                        panne = p;
+                    }
+                    finally { _enCours.Remove(loc.id); }
+                    if (panne != null) break;
                 }
                 if (panne != null) { Debug.LogWarning("[FactureElectronique] " + panne); break; }
             }
@@ -265,7 +328,7 @@ public static class FactureElectronique
     static void RafraichirSuivi(Locataire loc)
     {
         foreach (var fiche in UnityEngine.Object.FindObjectsOfType<LocatairePrefab>())
-            if (fiche != null && fiche.GetLocataire() == loc) LocataireSuiviInline.RefreshFor(fiche);
+            if (fiche != null && fiche.GetLocataire()?.id == loc.id) LocataireSuiviInline.RefreshFor(fiche);   // relue : même id
     }
 
     // ── Le serveur ─────────────────────────────────────────────────────────────

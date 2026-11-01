@@ -122,6 +122,8 @@ public class FactureDepotPanel : MonoBehaviour
     }
 
     public void Close() => gameObject.SetActive(false);
+    void Retour() { if (!FactureEmission.RefuseFermeture(_envoiEnCours)) Close(); }   // revue 16c, D4-02
+    void OnDisable() => _envoiEnCours = false;   // fermé de force pendant un envoi : pas bloqué ensuite
     void OnDestroy() { if (_previewTex != null) Destroy(_previewTex); }
 
     // ── Construction ───────────────────────────────────────────────────────────
@@ -138,7 +140,7 @@ public class FactureDepotPanel : MonoBehaviour
         UIFactory.LE(header.gameObject, minH: 52);
         var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(back.gameObject); UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
-        back.onClick.AddListener(Close);
+        back.onClick.AddListener(Retour);
         _titre = UIFactory.Text(header.transform, "Information Facture — Révision du dépôt", UITheme.Role.Page, UITheme.TextePrincipal, true);
         UIFactory.LE(_titre.gameObject, flexW: 1);
 
@@ -811,7 +813,8 @@ public class FactureDepotPanel : MonoBehaviour
         d.PoserNumero(emission.NumeroFacture);
         bool correction = emission.Correction;
 
-        string fname = Sanitize($"{(_sortie ? "DecompteSortie" : _initial ? "DepotGarantie" : "RevisionDepot")}-{_nom.text}-{year}{emission.SuffixeFichier}") + ".pdf";
+        // Le numéro dans le nom : deux révisions préparées la même année avaient le même PDF (D4-01).
+        string fname = Sanitize($"{(_sortie ? "DecompteSortie" : _initial ? "DepotGarantie" : "RevisionDepot")}-{emission.NumeroFichier}-{_nom.text}-{year}{emission.SuffixeFichier}") + ".pdf";
         string pdf = DossiersDonnees.CheminFacture(dir, fname);
 
         string err = d.Pdf(pdf);

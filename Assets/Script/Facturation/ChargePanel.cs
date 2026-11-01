@@ -31,6 +31,8 @@ public class ChargePanel : MonoBehaviour
     readonly Dictionary<string, TMP_InputField> _fRatio = new Dictionary<string, TMP_InputField>();
     readonly List<TMP_InputField> _manualEditable = new List<TMP_InputField>();
     TMP_InputField _manualLast;      // dernier locataire (Manuel) = 1 − somme des autres
+    TMP_InputField _fCout;
+    readonly List<(Locataire l, TMP_Text t)> _fMontant = new List<(Locataire, TMP_Text)>();   // part en euros de chacun
     Transform _locBox, _ratioBox;
     string _fType = "Surface";
     string _fPdf;
@@ -38,6 +40,10 @@ public class ChargePanel : MonoBehaviour
     Button _chipSurface, _chipEgal, _chipManuel;
 
     Batiment Bat => _bp != null ? _bp.getBatiment() : null;
+
+    /// Surface du lot pour la répartition « Surface » : la saisie, sinon sa part du disponible (point de passage
+    /// unique, BatimentPrefab.TailleLotEffective). Revue 16c, D6-01 : un lot à surface déduite comptait pour 1 m².
+    float Surface(Locataire l) => _bp != null ? _bp.TailleLotEffective(l) : (l?.tailleLot ?? 0f);
     RectTransform _scrim;   // formulaire ouvert tant qu'il existe (verrou du bâtiment, étape 4b)
 
     void Awake()
@@ -109,6 +115,8 @@ public class ChargePanel : MonoBehaviour
         // enregistrement le remettrait à 0 en silence.
         var fCout = LabeledInput(body, "Coût (€, négatif pour un avoir)", "0", _edit.cout != 0 ? _edit.cout.ToString(CultureInfo.InvariantCulture) : "");
         fCout.contentType = TMP_InputField.ContentType.DecimalNumber;
+        _fCout = fCout;
+        fCout.onValueChanged.AddListener(_ => MajMontants());
         var fDate = LabeledInput(body, "Date", "JJ/MM/AAAA",
             DateTime.TryParse(_edit.dateISO, out var de) ? de.ToString("dd/MM/yyyy") : "");
 
@@ -214,7 +222,7 @@ public class ChargePanel : MonoBehaviour
     void RebuildRatio()
     {
         foreach (Transform c in _ratioBox) Destroy(c.gameObject);
-        _fRatio.Clear(); _manualEditable.Clear(); _manualLast = null;
+        _fRatio.Clear(); _manualEditable.Clear(); _manualLast = null; _fMontant.Clear();
         var concerned = Concerned();
         bool show = concerned.Count > 1;
         _ratioBox.gameObject.SetActive(show);
@@ -250,20 +258,62 @@ public class ChargePanel : MonoBehaviour
                 inp.interactable = !isLast;         // dernier = reste (auto)
                 _fRatio[l.id] = inp;
                 if (isLast) _manualLast = inp;
-                else { _manualEditable.Add(inp); inp.onValueChanged.AddListener(_ => RecomputeManualLast()); }
+                else { _manualEditable.Add(inp); inp.onValueChanged.AddListener(_ => { RecomputeManualLast(); MajMontants(); }); }
             }
             else
             {
                 string txt = _fType == "Surface"
-                    ? $"{(l.tailleLot > 0f ? l.tailleLot : 0f):0.##} m²"
+                    ? $"{Surface(l):0.##} m²"
                     : $"1/{n}";
                 var val = UIFactory.Text(row.transform, txt, UITheme.Role.Donnee, UITheme.TextePrincipal, true,
                     TextAlignmentOptions.Right);
                 UIFactory.LE(val.gameObject, prefW: 120, flexW: 0);
             }
+            var montant = UIFactory.Text(row.transform, "", UITheme.Role.Donnee, UITheme.TextePrincipal, true,
+                TextAlignmentOptions.Right);
+            UIFactory.LE(montant.gameObject, prefW: 120, flexW: 0);
+            _fMontant.Add((l, montant));
         }
         if (_fType == "Manuel") RecomputeManualLast();
+        MajMontants();
     }
+
+    /// Parts de répartition : surface du lot (1 si inconnue), 1 chacun (Égalité) ou part saisie (Manuel) ; aucune
+    /// pour un seul locataire, qui paie tout. Les mêmes pour l'enregistrement et pour les montants affichés.
+    public static List<ChargeRatio> Ratios(string type, List<Locataire> concernes, Func<Locataire, float> surface,
+                                           Func<Locataire, float> manuel)
+    {
+        var res = new List<ChargeRatio>();
+        if (concernes.Count > 1)
+            foreach (var l in concernes)
+            {
+                float part;
+                if (type == "Surface") part = surface(l) > 0f ? surface(l) : 1f;
+                else if (type == "Égalité") part = 1f;
+                else part = manuel(l);   // Manuel (dernier = reste déjà calculé)
+                res.Add(new ChargeRatio(l.id, part));
+            }
+        return res;
+    }
+
+    float PartManuelle(Locataire l) => _fRatio.TryGetValue(l.id, out var inp) ? ParseFloat(inp.text) : 0f;
+
+    /// La part de chacun en euros, à côté de sa base (décision du 01/11) : le calcul de la refacturation et de la
+    /// régularisation (ListesCharges.QuotePart) sur ce qui est saisi. Part entière : le prorata de présence se choisit
+    /// à la refacturation.
+    void MajMontants()
+    {
+        if (_fMontant.Count == 0 || _fCout == null) return;
+        var c = new ChargeBatiment
+        {
+            cout = ParseFloat(_fCout.text), ratios = Ratios(_fType, Concerned(), Surface, PartManuelle),
+            listeId = _fListe != null ? ListesCharges.Effective(_fListe.SelectedId) : _edit.listeId,
+        };
+        foreach (var (l, t) in _fMontant)
+            if (t != null) t.text = Euros(ListesCharges.QuotePart(c, l, Bat));
+    }
+
+    static string Euros(float v) => v.ToString("N2", FacturePdfService.FrCulture) + " €";
 
     // Le dernier champ (Manuel) absorbe le reste pour que le total fasse 1.
     void RecomputeManualLast()
@@ -348,16 +398,7 @@ public class ChargePanel : MonoBehaviour
         var concerned = Concerned();
         _edit.locatairesConcernes = _fTous.isOn ? new List<string>() : concerned.Select(l => l.id).ToList();
         _edit.typeRatio = _fType;
-        _edit.ratios = new List<ChargeRatio>();
-        if (concerned.Count > 1)
-            foreach (var l in concerned)
-            {
-                float part;
-                if (_fType == "Surface") part = l.tailleLot > 0f ? l.tailleLot : 1f;
-                else if (_fType == "Égalité") part = 1f;
-                else part = _fRatio.TryGetValue(l.id, out var inp) ? ParseFloat(inp.text) : 0f; // Manuel (dernier = reste déjà calculé)
-                _edit.ratios.Add(new ChargeRatio(l.id, part));
-            }
+        _edit.ratios = Ratios(_fType, concerned, Surface, PartManuelle);
 
         // Copie du PDF dans le dossier de sauvegarde (comme le bail / les photos).
         // Comparaison entre chemins ABSOLUS : _edit.pdfPath est desormais relatif,

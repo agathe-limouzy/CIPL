@@ -19,6 +19,15 @@ public static class SyncDocuments
     /// Les dossiers partagés de l'entreprise ; « Anciens documents » depuis le rangement du 23/10.
     public static readonly string[] Racines = { "Batiment", "Logo", DossiersDonnees.ANCIENS };
 
+    /// Un chemin venu du serveur qu'on peut écrire sans sortir du dossier de l'entreprise : partagé, relatif, sans
+    /// segment « . » ou « .. », ni « \ » ni « : » (revue 16c, D1-01 : `Path.Combine` ignore la racine devant un chemin
+    /// complet et laisse « .. » remonter ; une ligne `documents` mal formée s'écrivait ailleurs sur les PC des collègues).
+    public static bool CheminSur(string chemin)
+    {
+        if (!Partage(chemin) || chemin.IndexOfAny(new[] { '\\', ':', '\0' }) >= 0 || chemin.StartsWith("/")) return false;
+        return !chemin.Split('/').Any(s => s == "." || s == ".." || s.Length == 0);
+    }
+
     /// Partagé (décision du 14/10) : tout ce qui est rangé dans Batiment/ et Logo/, sauf les
     /// fichiers temporaires d'Office et les réceptions en cours.
     public static bool Partage(string chemin)
@@ -226,7 +235,7 @@ public static class DocumentsCloud
             if (generation != _generation) return;
             if (!r.Ok) { Debug.LogWarning("[Documents] Lecture de la liste : " + r.Erreur); return; }
             var lignes = (JsonUtility.FromJson<LignesDoc>("{\"items\":" + r.Corps + "}")?.items ?? new LigneDoc[0])
-                .Where(l => !string.IsNullOrEmpty(l.chemin)).ToList();
+                .Where(l => SyncDocuments.CheminSur(l.chemin)).ToList();   // D1-01 : jamais hors du dossier
             var serveur = SyncDocuments.Redresser(lignes.Select(l => (l.chemin, l.empreinte, !string.IsNullOrEmpty(l.supprime_le))),
                                                   out var aRanger);
 
@@ -418,6 +427,7 @@ public static class DocumentsCloud
         if (contenu == null) { Debug.LogWarning($"[Documents] Réception de {chemin} : {erreur}"); return null; }
         if (SyncDocuments.Empreinte(contenu) != empreinte) { Debug.LogWarning($"[Documents] {chemin} : contenu reçu altéré"); return null; }
         string abs = Absolu(racine, chemin);
+        if (Relatif(racine, abs) == null) { Debug.LogWarning($"[Documents] {chemin} : hors du dossier de l'entreprise, ignoré"); return null; }
         try
         {
             // Une copie d'ici jamais synchronisée part en corbeille avant d'être remplacée : rien n'est perdu.

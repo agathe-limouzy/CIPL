@@ -148,6 +148,13 @@ public class LocatairePrefab : PrefabBatLoc
         locataireScrollContent?.SetDirty();
     }
 
+    /// La surface du lot à enregistrer. Une surface non saisie (0) s'affiche avec la valeur proposée, le disponible
+    /// du bâtiment : rendue telle quelle, elle reste non définie et continue de suivre le bâtiment. Une surface déjà
+    /// saisie n'est pas une proposition : TailleLotDisponible la rend telle quelle, et l'enregistrement la remettait
+    /// à 0 depuis le 22/09 (constaté le 01/11 : 800 m² effacés en réenregistrant la fiche).
+    public static float SurfaceAEnregistrer(float avant, float saisie, float proposee)
+        => avant <= 0f && Mathf.Abs(saisie - proposee) < 0.01f ? 0f : saisie;
+
     public void RefreshTailleLot(float value)
     {
         tailleLotTxt.ApplySave(value.ToString());
@@ -456,8 +463,7 @@ public class LocatairePrefab : PrefabBatLoc
         // locataire prend sa part, au lieu de figer un chiffre jamais choisi.
         float saisie = locataire.tailleLot;
         SaveCorrectlyFloat(ref saisie, tailleLotTxt.GetNewSave());
-        float propose = batimentPrefabOrigin.TailleLotDisponible(locataire);
-        locataire.tailleLot = Mathf.Abs(saisie - propose) < 0.01f ? 0f : saisie;
+        locataire.tailleLot = SurfaceAEnregistrer(locataire.tailleLot, saisie, batimentPrefabOrigin.TailleLotDisponible(locataire));
         batimentPrefabOrigin.RefreshTailleBatiment();
 
         bailFields?.Save(locataire);

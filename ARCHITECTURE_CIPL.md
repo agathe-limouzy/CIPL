@@ -285,6 +285,7 @@ Le chemin d'une facture :
  FactureEmission.Preparer(loc, clé)      ← décide : nouvelle facture / remplacement / correction
    ▼
  FacturePdfService                       ← gabarit HTML (StreamingAssets) → Edge headless → PDF + aperçu PNG
+                                            (titre du PDF = nom du fichier, AvecTitre, 01/11)
    ▼
  Envoi selon ReglageData.modeEnvoi :
    ├─ EmailService (SMTP, confirmation obligatoire, rien sans destinataire explicite ; texte : celui de la
@@ -297,9 +298,9 @@ Le chemin d'une facture :
 | Élément | Rôle |
 |---|---|
 | **`FacturationSuivi`** | Machine à états des factures. Lignes planifiées d'une année (`Lignes`), clés stables (`loyer-2026-P3`, `regul-2025[-<liste>]`, `depot-2026`, `depot-initial`, `refac-<charge>`). États : À venir → À faire → En attente d'envoi → Envoyé → Impayé / Payé. Les états **transitoires** (Clôturé, Franchise, Hors bail) ne sont jamais stockés. Seules les lignes « touchées » ont un `FactureEtat`. |
-| **`FactureEmission`** | La règle « une facture émise ne consomme jamais un second numéro », en un seul endroit pour les quatre panneaux. |
+| **`FactureEmission`** | La règle « une facture émise ne consomme jamais un second numéro », en un seul endroit pour les quatre panneaux. Et « Retour » refusé pendant un envoi (`RefuseFermeture`, D4-02) : fermer le panneau arrêtait l'envoi entre l'e-mail et l'enregistrement. |
 | **`FacturationAlertes`** | Échéances (loyer à J-15, régul, dépôt) → pastilles de la fiche et « À traiter ». |
-| **`ChargeBatiment`, `ListesCharges`, `ChargePanel`** | Charges du bâtiment, état **par locataire**, listes de charges (générale + spécifiques), quote-parts. |
+| **`ChargeBatiment`, `ListesCharges`, `ChargePanel`** | Charges du bâtiment, état **par locataire**, listes de charges (générale + spécifiques), quote-parts ; le formulaire montre la part de chacun en euros (`ChargePanel.Ratios`, même calcul que `ListesCharges.QuotePart`, 01/11). |
 | **`HeritageFacture`** | Un nouveau locataire copie les réglages de facture du précédent (chaîne). |
 | **`FactureEnvoiAuto`** | Au lancement, liste les factures prêtes dont la date d'envoi est atteinte. Rien ne part sans relecture. |
 | **`FacturationHomeSection`** | Colonne « Créances » de l'accueil. |
@@ -347,7 +348,7 @@ Sur le cloud (étape 16b), la tournée du jour (`DemarrageCloud.TourneeAnnuaire`
 | Annuaire des entreprises — `recherche-entreprises.api.gouv.fr` | Résumé société par SIRET | `PapperService`, `PappersSync` | aucune |
 | Google Maps Static API — `maps.googleapis.com` (étape 16b, à la place de Mapbox) | Carte satellite de la fiche bâtiment et vignettes de l'accueil | `TileLoader.Image`, `MapThumbnailService`, par la fonction serveur `cartes` | clé de CIPL `GOOGLE_MAPS_KEY` (Secrets de Supabase), plafond par jour dans la console Google |
 | Pappers — `api.pappers.fr` (étape 16b) | Fiche des sociétés locataires (capital, dirigeants, finances, fermeture) | `PappersSync` (cloud), par la fonction serveur `pappers` | clé de CIPL `PAPPERS_API_KEY` (Secrets de Supabase) ; une lecture par société et par mois |
-| Super PDP — `api.superpdp.tech` (étape 18a, plateforme agréée) | Relier chaque SCI (fenêtre d'autorisation, vérification du gérant) ; 18b : transmettre les loyers des locataires assujettis avec un SIRET (`FactureEn16931` → Factur-X assemblé par Super PDP, UBL si le destinataire refuse le Factur-X ; adresse de l'acheteur lue dans l'annuaire ; en bac à sable, vendeur et acheteur repris de la facture d'essai `generate_test_invoice`) et déclarer « Encaissée » (fr:212) ; e-mail au locataire : copie du PDF, puis dès le 1/9/2027 (`FactureElectronique.Bascule`) une simple notification après l'acceptation (modèle `ReglageData.notifObjet` / `notifCorps`) | `FactureElectronique` (`Rattraper` après l'émission ou un paiement, `Demarrer` au lancement), par les fonctions serveur `facture-electronique` et `facture-electronique-retour` | application OAuth de CIPL (`SUPERPDP_CLIENT_ID`, `SUPERPDP_CLIENT_SECRET`) ; une autorisation par SCI, gardée et renouvelée sur le serveur (table `plateformes`) |
+| Super PDP — `api.superpdp.tech` (étape 18a, plateforme agréée) | Relier chaque SCI (fenêtre d'autorisation, vérification du gérant) ; 18b : transmettre les loyers des locataires assujettis avec un SIRET (`FactureEn16931` → Factur-X assemblé par Super PDP, UBL si le destinataire refuse le Factur-X ; adresse de l'acheteur lue dans l'annuaire ; en bac à sable, vendeur et acheteur repris de la facture d'essai `generate_test_invoice`) et déclarer « Encaissée » (fr:212) ; une seule transmission par facture (réservation `plateformes_envois`, revue 16c) ; e-mail au locataire : copie du PDF, puis dès le 1/9/2027 (`FactureElectronique.Bascule`) une simple notification après l'acceptation (modèle `ReglageData.notifObjet` / `notifCorps`) | `FactureElectronique` (`Rattraper` après l'émission ou un paiement, `Demarrer` au lancement), par les fonctions serveur `facture-electronique` et `facture-electronique-retour` | application OAuth de CIPL (`SUPERPDP_CLIENT_ID`, `SUPERPDP_CLIENT_SECRET`) ; une autorisation par SCI, gardée et renouvelée sur le serveur (table `plateformes`) |
 | BODACC — `bodacc-datadila.opendatasoft.com` (étape 16b) | Procédures collectives des sociétés locataires | `PappersSync.Bodacc`, `SocieteLocataire.LireBodacc` | aucune |
 | Base Adresse Nationale — `api-adresse.data.gouv.fr`, puis Nominatim en repli | Adresse → coordonnées | `GeoCodingService`, `CadastreService` | aucune |
 | IGN — `apicarto.ign.fr` (`/api/cadastre`, `/api/gpu`) | Parcelle cadastrale, zone PLU | `CadastreService`, `PLUService` | aucune |

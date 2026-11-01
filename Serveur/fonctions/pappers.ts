@@ -91,6 +91,9 @@ Deno.serve(async (req) => {
     if (error) throw error;
     return json({ ok: true, fiche: f, lu_le });
   } catch (e) {
-    return json({ ok: false, refus: "erreur", erreur: String((e as Error)?.message ?? e) }, 500);
+    // Revue 16c (D1-02) : le message d'une erreur réseau cite l'adresse appelée, qui contient la clé de CIPL ;
+    // il reste dans le journal du serveur, jamais dans la réponse.
+    console.error("[pappers]", e);
+    return json({ ok: false, refus: "erreur", erreur: "erreur interne du serveur" }, 500);
   }
 });

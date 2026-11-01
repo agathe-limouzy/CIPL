@@ -30,6 +30,9 @@ public static class FactureEmission
         public string NumeroFacture;
         /// À coller au nom du fichier : "" ou "-corrigee3".
         public string SuffixeFichier;
+        /// Le numéro de base (sans « corrigée »), lisible dans un nom de fichier (« 2026-10003 ») : deux factures
+        /// différentes n'ont jamais le même PDF (revue 16c, D4-01 : le suivi fusionne deux lignes au même PDF).
+        public string NumeroFichier;
     }
 
     /// Étape 1 — décide correction ou nouvelle émission, AVANT toute génération.
@@ -53,6 +56,7 @@ public static class FactureEmission
         int x = correction ? existante.corrections + 1 : 0;
 
         string numero = numeroPropose;
+        string numeroBase = dejaEmise && !string.IsNullOrEmpty(existante.numero) ? existante.numero : numeroPropose;
         if (dejaEmise && !string.IsNullOrEmpty(existante.numero))
             numero = correction ? existante.numero + $" corrigée({x})" : existante.numero;
 
@@ -62,7 +66,8 @@ public static class FactureEmission
             Reecriture = jamaisPartie,
             NumeroCorrection = x,
             NumeroFacture = numero,
-            SuffixeFichier = correction ? $"-corrigee{x}" : ""
+            SuffixeFichier = correction ? $"-corrigee{x}" : "",
+            NumeroFichier = (numeroBase ?? "").Replace('/', '-').Replace('\\', '-').Trim(),
         };
     }
 
@@ -146,6 +151,14 @@ public static class FactureEmission
 
     /// Libellé du RIB CIPL retenu, pour l'affichage dans le suivi. Les quatre panneaux
     /// en avaient chacun leur copie de trois lignes.
+    /// « Retour » pendant un envoi (revue 16c, D4-02) : refusé, avec un message. Fermer le panneau arrête son envoi
+    /// entre l'e-mail et l'enregistrement : l'e-mail partait, la facture n'était ni enregistrée ni numérotée.
+    public static bool RefuseFermeture(bool envoiEnCours)
+    {
+        if (envoiEnCours) UndoToast.Instance?.ShowInfo("Envoi en cours : patientez, la facture n'est pas encore enregistrée.");
+        return envoiEnCours;
+    }
+
     public static string RibNom(string ribId)
     {
         var rib = ReglageService.GetRib(ribId);

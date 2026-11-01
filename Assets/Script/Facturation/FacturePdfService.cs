@@ -194,6 +194,14 @@ public static class FacturePdfService
         "--screenshot=" + pngPath
     };
 
+    /// Le titre du PDF, que la visionneuse affiche : le nom du fichier, sans « .pdf » (décision du 01/11). Sans
+    /// <title>, Edge y mettait le nom de la page temporaire, « cipl_facture_<code>.html », jusque chez le locataire.
+    public static string AvecTitre(string html, string chemin)
+    {
+        int i = html?.IndexOf("<head>", StringComparison.OrdinalIgnoreCase) ?? -1;
+        return i < 0 ? html : html.Insert(i + "<head>".Length, "<title>" + H(Path.GetFileNameWithoutExtension(chemin)) + "</title>");
+    }
+
     // Lance Edge headless sur `html` avec `outputArgs` (print-to-pdf ou screenshot) et
     // vérifie que `outPath` a bien été produit. Factorisé pour loyer ET régularisation.
     static bool RunEdge(string html, string[] outputArgs, string outPath, out string error)
@@ -206,7 +214,7 @@ public static class FacturePdfService
             if (edge == null) { error = Plateforme.Mac ? SansNavigateurMac : "Microsoft Edge introuvable (rendu de la facture)."; return false; }
 
             htmlPath = Path.Combine(Path.GetTempPath(), "cipl_facture_" + Guid.NewGuid().ToString("N") + ".html");
-            File.WriteAllText(htmlPath, html, new System.Text.UTF8Encoding(false));
+            File.WriteAllText(htmlPath, AvecTitre(html, outPath), new System.Text.UTF8Encoding(false));
 
             Directory.CreateDirectory(Path.GetDirectoryName(outPath));
             // Purge de l'ancien PDF avant régénération. Un échec silencieux laissait

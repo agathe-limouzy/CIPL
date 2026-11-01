@@ -163,6 +163,8 @@ public class FactureLoyerPanel : MonoBehaviour
     }
 
     public void Close() => gameObject.SetActive(false);
+    void Retour() { if (!FactureEmission.RefuseFermeture(_envoiEnCours)) Close(); }   // revue 16c, D4-02
+    void OnDisable() => _envoiEnCours = false;   // fermé de force pendant un envoi : pas bloqué ensuite
 
     void OnDestroy() { if (_previewTex != null) Destroy(_previewTex); }
 
@@ -180,7 +182,7 @@ public class FactureLoyerPanel : MonoBehaviour
         UIFactory.LE(header.gameObject, minH: 52);
         var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(back.gameObject); UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
-        back.onClick.AddListener(Close);
+        back.onClick.AddListener(Retour);
         _titre = UIFactory.Text(header.transform, "Information Facture — Loyer", UITheme.Role.Page, UITheme.TextePrincipal, true);
         UIFactory.LE(_titre.gameObject, flexW: 1);
 
@@ -645,7 +647,9 @@ public class FactureLoyerPanel : MonoBehaviour
         var fl = _loc.factureLoyer;
         // Étape 18b : correction d'une facture déjà transmise → facture rectificative, qui cite la dernière transmise
         // (lue avant que l'enregistrement ne remplace la ligne).
-        var (precedentNumero, precedentDate) = FactureEn16931.Remplacee(_loc.facturesEtat?.Find(x => x.key == key));
+        var avant = _loc.facturesEtat?.Find(x => x.key == key);
+        var (precedentNumero, precedentDate) = FactureEn16931.Remplacee(avant);
+        bool dejaTransmise = !string.IsNullOrEmpty(avant?.plateformeId);
 
         string message = FactureEmission.Enregistrer(_loc, key, "Loyer", emission,
             d.subtitle, fl.dateEcheanceISO, pdf, d.ttc, _ribDD?.SelectedId,
@@ -656,9 +660,15 @@ public class FactureLoyerPanel : MonoBehaviour
         if (ligne != null) ligne.loyerHT = d.totalPeriode;
 
         // Étape 18b : la facture électronique est gardée sur la ligne ; elle part à la plateforme dès que la
-        // ligne est « Envoyé » (tout de suite ci-dessous, ou le jour de l'envoi différé).
-        if (ligne != null && FactureElectronique.Concerne(_loc, d.tva))
-            FactureElectronique.Preparer(ligne, FactureEn16931.Json(new FactureEn16931.Entree
+        // ligne est « Envoyé » (tout de suite ci-dessous, ou le jour de l'envoi différé). Hors plateforme, Preparer
+        // reçoit null : une ancienne version jamais transmise ne repartira pas (revue 16c, D5-01).
+        bool parPlateforme = FactureElectronique.Concerne(_loc, d.tva);
+        if (!parPlateforme && dejaTransmise)
+            ConfirmDialog.Erreur($"« {d.subtitle} » a été transmise à Super PDP, mais cette correction n'y part pas : la SCI n'est "
+                + "pas active sur la plateforme en ce moment (ou le locataire n'est plus concerné). Refaites « Corriger » quand "
+                + "Super PDP est actif, pour que la plateforme ait la bonne version.");
+        if (ligne != null)
+            FactureElectronique.Preparer(ligne, !parPlateforme ? null : FactureEn16931.Json(new FactureEn16931.Entree
             {
                 numero = d.numero, dateISO = BuildContext().date.ToString("yyyy-MM-dd"), echeanceISO = fl.dateEcheanceISO,
                 vendeurNom = R.entrepriseNom, vendeurSiren = SocieteLocataire.Siren(SessionCloud.Entreprise?.siret),
