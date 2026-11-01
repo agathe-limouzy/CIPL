@@ -59,6 +59,7 @@ public static class ExportCloud
         var e = SessionCloud.Entreprise;
         if (e == null) return new Resultat { Erreur = "aucune entreprise ouverte." };
         string racine = SaveLocationService.GetSaveRoot();
+        if (!Directory.Exists(racine)) return new Resultat { Erreur = "dossier des documents introuvable : " + racine };   // revue 16c, D8-02
         string nom = RegleExport.Libre(RegleExport.NomDossier(e.nom, DateTime.Now),
                                        n => Directory.Exists(Path.Combine(parent, n)) || File.Exists(Path.Combine(parent, n)));
         string dossier = Path.Combine(parent, nom);

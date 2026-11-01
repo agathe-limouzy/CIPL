@@ -164,10 +164,50 @@ public class BatimentManager : MonoBehaviour
     static string DossierCorbeilleBatiments =>
         Path.Combine(SaveLocationService.GetSaveRoot(), "corbeille_batiments");
 
-    public void DeleteBatiment(string id)
+    /// `apresSucces` : ce que l'appelant fait une fois le bâtiment vraiment supprimé (le message « Annuler »).
+    public void DeleteBatiment(string id, Action apresSucces = null)
     {
         // Nom relevé AVANT le retrait de la liste : c'est lui qui donne le dossier.
         string nom = _batiments.Find(b => b.id == id)?.Name;
+
+        // Revue 16c (D2-03, retour du 01/11) : sur le cloud, RIEN ne bouge avant l'accord du serveur : un refus (fiche
+        // prise, réseau, lecture seule) laisse le bâtiment à l'écran et ses documents en place. Avant, il disparaissait
+        // jusqu'au relancement, et son dossier partait en corbeille (puis ses documents étaient supprimés chez tout le monde).
+        if (SessionCloud.Active)
+        {
+            if (HorsLigne.Actif) { ConfirmDialog.Erreur(HorsLigne.Refus); return; }
+            if (AbonnementCloud.LectureSeule) { ConfirmDialog.Erreur(AbonnementCloud.Refus); return; }
+            EcritureCloud.SupprimerBatiment(id, nom, () =>
+            {
+                RetirerDeLEcran(id);
+                MettreDossierEnCorbeille(id, nom);
+                PhotoService.ViderCache();
+                Debug.Log($"[BatimentManager] Bâtiment '{id}' supprimé");
+                apresSucces?.Invoke();
+            });
+            return;
+        }
+
+        RetirerDeLEcran(id);
+        // Le dossier du bâtiment (photos, factures, charges) est DÉPLACÉ en corbeille, pas laissé en place : un dossier
+        // orphelin faisait ensuite échouer tout renommage vers ce nom (« un dossier X existe déjà »). Il n'est JAMAIS
+        // purgé automatiquement : il contient des pièces comptables. Sur le cloud, il ne part qu'après l'accord du
+        // serveur (revue 16c, D2-03) : un refus (fiche prise, réseau) fait revenir la fiche, et ses documents n'ont pas
+        // bougé — sinon la synchronisation les rangeait en corbeille chez tout le monde.
+        string path = GetFilePath(id);
+        if (File.Exists(path)) File.Delete(path);
+        MettreDossierEnCorbeille(id, nom);
+
+        // Le cache photo est indexé par chemin relatif : sans ce vidage, un bâtiment
+        // recréé sous le même nom afficherait les photos de celui qu'on vient d'effacer.
+        PhotoService.ViderCache();
+
+        Debug.Log($"[BatimentManager] Bâtiment '{id}' supprimé");
+        apresSucces?.Invoke();
+    }
+
+    void RetirerDeLEcran(string id)
+    {
         _batiments.RemoveAll(b => b.id == id);
         var tab = BatimentPrefab.Find(t => t.getID() == id);
         BatimentPrefab.RemoveAll(b => b.getID() == id);
@@ -176,42 +216,36 @@ public class BatimentManager : MonoBehaviour
             menuManager.RemoveTabAndBuilding(tab);
             Destroy(tab.gameObject);
         }
-
-        if (SessionCloud.Active)
-            EcritureCloud.SupprimerBatiment(id, nom);   // refusé par le serveur si la fiche est prise
-        else
-        {
-            // Supprime le fichier JSON
-            string path = GetFilePath(id);
-            if (File.Exists(path))
-                File.Delete(path);
-        }
-
-        // Le dossier du bâtiment (photos, factures, charges) est DÉPLACÉ en corbeille,
-        // pas laissé en place : un dossier orphelin faisait ensuite échouer tout
-        // renommage vers ce nom (« un dossier X existe déjà »), alors qu'aucun bâtiment
-        // de ce nom n'apparaissait dans l'application — cause invisible depuis l'app.
-        // Il n'est JAMAIS purgé automatiquement : il contient des pièces comptables.
-        string enCorbeille = DeplacerDossierEnCorbeille(nom);
-        if (!string.IsNullOrEmpty(enCorbeille)) _dossiersEnCorbeille[id] = enCorbeille;
-
-        // Le cache photo est indexé par chemin relatif : sans ce vidage, un bâtiment
-        // recréé sous le même nom afficherait les photos de celui qu'on vient d'effacer.
-        PhotoService.ViderCache();
-
-        Debug.Log($"[BatimentManager] Bâtiment '{id}' supprimé");
     }
 
     /// Déplace le dossier disque d'un bâtiment vers la corbeille. Renvoie l'emplacement
     /// atteint, ou null si le bâtiment n'avait pas encore de dossier. Un échec est
     /// signalé plutôt que taire : la suppression logique, elle, a déjà eu lieu.
-    static string DeplacerDossierEnCorbeille(string nomBatiment)
+    static void MettreDossierEnCorbeille(string id, string nom)
     {
-        if (string.IsNullOrWhiteSpace(nomBatiment)) return null;
+        string enCorbeille = DeplacerDossierEnCorbeille(nom);
+        if (!string.IsNullOrEmpty(enCorbeille)) _dossiersEnCorbeille[id] = enCorbeille;
+    }
+
+    static string DeplacerDossierEnCorbeille(string nomBatiment)
+        => string.IsNullOrWhiteSpace(nomBatiment) ? null : DeplacerEnCorbeille(DossiersDonnees.DossierBatiment(nomBatiment));
+
+    /// Revue 16c (D7a-09) : la même corbeille pour le dossier d'un locataire supprimé (clé = son id), restauré par
+    /// « Annuler » ; un dossier orphelin interdisait tout renommage ou cession vers ce nom.
+    public static void MettreDossierLocataireEnCorbeille(string idLocataire, string nomBatiment, string nomLocataire)
+    {
+        string c = DeplacerEnCorbeille(DossiersDonnees.DossierLocataire(nomBatiment, nomLocataire));
+        if (!string.IsNullOrEmpty(c)) _dossiersEnCorbeille[idLocataire] = c;
+    }
+
+    public static void RestaurerDossierLocataire(string idLocataire, string nomBatiment, string nomLocataire)
+        => RestaurerDossier(idLocataire, DossiersDonnees.DossierLocataire(nomBatiment, nomLocataire), nomLocataire);
+
+    static string DeplacerEnCorbeille(string source)
+    {
         try
         {
-            string source = DossiersDonnees.DossierBatiment(nomBatiment);
-            if (!Directory.Exists(source)) return null;
+            if (string.IsNullOrEmpty(source) || !Directory.Exists(source)) return null;
 
             Directory.CreateDirectory(DossierCorbeilleBatiments);
             string dest = Path.Combine(DossierCorbeilleBatiments,
@@ -221,7 +255,7 @@ public class BatimentManager : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogError($"[BatimentManager] Dossier de « {nomBatiment} » non déplacé en " +
+            Debug.LogError($"[BatimentManager] Dossier « {source} » non déplacé en " +
                            $"corbeille : {e.Message} — il pourra bloquer un futur renommage.");
             return null;
         }
@@ -232,21 +266,23 @@ public class BatimentManager : MonoBehaviour
     /// (on ne l'écrase pas : mieux vaut un dossier en corbeille qu'un écrasement).
     static void RestaurerDossierDepuisCorbeille(Batiment data)
     {
-        if (data == null || !_dossiersEnCorbeille.TryGetValue(data.id, out string corbeille)) return;
-        _dossiersEnCorbeille.Remove(data.id);
+        if (data != null) RestaurerDossier(data.id, DossiersDonnees.DossierBatiment(data.Name), data.Name);
+    }
 
+    static void RestaurerDossier(string cle, string destination, string nom)
+    {
+        if (cle == null || !_dossiersEnCorbeille.TryGetValue(cle, out string corbeille)) return;
+        _dossiersEnCorbeille.Remove(cle);
         try
         {
-            string destination = DossiersDonnees.DossierBatiment(data.Name);
             if (!Directory.Exists(corbeille) || Directory.Exists(destination)) return;
-
             Directory.CreateDirectory(Path.GetDirectoryName(destination));
             Directory.Move(corbeille, destination);
         }
         catch (Exception e)
         {
-            Debug.LogError($"[BatimentManager] Dossier de « {data.Name} » non restauré depuis la " +
-                           $"corbeille : {e.Message} — photos et factures sont dans {corbeille}.");
+            Debug.LogError($"[BatimentManager] Dossier de « {nom} » non restauré depuis la corbeille : {e.Message} — "
+                           + $"ses fichiers sont dans {corbeille}.");
         }
     }
 
@@ -275,7 +311,8 @@ public class BatimentManager : MonoBehaviour
     /// Renvoie true si l'écriture disque a réussi. Le retour peut être ignoré par
     /// les appelants existants, mais permet d'afficher un échec au lieu de laisser
     /// croire à une sauvegarde qui n'a pas eu lieu.
-    public bool SaveBatiment(Batiment data)
+    /// `silencieux` : écriture de fond (revue 16c, D2-04) : un refus est journalisé, jamais affiché ni suivi d'un rechargement.
+    public bool SaveBatiment(Batiment data, bool silencieux = false)
     {
         // Étape 2 : lecture seule sur le cloud. Rien n'est écrit, ni ici ni sur le serveur,
         // et on le dit (une fois par série d'appels : un écran enregistre souvent plusieurs fois).
@@ -291,8 +328,9 @@ public class BatimentManager : MonoBehaviour
         // rechargement) : il renverrait des locataires périmés avec la version à jour.
         if (SessionCloud.Active && EcritureCloud.Perime(data))
         {
-            ConfirmDialog.Erreur($"« {data.Name} » a été mis à jour pendant que cet écran était ouvert : " +
-                                 "cette modification n'est pas enregistrée. Refaites-la sur la fiche à jour.");
+            if (silencieux) Debug.LogWarning($"[BatimentManager] « {data.Name} » : fiche périmée, écriture de fond abandonnée.");
+            else ConfirmDialog.Erreur($"« {data.Name} » a été mis à jour pendant que cet écran était ouvert : " +
+                                      "cette modification n'est pas enregistrée. Refaites-la sur la fiche à jour.");
             return false;
         }
 
@@ -306,7 +344,7 @@ public class BatimentManager : MonoBehaviour
         // Étape 4a : sur le cloud, seules les fiches changées partent (EcritureCloud), dans
         // l'ordre ; un refus du serveur (version dépassée, fiche prise) est affiché puis la
         // fiche est relue. Plus aucun batiment_*.json n'est écrit sur ce PC.
-        if (SessionCloud.Active) { EcritureCloud.Enregistrer(data); return true; }
+        if (SessionCloud.Active) { EcritureCloud.Enregistrer(data, silencieux); return true; }
 
         Directory.CreateDirectory(SaveFolder);
         string json = JsonUtility.ToJson(data, prettyPrint: true);
@@ -445,6 +483,23 @@ public class BatimentManager : MonoBehaviour
     // comme un renommage par « Modifier ». Nom pris ou dossier bloqué : on réessaie au
     // prochain lancement. ponytail: vérifiée au lancement seulement ; une application
     // restée ouverte passé le jour de la cession attend le lancement suivant.
+    /// Revue 16c (D2-02) : sur le cloud, une cession datée s'applique à l'ouverture, comme une action en un clic : la
+    /// fiche renommée est enregistrée tout de suite (refusée si elle est prise ou dépassée : elle réessaie à l'ouverture
+    /// suivante) et sa fiche à l'écran est reconstruite sur les données à jour. (LoadAll fait de même hors cloud.)
+    public void AppliquerCessionsDues()
+    {
+        if (HorsLigne.Actif || AbonnementCloud.LectureSeule) return;
+        foreach (var bat in new List<Batiment>(_batiments))
+        {
+            bool cede = false;
+            foreach (var loc in bat.locataireDuBatiment ?? new List<Locataire>())
+                if (loc != null) cede |= EffectuerCession(bat, loc);
+            if (!cede) continue;
+            SaveBatiment(bat);
+            BatimentPrefab.Find(p => p != null && p.getID() == bat.id)?.InitializeBatiment(bat, false);
+        }
+    }
+
     static bool EffectuerCession(Batiment bat, Locataire loc)
     {
         var p = Cessions.Due(loc, DateTime.Today);

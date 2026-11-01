@@ -17,8 +17,8 @@ public static class SaveLocationService
     {
         string custom = PlayerPrefs.GetString(PREF_KEY, "");
 
-        if (!string.IsNullOrEmpty(custom) && Directory.Exists(custom))
-            return custom;
+        string gardee = Racine(custom, !string.IsNullOrEmpty(custom) && Directory.Exists(custom), SessionCloud.Active);
+        if (gardee != null) return gardee;
 
         // Une racine enregistrée mais INTROUVABLE (disque externe débranché, dossier
         // renommé ou déplacé) faisait retomber l'app sur l'emplacement par défaut sans
@@ -36,6 +36,12 @@ public static class SaveLocationService
         // Fallback : emplacement par défaut Unity
         return GetDefaultRoot();
     }
+
+    /// Revue 16c (D8-02) : la racine à garder, ou null pour se replier sur celle par défaut. Sur le cloud, jamais de
+    /// repli : la racine par défaut est celle de « Mon entreprise » (les PDF et l'export s'y mélangeaient) ; le dossier
+    /// enregistré reste la racine même absent (Drive fermé, clé débranchée), et les écritures échouent bruyamment.
+    public static string Racine(string enregistree, bool existe, bool cloud)
+        => !string.IsNullOrEmpty(enregistree) && (existe || cloud) ? enregistree : null;
 
     /// Vrai si l'utilisateur a défini un emplacement personnalisé (existant).
     public static bool IsCustom()

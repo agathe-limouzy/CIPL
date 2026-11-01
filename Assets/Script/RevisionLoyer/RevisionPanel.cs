@@ -176,7 +176,7 @@ public class RevisionPanel : MonoBehaviour
         trimestreDepart.CanModify();
 
         // Date de révision : toujours éditable, sauvegardée à chaque modification
-        dateDeRevision.ApplyDate(loc.MoisDeRevision);
+        dateDeRevision.ApplyDate(Loyers.PremiereRevisionParDefaut(loc));   // revue 16c (D7b-03) : début du bail + 1 an par défaut
         dateDeRevision.ModifyDate();
         dateDeRevision.OnModify.RemoveAllListeners();
         dateDeRevision.OnModify.AddListener(OnDateRevisionModifiee);
@@ -546,6 +546,14 @@ public class RevisionPanel : MonoBehaviour
             if (btnReviser != null) btnReviser.interactable = false;
             yield break;
         }
+        // Revue 16c (D7b-03) : un trimestre voulu antérieur au trimestre de référence ferait baisser le loyer sans révision
+        // réelle (le défaut proposait l'année précédente, parfois avant la référence d'un bail récent).
+        if (InseeIndiceService.RangAvant(periodeVoulue, periodeDepart))
+        {
+            AfficheTrimWarn($"Le trimestre de révision ({periodeVoulue}) ne peut pas précéder le trimestre de référence ({periodeDepart}).");
+            if (btnReviser != null) btnReviser.interactable = false;
+            yield break;
+        }
         MasqueTrimWarn();
 
         // Calcul
@@ -663,6 +671,10 @@ public class RevisionPanel : MonoBehaviour
                               $"(prochaine révision {_loc.MoisDeRevision:dd/MM/yyyy})";
 
         _onSaved?.Invoke();
+        // Revue 16c (D7b-01) : le panneau se ferme, comme après « Initialiser » : un second clic sur « Réviser » repoussait
+        // la prochaine révision d'un an de plus et écrasait le loyer précédent.
+        UndoToast.Instance?.ShowInfo($"Loyer révisé : {loyerRevise:N2} €/an — prochaine révision le {_loc.MoisDeRevision:dd/MM/yyyy}.");
+        gameObject.SetActive(false);
     }
 
     // ── Validation du trimestre de révision ───────────────────────────────────

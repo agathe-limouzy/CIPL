@@ -56,7 +56,7 @@ public static class PappersSync
             // sinon l'ancienne fiche partirait dans l'entreprise ouverte depuis.
             if (bp == null) yield break;
             if (touche && BatimentManager.Instance != null)
-                BatimentManager.Instance.SaveBatiment(bp.getBatiment());
+                BatimentManager.Instance.SaveBatiment(bp.getBatiment(), silencieux: true);   // revue 16c, D2-04
         }
 
         if (interroges > 0)
@@ -159,7 +159,7 @@ public static class PappersSync
                 if (Bloquants.Contains(refus.Split(' ')[0])) { arret = refus; break; }
             }
             if (bp == null) yield break;
-            if (touche && BatimentManager.Instance != null) BatimentManager.Instance.SaveBatiment(bp.getBatiment());
+            if (touche && BatimentManager.Instance != null) BatimentManager.Instance.SaveBatiment(bp.getBatiment(), silencieux: true);
             if (arret != null) break;
         }
         Debug.Log($"[PappersSync] Pappers et BODACC : {majs} locataire(s) mis à jour, {echecs} en échec"

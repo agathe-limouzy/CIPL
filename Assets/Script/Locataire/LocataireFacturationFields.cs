@@ -635,6 +635,10 @@ public class LocataireFacturationFields : MonoBehaviour
 
         _valDateRev.text = DateTime.TryParse(loc.dateRevisionDepotISO, out var dr)
             ? dr.ToString("dd/MM/yyyy") : "—";
+        // Retour du 01/11 (BF18) : une révision en attente de sa facture se lit sur la carte, pas seulement dans la fenêtre
+        // (la carte disait « 01/10/2027 » pendant que la fenêtre proposait le 01/10/2026 : on croyait à un décalage).
+        if (loc.depotPrecedent > 0f && DateTime.TryParse(loc.depotPrecedentRevisionISO, out var dp))
+            _valDateRev.text = $"{dp:dd/MM/yyyy} en attente de sa facture · prochaine {_valDateRev.text}";
 
         bool due = RevisionDepotDue(loc);
         _valDateRev.color = due ? HexC("#D85A30") : UITheme.TextePrincipal;
@@ -680,6 +684,15 @@ public class LocataireFacturationFields : MonoBehaviour
     }
 
     // ── Révision du dépôt de garantie (pop-up) ──────────────────────────────
+
+    /// La date proposée par la fenêtre du dépôt : celle de la révision en attente de sa facture (01/11 : tant que la
+    /// facture n'est pas partie, « Réviser » corrige la révision au lieu d'attendre un an), sinon la date enregistrée,
+    /// sinon `defaut`.
+    public static DateTime DateRevisionProposee(Locataire loc, DateTime defaut)
+    {
+        if (loc.depotPrecedent > 0f && DateTime.TryParse(loc.depotPrecedentRevisionISO, out var attente)) return attente;
+        return DateTime.TryParse(loc.dateRevisionDepotISO, out var d) ? d : defaut;
+    }
 
     /// Ouvre l'initialisation (ou la révision) du dépôt — étape 4 du parcours de création.
     public void OuvrirDepot() => OpenRevisionPopup();
@@ -756,8 +769,7 @@ public class LocataireFacturationFields : MonoBehaviour
         // Initialisation sans date : un an après le début du bail.
         DateTime dateDefaut = DateTime.Today;
         if (init && DateTime.TryParse(loc.dateDebutBailISO, out var debutBail)) dateDefaut = debutBail.AddYears(1);
-        dateInput.text = DateTime.TryParse(loc.dateRevisionDepotISO, out var drx)
-            ? drx.ToString("dd/MM/yyyy") : dateDefaut.ToString("dd/MM/yyyy");
+        dateInput.text = DateRevisionProposee(loc, dateDefaut).ToString("dd/MM/yyyy");
 
         // Soumis à TVA → loyer TTC ; sinon → loyer HT (mémorisé sur le locataire).
         var ttcToggle = UIFactory.Toggle(body.transform, "Locataire soumis à la TVA (loyer TTC)", loc.depotSurTTC);
@@ -791,7 +803,9 @@ public class LocataireFacturationFields : MonoBehaviour
         }
         else
             // Ancien dépôt (fixe) + nouveau dépôt possible (recalculé en direct).
-            UIFactory.Text(body.transform, $"Ancien dépôt : {loc.depotDeGarantie:0.00} €", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            UIFactory.Text(body.transform, $"Ancien dépôt : {FactureDepotPanel.AncienDepot(loc):0.00} €"
+                + (loc.depotPrecedent > 0f ? " — révision en attente de sa facture : vous pouvez encore la corriger." : ""),
+                UITheme.Role.Donnee, UITheme.TexteSecondaire);
         var nouveauLine = UIFactory.Text(body.transform, "", UITheme.Role.Valeur, UITheme.Primaire, true);
         var hintLine = UIFactory.Text(body.transform, "", UITheme.Role.Donnee, UITheme.Alerte);
 

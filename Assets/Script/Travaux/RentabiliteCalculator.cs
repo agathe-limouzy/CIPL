@@ -15,6 +15,16 @@ public static class RentabiliteCalculator
         return montant * t / (1.0 - Math.Pow(1.0 + t, -dureeMois));
     }
 
+    /// Revue 16c (D7b-05) : un prêt court jusqu'à sa dernière échéance (début + durée) ; date inconnue : compté.
+    public static bool PretEnCours(DateTime debut, int dureeMois, DateTime aujourdhui)
+        => dureeMois <= 0 || debut == default || aujourdhui.Date < debut.AddMonths(dureeMois).Date;
+
+    /// La mensualité tant que le prêt court, 0 ensuite (résumé Rentabilité, tuiles du bâtiment).
+    public static double MensualiteEnCours(double montant, double tauxAnnuel, int dureeMois, DateTime debut, DateTime aujourdhui)
+        => PretEnCours(debut, dureeMois, aujourdhui) ? Mensualite(montant, tauxAnnuel, dureeMois) : 0d;
+
+    public static DateTime Date(string iso) => DateTime.TryParse(iso, out var d) ? d : default;
+
 
     public static double CashFlowAnnuel(double loyerAnnuel, double mensualite)
         => loyerAnnuel - mensualite * 12d;

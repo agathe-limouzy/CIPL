@@ -308,7 +308,7 @@ public class LocatairePrefab : PrefabBatLoc
                 {
                     string backup = JsonUtility.ToJson(loc);
                     var bp = batimentPrefabOrigin;
-                    bp.DeleteLocataire(id);
+                    if (!bp.DeleteLocataire(id)) return;   // refus (hors ligne, lecture seule) : rien à annuler
 
                     UndoToast.Instance.Show($"« {nom} » supprimé",
                         () => bp.RestoreLocataire(backup));
@@ -408,12 +408,19 @@ public class LocatairePrefab : PrefabBatLoc
             string nomSaisi = nameOfLocataire.GetValue();
             if (string.IsNullOrWhiteSpace(nomSaisi) || nomSaisi.Trim() == Data.NomParDefaut)
             { ConfirmDialog.Erreur(ParcoursLocataire.Consigne(ParcoursLocataire.Etape.General)); return; }
-            if (!dateDebutBail.LireDate(out var debut) || !dateFinBail.LireDate(out var fin))
-            { ConfirmDialog.Erreur(ParcoursLocataire.Consigne(ParcoursLocataire.Etape.Bail)); return; }
-            if (fin <= debut)
-            { ConfirmDialog.Erreur("Étape 2 — Bail : la date de fin doit être après la date de début."); return; }
-            // Les champs sont lus tels qu'affichés : la date n'était retenue qu'en
-            // quittant la case, un clic direct sur « Sauvegarder » la perdait.
+        }
+        // Les dates du bail sont lues telles qu'affichées et contrôlées à CHAQUE enregistrement, plus seulement à la
+        // création (revue 16c, D7a-06) : une date tapée invalide ou effacée était remplacée en silence par l'ancienne, une
+        // fin avant le début passait, et une date tapée sans quitter la case pouvait être perdue.
+        {
+            bool debutLu = dateDebutBail.LireDate(out var debut), finLue = dateFinBail.LireDate(out var fin);
+            string refus = Locataire.VerifierDatesBail(debutLu, finLue, debut, fin);
+            if (refus != null)
+            {
+                ConfirmDialog.Erreur(_enCreation && !(debutLu && finLue) ? ParcoursLocataire.Consigne(ParcoursLocataire.Etape.Bail)
+                                     : _enCreation ? "Étape 2 — Bail : " + refus : refus);
+                return;
+            }
             dateDebutBail.ApplyDate(debut);
             dateFinBail.ApplyDate(fin);
         }
@@ -463,6 +470,9 @@ public class LocatairePrefab : PrefabBatLoc
         // locataire prend sa part, au lieu de figer un chiffre jamais choisi.
         float saisie = locataire.tailleLot;
         SaveCorrectlyFloat(ref saisie, tailleLotTxt.GetNewSave());
+        // Retour du 01/11 : un champ vidé veut dire « la surface suit de nouveau le bâtiment » (avant, le vide gardait
+        // l'ancienne valeur et seul « 0 » marchait).
+        if (string.IsNullOrWhiteSpace(tailleLotTxt.GetNewSave())) saisie = 0f;
         locataire.tailleLot = SurfaceAEnregistrer(locataire.tailleLot, saisie, batimentPrefabOrigin.TailleLotDisponible(locataire));
         batimentPrefabOrigin.RefreshTailleBatiment();
 
@@ -487,6 +497,7 @@ public class LocatairePrefab : PrefabBatLoc
         modifyBatiment.gameObject.SetActive(true);
         Delete.gameObject.SetActive(true);
 
+        batimentPrefabOrigin.Inscrire(locataire);   // revue 16c (D7a-08) : entre dans le bâtiment à son premier enregistrement
         batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
 
         if (_sectionStateSnapshot != null)

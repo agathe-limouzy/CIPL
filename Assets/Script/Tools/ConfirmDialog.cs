@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -38,8 +39,25 @@ public class ConfirmDialog : MonoBehaviour
     public static void Erreur(string message, Action ensuite)
     {
         if (Instance == null) { UndoToast.Instance?.ShowInfo(message); ensuite?.Invoke(); return; }
-        Instance.Show("Attention", message, ensuite, "OK");
-        if (Instance.btnAnnuler != null) Instance.btnAnnuler.gameObject.SetActive(false);
+        if (Instance.gameObject.activeSelf) { Instance._attente.Enqueue((message, ensuite)); return; }
+        Instance.MontrerErreur(message, ensuite);
+    }
+
+    // Revue 16c (D2-05) : un message arrivé pendant qu'un autre est affiché attend son tour au lieu de le remplacer :
+    // chaque `ensuite` s'exécute (un `ensuite` perdu laissait une fiche jamais relue, ou une perte de verrou ignorée).
+    readonly Queue<(string message, Action ensuite)> _attente = new Queue<(string message, Action ensuite)>();
+
+    void MontrerErreur(string message, Action ensuite)
+    {
+        Show("Attention", message, ensuite, "OK");
+        if (btnAnnuler != null) btnAnnuler.gameObject.SetActive(false);
+    }
+
+    void Suivant()
+    {
+        if (_attente.Count == 0 || gameObject.activeSelf) return;   // actif : le clic vient d'en ouvrir un autre, il passera après
+        var (message, ensuite) = _attente.Dequeue();
+        MontrerErreur(message, ensuite);
     }
 
     /// `confirmLabel` : libellé du bouton de validation (par défaut « Supprimer »).
@@ -59,9 +77,10 @@ public class ConfirmDialog : MonoBehaviour
         {
             gameObject.SetActive(false);
             _onConfirm?.Invoke();
+            Suivant();
         });
 
         btnAnnuler.onClick.RemoveAllListeners();
-        btnAnnuler.onClick.AddListener(() => gameObject.SetActive(false));
+        btnAnnuler.onClick.AddListener(() => { gameObject.SetActive(false); Suivant(); });
     }
 }

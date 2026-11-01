@@ -50,9 +50,18 @@ public class PhotoGalleryController : MonoBehaviour
 
     public void Ouvrir(BatimentPrefab bp)
     {
+        if (bp == null || bp.getBatiment() == null) return;
+        // Revue 16c (D7a-04) : la galerie déplace des fichiers : elle s'ouvre sous réservation du bâtiment (hors ligne,
+        // lecture seule, fiche prise → refus AVANT tout déplacement), comme les autres écrans qui écrivent. Sinon un refus
+        // d'enregistrement laissait la photo en corbeille ici, puis supprimée du cloud et chez les collègues.
+        EcritureCloud.Reserver(new[] { ("batiment", bp.getID(), bp.getName()) }, "photos",
+            () => OuvrirReserve(bp), () => overlay != null && overlay.activeSelf, Fermer);
+    }
+
+    void OuvrirReserve(BatimentPrefab bp)
+    {
         _bp = bp;
-        _batiment = bp != null ? bp.getBatiment() : null;
-        if (_batiment == null) return;
+        _batiment = bp.getBatiment();
         _index = 0;
         if (overlay != null) overlay.SetActive(true);
         Refresh();

@@ -14,6 +14,14 @@ using System.Linq;
 /// loyer continue (tacite prolongation), au dernier palier.
 public static class Loyers
 {
+    /// Revue 16c (D7b-03) : la date de révision proposée : celle enregistrée, sinon un an après le début du bail (sinon
+    /// aujourd'hui) — « aujourd'hui » rendait la révision due dès l'initialisation.
+    public static DateTime PremiereRevisionParDefaut(Locataire loc)
+    {
+        if (DateTime.TryParse(loc?.moisDeRevisionISO, out var d)) return d;
+        return FacturationSuivi.TryEcheance(loc?.dateDebutBailISO, out var debut) ? debut.AddYears(1) : DateTime.Today;
+    }
+
     static bool Date(string iso, out DateTime d) => FacturationSuivi.TryEcheance(iso, out d);
     static DateTime Fin(PalierLoyer p) => Date(p?.finISO, out var f) ? f : DateTime.MaxValue;
     static string Iso(DateTime d) => d.ToString("yyyy-MM-dd");

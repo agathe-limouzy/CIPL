@@ -86,6 +86,7 @@ public class AchatFormPanel : MonoBehaviour
 
         if (!string.IsNullOrEmpty(d.dateAchat) && DateTime.TryParse(d.dateAchat, out DateTime dt))
             datePicker?.ApplyDate(dt);
+        else datePicker?.ApplyDate(DateTime.Today);   // revue 16c (D7b-07) : sinon la date du dernier formulaire ouvert restait
         datePicker?.ModifyDate();
 
         if (d.emprunt)
@@ -179,6 +180,12 @@ public class AchatFormPanel : MonoBehaviour
        
 
         // Save() — convertir DateTime? → string
+        // Revue 16c (D7b-07) : la date est lue telle qu'affichée et doit être complète.
+        if (datePicker != null)
+        {
+            if (!datePicker.LireDate(out var dateSaisie)) { ConfirmDialog.Erreur("Saisissez une date d'achat complète (jour, mois, année)."); return; }
+            datePicker.ApplyDate(dateSaisie);
+        }
         _data.dateAchat = datePicker?.saveThedate().ToString("yyyy-MM-dd") ?? "";
 
         _onSave?.Invoke(_data);

@@ -240,7 +240,7 @@ public static class FactureElectronique
         var aJour = bp?.listLocataire.Find(l => l != null && l.id == loc.id);
         if (aJour == null) { Debug.LogWarning($"[FactureElectronique] {loc.Name} : fiche introuvable, résultat non enregistré."); return; }
         RecopierPlateforme(loc, aJour);
-        bp.SaveAfterModifyToDoListLocataire();
+        bp.SaveAfterModifyToDoListLocataire(silencieux: true);   // revue 16c, D2-04 : un refus ne recharge pas tout
     }
 
     /// Les résultats de la plateforme d'un objet locataire sur un autre (même locataire relu), ligne par ligne, seulement

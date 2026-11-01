@@ -63,10 +63,31 @@ public class BatimentPrefab : PrefabBatLoc
     public Button btnRetourMenu;
 
 
+    /// Revue 16c (D7a-02) : la règle unique « compte dans le bâtiment » : ni archivé, ni parti. Le loyer total, la
+    /// surface disponible, le nombre de lots et l'état du bâtiment passent par là.
+    public static IEnumerable<Locataire> EnPlace(IEnumerable<Locataire> lots)
+        => (lots ?? Enumerable.Empty<Locataire>()).Where(l => l != null && !l.archive && !l.EstParti);
+
+    /// Revue 16c (D7a-03) : enregistrer ou modifier le bâtiment reconstruit toutes les fiches locataires ; une fiche en
+    /// saisie y perdrait tout. Refus au centre, en nommant le locataire ; vrai si refusé.
+    bool RefuserSiLocataireEnSaisie()
+    {
+        string nom = dictionnairelocataire.Values.FirstOrDefault(p => p != null && p.EnEdition)?.getName();
+        if (nom == null) return false;
+        ConfirmDialog.Erreur($"Enregistrez d'abord la fiche de « {nom} » : elle est en cours de saisie.");
+        return true;
+    }
+
+    /// Revue 16c (D7a-08) : une fiche créée par « + Ajouter » n'entre dans le bâtiment qu'à son premier « Sauvegarder ».
+    public void Inscrire(Locataire loc)
+    {
+        if (loc != null && !batiment.locataireDuBatiment.Contains(loc)) batiment.locataireDuBatiment.Add(loc);
+    }
+
 public float GetLoyerTotal()
 {
     float total = 0f;
-    foreach (var loc in listLocataire)
+    foreach (var loc in EnPlace(listLocataire))
         total += loc.loyerAnnuel;
     return total;
 }
@@ -94,9 +115,8 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
 
         float saisies = 0f;
         int auto = 0;
-        foreach (var l in lots)
+        foreach (var l in EnPlace(lots))   // revue 16c (D7a-02) : ni archivé, ni parti
         {
-            if (l == null) continue;
             if (l.tailleLot > 0f) saisies += l.tailleLot;
             else auto++;
         }
@@ -117,7 +137,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     public static float TailleLotDepassement(float tailleBatiment, IList<Locataire> lots)
     {
         if (lots == null) return 0f;
-        float saisies = lots.Where(l => l != null && l.tailleLot > 0f).Sum(l => l.tailleLot);
+        float saisies = EnPlace(lots).Where(l => l.tailleLot > 0f).Sum(l => l.tailleLot);
         return Mathf.Max(0f, saisies - tailleBatiment);
     }
 
@@ -137,9 +157,14 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         // enregistrement, un toast à chaque fois serait insupportable.
         float trop = TailleLotDepassement();
         if (trop > 0.01f && Mathf.Abs(trop - _depassementSignale) > 0.01f)
+        {
+            // Retour du 01/11 : le message nomme les lots saisis, sinon on ne sait pas lequel corriger.
+            var saisis = EnPlace(listLocataire).Where(l => l.tailleLot > 0f)
+                .Select(l => $"{(string.IsNullOrEmpty(l.Name) ? "(sans nom)" : l.Name)} : {l.tailleLot:0.##} m²").ToList();
             ConfirmDialog.Erreur(
-                $"Les surfaces des locataires dépassent celle du bâtiment de {trop:0.##} m². "
-                + "Corrigez la surface du bâtiment ou celle d'un lot.");
+                $"Les surfaces saisies des locataires ({string.Join(", ", saisis)}) dépassent celle du bâtiment "
+                + $"({batiment.tailleBatiment:0.##} m²) de {trop:0.##} m². Corrigez la surface du bâtiment ou celle d'un de ces lots.");
+        }
         _depassementSignale = trop;
     }
 
@@ -251,7 +276,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         {
             var go = Instantiate(locataireRowPrefab, locataireRowContainer);
             var l = loc;
-            go.GetComponent<LocataireRowUI>().Setup(l, () =>
+            go.GetComponent<LocataireRowUI>().Setup(l, TailleLotEffective(l), () =>   // revue 16c, D7a-07
             {
                 ShowLocataireView();   // la ligne ouvre la fiche du locataire
                 if (dictionnairelocataire.TryGetValue(l, out var prefab))
@@ -500,20 +525,21 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
                     // « Annuler », la restauration écrirait le bâtiment de l'entreprise A
                     // dans le dossier de l'entreprise B.
                     string racineOrigine = SaveLocationService.GetSaveRoot();
-                    BatimentManager.Instance.DeleteBatiment(batiment.id);
-
-                    UndoToast.Instance.Show($"« {nom} » supprimé",
-                        () =>
-                        {
-                            if (!string.Equals(SaveLocationService.GetSaveRoot(), racineOrigine,
-                                               System.StringComparison.OrdinalIgnoreCase))
+                    // Retour du 01/11 : « Annuler » n'est proposé qu'une fois la suppression faite (sur le cloud, après
+                    // l'accord du serveur) ; un refus laisse le bâtiment en place, sans message « supprimé ».
+                    BatimentManager.Instance.DeleteBatiment(batiment.id, () =>
+                        UndoToast.Instance.Show($"« {nom} » supprimé",
+                            () =>
                             {
-                                ConfirmDialog.Erreur(
-                                    "Restauration impossible : l'entreprise active a changé depuis la suppression.");
-                                return;
-                            }
-                            BatimentManager.Instance.RestoreBatiment(backup);
-                        });
+                                if (!string.Equals(SaveLocationService.GetSaveRoot(), racineOrigine,
+                                                   System.StringComparison.OrdinalIgnoreCase))
+                                {
+                                    ConfirmDialog.Erreur(
+                                        "Restauration impossible : l'entreprise active a changé depuis la suppression.");
+                                    return;
+                                }
+                                BatimentManager.Instance.RestoreBatiment(backup);
+                            }));
                 }));
 
         TransfertEntrepriseUI.AjouterBouton(Delete, () => TransfertEntrepriseUI.OuvrirBatiment(this));
@@ -554,7 +580,8 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         var prefab = SpawnPrefabLocataireInPanel(data, menulocataire.ContentPrefab.transform, needToModify);
         listLocataire.Add(data);
         dictionnairelocataire.Add(data, prefab);
-        batiment.locataireDuBatiment.Add(data);
+        // Revue 16c (D7a-08) : pas encore dans le bâtiment : « Sauvegarder » l'y inscrit (Inscrire). Avant, n'importe quel
+        // autre enregistrement du bâtiment (photo, objectif, bail joint) persistait un « Nouveau » vide, ici et sur le cloud.
 
         RefreshTailleBatiment();
         RefreshLoyerTotal(); // ← ajouter
@@ -564,8 +591,11 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
 
     }
 
-    public void DeleteLocataire(string id)
+    /// Faux si rien n'a été fait (hors ligne, lecture seule : refus au centre, retour du 01/11).
+    public bool DeleteLocataire(string id)
     {
+        if (SessionCloud.Active && HorsLigne.Actif) { ConfirmDialog.Erreur(HorsLigne.Refus); return false; }
+        if (SessionCloud.Active && AbonnementCloud.LectureSeule) { ConfirmDialog.Erreur(AbonnementCloud.Refus); return false; }
         var locataire = listLocataire.Find(b => b.id == id);
         listLocataire.RemoveAll(b => b.id == id);
         var tab = dictionnairelocataire[locataire];
@@ -576,6 +606,13 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
             Destroy(tab.gameObject);
         }
       
+        // Revue 16c (D7a-09) : son dossier (bail, factures, objectifs) part en corbeille, comme celui d'un bâtiment, et
+        // revient avec « Annuler » ; sur le cloud, seulement après l'accord du serveur (comme D2-03). Sans ça, un dossier
+        // orphelin interdisait ensuite tout renommage ou cession vers ce nom.
+        string nomBat = getName(), nomLoc = locataire.Name, idLoc = locataire.id;
+        if (SessionCloud.Active)
+            EcritureCloud.ApresSuppressionLocataire(idLoc, () => BatimentManager.MettreDossierLocataireEnCorbeille(idLoc, nomBat, nomLoc));
+        else BatimentManager.MettreDossierLocataireEnCorbeille(idLoc, nomBat, nomLoc);
         batiment.locataireDuBatiment.Remove(locataire);
         RefreshTailleBatiment();
         RefreshLoyerTotal(); // ← ajouter
@@ -584,6 +621,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         // Retour au résumé du bâtiment (demande du 30/09) : la vue locataires restait
         // vide quand on supprimait le dernier.
         ShowSummary();
+        return true;
     }
 
     public void RestoreLocataire(string json)
@@ -594,6 +632,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
         var prefab = SpawnPrefabLocataireInPanel(data, menulocataire.ContentPrefab.transform, false);
         listLocataire.Add(data);
         dictionnairelocataire.Add(data, prefab);
+        BatimentManager.RestaurerDossierLocataire(data.id, getName(), data.Name);   // revue 16c, D7a-09
         batiment.locataireDuBatiment.Add(data);
         menulocataire.CreateTab(prefab);
         menulocataire.OnSelect(prefab);
@@ -608,12 +647,12 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     }
 
 
-    public void SaveAfterModifyToDoListLocataire()
+    public void SaveAfterModifyToDoListLocataire(bool silencieux = false)
     {
         RefreshTailleBatiment();
         RefreshLoyerTotal();
         RebuildLocataireRows();
-        BatimentManager.Instance.SaveBatiment(batiment);
+        BatimentManager.Instance.SaveBatiment(batiment, silencieux);   // revue 16c, D2-04 : silencieux = écriture de fond
         RefreshBatimentTabAlert();
         // Le suivi de facturation dépend du loyer, du dépôt et de la périodicité :
         // il doit suivre CHAQUE enregistrement, pas seulement ceux qui viennent d'un
@@ -630,6 +669,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
 
     public override void Modify()
     {
+        if (RefuserSiLocataireEnSaisie()) return;   // revue 16c, D7a-03
         nameOfTheBuiding.Modify();
         // Toujours éditable : la surface du bâtiment est SA donnée, pas une somme.
         // Elle était verrouillée dès deux locataires, ce qui interdisait de la corriger
@@ -652,6 +692,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
 
     public override void SaveBatiment()
     {
+        if (RefuserSiLocataireEnSaisie()) return;   // revue 16c, D7a-03
     
         // ── Nom : unicité imposée + dossier déplacé si le nom change ──────────────
         // Les dossiers sont nommés par le NOM : deux homonymes partageraient factures

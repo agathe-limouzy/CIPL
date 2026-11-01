@@ -39,12 +39,12 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 | D1-07 | D1 | Renouvellement du jeton Super PDP non protégé contre deux appels simultanés | D5-09 | 01/11 (code et test) |
 | D1-08 | D1 | `ajuster` écrit les licences en base avant Stripe et ne valide pas `licences` | D3-05 | 01/11 (code et test ; parcours BD6) |
 | D1-09 | D1 | Clé Pennylane et mot de passe SMTP en clair sur le disque, alors que le jeton de session est chiffré | D6-12 | 01/11 (code et test ; parcours BD2) |
-| D2-02 | D2 | Une cession de bail à date future n'est jamais appliquée sur le cloud | D7a-01 | |
-| D2-03 | D2 | Le dossier d'un bâtiment part en corbeille avant la réponse du serveur : un refus fait disparaître ses documents chez tout le monde |  | |
-| D2-04 | D2 | Un enregistrement refusé lancé par une tâche de fond (Pappers, factures en attente) ouvre un message et recharge tout : les saisies en cours de l'utilisateur sont perdues |  | |
-| D2-05 | D2 | Un second message d'erreur remplace le premier : `_refusOuverts` et `_abandonEnCours` restent bloqués pour la session |  | |
-| D2-06 | D2 | `Recharger` pendant un envoi de facture : le statut « Envoyé » n'est pas enregistré, la facture repart au prochain lancement |  | |
-| D2-07 | D2 | Un enregistrement encore en file après un rechargement repart avec les versions neuves : il peut écraser une modification d'un collègue |  | |
+| D2-02 | D2 | Une cession de bail à date future n'est jamais appliquée sur le cloud | D7a-01 | 01/11 (code et test ; parcours BF1) |
+| D2-03 | D2 | Le dossier d'un bâtiment part en corbeille avant la réponse du serveur : un refus fait disparaître ses documents chez tout le monde |  | 01/11 (code et test ; parcours BF2) |
+| D2-04 | D2 | Un enregistrement refusé lancé par une tâche de fond (Pappers, factures en attente) ouvre un message et recharge tout : les saisies en cours de l'utilisateur sont perdues |  | 01/11 (code et test) |
+| D2-05 | D2 | Un second message d'erreur remplace le premier : `_refusOuverts` et `_abandonEnCours` restent bloqués pour la session |  | 01/11 (code et test ; parcours BF3) |
+| D2-06 | D2 | `Recharger` pendant un envoi de facture : le statut « Envoyé » n'est pas enregistré, la facture repart au prochain lancement |  | 01/11 (code et test) |
+| D2-07 | D2 | Un enregistrement encore en file après un rechargement repart avec les versions neuves : il peut écraser une modification d'un collègue |  | 01/11 (code et test) |
 | D3-01 | D3 | Une installation neuve n'a ni adresse ni clé du cloud : CIPL ne démarre pas chez un client |  | 01/11 (code et test ; parcours BD1) |
 | D3-03 | D3 | « Changer d'entreprise » et « Se déconnecter » ferment une fiche en cours de modification sans prévenir |  | 01/11 (code et test ; parcours BD3) |
 | D3-06 | D3 | `inscrire` accepte n'importe quel compte connecté : l'adresse e-mail n'est prouvée que côté client |  | 01/11 (code et test ; parcours BD7) |
@@ -70,24 +70,24 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 | D6-06 | D6 | Variables de montant formatées en culture courante (« 48,894.58 € ») dans les textes et e-mails |  | 01/11 (code et test ; parcours BE7) |
 | D6-07 | D6 | RIB ou entête supprimé dans Réglages : les factures retombent en silence sur le premier |  | 01/11 (code et test ; parcours BE8) |
 | D6-08 | D6 | Révision du dépôt : si « Réviser » de la fiche est cliqué avant la facture, le complément vaut 0 |  | 01/11 (code et test ; parcours BE10) |
-| D7a-02 | D7a | Les locataires partis ou archivés comptent encore dans le loyer total, la surface disponible, le nombre de lots et l'état du bâtiment | D7b-06 | |
-| D7a-03 | D7a | Enregistrer la fiche bâtiment détruit sans prévenir une fiche locataire en cours de saisie |  | |
-| D7a-04 | D7a | Supprimer une photo déplace le fichier avant l'accord du serveur : hors ligne ou fiche prise, la photo disparaît partout |  | |
-| D7a-05 | D7a | Après une cession, le RIB, le téléphone, le code comptable et le choix TVA du cédant restent sur le cessionnaire |  | |
-| D7a-06 | D7a | Hors création, les dates du bail sont enregistrées sans lecture ni contrôle |  | |
-| D7a-07 | D7a | La liste des locataires affiche « 0 m² » pour tout lot dont la surface suit le bâtiment |  | |
-| D7a-08 | D7a | Un locataire « Nouveau » jamais enregistré est persisté par n'importe quel autre enregistrement du bâtiment |  | |
-| D7a-09 | D7a | Supprimer un locataire laisse son dossier en place : renommer ou céder vers ce nom est ensuite refusé, sans issue dans l'application |  | |
-| D7b-01 | D7b | Un second clic sur « Réviser » repousse la prochaine révision de deux ans |  | |
+| D7a-02 | D7a | Les locataires partis ou archivés comptent encore dans le loyer total, la surface disponible, le nombre de lots et l'état du bâtiment | D7b-06 | 01/11 (code et test ; parcours BF4) |
+| D7a-03 | D7a | Enregistrer la fiche bâtiment détruit sans prévenir une fiche locataire en cours de saisie |  | 01/11 (code et test ; parcours BF5) |
+| D7a-04 | D7a | Supprimer une photo déplace le fichier avant l'accord du serveur : hors ligne ou fiche prise, la photo disparaît partout |  | 01/11 (code et test ; parcours BF6) |
+| D7a-05 | D7a | Après une cession, le RIB, le téléphone, le code comptable et le choix TVA du cédant restent sur le cessionnaire |  | 01/11 (code et test) |
+| D7a-06 | D7a | Hors création, les dates du bail sont enregistrées sans lecture ni contrôle |  | 01/11 (code et test ; parcours BF7) |
+| D7a-07 | D7a | La liste des locataires affiche « 0 m² » pour tout lot dont la surface suit le bâtiment |  | 01/11 (code et test ; parcours BF8) |
+| D7a-08 | D7a | Un locataire « Nouveau » jamais enregistré est persisté par n'importe quel autre enregistrement du bâtiment |  | 01/11 (code et test ; parcours BF9) |
+| D7a-09 | D7a | Supprimer un locataire laisse son dossier en place : renommer ou céder vers ce nom est ensuite refusé, sans issue dans l'application |  | 01/11 (code et test ; parcours BF10) |
+| D7b-01 | D7b | Un second clic sur « Réviser » repousse la prochaine révision de deux ans |  | 01/11 (code et test ; parcours BF11) |
 | D7b-02 | D7b | Révision par indice : le nouveau loyer s'applique aussi aux périodes d'avant la date de révision |  | 01/11 (code et test) |
-| D7b-03 | D7b | Valeurs par défaut de l'indice : « Révision à faire » dès l'initialisation, puis révision proposée avec un trimestre antérieur à la référence |  | |
+| D7b-03 | D7b | Valeurs par défaut de l'indice : « Révision à faire » dès l'initialisation, puis révision proposée avec un trimestre antérieur à la référence |  | 01/11 (code et test ; parcours BF12) |
 | D7b-04 | D7b | Reprise de facturation enregistrée sur les mois standard, relue avec les mois cochés |  | 01/11 (code et test) |
-| D7b-05 | D7b | Résumé Rentabilité : les mensualités de tous les emprunts sont comptées à vie, même une fois le prêt remboursé |  | |
-| D7b-07 | D7b | Nouvel achat / nouveaux travaux : la date n'est ni remise à zéro ni contrôlée |  | |
-| D8-02 | D8 | `GetSaveRoot` se replie sur la racine de « Mon entreprise » quand le dossier de l'entreprise cloud manque |  | |
-| D8-03 | D8 | Fermer l'application pendant un enregistrement cloud en vol le perd sans prévenir |  | |
-| D8-04 | D8 | Croix « Quitter » avec une fiche en édition : la confirmation est demandée deux fois (build) |  | |
-| D8-05 | D8 | Les écrans de saisie (facture, achat, charge, révision, départ…) ne sont pas couverts par la garde de fermeture |  | |
+| D7b-05 | D7b | Résumé Rentabilité : les mensualités de tous les emprunts sont comptées à vie, même une fois le prêt remboursé |  | 01/11 (code et test ; parcours BF13) |
+| D7b-07 | D7b | Nouvel achat / nouveaux travaux : la date n'est ni remise à zéro ni contrôlée |  | 01/11 (code et test ; parcours BF14) |
+| D8-02 | D8 | `GetSaveRoot` se replie sur la racine de « Mon entreprise » quand le dossier de l'entreprise cloud manque |  | 01/11 (code et test ; parcours BF15) |
+| D8-03 | D8 | Fermer l'application pendant un enregistrement cloud en vol le perd sans prévenir |  | 01/11 (code et test ; parcours BF16 (build)) |
+| D8-04 | D8 | Croix « Quitter » avec une fiche en édition : la confirmation est demandée deux fois (build) |  | 01/11 (code et test ; parcours BF16 (build)) |
+| D8-05 | D8 | Les écrans de saisie (facture, achat, charge, révision, départ…) ne sont pas couverts par la garde de fermeture |  | 01/11 (code et test ; parcours BF17) |
 
 ## Mineurs (62)
 
@@ -186,6 +186,22 @@ Le calendrier figé du code (loyer envoyé 15 j avant l'échéance, « Impayé �
 - **Refus affiché comme une panne** : un refus de Super PDP sur « Encaissée » donnait « Plateforme injoignable » sans motif nulle part. `FactureElectronique.Panne` journalise le motif et montre un refus avec son détail (`ConfirmDialog.Erreur`) ; `Traiter` rend la réponse en échec (`Reponse`) au lieu d'un texte.
 - **Annulation d'encaissement invisible** : son message était recouvert par le résumé suivant. Les annulations sont comptées dans le résumé (« 1 encaissement annulé chez Super PDP »). Rappel : chez Super PDP, une annulation est un 212 à montant négatif, l'étiquette reste « Encaissée ».
 - **Bouton du formulaire Loyer en correction** : il disait « Enregistrer pour l'envoi du 30/11 » alors que la correction partait tout de suite (D4-03). `FactureLoyerPanel.PeriodePartie()` : facture de la période déjà partie → « Sauvegarder et envoyer ».
+
+## Lot 4 : majeurs « données, cloud et écrans » (01/11)
+
+Les 22 défauts D2-02 à D2-07, D7a-02 à D7a-09, D7b-01, D7b-03, D7b-05, D7b-07 et D8-02 à D8-05 sont codés et testés (`Revue16cTests`, 615 tests verts). Décisions du 01/11 : **D7a-03** « Modifier » et « Sauvegarder » sur le bâtiment sont refusés tant qu'une fiche locataire est en saisie (message nommant le locataire) ; **D7b-01** après une révision réussie le panneau se ferme avec un message, comme « Initialiser ». Cloud : écritures de fond silencieuses (`silencieux`, D2-04), suppression d'un bâtiment entièrement différée à l'accord du serveur — rien ne quitte l'écran avant, refus hors ligne immédiat, même pour un locataire (D2-03 + retour du 01/11) ; dossier d'un locataire en corbeille après l'accord (D7a-09), messages d'erreur en file (D2-05), rechargement qui attend la fin d'un envoi et de la file (D2-06, D2-07, `Perime` revérifié au départ), cession datée appliquée à l'ouverture (D2-02, `AppliquerCessionsDues`), galerie sous réservation (D7a-04), pas de repli de racine (D8-02), fermeture qui attend l'écriture en vol (D8-03), une seule confirmation (D8-04), écrans tenus vus par la garde (D8-05). Données : `EnPlace` (D7a-02), dates du bail toujours contrôlées (D7a-06), surface effective dans la liste (D7a-07), « Nouveau » inscrit au premier enregistrement (D7a-08), cession sans RIB/téléphone/code/TVA du cédant (D7a-05), révision par défaut à bail + 1 an et trimestre voulu ≥ référence (D7b-03), prêt remboursé à 0 (D7b-05), date d'achat/travaux proposée et contrôlée (D7b-07).
+
+### Demande faite pendant le lot 4 (01/11) : révision du dépôt corrigeable
+
+Tant que la facture de révision du dépôt n'est pas partie, « Réviser » (carte Dépôt) reprend la révision en attente (même date, même ancien dépôt, mention « révision en attente de sa facture ») au lieu d'attendre un an : `LocataireFacturationFields.DateRevisionProposee`. Parcours BF18.
+
+### Trouvés pendant le parcours BF (01/11)
+
+- **Suppression** (BF2) : sur le cloud, rien ne quitte l'écran avant l'accord du serveur ; refus hors ligne / lecture seule avant tout, bâtiment et locataire (`DeleteBatiment(id, apresSucces)`, `DeleteLocataire` → `bool`).
+- **Surface d'un lot** (BF8) : un champ vidé veut dire « suit de nouveau le bâtiment » (avant, seul « 0 » marchait).
+- **Dépassement des surfaces** (BF9) : le message nomme les lots saisis et la surface du bâtiment, sinon on ne sait pas lequel corriger.
+- **Dossier de l'entreprise introuvable** (BF15, grave) : la synchronisation des documents lisait un dossier absent (Drive fermé, clé débranchée, dossier renommé) comme « tous les fichiers supprimés ici » et aurait supprimé TOUS les documents de l'entreprise sur le cloud, puis chez les collègues. Arrivé pour de vrai le 01/11 à 18 h 55 sur SCI (JBC) (44 lignes marquées supprimées, fichiers du cloud intacts, copies locales intactes dans le dossier renommé) : la première garde ne vérifiait que l'existence du dossier, et l'émission d'une facture l'avait recréé vide. Gardes dans `DocumentsCloud.Passer` : dossier introuvable, ou aucun fichier local alors que des fichiers étaient connus (`SyncDocuments.DossierDeplace`) → passe suspendue ; fusible `SyncDocuments.SuppressionsSuspectes` : plus de 5 suppressions d'un coup et plus de la moitié des fichiers connus → refusées. Restauration : remettre le dossier, la passe renvoie les fichiers (`documenter` remet `supprime_le` à null).
+- **Carte Dépôt** (BF18) : une révision en attente de sa facture se lit sur la carte (« 01/10/2026 en attente de sa facture · prochaine 01/10/2027 ») ; la carte ne montrait que la prochaine date et la fenêtre l'autre, on croyait à un décalage.
 
 ## Décisions de l'utilisatrice sur la liste (31/10)
 

@@ -463,6 +463,9 @@ public class FactureEnvoiAuto : MonoBehaviour
 
         if (envoi == null || envoi.Succes)
         {
+            // Revue 16c (D2-06) : la fiche a pu être rechargée pendant l'envoi (refus de fond, abandon) : le statut se
+            // pose sur la fiche à jour, sinon la facture restait « en attente » et repartait au lancement suivant.
+            if (SessionCloud.Active && c.bp == null) c = Retrouver(choisie, BatimentManager.Instance?.BatimentPrefab) ?? c;
             // Le PDF et le numéro existent déjà : on ne réémet rien, on constate le
             // départ. D'où la mise à jour du statut seul, sans passer par
             // FactureEmission — qui consommerait une nouvelle séquence.

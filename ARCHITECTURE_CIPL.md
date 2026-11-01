@@ -158,7 +158,7 @@ Chacune de ces règles a coûté un défaut réel (voir `REVUE_CODE_CIPL.md`).
 │           └─ Objectifs/
 ├─ Anciens documents/                     ← dossiers à identifiant d'avant le nommage par nom
 ├─ Backups/<date_heure>/                  ← copie au démarrage, gardée 30 jours
-├─ corbeille_batiments/, corbeille_photos/
+├─ corbeille_batiments/, corbeille_photos/ (01/11 : aussi le dossier d'un locataire supprimé, restauré par « Annuler »)
 └─ .migration_dossiers_v1                 ← marqueur de la migration GUID → noms
 ```
 

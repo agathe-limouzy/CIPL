@@ -29,7 +29,11 @@ public class LocataireRowUI : MonoBehaviour
         if (txtNom != null) txtNom.text = _nom + RegleVerrou.Marque(prenom);
     }
 
-    public void Setup(Locataire loc, Action onOpenFiche)
+    /// Revue 16c (D7a-07) : « Lot 1 · 1250 m² » — la surface est celle que le bâtiment calcule (TailleLotEffective),
+    /// pas le champ brut (0 quand le lot suit le bâtiment).
+    public static string SousTitre(int lot, float surface) => $"Lot {lot} · {surface:F0} m²";
+
+    public void Setup(Locataire loc, float surface, Action onOpenFiche)
     {
         string nom = string.IsNullOrEmpty(loc.Name) ? "Sans nom" : loc.Name;
         _nom = nom;
@@ -64,7 +68,7 @@ public class LocataireRowUI : MonoBehaviour
         le.minHeight = 64; le.preferredHeight = 64;
         if (txtInitiales != null) { txtInitiales.enableAutoSizing = false; txtInitiales.fontSize = UITheme.Role.Donnee; txtInitiales.text = Initiales(nom); }
         if (txtSousTitre != null)
-            txtSousTitre.text = $"Lot {loc.lotBatiment} · {loc.tailleLot:F0} m²";
+            txtSousTitre.text = SousTitre(loc.lotBatiment, surface);
         if (txtLoyer != null)
             txtLoyer.text = loc.loyerAnnuel > 0 ? $"{loc.loyerAnnuel:N0} €/an" : "—";
 

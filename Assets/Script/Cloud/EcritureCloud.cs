@@ -246,27 +246,33 @@ public static class EcritureCloud
 
     static Task _file = Task.CompletedTask;   // un enregistrement à la fois, dans l'ordre
 
-    public static void Enregistrer(Batiment b)
+    /// `silencieux` (revue 16c, D2-04) : une écriture de fond (tournée de l'annuaire, plateforme) ; un refus est
+    /// journalisé et abandonné, sans message ni rechargement : les saisies en cours de l'utilisateur restent, et la
+    /// relecture en direct remettra la fiche à jour.
+    public static void Enregistrer(Batiment b, bool silencieux = false)
     {
         // Étape 8 : hors ligne, une saisie commencée avant la coupure attend la connexion ; une
         // action en un clic est refusée (lecture seule), et la fiche sera relue au retour.
         if (HorsLigne.Actif)
         {
             if (b != null && TientUneFiche(b)) MettreEnAttente(b);
-            else ConfirmDialog.Erreur(HorsLigne.Refus + " Cette modification n'est pas enregistrée.");
+            else if (!silencieux) ConfirmDialog.Erreur(HorsLigne.Refus + " Cette modification n'est pas enregistrée.");
             return;
         }
         // Étape 9c1 : abonnement expiré, lecture seule ; la fiche est relue (la modification n'est
         // faite qu'en mémoire).
-        if (AbonnementCloud.LectureSeule) { ConfirmDialog.Erreur(AbonnementCloud.Refus, DemarrageCloud.Recharger); return; }
-        var avant = _file; _file = Envoyer(avant, b);
+        if (AbonnementCloud.LectureSeule) { if (!silencieux) ConfirmDialog.Erreur(AbonnementCloud.Refus, DemarrageCloud.Recharger); return; }
+        var avant = _file; _file = Envoyer(avant, b, silencieux);
     }
 
-    static async Task Envoyer(Task avant, Batiment b)
+    static async Task Envoyer(Task avant, Batiment b, bool silencieux)
     {
         try { await avant; } catch (Exception) { /* l'échec précédent a déjà été signalé */ }
         var e = SessionCloud.Entreprise;
         if (e == null || b == null) return;
+        // Revue 16c (D2-07) : vérifié au DÉPART réel, pas seulement à la mise en file : une fiche périmée par un
+        // rechargement pendant l'attente repartirait avec les versions neuves et écraserait l'écriture d'un collègue.
+        if (Perime(b)) { Debug.LogWarning($"[Cloud] « {b.Name} » : fiche périmée pendant l'attente, enregistrement abandonné."); return; }
         try
         {
             foreach (var op in Differences(b, _cache))
@@ -283,6 +289,7 @@ public static class EcritureCloud
                 if (!r.Ok)
                 {
                     if (HorsLigne.Panne(r.Ok, r.Code)) MettreEnAttente(b);
+                    else if (silencieux) Debug.LogWarning($"[Cloud] « {b.Name} » : écriture de fond impossible ({r.Erreur}), reprise plus tard.");
                     else ConfirmDialog.Erreur($"Enregistrement de « {b.Name} » impossible : {r.Erreur}");
                     return;
                 }
@@ -296,12 +303,22 @@ public static class EcritureCloud
                     // au clic sur « OK » (décision du 09/10, reprise après une coupure). D'ici là, la
                     // relecture en direct attend (retour du 16/10 : elle remplaçait les saisies avant le OK).
                     string id = b.id;
+                    if (silencieux)
+                    {
+                        Debug.LogWarning($"[Cloud] « {nom} » : {MotifRefus(res ?? new Resultat { refus = "version" }, nom)} "
+                                         + "— écriture de fond abandonnée, reprise à la prochaine occasion.");
+                        return;
+                    }
                     _refusOuverts.Add(id);
                     ConfirmDialog.Erreur(MotifRefus(res ?? new Resultat { refus = "version" }, nom),
                                          () => { _refusOuverts.Remove(id); DemarrageCloud.Recharger(); });
                     return;
                 }
-                if (op.Type == TypeOp.SupprimerLocataire) { _cache.Remove(Cle(false, op.Id)); _supprimesParMoi.Add(op.Id); }
+                if (op.Type == TypeOp.SupprimerLocataire)
+                {
+                    _cache.Remove(Cle(false, op.Id)); _supprimesParMoi.Add(op.Id);
+                    if (_apresSuppressionLocataire.TryGetValue(op.Id, out var apres)) { _apresSuppressionLocataire.Remove(op.Id); apres?.Invoke(); }
+                }
                 else _cache[Cle(op.Type == TypeOp.Batiment, op.Id)] =
                     new Etat { Json = op.Json, Version = res.version, BatimentId = op.BatimentId, Ordre = op.Ordre };
                 _copieAEcrire = true;
@@ -310,9 +327,10 @@ public static class EcritureCloud
         catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Enregistrement impossible : " + ex.Message); }
     }
 
-    public static void SupprimerBatiment(string id, string nom) { var avant = _file; _file = Supprimer(avant, id, nom); }
+    /// `apresSucces` (revue 16c, D2-03) : ce qui ne doit se faire qu'après l'accord du serveur (le dossier en corbeille).
+    public static void SupprimerBatiment(string id, string nom, Action apresSucces = null) { var avant = _file; _file = Supprimer(avant, id, nom, apresSucces); }
 
-    static async Task Supprimer(Task avant, string id, string nom)
+    static async Task Supprimer(Task avant, string id, string nom, Action apresSucces)
     {
         try { await avant; } catch (Exception) { }
         var e = SessionCloud.Entreprise;
@@ -322,14 +340,15 @@ public static class EcritureCloud
         var res = r.Ok ? JsonUtility.FromJson<Resultat>(r.Corps) : null;
         if (res == null || !res.ok)
         {
+            // Retour du 01/11 : le bâtiment n'a pas quitté l'écran, rien à recharger ; la relecture en direct le tient à jour.
             ConfirmDialog.Erreur(res != null ? MotifRefus(res, nom) : $"Suppression de « {nom} » impossible : {r.Erreur}");
-            DemarrageCloud.Recharger();
             return;
         }
         _supprimesParMoi.Add(id);
         _cache.Remove(Cle(true, id));
         foreach (var k in _cache.Where(kv => kv.Value.BatimentId == id).Select(kv => kv.Key).ToList()) _cache.Remove(k);
         _copieAEcrire = true;
+        apresSucces?.Invoke();
     }
 
     // ── Verrous ────────────────────────────────────────────────────────────────
@@ -513,8 +532,28 @@ public static class EcritureCloud
     [Serializable] class ParamsEnvoi { public string p_entreprise, p_locataire, p_facture, p_session; public int p_version; }
     [Serializable] public class ResultatEnvoi { public bool ok; public string refus, nom, motif, pris_le, statut; }
 
+    // Revue 16c (D7a-09) : ce qui ne doit se faire qu'après l'accord du serveur pour la suppression d'un locataire (son
+    // dossier en corbeille), comme pour un bâtiment (D2-03).
+    static readonly Dictionary<string, Action> _apresSuppressionLocataire = new Dictionary<string, Action>();
+    public static void ApresSuppressionLocataire(string id, Action action) { if (id != null) _apresSuppressionLocataire[id] = action; }
+
+    /// Écrans qui tiennent une fiche (facture, achat, charge, révision, départ…) : leurs saisies attendent leur propre
+    /// bouton, la garde de fermeture doit les voir (revue 16c, D8-05). L'envoi des factures n'est pas un écran.
+    public static IEnumerable<string> FichesTenues() => _tenus.Where(t => t.Actif() && t.Motif != MotifEnvoi).Select(t => t.Nom);
+
+    /// `action` une fois la file des enregistrements vide (revue 16c, D8-03 : la fermeture attend l'écriture en vol).
+    public static async void QuandTermine(Action action)
+    {
+        try { await _file; } catch (Exception) { /* déjà signalé */ }
+        action?.Invoke();
+    }
+
     /// Un enregistrement attend ou part : le verrou d'un envoi n'est rendu qu'après celui de son statut.
     public static bool EnregistrementEnCours => !_file.IsCompleted;
+    /// Un envoi de factures tient encore son verrou : un rechargement attend sa fin (revue 16c, D2-06).
+    public static bool EnvoiEnCours => _tenus.Any(t => t.Motif == MotifEnvoi && t.Actif());
+    /// La file des enregistrements, pour l'attendre avant de remplacer les fiches (revue 16c, D2-07).
+    public static Task Attendre() => _file;
 
     /// Avant d'envoyer une facture : le serveur réserve son locataire et vérifie qu'elle attend
     /// toujours son envoi, sur la fiche que je connais (refus sinon : déjà envoyée, fiche prise ou

@@ -491,4 +491,138 @@ public class Revue16cTests
         Assert.That(FacturationSuivi.Jours("400", 15), Is.EqualTo(365), "borné à un an");
         Assert.That(FacturationSuivi.Jours("-3", 15), Is.EqualTo(0));
     }
+
+    // ── Lot 4, cloud (D2) ─────────────────────────────────────────────────────────────────────────
+
+    [Test]
+    public void D2_02_cession_due_appliquee_future_attend()
+    {
+        var loc = new Locataire { Name = "SARL X", siretNumber = "1",
+                                  cessionPrevue = new CessionPrevue { dateISO = "2026-11-01", nom = "SARL Y", siret = "2" } };
+        Assert.That(Cessions.Effectuer(loc, new System.DateTime(2026, 10, 31)), Is.False, "pas encore due");
+        Assert.That(loc.Name, Is.EqualTo("SARL X"));
+        Assert.That(Cessions.Effectuer(loc, new System.DateTime(2026, 11, 1)), Is.True, "le jour même");
+        Assert.That(loc.Name, Is.EqualTo("SARL Y"));
+        Assert.That(loc.siretNumber, Is.EqualTo("2"));
+        Assert.That(Cessions.Prevue(loc), Is.Null, "plus rien de prévu");
+        Assert.That(loc.cessions[0].ancienNom, Is.EqualTo("SARL X"), "l'ancien titulaire est gardé");
+        Assert.That(Cessions.Effectuer(loc, new System.DateTime(2026, 11, 2)), Is.False, "une seule fois");
+    }
+
+    // ── Lot 4, données et écrans (D7a, D7b, D8) ──────────────────────────────────────────────────
+
+    [Test]
+    public void D7a_02_partis_et_archives_ne_comptent_plus()
+    {
+        var parti = new Locataire { id = "P", tailleLot = 0f, loyerAnnuel = 12000f, dateSortieISO = "2020-01-01" };
+        var archive = new Locataire { id = "A", tailleLot = 100f, loyerAnnuel = 5000f, archive = true };
+        var nouveau = new Locataire { id = "N", tailleLot = 0f, loyerAnnuel = 12000f };
+        var lots = new List<Locataire> { parti, archive, nouveau };
+        Assert.That(BatimentPrefab.EnPlace(lots).Select(l => l.id), Is.EqualTo(new[] { "N" }));
+        Assert.That(BatimentPrefab.TailleLotDisponible(1000f, lots, nouveau), Is.EqualTo(1000f), "le parti ne prend plus de part");
+        Assert.That(BatimentPrefab.TailleLotDepassement(50f, lots), Is.EqualTo(0f), "la surface de l'archivé ne dépasse plus");
+        Assert.That(BatimentPrefab.EnPlace(lots).Sum(l => l.loyerAnnuel), Is.EqualTo(12000f));
+    }
+
+    [Test]
+    public void D7a_05_cession_vide_ce_qui_est_propre_au_cedant()
+    {
+        var loc = new Locataire { Name = "SARL Ancien", ribLocataireIban = "FR76", ribLocataireTitulaire = "SARL Ancien", ribLocataireBic = "BNP",
+                                  telephoneLocataire = "06", codeCompatable = "411ANC", assujettiTva = "oui" };
+        Cessions.Appliquer(loc, new System.DateTime(2026, 11, 1), "Jean Martin", "", "", "");
+        Assert.That(loc.ribLocataireIban + loc.ribLocataireTitulaire + loc.ribLocataireBic + loc.telephoneLocataire
+                    + loc.codeCompatable + loc.assujettiTva, Is.EqualTo(""));
+        Assert.That(loc.Name, Is.EqualTo("Jean Martin"));
+    }
+
+    [Test]
+    public void D7a_06_dates_du_bail_verifiees()
+    {
+        var d = new System.DateTime(2026, 9, 1);
+        Assert.That(Locataire.VerifierDatesBail(true, true, d, d.AddYears(9)), Is.Null);
+        Assert.That(Locataire.VerifierDatesBail(false, true, d, d.AddYears(9)), Is.Not.Null, "date manquante");
+        Assert.That(Locataire.VerifierDatesBail(true, true, d, d), Is.Not.Null, "fin = début");
+    }
+
+    [Test]
+    public void D7a_07_ligne_du_resume_affiche_la_surface_effective()
+        => Assert.That(LocataireRowUI.SousTitre(1, 1250f), Is.EqualTo("Lot 1 · 1250 m²"));
+
+    [Test]
+    public void D7a_09_dossier_du_locataire_en_corbeille_et_restaure()
+    {
+        string reelle = SaveLocationService.GetSaveRoot();
+        string bac = Path.Combine(Path.GetTempPath(), "cipl_tests_" + System.Guid.NewGuid().ToString("N"));
+        try
+        {
+            SaveLocationService.UseRoot(Path.Combine(bac, "CIPL_Saves"));
+            string dossier = DossiersDonnees.DossierLocataire("Rivoli", "Sephora");
+            Directory.CreateDirectory(dossier);
+            File.WriteAllText(Path.Combine(dossier, "bail.pdf"), "x");
+            BatimentManager.MettreDossierLocataireEnCorbeille("id-s", "Rivoli", "Sephora");
+            Assert.That(Directory.Exists(dossier), Is.False, "parti en corbeille : le nom est libre");
+            BatimentManager.RestaurerDossierLocataire("id-s", "Rivoli", "Sephora");
+            Assert.That(File.Exists(Path.Combine(dossier, "bail.pdf")), Is.True, "revenu avec « Annuler »");
+        }
+        finally
+        {
+            SaveLocationService.UseRoot(reelle);
+            try { if (Directory.Exists(bac)) Directory.Delete(bac, true); } catch { /* bac temporaire */ }
+        }
+    }
+
+    [Test]
+    public void D7b_03_revision_par_defaut_et_trimestre_voulu()
+    {
+        var loc = new Locataire { dateDebutBailISO = "2026-07-01" };
+        Assert.That(Loyers.PremiereRevisionParDefaut(loc), Is.EqualTo(new System.DateTime(2027, 7, 1)));
+        loc.moisDeRevisionISO = "2027-04-01";
+        Assert.That(Loyers.PremiereRevisionParDefaut(loc), Is.EqualTo(new System.DateTime(2027, 4, 1)));
+        Assert.That(InseeIndiceService.RangAvant("2025-T1", "2026-T1"), Is.True);
+        Assert.That(InseeIndiceService.RangAvant("2026-T1", "2026-T1"), Is.False);
+        Assert.That(InseeIndiceService.RangAvant("2027-T1", "2026-T1"), Is.False);
+    }
+
+    [Test]
+    public void D7b_05_mensualite_nulle_apres_le_dernier_remboursement()
+    {
+        double pleine = RentabiliteCalculator.Mensualite(100000, 2, 120);
+        Assert.That(RentabiliteCalculator.MensualiteEnCours(100000, 2, 120, new System.DateTime(2010, 1, 1), new System.DateTime(2026, 1, 1)), Is.EqualTo(0d));
+        Assert.That(RentabiliteCalculator.MensualiteEnCours(100000, 2, 120, new System.DateTime(2010, 1, 1), new System.DateTime(2015, 1, 1)), Is.EqualTo(pleine));
+        Assert.That(RentabiliteCalculator.MensualiteEnCours(100000, 2, 120, default, new System.DateTime(2026, 1, 1)), Is.EqualTo(pleine), "date inconnue : compté");
+    }
+
+    [Test]
+    public void D8_02_racine_cloud_sans_repli()
+    {
+        Assert.That(SaveLocationService.Racine("D:/x", false, true), Is.EqualTo("D:/x"), "cloud : le dossier enregistré, même absent");
+        Assert.That(SaveLocationService.Racine("D:/x", false, false), Is.Null, "local : repli");
+        Assert.That(SaveLocationService.Racine("", false, true), Is.Null);
+        Assert.That(SaveLocationService.Racine("D:/x", true, false), Is.EqualTo("D:/x"));
+    }
+
+    [Test]
+    public void D8_05_garde_de_fermeture_voit_les_ecrans_tenus()
+        => Assert.That(FermetureGuard.NomsEnEdition(new[] { "A", "B" }, new[] { "B", "C", "" }), Is.EqualTo(new List<string> { "A", "B", "C" }));
+
+    [Test]
+    public void Depot_revision_en_attente_corrigeable()
+    {
+        var loc = new Locataire { dateRevisionDepotISO = "2027-10-01", depotPrecedent = 2000f, depotPrecedentRevisionISO = "2026-10-01" };
+        Assert.That(LocataireFacturationFields.DateRevisionProposee(loc, System.DateTime.Today), Is.EqualTo(new System.DateTime(2026, 10, 1)), "révision en attente");
+        loc.depotPrecedent = 0f;
+        Assert.That(LocataireFacturationFields.DateRevisionProposee(loc, System.DateTime.Today), Is.EqualTo(new System.DateTime(2027, 10, 1)));
+    }
+
+    [Test]
+    public void Sync_dossier_deplace_et_fusible_des_suppressions()
+    {
+        Assert.That(SyncDocuments.DossierDeplace(0, 44), Is.True, "plus rien ici, 44 connus : le dossier a bougé");
+        Assert.That(SyncDocuments.DossierDeplace(1, 44), Is.False, "un fichier : le fusible prend le relais");
+        Assert.That(SyncDocuments.DossierDeplace(0, 0), Is.False, "dossier neuf");
+        Assert.That(SyncDocuments.SuppressionsSuspectes(44, 45), Is.True);
+        Assert.That(SyncDocuments.SuppressionsSuspectes(3, 45), Is.False, "quelques suppressions voulues");
+        Assert.That(SyncDocuments.SuppressionsSuspectes(6, 40), Is.False, "6 sur 40 : moins de la moitié");
+        Assert.That(SyncDocuments.SuppressionsSuspectes(6, 10), Is.True);
+    }
 }

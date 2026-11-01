@@ -52,6 +52,14 @@ public static class SyncDocuments
     }
 
     /// `telecharger` faux (mode Drive partagé, étape 6b) : le Drive recopie et supprime lui-même.
+    /// Retour du 01/11 (BF15) : des fichiers connus et plus aucun fichier local = le dossier a bougé (renommé, Drive fermé,
+    /// recréé vide par une écriture), pas les fichiers : la passe attend, rien n'est supprimé.
+    public static bool DossierDeplace(int locaux, int connus) => connus > 0 && locaux == 0;
+
+    /// Fusible : plus de 5 suppressions d'un coup et plus de la moitié des fichiers connus, ce n'est pas une suppression
+    /// voulue (l'application supprime un document à la fois) : refusées, journalisées.
+    public static bool SuppressionsSuspectes(int aSupprimer, int connus) => aSupprimer > 5 && aSupprimer * 2 > connus;
+
     public static List<(Action action, string chemin)> Plan(IDictionary<string, string> local, IDictionary<string, string> manifeste,
                                                             IDictionary<string, Distant> serveur, bool telecharger)
     {
@@ -227,8 +235,22 @@ public static class DocumentsCloud
         _enCours = true;
         try
         {
+            // Retour du 01/11 (parcours BF15) : un dossier de l'entreprise introuvable (Drive fermé, clé débranchée, dossier
+            // renommé) serait lu comme « tous les fichiers supprimés ici », et le plan supprimerait TOUS les documents sur le
+            // cloud, puis chez les collègues. La synchronisation attend que le dossier revienne ; rien n'est supprimé.
+            if (!Directory.Exists(racine))
+            {
+                Debug.LogWarning($"[Documents] Dossier des documents introuvable ({racine}) : synchronisation suspendue, rien n'est supprimé.");
+                return;
+            }
             var connus = _etat.fichiers.Where(f => f?.c != null).GroupBy(f => f.c).ToDictionary(g => g.Key, g => g.First());
             var locaux = await Task.Run(() => Lister(racine, connus));
+            if (SyncDocuments.DossierDeplace(locaux.Count, connus.Count))
+            {
+                Debug.LogWarning($"[Documents] Aucun fichier sous {racine} alors que {connus.Count} étaient connus : dossier déplacé ou vide, "
+                                 + "synchronisation suspendue, rien n'est supprimé.");
+                return;
+            }
             // ponytail: une seule lecture, plafonnée à 1 000 lignes par Supabase ; paginer au-delà.
             var r = await CloudClient.Table("GET", SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "documents",
                                             $"entreprise_id=eq.{ent}&select=chemin,empreinte,supprime_le,taille");
@@ -242,6 +264,13 @@ public static class DocumentsCloud
             var plan = SyncDocuments.Plan(locaux.ToDictionary(kv => kv.Key, kv => kv.Value.e),
                                           connus.Where(kv => kv.Value.m != null).ToDictionary(kv => kv.Key, kv => kv.Value.m),
                                           serveur, _telecharger);
+            int aSupprimer = plan.Count(p => p.action == SyncDocuments.Action.SupprimerServeur);
+            if (SyncDocuments.SuppressionsSuspectes(aSupprimer, connus.Count))
+            {
+                Debug.LogWarning($"[Documents] {aSupprimer} suppressions d'un coup sur {connus.Count} fichiers connus : refusées "
+                                 + "(dossier déplacé ?). Un document se supprime depuis l'application, un par un.");
+                plan.RemoveAll(p => p.action == SyncDocuments.Action.SupprimerServeur);
+            }
 
             // Nouvel état : les fichiers d'ici, plus ceux disparus d'ici dont la suppression reste à transmettre.
             var etat = new Dictionary<string, Fichier>(locaux);

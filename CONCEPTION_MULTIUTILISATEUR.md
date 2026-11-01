@@ -501,3 +501,14 @@ Surtout des réglages, mais à ne pas oublier :
 - **Juridique** : CGV et CGU, mentions légales, politique de confidentialité ; RGPD (contrat de sous-traitance avec Supabase et Stripe, registre des traitements ; données hébergées en UE : projet Supabase en Irlande).
 - **Super PDP en réel (étape 18, noté le 30/10)** : créer une **seconde application OAuth en production** (bac à sable désactivé), au nom de la société commerciale, avec la même adresse de retour et le type « confidentielle » ; mettre ses identifiants dans les Secrets (`SUPERPDP_CLIENT_ID`, `SUPERPDP_CLIENT_SECRET`) et **supprimer `SUPERPDP_BAC_A_SABLE`** (la fenêtre s'ouvre alors sur le vrai SIREN de la SCI) ; **« Se déconnecter » puis « Activer »** pour chaque SCI reliée en test (SCI (JBC), reliée à l'entreprise fictive Burger Queen : une autorisation de bac à sable ne vaut rien en production) ; moyen de paiement du compte Super PDP de CIPL, et confirmation écrite que les SCI des clients sont facturées à CIPL.
 - **Factures de CIPL lui-même** : à partir du 1/9/2027, les factures d'abonnement émises à des entreprises françaises devront passer par une plateforme agréée ; les factures Stripe ne le font pas (voir l'étape 18).
+
+## 16c — lot 4 (01/11) : ce qui change sur le cloud
+
+- **Écritures de fond** (tournée de l'annuaire, résultats de la plateforme) : un refus du serveur est journalisé et abandonné, sans message ni rechargement — les saisies en cours de l'utilisateur restent (`silencieux`).
+- **Suppression** : le dossier d'un bâtiment ou d'un locataire ne part en corbeille qu'après l'accord du serveur ; un refus (fiche prise, réseau) fait revenir la fiche avec ses documents intacts, rien n'est supprimé chez les collègues.
+- **Messages d'erreur** : ils font la queue ; chaque suite (« OK » → rechargement, libération) s'exécute.
+- **Rechargement** : il attend la fin d'un envoi de factures et la file des enregistrements ; un enregistrement périmé par le rechargement est abandonné au lieu de repartir avec les versions neuves.
+- **Cession datée** : appliquée à l'ouverture de l'entreprise, comme une action en un clic (réessai à l'ouverture suivante si la fiche est prise).
+- **Galerie de photos** : ouverte sous réservation du bâtiment (refus avant tout déplacement de fichier).
+- **Racine des documents** : jamais de repli sur le dossier par défaut d'une autre entreprise ; export refusé si elle manque. Dossier absent ou vide alors que des fichiers étaient connus (Drive fermé, clé débranchée, dossier recréé par une écriture) : la synchronisation des documents est suspendue, rien n'est supprimé sur le cloud ; et un fusible refuse plus de 5 suppressions d'un coup au-delà de la moitié des fichiers connus. Elle reprend quand le dossier revient.
+- **Fermeture** : attend l'enregistrement en vol (« fermeture dans un instant… »), une seule confirmation, et la garde voit aussi les écrans qui tiennent une fiche (facture, achat, charge, révision, départ).

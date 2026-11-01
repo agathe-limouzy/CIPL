@@ -125,6 +125,14 @@ public class Locataire : Data
     public List<ChiffreAffairesAnnuel> chiffresAffaires = new List<ChiffreAffairesAnnuel>();
 
     /// Le locataire est parti (dernier jour de location passé).
+    /// Revue 16c (D7a-06) : les dates du bail telles qu'affichées ; le message de refus, ou null.
+    public static string VerifierDatesBail(bool debutLu, bool finLue, DateTime debut, DateTime fin)
+    {
+        if (!debutLu || !finLue) return "Saisissez les deux dates du bail (début et fin), complètes et valides.";
+        if (fin <= debut) return "La date de fin du bail doit être après la date de début.";
+        return null;
+    }
+
     public bool EstParti => FacturationSuivi.TryEcheance(dateSortieISO, out var s) && s.Date < DateTime.Today;
 
     /// L'indice de départ est connu (révision par indice initialisée).

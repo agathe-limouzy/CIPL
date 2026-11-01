@@ -109,7 +109,7 @@ public class BatimentSummaryView : MonoBehaviour
 
         // Pilules
         Set(txtPiluleSurface, $"{bat.tailleBatiment:F0} m²");
-        int nbLots = bat.locataireDuBatiment.Count;
+        int nbLots = BatimentPrefab.EnPlace(bat.locataireDuBatiment).Count();   // revue 16c, D7a-02
         Set(txtPiluleLots, nbLots > 1 ? $"{nbLots} lots" : $"{nbLots} lot");
         Set(txtPiluleParking, LabelParking(bat.parkingEtat));
 
@@ -639,24 +639,24 @@ public class BatimentSummaryView : MonoBehaviour
         out double mensualitesAn, out double chargesAn, out double investi, out double gagne)
     {
         loyers = 0d;
-        if (bat.locataireDuBatiment != null)
-            foreach (var l in bat.locataireDuBatiment)
-                if (l != null) loyers += l.loyerAnnuel;
+        foreach (var l in BatimentPrefab.EnPlace(bat.locataireDuBatiment)) loyers += l.loyerAnnuel;   // revue 16c, D7a-02
 
         investi = 0d; double mens = 0d;
         if (bat.historiquesAchat != null)
             foreach (var a in bat.historiquesAchat)
             {
                 investi += a.prixAchat + a.fraisNotaire + a.fraisAgence;
-                if (a.emprunt && a.dureeMois > 0)
-                    mens += RentabiliteCalculator.Mensualite(a.montantEmprunte, a.tauxInteretAnnuel, a.dureeMois);
+                if (a.emprunt && a.dureeMois > 0)   // revue 16c (D7b-05) : 0 une fois le prêt remboursé
+                    mens += RentabiliteCalculator.MensualiteEnCours(a.montantEmprunte, a.tauxInteretAnnuel, a.dureeMois,
+                                                                   RentabiliteCalculator.Date(a.dateAchat), System.DateTime.Today);
             }
         if (bat.travaux != null)
             foreach (var t in bat.travaux)
             {
                 investi += t.coutTotal;
                 if (t.emprunt && t.dureeMois > 0)
-                    mens += RentabiliteCalculator.Mensualite(t.montantEmprunte, t.tauxInteretAnnuel, t.dureeMois);
+                    mens += RentabiliteCalculator.MensualiteEnCours(t.montantEmprunte, t.tauxInteretAnnuel, t.dureeMois,
+                                                                   RentabiliteCalculator.Date(t.dateDebutTravaux), System.DateTime.Today);
             }
         mensualitesAn = mens * 12d;
 
@@ -741,7 +741,7 @@ public class BatimentSummaryView : MonoBehaviour
     private static string EtatPilule(Batiment bat, out bool occupe)
     {
         occupe = false;
-        var locs = bat.locataireDuBatiment;
+        var locs = BatimentPrefab.EnPlace(bat.locataireDuBatiment).ToList();   // revue 16c, D7a-02
         int total = locs?.Count ?? 0;
         if (total == 0) return "Vacant";                       // aucun lot loué
 

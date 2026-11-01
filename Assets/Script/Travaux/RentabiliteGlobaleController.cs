@@ -137,7 +137,8 @@ public class RentabiliteGlobaleController : MonoBehaviour
         // ── Totaux ────────────────────────────────────────────────────────────
         double investTotal = investAchat + investTravaux;
         double mensTotales = 0d;
-        foreach (var l in loans) mensTotales += l.mensualite;
+        foreach (var l in loans)   // revue 16c (D7b-05) : un prêt remboursé ne compte plus (le tableau annuel bornait déjà)
+            if (RentabiliteCalculator.PretEnCours(l.startDate, l.dureeMois, DateTime.Today)) mensTotales += l.mensualite;
 
         double chargesAnnuel = mensTotales * 12d;
         double cashFlowAnnuel = loyerAnnuel - chargesAnnuel;

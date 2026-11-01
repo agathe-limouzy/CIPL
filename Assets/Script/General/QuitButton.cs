@@ -33,7 +33,7 @@ public class QuitButton : MonoBehaviour
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;
 #else
-        Application.Quit();
+        FermetureGuard.QuitterSansGarde();   // revue 16c (D8-04) : sinon wantsToQuit redemandait la confirmation
 #endif
     }
 }

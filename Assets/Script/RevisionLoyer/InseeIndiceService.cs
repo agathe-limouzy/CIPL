@@ -87,6 +87,10 @@ public static class InseeIndiceService
     /// À utiliser PARTOUT plutôt que `Normalize(x).Split('-')[1]` : Normalize n'insère
     /// le tiret que sur une chaîne de 6 caractères, donc une valeur ancienne comme
     /// "T1" ou "20261" faisait lever IndexOutOfRange.
+    /// Revue 16c (D7b-03) : vrai si `voulu` est un trimestre strictement antérieur à `reference`.
+    public static bool RangAvant(string voulu, string reference)
+        => TryDecompose(voulu, out int a1, out int t1) && TryDecompose(reference, out int a2, out int t2) && a1 * 4 + t1 < a2 * 4 + t2;
+
     public static bool TryDecompose(string periode, out int annee, out int trim)
     {
         annee = 0; trim = 0;

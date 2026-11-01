@@ -76,6 +76,7 @@ public class TravauxFormPanel : MonoBehaviour
 
         if (!string.IsNullOrEmpty(d.dateDebutTravaux) && DateTime.TryParse(d.dateDebutTravaux, out DateTime dt))
             datePicker?.ApplyDate(dt);
+        else datePicker?.ApplyDate(DateTime.Today);   // revue 16c (D7b-07) : sinon la date du dernier formulaire ouvert restait
         datePicker?.ModifyDate();
 
 
@@ -150,6 +151,12 @@ public class TravauxFormPanel : MonoBehaviour
             ? RentabiliteCalculator.Mensualite(_data.montantEmprunte, _data.tauxInteretAnnuel, _data.dureeMois)
             : 0f;
         _data.apportPersonnel = _data.coutTotal - _data.montantEmprunte;
+        // Revue 16c (D7b-07) : la date est lue telle qu'affichée et doit être complète.
+        if (datePicker != null)
+        {
+            if (!datePicker.LireDate(out var dateSaisie)) { ConfirmDialog.Erreur("Saisissez une date de début des travaux complète (jour, mois, année)."); return; }
+            datePicker.ApplyDate(dateSaisie);
+        }
         _data.dateDebutTravaux = datePicker?.saveThedate().ToString("yyyy-MM-dd") ?? "";
         _onSave?.Invoke(_data);
         gameObject.SetActive(false);

@@ -91,6 +91,10 @@ public static class Cessions
         loc.siretNumber = (siret ?? "").Trim();
         loc.adresseLocataire = adresse ?? "";
         loc.emailLocataire = (email ?? "").Trim();
+        // Revue 16c (D7a-05) : ce qui est propre au cédant ne passe pas au cessionnaire : coordonnées bancaires, téléphone,
+        // code comptable, et le choix TVA fait à la main (la case suit alors le nouveau SIRET).
+        loc.ribLocataireTitulaire = loc.ribLocataireIban = loc.ribLocataireBic = "";
+        loc.telephoneLocataire = ""; loc.codeCompatable = ""; loc.assujettiTva = "";
         foreach (var f in new[] { loc.factureLoyer, loc.factureRegul, loc.factureRefac, loc.factureDepot })
         {
             if (f == null) continue;

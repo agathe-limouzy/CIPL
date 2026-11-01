@@ -38,7 +38,21 @@ public static class FermetureGuard
             string nom = f.getName();
             noms.Add(string.IsNullOrWhiteSpace(nom) ? "(sans nom)" : nom);
         }
-        return noms.Distinct().ToList();
+        return NomsEnEdition(noms, SessionCloud.Active ? EcritureCloud.FichesTenues() : null);   // revue 16c, D8-05
+    }
+
+    /// La règle : fiches en saisie + écrans qui tiennent une fiche (facture, achat, charge, révision, départ…), sans doublon.
+    public static List<string> NomsEnEdition(IEnumerable<string> fiches, IEnumerable<string> tenues)
+        => fiches.Concat(tenues ?? Enumerable.Empty<string>()).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct().ToList();
+
+    /// Quitte sans repasser par la garde (revue 16c, D8-04 : la croix redemandait la confirmation), après l'enregistrement
+    /// cloud encore en vol s'il y en a un (D8-03 : il était perdu sans un mot).
+    public static void QuitterSansGarde()
+    {
+        _quitterConfirme = true;
+        if (!EcritureCloud.EnregistrementEnCours) { Application.Quit(); return; }
+        UndoToast.Instance?.ShowInfo("Enregistrement en cours, fermeture dans un instant…");
+        EcritureCloud.QuandTermine(Application.Quit);
     }
 
     public static string MessageAvertissement(List<string> enEdition)
@@ -91,7 +105,12 @@ public static class FermetureGuard
         if (_quitterConfirme) return true;
 
         var enEdition = NomsEnEdition();
-        if (enEdition.Count == 0) return true;
+        if (enEdition.Count == 0)
+        {
+            if (!EcritureCloud.EnregistrementEnCours) return true;
+            QuitterSansGarde();   // revue 16c (D8-03) : la fermeture attend l'écriture en vol
+            return false;
+        }
 
         // Sans boîte de dialogue disponible, on ne bloque pas la fermeture : mieux vaut
         // quitter que laisser l'application impossible à fermer.
@@ -104,7 +123,7 @@ public static class FermetureGuard
         ConfirmDialog.Instance.Show(
             "Modifications non enregistrées",
             MessageAvertissement(enEdition),
-            () => { _quitterConfirme = true; Application.Quit(); },
+            QuitterSansGarde,
             "Quitter sans enregistrer");
 
         return false;

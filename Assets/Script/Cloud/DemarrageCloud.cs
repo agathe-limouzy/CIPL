@@ -194,6 +194,7 @@ public static class DemarrageCloud
         _bm.Vider();
         _bm.Installer(bats);
         EcritureCloud.Recaler(bats);   // les mises à niveau du chargement ne repartent pas au serveur
+        _bm.AppliquerCessionsDues();   // revue 16c (D2-02) : une cession datée arrivée à son jour s'applique maintenant
         _bm.menuManager.OpenGeneralMenu();
         EcritureCloud.DemarrerGardien();
         DirectCloud.Demarrer(e.id, telecharger);   // étape 5 : changements des collègues, présence ; 6 : documents
@@ -496,7 +497,14 @@ public static class DemarrageCloud
     {
         var e = SessionCloud.Entreprise;
         if (e == null || _bm == null) return;
-        try { await Ouvrir(e); }
+        try
+        {
+            // Revue 16c (D2-06, D2-07) : un envoi de factures en cours finit d'abord (son statut « Envoyé » se pose sur
+            // la fiche d'avant), et la file des enregistrements se vide, avant que les fiches ne soient remplacées.
+            for (int i = 0; i < 120 && EcritureCloud.EnvoiEnCours; i++) await Task.Delay(500);
+            try { await EcritureCloud.Attendre(); } catch (Exception) { /* déjà signalé */ }
+            await Ouvrir(e);
+        }
         catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Rechargement impossible : " + ex.Message); }
     }
 }
