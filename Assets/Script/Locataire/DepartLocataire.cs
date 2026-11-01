@@ -202,11 +202,11 @@ public static class DepartLocataire
                 bool faisable = false;
                 foreach (var l in loyers)
                 {
-                    var et = FacturationSuivi.EtatDe(l);
+                    var et = FacturationSuivi.EtatDe(l, loc);
                     if (et == FacturationSuivi.Etat.AFaire || et == FacturationSuivi.Etat.AttenteEnvoi) faisable = true;
                     else if (et == FacturationSuivi.Etat.AVenir && FacturationSuivi.TryEcheance(l.echeanceISO, out var ech))
                     {
-                        var d = ech.AddDays(-FacturationSuivi.Lead("Loyer"));
+                        var d = ech.AddDays(-FacturationSuivi.Lead("Loyer", loc));
                         if (quand == null || d < quand) quand = d;
                     }
                 }
@@ -225,7 +225,7 @@ public static class DepartLocataire
                 if (RegulsDeSortieFaites(loc)) return Statut.Faite;
                 foreach (var l in FacturationSuivi.Lignes(loc, s.Year).Where(l => l.type == "Regul"))
                 {
-                    var et = FacturationSuivi.EtatDe(l);
+                    var et = FacturationSuivi.EtatDe(l, loc);
                     if (et == FacturationSuivi.Etat.AFaire || et == FacturationSuivi.Etat.AttenteEnvoi) return Statut.AFaire;
                     if (et == FacturationSuivi.Etat.AVenir && FacturationSuivi.TryEcheance(l.echeanceISO, out var ech)
                         && (quand == null || ech < quand)) quand = ech;
@@ -295,7 +295,7 @@ public static class DepartLocataire
         return loyers.FirstOrDefault(l => LoyerACorriger(loc, l))
             ?? loyers.FirstOrDefault(l =>
             {
-                var et = FacturationSuivi.EtatDe(l);
+                var et = FacturationSuivi.EtatDe(l, loc);
                 return et == FacturationSuivi.Etat.AFaire || et == FacturationSuivi.Etat.AttenteEnvoi || et == FacturationSuivi.Etat.AVenir;
             });
     }

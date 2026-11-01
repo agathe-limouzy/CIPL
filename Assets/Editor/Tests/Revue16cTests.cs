@@ -271,6 +271,170 @@ public class Revue16cTests
         StringAssert.Contains("\"expire\"", ligne);
     }
 
+    // ── Lot 3 : facturation (01/11) ───────────────────────────────────────────
+
+    static string Script(params string[] chemin) =>
+        File.ReadAllText(Path.Combine(new[] { Application.dataPath, "Script" }.Concat(chemin).ToArray()));
+
+    [Test]
+    public void D4_03_corriger_met_a_jour_l_echeance_et_le_RIB_et_part_tout_de_suite()
+    {
+        var loc = new Locataire { facturesEtat = new List<FactureEtat> {
+            new FactureEtat { key = "loyer-2026-P10", statut = "Envoye", echeanceISO = "2026-10-08", pdfPath = "x.pdf", ribId = "r1", ribNom = "CIC" } } };
+        FacturationSuivi.MarquerCorrige(loc, "loyer-2026-P10", "Loyer Octobre 2026", "y.pdf", 1200f, "2026-11-15", "r2", "BNP");
+        var r = loc.facturesEtat[0];
+        Assert.That(r.echeanceISO, Is.EqualTo("2026-11-15"));
+        Assert.That(r.ribId, Is.EqualTo("r2")); Assert.That(r.ribNom, Is.EqualTo("BNP"));
+        Assert.That(r.statut, Is.EqualTo("Envoye"), "une correction ne change pas le statut");
+        StringAssert.Contains("if (!correction && dateEnvoi.HasValue", Script("Facturation", "FactureLoyerPanel.cs"), "plus d'envoi différé pour une correction");
+    }
+
+    [Test]
+    public void D4_04_un_numero_saisi_fait_avancer_la_sequence_et_un_doublon_est_refuse()
+    {
+        Assert.That(FactureEmission.NumeroSaisi("047"), Is.EqualTo(47));
+        Assert.That(FactureEmission.NumeroSaisi("A12"), Is.EqualTo(12));
+        Assert.That(FactureEmission.NumeroSaisi(""), Is.EqualTo(0));
+        var loc = new Locataire { factureSeq = 2, facturesEtat = new List<FactureEtat>(), factureLoyer = new FactureInfo { numeroId = "047" } };
+        var d = FactureEmission.Preparer(loc, "loyer-2026-P1", "2026/10047");
+        Assert.That(d.Refus, Is.Null);
+        FactureEmission.Enregistrer(loc, "loyer-2026-P1", "Loyer", d, "Loyer Janvier 2026", "2026-01-01", "x.pdf", 1200f, null, loc.factureLoyer, "Facture", true);
+        Assert.That(loc.factureSeq, Is.EqualTo(48), "la séquence suit l'ID saisi");
+        Assert.That(FactureEmission.Preparer(loc, "loyer-2026-P2", "2026/10047").Refus, Does.Contain("déjà"));
+        Assert.That(FactureEmission.Preparer(loc, "loyer-2026-P1", "2026/10047").Refus, Is.Null, "la même facture (correction) garde son numéro");
+    }
+
+    [Test]
+    public void D4_05_une_facture_emise_reste_dans_le_suivi_quand_la_planification_change()
+    {
+        // Révision du dépôt 2026 émise, puis « Réviser » dans la fiche : la prochaine révision passe en 2027.
+        var loc = new Locataire { Name = "L", depotDeGarantie = 3090f, dateRevisionDepotISO = "2027-01-15", periodiciteLoyer = Periodicite.mensuel, loyerAnnuel = 12000f,
+            facturesEtat = new List<FactureEtat> { new FactureEtat { key = "depot-2026", type = "Depot", libelle = "Révision du dépôt de garantie",
+                statut = "Envoye", echeanceISO = "2026-01-15", pdfPath = "d.pdf", numero = "2026/01001", montant = 90f } } };
+        Assert.That(FacturationSuivi.Lignes(loc, 2026).Any(l => l.key == "depot-2026" && l.statut == "Envoye"), "la facture envoyée ne disparaît plus");
+        Assert.That(FacturationSuivi.Lignes(loc, 2027).Any(l => l.key == "depot-2026"), Is.False);
+    }
+
+    [Test]
+    public void D4_06_rien_n_est_propose_en_mode_Pennylane()
+    {
+        Assert.That(FactureEnvoiAuto.PropositionPossible(ModeEnvoi.Pennylane), Is.False);
+        Assert.That(FactureEnvoiAuto.PropositionPossible(ModeEnvoi.Email), Is.True);
+        Assert.That(FactureEnvoiAuto.PropositionPossible(null), Is.True);
+    }
+
+    [Test]
+    public void D4_12_une_facture_payee_ne_recoit_plus_de_charge()
+    {
+        var loc = new Locataire { facturesEtat = new List<FactureEtat> {
+            new FactureEtat { key = "refac-a", statut = "Paye", pdfPath = "r.pdf", numero = "2026/10001" },
+            new FactureEtat { key = "refac-b", statut = "Paye", pdfPath = "r.pdf", numero = "2026/10001" } } };
+        Assert.That(FacturationSuivi.ElargitUneFacturePayee(loc, "refac-a", new[] { "refac-a", "refac-b", "refac-c" }), Is.True);
+        Assert.That(FacturationSuivi.ElargitUneFacturePayee(loc, "refac-a", new[] { "refac-a", "refac-b" }), Is.False, "la corriger sans l'élargir reste permis");
+        loc.facturesEtat[0].statut = loc.facturesEtat[1].statut = "Envoye";
+        Assert.That(FacturationSuivi.ElargitUneFacturePayee(loc, "refac-a", new[] { "refac-a", "refac-b", "refac-c" }), Is.False, "pas encore payée : élargir reste permis");
+    }
+
+    [Test]
+    public void D5_03_la_pastille_de_la_plateforme_s_affiche()
+    {
+        var loc = new Locataire { Name = "L", periodiciteLoyer = Periodicite.mensuel, loyerAnnuel = 12000f,
+            facturesEtat = new List<FactureEtat> { new FactureEtat { key = "loyer-2026-P4", type = "Loyer", statut = "Envoye", echeanceISO = "2026-04-01",
+                pdfPath = "x.pdf", plateformeDonnees = "{}", plateformeId = "42", plateformeEtat = "envoyee" } } };
+        var l = FacturationSuivi.Lignes(loc, 2026).First(x => x.key == "loyer-2026-P4");
+        Assert.That(l.plateformeId, Is.EqualTo("42"));
+        Assert.That(FactureElectronique.Pastille(l), Is.EqualTo("Plateforme"));
+    }
+
+    [Test]
+    public void D5_05_une_facture_refusee_par_la_plateforme_ne_repart_pas_telle_quelle()
+    {
+        var loc = new Locataire { Name = "L", emailLocataire = "a@b.fr" };
+        var rec = new FactureEtat { key = "loyer-2026-P9", type = "Loyer", statut = "AttenteEnvoi", echeanceISO = "2026-09-01", pdfPath = "x.pdf", plateformeEtat = "refusee" };
+        Assert.That(FactureEnvoiAuto.DoitPartir("B", loc, rec, new System.DateTime(2026, 9, 10), _ => true, out _, out _), Is.False);
+        rec.plateformeEtat = "";
+        Assert.That(FactureEnvoiAuto.DoitPartir("B", loc, rec, new System.DateTime(2026, 9, 10), _ => true, out _, out _), Is.True);
+        StringAssert.Contains("m.statut = \"AttenteEnvoi\"", Script("Facturation", "FactureElectronique.cs"), "après la bascule, une facture refusée revient en attente");
+    }
+
+    [Test]
+    public void D5_07_D5_12_encaissee_porte_le_montant_et_la_date_du_versement_et_s_annule()
+    {
+        var loc = new Locataire { facturesEtat = new List<FactureEtat> {
+            new FactureEtat { key = "loyer-2026-P3", statut = "Paye", pdfPath = "x.pdf", montant = 1200f, plateformeId = "7",
+                versements = new List<Versement> { new Versement { dateISO = "2026-03-28", montant = 1200f } } } } };
+        var r = loc.facturesEtat[0];
+        var (montant, date) = FactureElectronique.Encaissement(loc, r);
+        Assert.That(montant, Is.EqualTo(1200f)); Assert.That(date, Is.EqualTo("2026-03-28"));
+        Assert.That(FactureElectronique.EnAttente(r), Is.True, "à déclarer");
+        r.encaisseeDeclaree = true; r.encaisseeMontant = 1200f; r.encaisseeDateISO = date;
+        Assert.That(FactureElectronique.EnAttente(r), Is.False);
+        r.statut = "Envoye";
+        Assert.That(FactureElectronique.EnAttente(r), Is.True, "plus payée : l'annulation (212 négatif) attend");
+        string ts = Serveur("fonctions", "facture-electronique.ts");
+        StringAssert.Contains("reported_data", ts); StringAssert.Contains("type_code: \"MEN\"", ts);
+    }
+
+    [Test]
+    public void D5_08_D5_13_l_acheteur_de_la_facture_electronique_est_celui_du_PDF()
+    {
+        var loc = new Locataire { siretNumber = "111 111 111 00011" };
+        Assert.That(FactureElectronique.SiretAcheteur(loc, "  "), Is.EqualTo("111 111 111 00011"));
+        Assert.That(FactureElectronique.SiretAcheteur(loc, "222 222 222 00022"), Is.EqualTo("222 222 222 00022"));
+        Assert.That(FactureElectronique.Siret14("222 222 222 00022"), Is.EqualTo("22222222200022"));
+        Assert.That(FactureElectronique.Siret14("222222222"), Is.Null);
+        StringAssert.Contains("siret.Length == 14 && siret.StartsWith(siren) ? siret : siren", Script("Facturation", "FactureEn16931.cs"));
+        StringAssert.Contains("0225:${siretAcheteur}", Serveur("fonctions", "facture-electronique.ts"));
+    }
+
+    [Test]
+    public void D5_10_D5_11_D6_06_D6_07_regles_simples()
+    {
+        var ctx = new FactureContext { ttc = 48894.58f };   // D6-06 : écriture française des montants
+        Assert.That(FactureVarResolver.Resolve("{loyer.ttc}", null, null, ctx), Is.EqualTo(48894.58f.ToString("N2", FacturePdfService.FrCulture) + " €"));
+        var bat = new Batiment { locataireDuBatiment = new List<Locataire> {   // D6-07 : un RIB utilisé par un locataire
+            new Locataire { Name = "sephora", factureLoyer = new FactureInfo { ribId = "r1" } }, new Locataire { Name = "B" } } };
+        Assert.That(ReglagePanel.LocatairesUtilisant(new[] { bat }, i => i?.ribId, "r1"), Is.EqualTo(new[] { "sephora" }));
+        Assert.That(ReglagePanel.LocatairesUtilisant(new[] { bat }, i => i?.ribId, "r9"), Is.Empty);
+        StringAssert.Contains("_fe.refus == \"retire\" || _fe.refus == \"jeton\"", Script("Facturation", "ReglagePanel.cs"));   // D5-10
+        StringAssert.Contains("entreprise changée pendant le traitement", Script("Facturation", "FactureElectronique.cs"));   // D5-11
+    }
+
+    [Test]
+    public void D6_02_D6_04_D6_05_D6_08_dates_provision_base_et_ancien_depot()
+    {
+        var f = new FactureInfo { saved = true, provisionMontant = 300f };   // D6-04
+        Assert.That(FactureLoyerPanel.ProvisionProposee(f, 350f, null), Is.EqualTo(350f));
+        Assert.That(FactureLoyerPanel.ProvisionProposee(f, 350f, new FactureEtat { key = "loyer-2026-P1", statut = "AttenteEnvoi" }), Is.EqualTo(350f));
+        Assert.That(FactureLoyerPanel.ProvisionProposee(f, 350f, new FactureEtat { key = "loyer-2026-P1", statut = "Envoye" }), Is.EqualTo(300f));
+        var loc = new Locataire { depotDeGarantie = 3090f, depotPrecedent = 3000f };   // D6-08
+        Assert.That(FactureDepotPanel.AncienDepot(loc), Is.EqualTo(3000f));
+        loc.depotPrecedent = 0f;
+        Assert.That(FactureDepotPanel.AncienDepot(loc), Is.EqualTo(3090f));
+        var l2 = new Locataire { depotSurTTC = true, loyerAnnuel = 12000f, periodiciteLoyer = Periodicite.mensuel };   // D6-05
+        StringAssert.Contains("H.T.", ExplicationDepot.Html(l2, 2, 90f, new System.DateTime(2026, 1, 15), null, null, false));
+        StringAssert.Contains("T.T.C.", ExplicationDepot.Html(l2, 2, 90f, new System.DateTime(2026, 1, 15)));
+        foreach (var p in new[] { "FactureLoyerPanel", "FactureDepotPanel", "FactureRefacPanel", "FactureRegulPanel" })   // D6-02
+            StringAssert.DoesNotContain("DateTime.TryParse(f.dateISO", Script("Facturation", p + ".cs"), p);
+    }
+
+    [Test]
+    public void D7b_02_D7b_04_revision_par_indice_et_reprise()
+    {
+        var loc = new Locataire { periodiciteLoyer = Periodicite.trimestriel, loyerAnnuel = 12000f, loyerDepart = 12000f, typeRevision = TypeRevision.Aucune };
+        loc.DateDebutBail = new System.DateTime(2025, 1, 1);
+        loc.DateFinBail = new System.DateTime(2033, 12, 31);
+        loc.dateDebutPremierBailISO = loc.dateDebutBailISO;
+        Loyers.EnregistrerAvenant(loc, new System.DateTime(2026, 2, 15));
+        loc.loyerAnnuel = 12600f;
+        Assert.That(Loyers.MontantPeriode(loc, 2025, 4), Is.EqualTo(3000f).Within(0.01f));
+        Assert.That(Loyers.MontantPeriode(loc, 2026, 2), Is.EqualTo(3150f).Within(0.01f));
+        Assert.That(Loyers.MontantPeriode(loc, 2026, 1), Is.EqualTo(3075f).Within(0.01f), "45 jours à l'ancien loyer, 45 au nouveau");
+        string rp = Script("RevisionLoyer", "RevisionPanel.cs");
+        Assert.That(System.Text.RegularExpressions.Regex.IsMatch(rp, @"Loyers\.EnregistrerAvenant\(_loc, d\.Date\);\s*if \(selonCA\)"), "l'avenant est enregistré pour les deux modes");
+        StringAssert.Contains("FacturationSuivi.EcheanceLoyer(_loc, y, per)", rp);
+    }
+
     [Test]
     public void BC10_une_surface_saisie_reste_apres_enregistrement()
     {
@@ -283,5 +447,48 @@ public class Revue16cTests
             "proposée et rendue telle quelle : reste non définie, suit le bâtiment");
         Assert.That(LocatairePrefab.SurfaceAEnregistrer(0f, 900f, 1200f), Is.EqualTo(900f), "saisie nouvelle");
         Assert.That(LocatairePrefab.SurfaceAEnregistrer(800f, 0f, 800f), Is.EqualTo(0f), "effacée à la main");
+    }
+
+    // ── Délais de facturation réglables (01/11, demande faite pendant le parcours BE) ──────────────
+
+    [Test]
+    public void Delais_entreprise_puis_locataire()
+    {
+        var R = ReglageService.Current;
+        int e0 = R.envoiAvantJours, i0 = R.impayeApresJours, a0 = R.echeanceAutresJours;
+        try
+        {
+            R.envoiAvantJours = 10; R.impayeApresJours = 20; R.echeanceAutresJours = 45;
+            var loc = new Locataire();
+            Assert.That(FacturationSuivi.EnvoiAvant(loc), Is.EqualTo(10));
+            Assert.That(FacturationSuivi.EcheanceAutres(loc), Is.EqualTo(45));
+            Assert.That(FacturationSuivi.DateEnvoi("Loyer", "2026-12-01", loc), Is.EqualTo(new System.DateTime(2026, 11, 21)));
+            Assert.That(FacturationSuivi.DateEnvoi("Loyer", "2026-12-01"), Is.EqualTo(new System.DateTime(2026, 11, 21)),
+                "ancien appel sans locataire : les délais de l'entreprise");
+            Assert.That(FacturationSuivi.Lead("Loyer", loc), Is.EqualTo(10 + FacturationSuivi.RappelAvantEnvoiJours));
+
+            // Échéance il y a 12 jours : « Envoyé » avec les 20 j de l'entreprise, « Impayé » avec 5 j propres.
+            var f = new FactureEtat { key = "loyer-2026-P1", type = "Loyer", statut = "Envoye", montant = 100f,
+                                      echeanceISO = System.DateTime.Today.AddDays(-12).ToString("yyyy-MM-dd") };
+            Assert.That(FacturationSuivi.EtatDe(f, loc), Is.EqualTo(FacturationSuivi.Etat.Envoye));
+            loc.delaisPropres = true; loc.envoiAvantJours = 16; loc.impayeApresJours = 5; loc.echeanceAutresJours = 60;
+            Assert.That(FacturationSuivi.EtatDe(f, loc), Is.EqualTo(FacturationSuivi.Etat.Impaye));
+            Assert.That(FacturationSuivi.DateEnvoi("Loyer", "2026-12-01", loc), Is.EqualTo(new System.DateTime(2026, 11, 15)));
+            Assert.That(FacturationSuivi.EcheanceAutres(loc), Is.EqualTo(60));
+        }
+        finally { R.envoiAvantJours = e0; R.impayeApresJours = i0; R.echeanceAutresJours = a0; }
+    }
+
+    [Test]
+    public void Delais_defauts_et_saisie()
+    {
+        var R = new ReglageData();
+        Assert.That(R.envoiAvantJours, Is.EqualTo(15));
+        Assert.That(R.impayeApresJours, Is.EqualTo(15));
+        Assert.That(R.echeanceAutresJours, Is.EqualTo(30));
+        Assert.That(FacturationSuivi.Jours("", 15), Is.EqualTo(15), "vide : le défaut");
+        Assert.That(FacturationSuivi.Jours(" 12 ", 15), Is.EqualTo(12));
+        Assert.That(FacturationSuivi.Jours("400", 15), Is.EqualTo(365), "borné à un an");
+        Assert.That(FacturationSuivi.Jours("-3", 15), Is.EqualTo(0));
     }
 }

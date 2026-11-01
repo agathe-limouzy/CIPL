@@ -43,11 +43,13 @@ public static class ExplicationDepot
     /// {bat.*}, le second porte les phrases propres à cette facture. Les appels
     /// antérieurs continuent donc de fonctionner sans eux.
     public static string Html(Locataire loc, int nbTermes, float complement, DateTime dateEffet,
-                             Batiment bat = null, FactureInfo depot = null)
+                             Batiment bat = null, FactureInfo depot = null, bool? surTTC = null)
     {
         if (loc == null) return "";
 
-        string baseCalcul = loc.depotSurTTC ? "T.T.C." : "H.T.";
+        // Revue 16c (D6-05) : la base imprimée est celle de la case du panneau (celle qui a calculé le montant), pas
+        // celle de la fiche.
+        string baseCalcul = (surTTC ?? loc.depotSurTTC) ? "T.T.C." : "H.T.";
         var sb = new System.Text.StringBuilder();
 
         // ── Partie loyer : uniquement si une révision a réellement eu lieu ──────

@@ -33,6 +33,19 @@ public static class FactureEmission
         /// Le numéro de base (sans « corrigée »), lisible dans un nom de fichier (« 2026-10003 ») : deux factures
         /// différentes n'ont jamais le même PDF (revue 16c, D4-01 : le suivi fusionne deux lignes au même PDF).
         public string NumeroFichier;
+        /// Non null : l'émission est refusée (numéro déjà porté par une autre facture du locataire, revue 16c D4-04) ;
+        /// le panneau l'affiche et s'arrête.
+        public string Refus;
+    }
+
+    /// Les chiffres de fin de l'ID saisi (« 047 » → 47, « A12 » → 12 ; 0 sans chiffres) : la séquence ne doit
+    /// jamais redescendre sous un numéro déjà imprimé (revue 16c, D4-04).
+    public static int NumeroSaisi(string numeroId)
+    {
+        string s = (numeroId ?? "").Trim();
+        int fin = s.Length;
+        while (fin > 0 && char.IsDigit(s[fin - 1])) fin--;
+        return fin < s.Length && int.TryParse(s.Substring(fin), out int n) ? n : 0;
     }
 
     /// Étape 1 — décide correction ou nouvelle émission, AVANT toute génération.
@@ -60,8 +73,19 @@ public static class FactureEmission
         if (dejaEmise && !string.IsNullOrEmpty(existante.numero))
             numero = correction ? existante.numero + $" corrigée({x})" : existante.numero;
 
+        // Revue 16c (D4-04) : un numéro déjà porté par une AUTRE facture du locataire (ID saisi à la main) est refusé.
+        string refus = null;
+        if (!dejaEmise && !string.IsNullOrEmpty(numeroPropose) && loc?.facturesEtat != null)
+            foreach (var autre in loc.facturesEtat)
+                if (autre.key != key && autre.numero == numeroPropose && !string.IsNullOrEmpty(autre.statut))
+                {
+                    refus = $"Le numéro {numeroPropose} est déjà celui d'une autre facture de ce locataire (« {autre.libelle} ») : changez l'ID.";
+                    break;
+                }
+
         return new Decision
         {
+            Refus = refus,
             Correction = correction,
             Reecriture = jamaisPartie,
             NumeroCorrection = x,
@@ -92,7 +116,7 @@ public static class FactureEmission
     {
         if (decision.Correction)
         {
-            FacturationSuivi.MarquerCorrige(loc, key, libelle, pdfPath, montant);
+            FacturationSuivi.MarquerCorrige(loc, key, libelle, pdfPath, montant, echeanceISO, ribId, RibNom(ribId));
             return $"{nomLisible} corrigée ({decision.NumeroCorrection}) enregistrée.";
         }
 
@@ -109,7 +133,9 @@ public static class FactureEmission
         // seconde fois créerait un trou dans la numérotation.
         if (!decision.Reecriture)
         {
-            loc.factureSeq = Mathf.Max(1, loc.factureSeq) + 1;
+            // Revue 16c (D4-04) : un ID saisi à la main plus grand que la séquence la fait avancer (sinon le numéro
+            // suivant revenait en arrière, puis retombait sur un numéro déjà imprimé).
+            loc.factureSeq = Mathf.Max(Mathf.Max(1, loc.factureSeq), NumeroSaisi(info?.numeroId)) + 1;
             if (info != null) info.numeroId = "";
         }
 

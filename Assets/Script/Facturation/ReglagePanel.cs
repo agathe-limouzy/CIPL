@@ -22,7 +22,8 @@ public class ReglagePanel : MonoBehaviour
     static readonly Color CoPetrole = Hex("#16697A"), CoPetroleL = Hex("#D7E9EC");
 
     // Références UI
-    TMP_InputField _apiKey, _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd, _smtpUser;
+    TMP_InputField _apiKey, _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd, _smtpUser,
+                   _dEnvoiAvant, _dImpayeApres, _dEcheanceAutres;   // délais de facturation (01/11)
     TMP_InputField _phraseRetard, _basDePage, _entrepriseNom, _lieuEmission;
     TMP_InputField _tvaDebits, _tvaEncaissements;
     // Modèles d'e-mail (31/10) : facture avec le PDF, sa « copie » (par la plateforme, jusqu'au 31/8/2027),
@@ -189,6 +190,7 @@ public class ReglagePanel : MonoBehaviour
         _export = new SectionExport(entreprise);   // étape 11 : « Exporter toutes les données »
 
         var facturation = Page(content, OFacturation);
+        BuildCalendrier(facturation);   // 01/11 : les délais, dans Facturation (demande du parcours BE11)
         BuildLogo(facturation);
         BuildEntetes(facturation);
         BuildListesCharges(facturation);
@@ -392,7 +394,8 @@ public class ReglagePanel : MonoBehaviour
         _feEtat.color = relie && _fe.statut == "verified" ? UITheme.Primaire : UITheme.TextePrincipal;
         _feActiver.gameObject.SetActive(cloud && !particulier && _fe != null && _fe.ok && !relie);
         _feActualiser.gameObject.SetActive(relie && _fe.statut != "verified");
-        _feDelier.gameObject.SetActive(relie);
+        // Revue 16c (D5-10) : autorisation retirée ou jeton refusé : « Se déconnecter » reste possible, pour relier ensuite.
+        _feDelier.gameObject.SetActive(relie || (_fe != null && !_fe.ok && (_fe.refus == "retire" || _fe.refus == "jeton")));
         _feAide.text = _fe != null && _fe.bac_a_sable ? "Mode test (bac à sable) : les factures envoyées sont fictives." : "";
     }
 
@@ -681,6 +684,33 @@ public class ReglagePanel : MonoBehaviour
         return UIFactory.Input(parent, placeholder);
     }
 
+    // ── Section Calendrier des factures (01/11) ────────────────────────────────
+    // L'ancien calendrier figé du code, réglable par l'admin ; un locataire peut avoir les siens (fiche › Gestion
+    // du loyer › Initialiser). Un utilisateur le lit sans pouvoir le changer. Textes : une phrase complète par
+    // délai et un exemple daté (parcours BE11).
+
+    TMP_Text _calendrierInfo;
+
+    void BuildCalendrier(Transform parent)
+    {
+        var body = UIFactory.Section(parent, "Calendrier des factures", CoVert, CoVertL);
+        _calendrierInfo = UIFactory.Text(body.transform, "Réglé par l'administrateur.", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Le loyer est dû le jour choisi sur la fiche de chaque locataire (« Loyer demandé le 1 », "
+            + "par exemple). Autour de cette échéance, CIPL applique trois délais :", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        _dEnvoiAvant = LabeledInput(body.transform, "La facture de loyer part … jours avant l'échéance", "15");
+        UIFactory.Text(body.transform, "Échéance le 1er décembre → envoi le 16 novembre ; l'alerte « à préparer » arrive une semaine avant.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+        _dImpayeApres = LabeledInput(body.transform, "Sans règlement, la facture passe « Impayé » … jours après l'échéance", "15");
+        UIFactory.Text(body.transform, "Échéance le 1er décembre → impayé le 16 décembre, et le bouton « Rappel » apparaît dans le suivi.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+        _dEcheanceAutres = LabeledInput(body.transform,
+            "Les autres factures (charges, régularisation, dépôt) sont à payer … jours après leur date", "30");
+        foreach (var f in new[] { _dEnvoiAvant, _dImpayeApres, _dEcheanceAutres })
+            f.contentType = TMP_InputField.ContentType.IntegerNumber;
+        UIFactory.Text(body.transform, "Un locataire peut avoir ses propres délais : fiche › Gestion du loyer › Initialiser.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+    }
+
     // ── Section Logo de la facture ─────────────────────────────────────────────
 
     void BuildLogo(Transform parent)
@@ -795,10 +825,35 @@ public class ReglagePanel : MonoBehaviour
             edit.onClick.AddListener(() => OpenRibForm(rib2));
             var del = UIFactory.Button(row.transform, "Supprimer", UITheme.AlerteClair, UITheme.AlerteTexte, 34, UITheme.Role.Action);
             UIFactory.LE(del.gameObject, prefW: 100, flexW: 0);
-            del.onClick.AddListener(() => ConfirmDialog.Instance?.Show(
-                "Voulez-vous supprimer ce RIB ?", rib2.name,
-                () => { R.ribs.Remove(rib2); ReglageService.Save(); RebuildRibList(); }, "Supprimer"));
+            del.onClick.AddListener(() =>
+            {
+                // Revue 16c (D6-07) : un RIB choisi pour les factures d'un locataire ne se supprime pas (ses factures
+                // retombaient en silence sur le premier de la liste).
+                var qui = LocatairesUtilisant(BatimentManager.Instance?.Batiments, i => i?.ribId, rib2.id);
+                if (qui.Count > 0)
+                {
+                    ConfirmDialog.Erreur($"Ce RIB ne peut pas être supprimé : il est choisi pour les factures de {string.Join(", ", qui)}. "
+                                         + "Choisissez-leur un autre RIB d'abord.");
+                    return;
+                }
+                ConfirmDialog.Instance?.Show("Voulez-vous supprimer ce RIB ?", rib2.name,
+                    () => { R.ribs.Remove(rib2); ReglageService.Save(); RebuildRibList(); }, "Supprimer");
+            });
         }
+    }
+
+    /// Les locataires dont une facture (loyer, régularisation, refacturation, dépôt) référence `id` par `champ`
+    /// (revue 16c, D6-07).
+    public static List<string> LocatairesUtilisant(IEnumerable<Batiment> bats, Func<FactureInfo, string> champ, string id)
+    {
+        var res = new List<string>();
+        if (string.IsNullOrEmpty(id)) return res;
+        foreach (var b in bats ?? Enumerable.Empty<Batiment>())
+            foreach (var l in b?.locataireDuBatiment ?? new List<Locataire>())
+                if (l != null && !res.Contains(l.Name)
+                    && new[] { "Loyer", "Regul", "Refac", "Depot" }.Any(t => champ(l.FactureInfoDe(t)) == id))
+                    res.Add(l.Name);
+        return res;
     }
 
     /// Retour du 25/10 : saisie contrôlée (RegleRib) ; un refus rouvre la fenêtre telle que remplie,
@@ -869,9 +924,18 @@ public class ReglagePanel : MonoBehaviour
             edit.onClick.AddListener(() => OpenEnteteForm(ent2));
             var del = UIFactory.Button(row.transform, "Supprimer", UITheme.AlerteClair, UITheme.AlerteTexte, 34, UITheme.Role.Action);
             UIFactory.LE(del.gameObject, prefW: 100, flexW: 0);
-            del.onClick.AddListener(() => ConfirmDialog.Instance?.Show(
-                "Voulez-vous supprimer cet entête ?", ent2.nom,
-                () => { R.entetes.Remove(ent2); ReglageService.Save(); RebuildEnteteList(); }, "Supprimer"));
+            del.onClick.AddListener(() =>
+            {
+                var qui = LocatairesUtilisant(BatimentManager.Instance?.Batiments, i => i?.enteteId, ent2.id);   // revue 16c, D6-07
+                if (qui.Count > 0)
+                {
+                    ConfirmDialog.Erreur($"Cet entête ne peut pas être supprimé : il est choisi pour les factures de {string.Join(", ", qui)}. "
+                                         + "Choisissez-leur un autre entête d'abord.");
+                    return;
+                }
+                ConfirmDialog.Instance?.Show("Voulez-vous supprimer cet entête ?", ent2.nom,
+                    () => { R.entetes.Remove(ent2); ReglageService.Save(); RebuildEnteteList(); }, "Supprimer");
+            });
         }
     }
 
@@ -1306,6 +1370,11 @@ public class ReglagePanel : MonoBehaviour
         RefreshSiret();
         _apiKey.text = ReglageService.GetApiKey();
         _modePennylane.isOn = R.modeEnvoi == ModeEnvoi.Pennylane;
+        _dEnvoiAvant.text = R.envoiAvantJours.ToString();
+        _dImpayeApres.text = R.impayeApresJours.ToString();
+        _dEcheanceAutres.text = R.echeanceAutresJours.ToString();
+        foreach (var f in new[] { _dEnvoiAvant, _dImpayeApres, _dEcheanceAutres }) f.interactable = admin;
+        _calendrierInfo.gameObject.SetActive(!admin);
         // La carte SMTP reste visible quel que soit le mode : les relances d'impayé
         // partent par email même quand les factures passent par Pennylane.
         _smtpHost.text = R.smtp.host;
@@ -1359,6 +1428,9 @@ public class ReglagePanel : MonoBehaviour
             ReglageService.SetApiKey(_apiKey.text.Trim());
             R.modeEnvoi = _modePennylane.isOn ? ModeEnvoi.Pennylane : ModeEnvoi.Email;
             R.smtp = SmtpSaisi();
+            R.envoiAvantJours     = FacturationSuivi.Jours(_dEnvoiAvant.text, 15);
+            R.impayeApresJours    = FacturationSuivi.Jours(_dImpayeApres.text, 15);
+            R.echeanceAutresJours = FacturationSuivi.Jours(_dEcheanceAutres.text, 30);
             ReglageService.SetSmtpPassword(_smtpPwd.text);
         }
         R.lieuEmission = _lieuEmission.text.Trim();

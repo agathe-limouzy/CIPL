@@ -14,6 +14,10 @@ using UnityEngine.UI;
 /// au bouton « Révision dépôt de garantie » de la fiche). Aucun envoi réel ici.
 public class FactureDepotPanel : MonoBehaviour
 {
+    // Revue 16c (D6-06) : les montants en écriture française (« 1 234,56 »), comme le PDF et Créances, quelle que
+    // soit la langue de Windows (la culture courante donnait « 1,234.56 » dans les textes et les e-mails).
+    static string N2(float v) => v.ToString("N2", FacturePdfService.FrCulture);
+
     public static FactureDepotPanel Instance { get; private set; }
 
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
@@ -36,6 +40,35 @@ public class FactureDepotPanel : MonoBehaviour
     TMP_InputField _texteTvaDebit;
     TMP_InputField _emailObjet, _emailCorps;
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
+    string _numeroEmis;   // le numéro décidé par FactureEmission.Preparer pendant l'émission (revue 16c, D6-03)
+    string NumeroDocument() => _numeroEmis ?? ComposedNumero();
+    string _autoEcheance; // échéance proposée, suivie tant qu'elle n'est pas saisie à la main (revue 16c, D6-02)
+    FactureEtat _ligneCiblee;   // la ligne du suivi cliquée, qui donne la clé de la révision (revue 16c, D4-05)
+
+    void SuivreEcheance()
+    {
+        if (_echeance == null || _echeance.text != _autoEcheance || !TryDate(_date.text, out var d)) return;
+        _autoEcheance = d.AddDays(FacturationSuivi.EcheanceAutres(_loc)).ToString("dd/MM/yyyy");
+        _echeance.text = _autoEcheance;
+    }
+
+    /// L'ancien dépôt : celui d'avant « Réviser » si la fiche a été révisée avant la facture (revue 16c, D6-08), sinon
+    /// le dépôt en place.
+    public static float AncienDepot(Locataire loc) => loc.depotPrecedent > 0f ? loc.depotPrecedent : loc.depotDeGarantie;
+
+    /// La ligne du suivi sous laquelle ranger le document. Révision : la ligne cliquée si c'en est une (D4-05 : la clé
+    /// ne dépend plus d'une date qui bouge), sinon l'année de la révision appliquée dans la fiche avant la facture
+    /// (D6-08), sinon celle de la prochaine révision.
+    string CleSuivi()
+    {
+        if (_sortie) return DepartLocataire.CleDecompte;
+        if (_initial) return FacturationSuivi.CleDepotInitial;
+        if (_ligneCiblee != null && !string.IsNullOrEmpty(_ligneCiblee.key) && _ligneCiblee.key.StartsWith("depot-")) return _ligneCiblee.key;
+        string dateRev = _loc.depotPrecedent > 0f && !string.IsNullOrEmpty(_loc.depotPrecedentRevisionISO)
+            ? _loc.depotPrecedentRevisionISO : _loc.dateRevisionDepotISO;
+        int revYear = DateTime.TryParse(dateRev, out var rv) ? rv.Year : (TryDate(_date.text, out var dtr) ? dtr.Year : DateTime.Today.Year);
+        return $"depot-{revYear}";
+    }
     TMP_Text _numeroPrefixe;
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD;
     Toggle _ttcToggle, _retard;
@@ -74,6 +107,7 @@ public class FactureDepotPanel : MonoBehaviour
         var p = Instance;   // sur le cloud : le locataire est réservé tant que le panneau est ouvert (étape 4b)
         EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, false), "dépôt", () =>
         {
+            p._ligneCiblee = ligne;
             p._initial = ligne?.key == FacturationSuivi.CleDepotInitial;
             // Décompte de sortie : sa ligne du suivi, ou le bouton de la carte une fois le
             // départ saisi (la révision n'a plus lieu d'être : le dépôt sera rendu).
@@ -168,7 +202,7 @@ public class FactureDepotPanel : MonoBehaviour
         // ── 1. En-tête du document ──
         var e = UIFactory.Section(content, "En-tête du document", CoBleu, CoBleuL);
         _date = Labeled(e, "Date");
-        _date.onValueChanged.AddListener(_ => RefreshNumero());
+        _date.onValueChanged.AddListener(_ => { RefreshNumero(); SuivreEcheance(); });
         _refInterne = Labeled(e, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
         _refInterne.onValueChanged.AddListener(_ => RefreshEntetePreview());
         UIFactory.Text(e.transform, "Format du n° de facture", UITheme.Role.Donnee, UITheme.TexteSecondaire);
@@ -368,11 +402,13 @@ public class FactureDepotPanel : MonoBehaviour
             R.entetes.Select(e => e.id).ToList(), ReglageService.EnteteChoisi(f?.enteteId, "Depot"));
 
         DateTime now = DateTime.Today;
-        _date.text = f != null && DateTime.TryParse(f.dateISO, out var dd)
-            ? dd.ToString("dd/MM/yyyy") : now.ToString("dd/MM/yyyy");
-        _echeance.text = f != null && DateTime.TryParse(f.dateEcheanceISO, out var de)
-            ? de.ToString("dd/MM/yyyy")
-            : (TryDate(_date.text, out var dbase) ? dbase.AddDays(30) : now.AddDays(30)).ToString("dd/MM/yyyy");
+        // Revue 16c (D6-02) : la date d'aujourd'hui et une échéance à 30 jours qui suit la date tant qu'elle n'est pas
+        // saisie à la main — et non celles de la facture précédente du même type (PDF daté de février en juin, « Impayé »
+        // dès l'envoi).
+        _numeroEmis = null;
+        _date.text = now.ToString("dd/MM/yyyy");
+        _autoEcheance = now.AddDays(FacturationSuivi.EcheanceAutres(_loc)).ToString("dd/MM/yyyy");
+        _echeance.text = _autoEcheance;
         // Décompte : échéance = date limite de restitution (celle d'une révision ne vaut pas).
         if (_sortie && DepartLocataire.EcheanceRestitution(_loc, out var er)
             && !FacturationSuivi.EstDejaEmise(_loc, DepartLocataire.CleDecompte, out _))
@@ -394,7 +430,7 @@ public class FactureDepotPanel : MonoBehaviour
 
         // Dépôt : base TTC/HT, ancien montant, nb de périodes (dérivé du dépôt actuel).
         _ttcToggle.isOn = _loc.depotSurTTC;
-        _ancien.text = (_initial ? 0f : _loc.depotDeGarantie).ToString("0.00", CultureInfo.InvariantCulture);
+        _ancien.text = (_initial ? 0f : AncienDepot(_loc)).ToString("0.00", CultureInfo.InvariantCulture);   // D6-08
         float per = CurrentPeriode();
         int nb = per > 0f ? Mathf.Max(1, Mathf.RoundToInt(_loc.depotDeGarantie / per)) : 1;
         // Le nombre mémorisé est celui de la dernière facture de révision. Le dépôt
@@ -442,7 +478,7 @@ public class FactureDepotPanel : MonoBehaviour
             UIFactory.Text(_creancesBox, "Aucune somme due.", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         foreach (var c in proposees)
         {
-            string label = $"{(string.IsNullOrEmpty(c.numero) ? "" : c.numero + " · ")}{c.libelle} · {c.montant:N2} €";
+            string label = $"{(string.IsNullOrEmpty(c.numero) ? "" : c.numero + " · ")}{c.libelle} · {N2(c.montant)} €";
             var t = UIFactory.Toggle(_creancesBox, label, reprises == null || reprises.Contains(c.key));
             t.onValueChanged.AddListener(_ => RefreshTotaux());
             _creances.Add((c, t));
@@ -501,12 +537,12 @@ public class FactureDepotPanel : MonoBehaviour
         if (_sortie && _tSolde != null)
         {
             var d = DecompteSaisi();
-            _tRetenues.text   = $"{d.retenuesHT:N2} €" + (d.tva > 0f ? $" HT  (+ TVA {d.tva:N2} €)" : "");
+            _tRetenues.text   = $"{N2(d.retenuesHT)} €" + (d.tva > 0f ? $" HT  (+ TVA {N2(d.tva)} €)" : "");
             _blocMentionS.SetActive(d.tva > 0f);
-            _tCreances.text   = $"{d.creances:N2} €";
-            _tDepotRendu.text = $"{-ParseF(_depotDetenu.text):N2} €";
-            _tSolde.text = d.ttc < -0.005f ? $"{d.ttc:N2} €  — à rembourser au locataire (avoir)"
-                         : d.ttc > 0.005f ? $"{d.ttc:N2} €  — dû par le locataire (facture)" : "0,00 €  — rien à régler";
+            _tCreances.text   = $"{N2(d.creances)} €";
+            _tDepotRendu.text = $"{N2(-ParseF(_depotDetenu.text))} €";
+            _tSolde.text = d.ttc < -0.005f ? $"{N2(d.ttc)} €  — à rembourser au locataire (avoir)"
+                         : d.ttc > 0.005f ? $"{N2(d.ttc)} €  — dû par le locataire (facture)" : "0,00 €  — rien à régler";
             RefreshSommeDefault();
             RefreshEntetePreview();
             return;
@@ -515,14 +551,14 @@ public class FactureDepotPanel : MonoBehaviour
         _perLine.text = $"Loyer : {per:0.00} € / période {(_ttcToggle != null && _ttcToggle.isOn ? "TTC" : "HT")}";
         float nouveau = Cents(Nouveau()), ancien = Cents(ParseF(_ancien.text));
         float complement = Cents(nouveau - ancien);
-        _tNouveau.text    = $"{nouveau:N2} €";
-        _tAncien.text     = $"{ancien:N2} €";
-        _tComplement.text = $"{complement:N2} €";
+        _tNouveau.text    = $"{N2(nouveau)} €";
+        _tAncien.text     = $"{N2(ancien)} €";
+        _tComplement.text = $"{N2(complement)} €";
 
         // Nouveau dépôt inférieur à l'ancien : c'est un remboursement au locataire,
         // donc un avoir — pas une facture de complément.
         if (complement < 0f)
-            _tComplement.text = $"{complement:N2} €  — remboursement (avoir)";   // pas de « ⚠ » : absent de la police
+            _tComplement.text = $"{N2(complement)} €  — remboursement (avoir)";   // pas de « ⚠ » : absent de la police
 
         RefreshSommeDefault();   // le solde vient de changer : la phrase doit suivre son signe
         RefreshEntetePreview();
@@ -588,7 +624,7 @@ public class FactureDepotPanel : MonoBehaviour
         {
             date = d,
             periode = _sortie ? "décompte de sortie" : "dépôt de garantie",
-            numero = ComposedNumero(),
+            numero = NumeroDocument(),
             loyerHT = c, tva = 0f, ttc = c,
         };
     }
@@ -612,12 +648,13 @@ public class FactureDepotPanel : MonoBehaviour
             clientSiret = _siret.text,
             refInterne = _refInterne.text,
             dateStr = ctx.date.ToString("d MMMM yyyy", FacturePdfService.FrCulture),
-            numero = ComposedNumero(),
+            numero = NumeroDocument(),
             subtitle = _initial ? "Dépôt de garantie" : "Révision du dépôt de garantie",
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             // Explication du calcul : indice de référence → nouvel indice → nouveau
             // loyer, puis la règle des N termes qui donne le dépôt.
-            explicationHtml = ExplicationDepot.Html(_loc, Mathf.Max(1, nbTermes), complement, ctx.date, _bat, _loc.factureDepot),
+            explicationHtml = ExplicationDepot.Html(_loc, Mathf.Max(1, nbTermes), complement, ctx.date, _bat, _loc.factureDepot,
+                                                    _ttcToggle != null && _ttcToggle.isOn),   // D6-05 : la base de la case
             charges = new List<FacturePdfService.RegulLigne>(),   // pas de page 2
             totalCharges = nouveau, provisions = ancien, soldeHT = complement,
             tva = 0f, ttc = complement,
@@ -664,7 +701,7 @@ public class FactureDepotPanel : MonoBehaviour
             refInterne = _refInterne.text,
             ligneLabel = $"Dépôt de garantie — {nb} terme{(nb > 1 ? "s" : "")} de loyer {baseLoyer}",
             dateStr = ctx.date.ToString("d MMMM yyyy", FacturePdfService.FrCulture),
-            numero = ComposedNumero(),
+            numero = NumeroDocument(),
             subtitle = "Dépôt de garantie",
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             totalPeriode = montant, provision = 0f, totalHT = montant, tva = 0f, ttc = montant,
@@ -704,7 +741,7 @@ public class FactureDepotPanel : MonoBehaviour
             refInterne = _refInterne.text,
             ligneLabel = "Dépôt de garantie restitué",
             dateStr = ctx.date.ToString("d MMMM yyyy", FacturePdfService.FrCulture),
-            numero = ComposedNumero(),
+            numero = NumeroDocument(),
             subtitle = "Décompte de sortie" + edl,
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             totalPeriode = -depot, lignesProvision = d.lignes,
@@ -770,6 +807,10 @@ public class FactureDepotPanel : MonoBehaviour
     void SauvegarderEtEnvoyer()
     {
         SaveFromUI();
+        // Revue 16c (D6-03) : le numéro décidé AVANT de construire le document (entête, phrase de règlement, e-mail : {numero}).
+        var emission = FactureEmission.Preparer(_loc, CleSuivi(), ComposedNumero());
+        if (emission.Refus != null) { ConfirmDialog.Erreur(emission.Refus); return; }   // D4-04 : numéro déjà pris
+        _numeroEmis = emission.NumeroFacture;
         var d = DocumentAEmettre();
 
         // Complément négatif = le nouveau dépôt est inférieur à l'ancien, donc c'est
@@ -803,9 +844,7 @@ public class FactureDepotPanel : MonoBehaviour
 
         // Clé de suivi calculée AVANT la génération du PDF : sans elle, un second
         // clic consommait une nouvelle séquence et écrasait le PDF déjà émis.
-        int revYear = DateTime.TryParse(_loc.dateRevisionDepotISO, out var rv) ? rv.Year
-            : (TryDate(_date.text, out var dtr) ? dtr.Year : DateTime.Today.Year);
-        string key = _sortie ? DepartLocataire.CleDecompte : _initial ? FacturationSuivi.CleDepotInitial : $"depot-{revYear}";
+        string key = CleSuivi();
 
         // Déjà émise → version « corrigée(X) » : même numéro, aucune nouvelle
         // séquence consommée, et le PDF d'origine est conservé.
@@ -905,6 +944,8 @@ public class FactureDepotPanel : MonoBehaviour
             _sortie ? "Décompte de sortie enregistré"
             : _initial ? "Facture de dépôt de garantie enregistrée"
                      : "Facture de révision du dépôt enregistrée (le montant du dépôt n'a pas été modifié)");
+        // Revue 16c (D6-08) : la révision est facturée : l'ancien dépôt mémorisé par « Réviser » ne sert plus.
+        if (!_initial && !_sortie) { _loc.depotPrecedent = 0f; _loc.depotPrecedentRevisionISO = ""; }
 
         // Décompte : les sommes reprises sont soldées par le dépôt.
         // ponytail: une créance décochée lors d'une correction reste « Payé » — la

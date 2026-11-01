@@ -50,26 +50,26 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 | D3-06 | D3 | `inscrire` accepte n'importe quel compte connecté : l'adresse e-mail n'est prouvée que côté client |  | 01/11 (code et test ; parcours BD7) |
 | D3-07 | D3 | Stripe « unpaid » (relances épuisées) laisse le groupe modifiable sans payer |  | 01/11 (code et test) |
 | D4-02 | D4 | Fermer le panneau pendant l'envoi tue la coroutine : l'e-mail part, rien n'est enregistré, et le panneau reste « envoi en cours » jusqu'au redémarrage |  | 01/11 (code et test ; parcours BC9) |
-| D4-03 | D4 | Corriger une facture partie en repoussant son échéance promet un envoi différé qui n'aura jamais lieu, et l'échéance du suivi n'est pas mise à jour |  | |
-| D4-04 | D4 | La séquence ne suit pas un numéro saisi à la main : désordre, puis doublon ; aucun contrôle d'unicité par locataire |  | |
-| D4-05 | D4 | Une facture émise disparaît du suivi quand la planification change (dépôt révisé dans la fiche, périodicité modifiée) ; la clé du dépôt dépend d'une date qui bouge |  | |
-| D4-06 | D4 | Mode Pennylane : l'envoi groupé au lancement propose d'expédier par e-mail des factures déjà déposées sur Pennylane |  | |
-| D5-03 | D5 | La pastille du suivi n'apparaît jamais : `CopieDe` oublie les champs plateforme |  | |
-| D5-05 | D5 | Après la bascule, une facture refusée par Super PDP reste « Envoyé » alors que le locataire n'a rien |  | |
-| D5-06 | D5 | PDF absent sur ce PC → « refusee » définitif, partagé par le cloud |  | |
-| D5-07 | D5 | « Encaissée » sans date ni montant : la TVA à l'encaissement peut tomber dans la mauvaise période |  | |
-| D5-08 | D5 | Acheteur : le SIREN vient de la fiche, le nom et l'adresse du formulaire |  | |
-| D5-10 | D5 | Carte Réglages sans issue quand le jeton est retiré ou refusé |  | |
-| D5-11 | D5 | Changement d'entreprise pendant le rattrapage : les factures de la SCI A partent avec le jeton de la SCI B |  | |
-| D5-12 | D5 | « Encaissée » déclaré sur un simple clic, sans confirmation, et irréversible |  | |
-| D5-13 | D5 | Adresse électronique de l'acheteur : premier résultat de l'annuaire, pas le SIRET connu |  | |
-| D6-02 | D6 | Date de facture et échéance reprises de la facture précédente du même type | D5-15 | |
-| D6-03 | D6 | `{numero}` résolu avec le numéro proposé, pas celui de la facture (correction, réécriture) |  | |
-| D6-04 | D6 | Loyer : la provision proposée est celle de la dernière facture, pas celle de la fiche |  | |
-| D6-05 | D6 | Révision du dépôt : la base H.T./T.T.C. imprimée vient de la fiche, le montant de la case du panneau |  | |
-| D6-06 | D6 | Variables de montant formatées en culture courante (« 48,894.58 € ») dans les textes et e-mails |  | |
-| D6-07 | D6 | RIB ou entête supprimé dans Réglages : les factures retombent en silence sur le premier |  | |
-| D6-08 | D6 | Révision du dépôt : si « Réviser » de la fiche est cliqué avant la facture, le complément vaut 0 |  | |
+| D4-03 | D4 | Corriger une facture partie en repoussant son échéance promet un envoi différé qui n'aura jamais lieu, et l'échéance du suivi n'est pas mise à jour |  | 01/11 (code et test ; parcours BE2) |
+| D4-04 | D4 | La séquence ne suit pas un numéro saisi à la main : désordre, puis doublon ; aucun contrôle d'unicité par locataire |  | 01/11 (code et test ; parcours BE3) |
+| D4-05 | D4 | Une facture émise disparaît du suivi quand la planification change (dépôt révisé dans la fiche, périodicité modifiée) ; la clé du dépôt dépend d'une date qui bouge |  | 01/11 (code et test) |
+| D4-06 | D4 | Mode Pennylane : l'envoi groupé au lancement propose d'expédier par e-mail des factures déjà déposées sur Pennylane |  | 01/11 (code et test) |
+| D5-03 | D5 | La pastille du suivi n'apparaît jamais : `CopieDe` oublie les champs plateforme |  | 01/11 (code et test ; parcours BE4) |
+| D5-05 | D5 | Après la bascule, une facture refusée par Super PDP reste « Envoyé » alors que le locataire n'a rien |  | 01/11 (code et test) |
+| D5-06 | D5 | PDF absent sur ce PC → « refusee » définitif, partagé par le cloud |  | 01/11 (code et test) |
+| D5-07 | D5 | « Encaissée » sans date ni montant : la TVA à l'encaissement peut tomber dans la mauvaise période |  | 01/11 (code et test ; parcours BE5) |
+| D5-08 | D5 | Acheteur : le SIREN vient de la fiche, le nom et l'adresse du formulaire |  | 01/11 (code et test) |
+| D5-10 | D5 | Carte Réglages sans issue quand le jeton est retiré ou refusé |  | 01/11 (code et test) |
+| D5-11 | D5 | Changement d'entreprise pendant le rattrapage : les factures de la SCI A partent avec le jeton de la SCI B |  | 01/11 (code et test) |
+| D5-12 | D5 | « Encaissée » déclaré sur un simple clic, sans confirmation, et irréversible |  | 01/11 (code et test ; parcours BE5) |
+| D5-13 | D5 | Adresse électronique de l'acheteur : premier résultat de l'annuaire, pas le SIRET connu |  | 01/11 (code et test) |
+| D6-02 | D6 | Date de facture et échéance reprises de la facture précédente du même type | D5-15 | 01/11 (code et test ; parcours BE1) |
+| D6-03 | D6 | `{numero}` résolu avec le numéro proposé, pas celui de la facture (correction, réécriture) |  | 01/11 (code et test ; parcours BE3) |
+| D6-04 | D6 | Loyer : la provision proposée est celle de la dernière facture, pas celle de la fiche |  | 01/11 (code et test ; parcours BE6) |
+| D6-05 | D6 | Révision du dépôt : la base H.T./T.T.C. imprimée vient de la fiche, le montant de la case du panneau |  | 01/11 (code et test) |
+| D6-06 | D6 | Variables de montant formatées en culture courante (« 48,894.58 € ») dans les textes et e-mails |  | 01/11 (code et test ; parcours BE7) |
+| D6-07 | D6 | RIB ou entête supprimé dans Réglages : les factures retombent en silence sur le premier |  | 01/11 (code et test ; parcours BE8) |
+| D6-08 | D6 | Révision du dépôt : si « Réviser » de la fiche est cliqué avant la facture, le complément vaut 0 |  | 01/11 (code et test ; parcours BE10) |
 | D7a-02 | D7a | Les locataires partis ou archivés comptent encore dans le loyer total, la surface disponible, le nombre de lots et l'état du bâtiment | D7b-06 | |
 | D7a-03 | D7a | Enregistrer la fiche bâtiment détruit sans prévenir une fiche locataire en cours de saisie |  | |
 | D7a-04 | D7a | Supprimer une photo déplace le fichier avant l'accord du serveur : hors ligne ou fiche prise, la photo disparaît partout |  | |
@@ -79,9 +79,9 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 | D7a-08 | D7a | Un locataire « Nouveau » jamais enregistré est persisté par n'importe quel autre enregistrement du bâtiment |  | |
 | D7a-09 | D7a | Supprimer un locataire laisse son dossier en place : renommer ou céder vers ce nom est ensuite refusé, sans issue dans l'application |  | |
 | D7b-01 | D7b | Un second clic sur « Réviser » repousse la prochaine révision de deux ans |  | |
-| D7b-02 | D7b | Révision par indice : le nouveau loyer s'applique aussi aux périodes d'avant la date de révision |  | |
+| D7b-02 | D7b | Révision par indice : le nouveau loyer s'applique aussi aux périodes d'avant la date de révision |  | 01/11 (code et test) |
 | D7b-03 | D7b | Valeurs par défaut de l'indice : « Révision à faire » dès l'initialisation, puis révision proposée avec un trimestre antérieur à la référence |  | |
-| D7b-04 | D7b | Reprise de facturation enregistrée sur les mois standard, relue avec les mois cochés |  | |
+| D7b-04 | D7b | Reprise de facturation enregistrée sur les mois standard, relue avec les mois cochés |  | 01/11 (code et test) |
 | D7b-05 | D7b | Résumé Rentabilité : les mensualités de tous les emprunts sont comptées à vie, même une fois le prêt remboursé |  | |
 | D7b-07 | D7b | Nouvel achat / nouveaux travaux : la date n'est ni remise à zéro ni contrôlée |  | |
 | D8-02 | D8 | `GetSaveRoot` se replie sur la racine de « Mon entreprise » quand le dossier de l'entreprise cloud manque |  | |
@@ -121,7 +121,7 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 | D4-09 | D4 | Message obsolète « la case « Envoyer par email » est décochée (Options & envoi) » ; mode d'envoi par défaut = Pennylane pour une entreprise locale |  | |
 | D4-10 | D4 | Le rappel d'impayé est adressé à l'e-mail de la fiche, pas au destinataire mémorisé sur la facture |  | |
 | D4-11 | D4 | `FactureEnvoiAuto.Contexte` déduit HT = TTC ÷ 1,2 pour tous les types : `{loyer.ht}` / `{loyer.tva}` faux dans les e-mails d'un dépôt ou d'un décompte |  | |
-| D4-12 | D4 | Correction élargie d'une facture regroupée : la ligne ajoutée reçoit un statut neuf alors que les autres gardent le leur |  | |
+| D4-12 | D4 | Correction élargie d'une facture regroupée : la ligne ajoutée reçoit un statut neuf alors que les autres gardent le leur |  | 01/11 (code et test ; parcours BE9) |
 | D5-14 | D5 | Toast « Plateforme injoignable » pour tout échec, même « autorisation retirée » |  | |
 | D5-16 | D5 | Montants à trois décimales ou négatifs : écart PDF/XML ou refus BR-27 |  | |
 | D5-17 | D5 | Phrase de retard vide : le JSON dit la phrase légale, le PDF ne dit rien |  | |
@@ -171,6 +171,21 @@ D4-02 (majeur) a été corrigé avant son lot : c'est lui qui a cassé BC4 (form
 ## Lot 2 : majeurs « serveur, sécurité et argent » (01/11)
 
 Les 11 défauts D1-03 à D1-09, D3-01, D3-03, D3-06 et D3-07 sont codés et testés (`Revue16cTests`, tests texte sur le SQL et les fonctions, 590 tests verts). Décisions du 01/11 : **D3-01** l'adresse et la clé publique du projet sont compilées (`CloudDefaut`, générée depuis le fichier du PC sans passer par la conversation) et le fichier `cipl_app_secrets.dat` reste une surcharge ; **D1-09** secrets du cloud chiffrés par DPAPI sur Windows et par le trousseau sur Mac (hors cloud : inchangé). Serveur : `Serveur/etape16c2_supabase.sql` à exécuter ; `abonnement-stripe`, `stripe-webhook` et `facture-electronique` à redéployer. Parcours BD fait le 01/11 : BD1 à BD5 et BD7 bons ; BD6 à rejouer sur un groupe abonné (celui de SCI (JBC) est en essai, sans abonnement Stripe). Vérifié en réel (D3-06) : la session ouverte par le code porte `amr` = `otp` (`magiclink` et `email/signup` restent acceptés).
+
+## Lot 3 : majeurs « facturation » (01/11)
+
+Les 23 défauts D4-03 à D4-06, D4-12, D5-03, D5-05 à D5-08, D5-10 à D5-13, D6-02 à D6-08, D7b-02 et D7b-04 sont codés et testés (`Revue16cTests`, 602 tests verts). Décisions du 01/11 : **D5-07 / D5-12** « Encaissée » déclare le total TTC à la date du dernier versement saisi (sinon le jour du clic) ; une facture qui quitte « Payé » envoie un second 212 du même montant en négatif, daté du jour ; **D5-06** un PDF absent de ce PC est lu dans le cloud avant la transmission ; **D6-07** un RIB ou un entête utilisé par un locataire ne se supprime pas (message nommant les locataires) ; **D5-08** l'acheteur de la facture électronique est le SIRET du formulaire, comme le PDF. Décisions du 31/10 appliquées : D5-05 (retour en attente d'envoi après un refus post-bascule), D6-08 (ancien dépôt mémorisé par « Réviser »), D4-12 (refus d'élargir une facture payée). Nouveaux champs : `FactureEtat.encaisseeMontant/encaisseeDateISO`, `Locataire.depotPrecedent/depotPrecedentRevisionISO`. Serveur : `facture-electronique` à redéployer (212 avec montant et date, annuaire par SIRET). Parcours BE. À valider au bac à sable : la forme exacte de `details.reported_data` (type MEN) chez Super PDP.
+
+### Demande faite pendant le parcours BE (01/11) : délais de facturation réglables
+
+Le calendrier figé du code (loyer envoyé 15 j avant l'échéance, « Impayé » 15 j après, autres factures à +30 j) devient un réglage : Réglages › Facturation › Calendrier des factures pour l'entreprise (`ReglageData.envoiAvantJours / impayeApresJours / echeanceAutresJours`, admin), et sur la fiche du locataire (Gestion du loyer › Initialiser, « Délais des factures : ceux de l'entreprise » décochée → `Locataire.delaisPropres` et ses trois valeurs). Une seule règle, `FacturationSuivi.EnvoiAvant / ImpayeApres / EcheanceAutres(loc)`, suivie par `EtatDe`, `Lead`, `DateEnvoi` et `PeutPartir` (paramètre `loc` optionnel : sans lui, l'entreprise), les alertes, l'envoi automatique du lancement et les trois formulaires. Le jour d'échéance du loyer reste `jourDemandeLoyer`. Parcours BE11 ; tests `Delais_*`.
+
+### Trouvés pendant le parcours BE (01/11)
+
+- **BE5, Super PDP « Encaissée »** : la forme du détail est validée au bac à sable après trois refus lus par l'API : `details` est une **liste** de détails, et chaque bloc MEN de `reported_data` porte le montant TTC encaissé **pour un taux de TVA** et ce taux (`value_percent`, règle BR-FR-CDV-14). Le serveur relit la ventilation de la facture (`GET /v1.beta/invoices/{id}?format=en16931`, dans `en_invoice.vat_break_down`) et répartit le montant reçu au prorata (paiement partiel, annulation en négatif). Action de lecture `evenements` (diagnostic). `facture-electronique` redéployée le 01/11.
+- **Refus affiché comme une panne** : un refus de Super PDP sur « Encaissée » donnait « Plateforme injoignable » sans motif nulle part. `FactureElectronique.Panne` journalise le motif et montre un refus avec son détail (`ConfirmDialog.Erreur`) ; `Traiter` rend la réponse en échec (`Reponse`) au lieu d'un texte.
+- **Annulation d'encaissement invisible** : son message était recouvert par le résumé suivant. Les annulations sont comptées dans le résumé (« 1 encaissement annulé chez Super PDP »). Rappel : chez Super PDP, une annulation est un 212 à montant négatif, l'étiquette reste « Encaissée ».
+- **Bouton du formulaire Loyer en correction** : il disait « Enregistrer pour l'envoi du 30/11 » alors que la correction partait tout de suite (D4-03). `FactureLoyerPanel.PeriodePartie()` : facture de la période déjà partie → « Sauvegarder et envoyer ».
 
 ## Décisions de l'utilisatrice sur la liste (31/10)
 

@@ -76,7 +76,8 @@ public class RevisionPanel : MonoBehaviour
     LayoutElement _leFenetre, _leTitre;
 
     // ── Champs facturation ajoutés par code (jour de demande, mois, régularisation) ──
-    TMP_InputField _jourDemande;
+    TMP_InputField _jourDemande, _dEnvoi, _dImpaye, _dAutres;
+    Toggle _delaisToggle; GameObject _delaisBlockGO;   // délais de facturation propres au locataire (01/11)
     DateInputController _dateRegulCtrl;
     GameObject _jourLabelGO, _moisLabelGO, _moisWrapGO, _regulBlockGO, _repriseBlockGO;
     UIDropdown _repriseDD;                      // reprise : dernière période déjà facturée
@@ -140,6 +141,14 @@ public class RevisionPanel : MonoBehaviour
         // Champs facturation (jour de demande, mois facturés, date de régularisation)
         EnsureExtraBuilt();
         _jourDemande.text = loc.jourDemandeLoyer > 0 ? loc.jourDemandeLoyer.ToString() : "";
+        if (_delaisToggle != null)
+        {
+            _delaisToggle.SetIsOnWithoutNotify(!loc.delaisPropres);
+            _dEnvoi.text  = loc.delaisPropres ? loc.envoiAvantJours.ToString()     : "";
+            _dImpaye.text = loc.delaisPropres ? loc.impayeApresJours.ToString()    : "";
+            _dAutres.text = loc.delaisPropres ? loc.echeanceAutresJours.ToString() : "";
+            RefreshDelaisVisibility();
+        }
         if (System.DateTime.TryParse(loc.dateRegularisationChargeISO, out var drDate))
             _dateRegulCtrl.ApplyDate(drDate);
         else { _dateRegulCtrl.dayInput.text = ""; _dateRegulCtrl.monthInput.text = ""; _dateRegulCtrl.yearInput.text = ""; }
@@ -585,11 +594,12 @@ public class RevisionPanel : MonoBehaviour
         int jourClamp = Math.Min(d.Day, DateTime.DaysInMonth(d.Year + 1, d.Month));
         var prochaineRevision = new DateTime(d.Year + 1, d.Month, jourClamp);
 
+        // L'ancien loyer reste dû jusqu'à la veille de la révision : les périodes passées (facture, rentabilité)
+        // gardent leur montant (voir Loyers.LoyerAnnuelA). Pour les deux modes : en mode indice, une facture d'une
+        // période passée corrigée après la révision prenait le nouveau loyer pour toute la période (revue 16c, D7b-02).
+        Loyers.EnregistrerAvenant(_loc, d.Date);
         if (selonCA)
         {
-            // L'ancien loyer reste dû jusqu'à la veille de la révision : les périodes
-            // passées (facture, rentabilité) gardent leur montant (voir Loyers.LoyerAnnuelA).
-            Loyers.EnregistrerAvenant(_loc, d.Date);
             _loc.loyerMinRevise = minRev;
             _loc.loyerMaxRevise = maxRev;
             Loyers.PoserCA(_loc, anneeCA, caHT);
@@ -763,6 +773,18 @@ public class RevisionPanel : MonoBehaviour
         _jourDemande = UIFactory.Input(content, "1");
         _jourDemande.contentType = TMP_InputField.ContentType.IntegerNumber;
         _jourDemande.transform.SetSiblingIndex(idx++);
+
+        // Délais de facturation (01/11) : ceux de l'entreprise (Réglages › Facturation › Calendrier des factures), ou les siens.
+        _delaisToggle = UIFactory.Toggle(content, "Délais des factures : ceux de l'entreprise (Réglages › Facturation)", true);
+        _delaisToggle.transform.SetSiblingIndex(idx++);
+        _delaisToggle.onValueChanged.AddListener(_ => RefreshDelaisVisibility());
+        _delaisBlockGO = UIFactory.VBox(content, 4, 0, 0, 0, 0, "Delais").gameObject;
+        _delaisBlockGO.transform.SetSiblingIndex(idx++);
+        UIFactory.Text(_delaisBlockGO.transform, "Ces délais remplacent ceux de l'entreprise pour ce locataire seulement.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+        _dEnvoi  = ChampJours(_delaisBlockGO.transform, "La facture de loyer part … jours avant l'échéance");
+        _dImpaye = ChampJours(_delaisBlockGO.transform, "Sans règlement, la facture passe « Impayé » … jours après l'échéance");
+        _dAutres = ChampJours(_delaisBlockGO.transform, "Les autres factures (charges, régularisation, dépôt) sont à payer … jours après leur date");
 
         var l2 = UIFactory.Text(content, "Mois facturés (si trimestriel / bi-annuel)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         l2.transform.SetSiblingIndex(idx++);
@@ -939,6 +961,27 @@ public class RevisionPanel : MonoBehaviour
         bool show = _volet == Volet.Initialisation && periodiciteDropdown.value != (int)Periodicite.mensuel;
         if (_moisLabelGO != null) _moisLabelGO.SetActive(show);
         if (_moisWrapGO != null) _moisWrapGO.SetActive(show);
+    }
+
+    // Délais de facturation propres au locataire (01/11) : visibles dans « Initialiser » quand la case
+    // « ceux de l'entreprise » est décochée, pré-remplis avec les délais de l'entreprise.
+    TMP_InputField ChampJours(Transform parent, string libelle)
+    {
+        UIFactory.Text(parent, libelle, UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        var f = UIFactory.Input(parent, "15");
+        f.contentType = TMP_InputField.ContentType.IntegerNumber;
+        return f;
+    }
+
+    void RefreshDelaisVisibility()
+    {
+        bool show = _volet == Volet.Initialisation && _delaisToggle != null && !_delaisToggle.isOn;
+        if (_delaisBlockGO != null) _delaisBlockGO.SetActive(show);
+        if (!show) return;
+        var R = ReglageService.Current;
+        if (_dEnvoi.text == "")  _dEnvoi.text  = R.envoiAvantJours.ToString();
+        if (_dImpaye.text == "") _dImpaye.text = R.impayeApresJours.ToString();
+        if (_dAutres.text == "") _dAutres.text = R.echeanceAutresJours.ToString();
     }
 
     void RefreshRegulVisibility()
@@ -1134,7 +1177,7 @@ public class RevisionPanel : MonoBehaviour
         var p = (Periodicite)periodiciteDropdown.value;
         int n = LoyerSummaryUI.NbPeriodes(p);
         int jour = _jourDemande != null && int.TryParse(_jourDemande.text, out int j) ? j : _loc.jourDemandeLoyer;
-        var limite = DateTime.Today.AddDays(FacturationSuivi.Lead("Loyer"));
+        var limite = DateTime.Today.AddDays(FacturationSuivi.Lead("Loyer", _loc));
         bool avecBail = Loyers.DebutPremierBail(_loc, out var debutBail);
         int cur = DateTime.Now.Year;
         for (int y = cur; y >= cur - 3; y--)
@@ -1223,6 +1266,8 @@ public class RevisionPanel : MonoBehaviour
         SetGO(_periodiciteGO, mod);
         SetGO(_jourLabelGO, mod);
         if (_jourDemande != null) SetGO(_jourDemande.gameObject, mod);
+        if (_delaisToggle != null) SetGO(_delaisToggle.gameObject, mod);
+        RefreshDelaisVisibility();
         SetGO(_provBlockGO, mod);
         SetGO(_repriseBlockGO, mod);
         RefreshMoisVisibility();     // mois : Initialiser + hors mensuel
@@ -1539,6 +1584,14 @@ public class RevisionPanel : MonoBehaviour
             int.TryParse(_jourDemande.text, out int jd);
             _loc.jourDemandeLoyer = Mathf.Clamp(jd, 0, 31);
         }
+        if (_delaisToggle != null)
+        {
+            _loc.delaisPropres = !_delaisToggle.isOn;
+            var R = ReglageService.Current;
+            _loc.envoiAvantJours     = FacturationSuivi.Jours(_dEnvoi.text,  R.envoiAvantJours);
+            _loc.impayeApresJours    = FacturationSuivi.Jours(_dImpaye.text, R.impayeApresJours);
+            _loc.echeanceAutresJours = FacturationSuivi.Jours(_dAutres.text, R.echeanceAutresJours);
+        }
 
         if (_dateRegulCtrl != null)
         {
@@ -1566,9 +1619,9 @@ public class RevisionPanel : MonoBehaviour
                 var parts = id.Split('-');   // « 2026-P2 »
                 if (parts.Length == 2 && int.TryParse(parts[0], out int y)
                     && int.TryParse(parts[1].TrimStart('P', 'p'), out int per))
-                    _loc.repriseFacturationISO = FacturationSuivi
-                        .EcheancePeriode(_loc.periodiciteLoyer, per, y, _loc.jourDemandeLoyer)
-                        .ToString("yyyy-MM-dd");
+                    // Revue 16c (D7b-04) : la même échéance que les lignes du suivi (mois cochés, écrits juste avant), sinon
+                    // la dernière période déclarée facturée restait « À faire » puis « Impayé ».
+                    _loc.repriseFacturationISO = FacturationSuivi.EcheanceLoyer(_loc, y, per).ToString("yyyy-MM-dd");
             }
         }
     }

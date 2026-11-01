@@ -846,6 +846,8 @@ public class LocataireFacturationFields : MonoBehaviour
             if (nb <= 0) return;
             if (!TryParseFr(dateInput.text, out var dr) || DateTime.Today.Date < dr.Date) return;
 
+            // Revue 16c (D6-08) : la facture de révision, si elle vient après ce clic, lit ici l'ancien dépôt et l'année.
+            if (loc.depotPrecedent <= 0f) { loc.depotPrecedent = loc.depotDeGarantie; loc.depotPrecedentRevisionISO = dr.ToString("yyyy-MM-dd"); }
             loc.depotDeGarantie = currentPeriode() * nb;
             loc.depotSurTTC = ttcToggle.isOn;
             // La prochaine révision garde l'ANNIVERSAIRE de l'échéance (et non la date

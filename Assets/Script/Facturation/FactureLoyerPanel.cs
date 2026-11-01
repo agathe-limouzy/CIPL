@@ -16,6 +16,10 @@ using UnityEngine.UI;
 /// email viennent ensuite — RIEN n'est émis pour l'instant).
 public class FactureLoyerPanel : MonoBehaviour
 {
+    // Revue 16c (D6-06) : les montants en écriture française (« 1 234,56 »), comme le PDF et Créances, quelle que
+    // soit la langue de Windows (la culture courante donnait « 1,234.56 » dans les textes et les e-mails).
+    static string N2(float v) => v.ToString("N2", FacturePdfService.FrCulture);
+
     public static FactureLoyerPanel Instance { get; private set; }
 
     /// Étape 13b-3 (retour du 25/10) : pendant le guide « Une première facture », le bouton émet sans
@@ -60,6 +64,8 @@ public class FactureLoyerPanel : MonoBehaviour
     // la bascule) ou de la notification (après) ; sinon ceux de l'e-mail de facture.
     bool _modeNotif, _modeCopie;
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
+    string _numeroEmis;   // le numéro décidé par FactureEmission.Preparer pendant l'émission (revue 16c, D6-03)
+    string NumeroDocument() => _numeroEmis ?? ComposedNumero();
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _periodeDD;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     string _autoEcheance;// dernière échéance proposée (suivie tant qu'elle n'est pas saisie à la main)
@@ -398,7 +404,7 @@ public class FactureLoyerPanel : MonoBehaviour
             clientSiret = _siret.text,
             refInterne = _refInterne.text,
             dateStr = dateStr,
-            numero = ComposedNumero(),
+            numero = NumeroDocument(),
             subtitle = $"Loyer {ctx.periode}",
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             ligneLabel = LigneLoyer(loyer),
@@ -448,9 +454,12 @@ public class FactureLoyerPanel : MonoBehaviour
 
         // Facture déjà émise pour cette période → on refait une version « corrigée(X) »
         // (même numéro, sans consommer de nouvelle séquence).
+        // Revue 16c (D6-03) : le numéro décidé AVANT de construire le document : l'entête, la phrase de règlement et
+        // l'e-mail ({numero}) portaient le numéro proposé, pas celui de la facture (correction, réécriture).
+        var emission = FactureEmission.Preparer(_loc, key, ComposedNumero());
+        if (emission.Refus != null) { ConfirmDialog.Erreur(emission.Refus); return; }   // D4-04 : numéro déjà pris
+        _numeroEmis = emission.NumeroFacture;
         var d = BuildData();
-        var emission = FactureEmission.Preparer(_loc, key, d.numero);
-        d.numero = emission.NumeroFacture;
         bool correction = emission.Correction;
 
         string dir = FactureDir();
@@ -480,8 +489,10 @@ public class FactureLoyerPanel : MonoBehaviour
         // son jour, où elle sera proposée au lancement de l'application. Un loyer
         // expédié un mois trop tôt ne se rappelle pas, et le calendrier existe
         // précisément pour ça.
-        var dateEnvoi = FacturationSuivi.DateEnvoi("Loyer", fl.dateEcheanceISO);
-        if (dateEnvoi.HasValue && DateTime.Today < dateEnvoi.Value)
+        // Revue 16c (D4-03) : la correction d'une facture déjà partie s'envoie tout de suite ; la fenêtre « elle partira
+        // le … » promettait un envoi que l'envoi automatique ne ferait jamais (la ligne reste « Envoyé »).
+        var dateEnvoi = FacturationSuivi.DateEnvoi("Loyer", fl.dateEcheanceISO, _loc);
+        if (!correction && dateEnvoi.HasValue && DateTime.Today < dateEnvoi.Value)
         {
             PreparerPourEnvoi(d, key, emission, correction, pdf, dateEnvoi.Value);
             return;
@@ -498,7 +509,7 @@ public class FactureLoyerPanel : MonoBehaviour
         // locataire reçoit un e-mail de notification une fois Super PDP d'accord (FactureElectronique.Notifier).
         // Une transmission ne se rappelle pas : elle se confirme, comme un e-mail. Une correction d'une facture
         // déjà transmise part aussi par la plateforme, comme facture rectificative (Finaliser, 31/10).
-        bool parPlateforme = FactureElectronique.Concerne(_loc, d.tva);
+        bool parPlateforme = FactureElectronique.Concerne(_loc, d.tva, _siret.text);
         if (parPlateforme && FactureElectronique.NotificationSeule)
         {
             if (ConfirmDialog.Instance == null)
@@ -569,7 +580,7 @@ public class FactureLoyerPanel : MonoBehaviour
         string quand = dateEnvoi.ToString("dddd d MMMM yyyy", FacturePdfService.FrCulture);
         string detail =
             $"Cette facture sera envoyée le {quand}, soit "
-            + $"{FacturationSuivi.EnvoiAvantJours} jours avant son échéance du {ech:dd/MM/yyyy}.\n\n"
+            + $"{FacturationSuivi.EnvoiAvant(_loc)} jours avant son échéance du {ech:dd/MM/yyyy}.\n\n"
             + "Elle est enregistrée dès maintenant et reste « en attente d'envoi ». "
             + "L'application vous la proposera au lancement, le jour venu.\n\n"
             + "Pour l'envoyer tout de suite malgré tout, avancez la date d'échéance ou "
@@ -662,7 +673,7 @@ public class FactureLoyerPanel : MonoBehaviour
         // Étape 18b : la facture électronique est gardée sur la ligne ; elle part à la plateforme dès que la
         // ligne est « Envoyé » (tout de suite ci-dessous, ou le jour de l'envoi différé). Hors plateforme, Preparer
         // reçoit null : une ancienne version jamais transmise ne repartira pas (revue 16c, D5-01).
-        bool parPlateforme = FactureElectronique.Concerne(_loc, d.tva);
+        bool parPlateforme = FactureElectronique.Concerne(_loc, d.tva, _siret.text);   // D5-08 : l'acheteur du PDF
         if (!parPlateforme && dejaTransmise)
             ConfirmDialog.Erreur($"« {d.subtitle} » a été transmise à Super PDP, mais cette correction n'y part pas : la SCI n'est "
                 + "pas active sur la plateforme en ce moment (ou le locataire n'est plus concerné). Refaites « Corriger » quand "
@@ -672,7 +683,8 @@ public class FactureLoyerPanel : MonoBehaviour
             {
                 numero = d.numero, dateISO = BuildContext().date.ToString("yyyy-MM-dd"), echeanceISO = fl.dateEcheanceISO,
                 vendeurNom = R.entrepriseNom, vendeurSiren = SocieteLocataire.Siren(SessionCloud.Entreprise?.siret),
-                acheteurNom = d.clientNom, acheteurSiren = SocieteLocataire.Siren(_loc.siretNumber), acheteurAdresse = _adresse.text,
+                acheteurNom = d.clientNom, acheteurSiren = SocieteLocataire.Siren(FactureElectronique.SiretAcheteur(_loc, _siret.text)),
+                acheteurSiret = FactureElectronique.Siret14(FactureElectronique.SiretAcheteur(_loc, _siret.text)), acheteurAdresse = _adresse.text,
                 lignes = FactureEn16931.Lignes(d), mention = d.tvaDebit ? d.texteTvaDebit : null, penalites = d.legal,
                 precedentNumero = precedentNumero, precedentDateISO = precedentDate,
             }));
@@ -693,6 +705,16 @@ public class FactureLoyerPanel : MonoBehaviour
         }
 
         UndoToast.Instance?.ShowInfo(message + suffixeMessage);
+        _numeroEmis = null;
+    }
+
+    /// La provision proposée : celle de la fiche, sauf pour la correction d'une facture déjà partie, qui garde son
+    /// montant imprimé (revue 16c, D6-04 : la régularisation déduit la provision de la fiche × périodes facturées).
+    public static float ProvisionProposee(FactureInfo f, float provisionFiche, FactureEtat ligneCiblee)
+    {
+        var e = ligneCiblee != null ? FacturationSuivi.EtatDe(ligneCiblee) : FacturationSuivi.Etat.AFaire;
+        bool partie = e == FacturationSuivi.Etat.Envoye || e == FacturationSuivi.Etat.Impaye || e == FacturationSuivi.Etat.Paye;
+        return f != null && f.saved && partie ? f.provisionMontant : provisionFiche;
     }
 
     // Charge l'image rendue dans le RawImage d'aperçu (ratio ajusté à l'image).
@@ -807,8 +829,8 @@ public class FactureLoyerPanel : MonoBehaviour
             R.entetes.Select(e => e.id).ToList(), ReglageService.EnteteChoisi(f?.enteteId, "Loyer"));
 
         DateTime now = DateTime.Today;
-        _date.text = f != null && DateTime.TryParse(f.dateISO, out var dd)
-            ? dd.ToString("dd/MM/yyyy") : now.ToString("dd/MM/yyyy");
+        _numeroEmis = null;
+        _date.text = now.ToString("dd/MM/yyyy");   // revue 16c, D6-02 : aujourd'hui, pas la date de la facture précédente
         // L'échéance — et la phrase de règlement qu'elle alimente — sont posées PLUS
         // BAS, après le sélecteur de période : le loyer est dû au jour de demande de
         // la période facturée, donc la période doit être connue d'abord.
@@ -848,7 +870,9 @@ public class FactureLoyerPanel : MonoBehaviour
         _autoLoyer = DefaultLoyer();
         _loyer.text = _autoLoyer;
         float provCalc = ListesCharges.Provision(_loc, "");   // charges générales ; les listes suivent
-        _provision.text = (f != null && f.saved ? f.provisionMontant : provCalc).ToString("0.00", CultureInfo.InvariantCulture);
+        // Revue 16c (D6-04) : la provision suit la fiche (comme le loyer suit la période) ; celle mémorisée sur la
+        // dernière facture ne vaut que pour la correction d'une facture déjà partie (son montant imprimé).
+        _provision.text = ProvisionProposee(f, provCalc, _ligneCiblee).ToString("0.00", CultureInfo.InvariantCulture);
         ChargerProvisionsListes(f);
 
         // N° de facture : l'ID locataire mémorisé est repris ; le préfixe format est
@@ -860,7 +884,7 @@ public class FactureLoyerPanel : MonoBehaviour
         _retard.isOn = f?.ajouterRetard ?? true;
         // Facture qui part sur la plateforme : la phrase de retard y est obligatoire (note PMD, règle BR-FR-05) ;
         // la case reste cochée pour que le PDF dise la même chose (décision du 30/10).
-        bool plateforme = FactureElectronique.Concerne(_loc, 1f);
+        bool plateforme = FactureElectronique.Concerne(_loc, 1f, _siret.text);
         if (plateforme) _retard.isOn = true;
         _retard.interactable = !plateforme;
         // Ligne « montant mensuel » : seulement pour un loyer non mensuel (trim / semestre / an).
@@ -892,12 +916,12 @@ public class FactureLoyerPanel : MonoBehaviour
             : plateforme ? (FactureElectronique.NotificationSeule
                 ? "Envoi : plateforme agréée (Super PDP), puis un e-mail de notification au locataire. La phrase de retard y est obligatoire."
                 : "Envoi : plateforme agréée (Super PDP) + copie PDF par e-mail. La phrase de retard y est obligatoire.")
-            : FactureElectronique.SansSiret(_loc) ? "Envoi : e-mail seulement — ajoutez le SIRET du locataire pour la facture électronique (Super PDP)."
+            : FactureElectronique.SansSiret(_loc, _siret.text) ? "Envoi : e-mail seulement — ajoutez le SIRET du locataire pour la facture électronique (Super PDP)."
             : FactureElectronique.Active ? "Envoi : e-mail (locataire non assujetti à la TVA : pas de facture électronique)."
             : FactureElectronique.EnVerification ? "Envoi : e-mail seulement (Super PDP : vérification du gérant en cours, voir Réglages → Intégrations)."
             : FactureElectronique.EtatInconnu ? "Envoi : e-mail seulement (Super PDP : état non lu au lancement ; relancez CIPL pour la facture électronique)."
             : "Mode global : Email direct (SMTP).";
-        _modeInfo.color = FactureElectronique.SansSiret(_loc) ? UITheme.Alerte : UITheme.TexteSecondaire;
+        _modeInfo.color = FactureElectronique.SansSiret(_loc, _siret.text) ? UITheme.Alerte : UITheme.TexteSecondaire;
         if (_avertPennylane != null) _avertPennylane.gameObject.SetActive(R.modeEnvoi == ModeEnvoi.Pennylane);
 
         RefreshMontants();
@@ -956,9 +980,9 @@ public class FactureLoyerPanel : MonoBehaviour
     {
         float loyer = ParseF(_loyer.text), prov = ProvisionSaisie();
         float totalHT = loyer + prov, tva = totalHT * .2f, ttc = totalHT * 1.2f;
-        _mTotalHT.text = $"{totalHT:N2} €";
-        _mTVA.text     = $"{tva:N2} €";
-        _mTTC.text     = $"{ttc:N2} €";
+        _mTotalHT.text = $"{N2(totalHT)} €";
+        _mTVA.text     = $"{N2(tva)} €";
+        _mTTC.text     = $"{N2(ttc)} €";
     }
 
     void RefreshEntetePreview()
@@ -977,7 +1001,7 @@ public class FactureLoyerPanel : MonoBehaviour
         {
             date = d,
             periode = PeriodeLibelle(),
-            numero = ComposedNumero(),
+            numero = NumeroDocument(),
             loyerHT = totalHT,
             tva = totalHT * .2f,
             ttc = totalHT * 1.2f,
@@ -1115,7 +1139,7 @@ public class FactureLoyerPanel : MonoBehaviour
     // Date d'envoi de la facture en cours de saisie, d'après l'échéance affichée.
     DateTime? DateEnvoiSaisie()
         => TryDate(_echeance != null ? _echeance.text : "", out var ech)
-            ? FacturationSuivi.DateEnvoi("Loyer", ech.ToString("yyyy-MM-dd"))
+            ? FacturationSuivi.DateEnvoi("Loyer", ech.ToString("yyyy-MM-dd"), _loc)
             : null;
 
     // Le bouton dit ce qu'il va faire. Il promettait un envoi immédiat même à un mois
@@ -1127,10 +1151,20 @@ public class FactureLoyerPanel : MonoBehaviour
         var t = _btnSauver.GetComponentInChildren<TMP_Text>(true);
         if (t == null) return;
         var envoi = DateEnvoiSaisie();
-        bool enAvance = envoi.HasValue && DateTime.Today < envoi.Value;
+        // Une facture déjà partie se corrige et repart tout de suite (D4-03) : pas d'« envoi du … » à annoncer.
+        bool enAvance = envoi.HasValue && DateTime.Today < envoi.Value && !PeriodePartie();
         t.text = SansEnvoi || BatimentExemple.Est(_bat) ? "Émettre (sans envoyer)"
             : enAvance ? $"Enregistrer pour l'envoi du {envoi.Value:dd/MM}"
             : "Sauvegarder et envoyer";
+    }
+
+    // Vrai si la facture de la période affichée est déjà partie (envoyée, impayée ou payée) : un clic la corrige.
+    bool PeriodePartie()
+    {
+        int periode = 1;
+        if (_periodeDD != null) int.TryParse(_periodeDD.SelectedId, out periode);
+        var l = _loc?.facturesEtat?.FirstOrDefault(x => x.key == $"loyer-{PeriodeAnnee()}-P{Mathf.Max(1, periode)}");
+        return l != null && (l.statut == "Envoye" || l.statut == "Impaye" || l.statut == "Paye");
     }
 
     // La phrase suit l'échéance tant qu'elle n'a pas été personnalisée.
@@ -1189,11 +1223,11 @@ public class FactureLoyerPanel : MonoBehaviour
             sb.AppendLine(FactureVarResolver.Resolve(ent.texte, _loc, _bat, ctx));
             sb.AppendLine();
         }
-        sb.AppendLine($"{LigneLoyer(loyer) ?? "Loyer HT (période)"} : {loyer:N2} €");
-        if (prov > 0f) sb.AppendLine($"Provision charges : {prov:N2} €");
-        sb.AppendLine($"Total HT : {totalHT:N2} €");
-        sb.AppendLine($"TVA 20 % : {tva:N2} €");
-        sb.AppendLine($"<b>Total TTC : {ttc:N2} €</b>");
+        sb.AppendLine($"{LigneLoyer(loyer) ?? "Loyer HT (période)"} : {N2(loyer)} €");
+        if (prov > 0f) sb.AppendLine($"Provision charges : {N2(prov)} €");
+        sb.AppendLine($"Total HT : {N2(totalHT)} €");
+        sb.AppendLine($"TVA 20 % : {N2(tva)} €");
+        sb.AppendLine($"<b>Total TTC : {N2(ttc)} €</b>");
         if (MentionTva.Imprimee(_mentionTva))
             sb.AppendLine("« " + FactureVarResolver.Resolve(
                 MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, BuildContext()) + " »");

@@ -47,12 +47,14 @@ public class FactureEnvoiAuto : MonoBehaviour
         // Seul « en attente d'envoi » part : « Envoyé » l'est déjà, « Payé » aussi, et
         // une ligne sans statut n'a pas de facture générée à joindre.
         if (rec.statut != "AttenteEnvoi") return false;
+        // Revue 16c (D5-05) : refusée par la plateforme : à corriger depuis le suivi d'abord, pas à renvoyer telle quelle.
+        if (rec.plateformeEtat == "refusee") return false;
 
         // La date d'envoi, c'est l'échéance moins le délai d'envoi — la même règle que
         // l'alerte URGENT. Une facture en retard part aussi : ne pas rattraper serait
         // le pire des deux mondes, ni rappel ni envoi.
         if (!FacturationSuivi.TryEcheance(rec.echeanceISO, out var ech)) return false;
-        if (aujourdhui.Date < ech.AddDays(-FacturationSuivi.EnvoiAvantJours).Date) return false;
+        if (aujourdhui.Date < ech.AddDays(-FacturationSuivi.EnvoiAvant(loc)).Date) return false;
 
         pdfAbsolu = FacturationSuivi.CheminPdf(rec, nomBatiment, loc.Name);
         if (string.IsNullOrEmpty(pdfAbsolu) || !(pdfExiste?.Invoke(pdfAbsolu) ?? false)) return false;
@@ -148,6 +150,9 @@ public class FactureEnvoiAuto : MonoBehaviour
 
     // ── Proposition au lancement ────────────────────────────────────────────────
 
+    /// L'envoi groupé par e-mail n'a de sens qu'en mode e-mail (revue 16c, D4-06).
+    public static bool PropositionPossible(ModeEnvoi? mode) => mode != ModeEnvoi.Pennylane;
+
     /// À appeler une fois les bâtiments chargés. Ne fait rien s'il n'y a rien à
     /// envoyer, si l'email n'est pas configuré, ou si l'envoi a déjà été reporté
     /// aujourd'hui — relancer l'application dix fois ne doit pas poser dix questions.
@@ -156,6 +161,13 @@ public class FactureEnvoiAuto : MonoBehaviour
         if (AbonnementCloud.LectureSeule)   // étape 9c1 : envoyer change le statut des factures
         {
             Debug.Log("[EnvoiAuto] Rien n'est proposé : abonnement expiré, lecture seule.");
+            return;
+        }
+        // Revue 16c (D4-06) : en mode Pennylane, les factures déposées restent « en attente d'envoi » (finalisées dans
+        // Pennylane) : rien ne doit partir par e-mail en plus.
+        if (!PropositionPossible(ReglageService.Current?.modeEnvoi))
+        {
+            Debug.Log("[EnvoiAuto] Rien n'est proposé : mode Pennylane (les factures sont finalisées dans Pennylane).");
             return;
         }
         string manque = EmailService.CeQuiManque();
@@ -205,7 +217,7 @@ public class FactureEnvoiAuto : MonoBehaviour
                 foreach (var rec in loc.facturesEtat)
                 {
                     if (rec.statut != "AttenteEnvoi") continue;
-                    var envoi = FacturationSuivi.DateEnvoi(rec.type, rec.echeanceISO);
+                    var envoi = FacturationSuivi.DateEnvoi(rec.type, rec.echeanceISO, loc);
                     string pdf = FacturationSuivi.CheminPdf(rec, bp.getName(), loc.Name);
                     string quoi = $"{loc.Name} / {rec.libelle}";
                     if (envoi.HasValue && DateTime.Today < envoi.Value)

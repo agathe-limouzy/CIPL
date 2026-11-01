@@ -35,6 +35,10 @@ public class FactureEtat
     public string plateformeEtat;
     public string plateformeErreur;
     public bool encaisseeDeclaree;
+    // Revue 16c (D5-07, D5-12) : ce qui a été déclaré (montant TTC, date d'encaissement), pour l'annuler du même
+    // montant en négatif si la facture quitte « Payé ».
+    public float encaisseeMontant;
+    public string encaisseeDateISO;
 }
 
 /// Un paiement reçu sur une facture.

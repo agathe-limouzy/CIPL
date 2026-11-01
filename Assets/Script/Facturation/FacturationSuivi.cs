@@ -43,9 +43,22 @@ public static class FacturationSuivi
 
     // Le calendrier du loyer, en un seul endroit — le « 15 jours » était écrit ici,
     // dans FacturationAlertes, et une troisième fois en dur dans Lead (22 = 15 + 7).
-    public const int ImpayeApresEcheanceJours = 15; // Impayé auto 15 j après l'échéance si non réglé
-    public const int EnvoiAvantJours          = 15; // la facture doit partir 15 j avant l'échéance
+    // Depuis le 01/11, les délais se règlent : Réglages › Facturation › Calendrier des factures pour l'entreprise
+    // (ReglageData), ou sur la fiche du locataire s'il a les siens (Locataire.delaisPropres).
     public const int RappelAvantEnvoiJours    = 7;  // « encore 1 semaine » : rappel de préparer la facture
+
+    /// Jours avant l'échéance où le loyer doit partir (15 par défaut).
+    public static int EnvoiAvant(Locataire loc)
+        => loc != null && loc.delaisPropres ? loc.envoiAvantJours : ReglageService.Current.envoiAvantJours;
+    /// Jours après l'échéance sans règlement où la facture passe « Impayé » (15 par défaut).
+    public static int ImpayeApres(Locataire loc)
+        => loc != null && loc.delaisPropres ? loc.impayeApresJours : ReglageService.Current.impayeApresJours;
+    /// Échéance des autres factures (charges, régularisation, dépôt) : jours après la date (30 par défaut).
+    public static int EcheanceAutres(Locataire loc)
+        => loc != null && loc.delaisPropres ? loc.echeanceAutresJours : ReglageService.Current.echeanceAutresJours;
+    /// Un délai saisi : vide ou illisible = la valeur par défaut, sinon borné à un an.
+    public static int Jours(string saisie, int defaut)
+        => int.TryParse((saisie ?? "").Trim(), out int v) ? Mathf.Clamp(v, 0, 365) : defaut;
 
     static readonly string[] MoisNoms =
     { "Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre" };
@@ -54,11 +67,11 @@ public static class FacturationSuivi
     // Loyer = la date d'envoi (J-15), plus une semaine pour préparer la facture ;
     // Régul / Dépôt = à la date elle-même (pas d'anticipation dans le suivi ;
     // l'anticipation « à préparer » est portée par FacturationAlertes).
-    public static int Lead(string type)
+    public static int Lead(string type, Locataire loc = null)
     {
         switch (type)
         {
-            case "Loyer": return EnvoiAvantJours + RappelAvantEnvoiJours;   // 22 j
+            case "Loyer": return EnvoiAvant(loc) + RappelAvantEnvoiJours;   // 22 j par défaut
             default: return 0;         // Régul / Dépôt / Refac : à la date d'échéance
         }
     }
@@ -139,14 +152,17 @@ public static class FacturationSuivi
             else res.Add(CopieDe(r));
         }
 
-        // Régularisations DÉJÀ ÉMISES de l'année qui ne sont plus planifiées (liste
-        // supprimée, date ou provision retirée, locataire limité à une autre liste) :
-        // une facture partie ne disparaît pas du suivi pour autant.
+        // Factures DÉJÀ ÉMISES de l'année qui ne sont plus planifiées : régularisation (liste supprimée,
+        // date ou provision retirée, locataire limité à une autre liste), loyer d'une ancienne périodicité,
+        // révision du dépôt dont « Réviser » a déplacé l'année (revue 16c, D4-05)… une facture partie ne
+        // disparaît pas du suivi pour autant. Les refacturations ont leur propre bloc ci-dessus.
         foreach (var r in stored)
         {
-            if (r.type != "Regul" || res.Any(x => x.key == r.key)) continue;
-            if (!ListesCharges.LireCle(r.key, out int annee, out _) || annee != year) continue;
-            var e = EtatDe(r);
+            if (r.type == "Refac" || res.Any(x => x.key == r.key)) continue;
+            int annee = r.type == "Regul" ? (ListesCharges.LireCle(r.key, out int a, out _) ? a : -1)
+                      : TryEcheance(r.echeanceISO, out var re) ? re.Year : -1;
+            if (annee != year) continue;
+            var e = EtatDe(r, loc);
             if (e == Etat.AttenteEnvoi || e == Etat.Envoye || e == Etat.Impaye || e == Etat.Paye)
                 res.Add(CopieDe(r));
         }
@@ -205,12 +221,16 @@ public static class FacturationSuivi
         statut = r.statut, numero = r.numero, pdfPath = r.pdfPath, dateEnvoiISO = r.dateEnvoiISO,
         montant = r.montant, loyerHT = r.loyerHT, ribId = r.ribId, ribNom = r.ribNom, corrections = r.corrections,
         dernierRappelISO = r.dernierRappelISO,
-        versements = r.versements != null ? new List<Versement>(r.versements) : new List<Versement>()
+        versements = r.versements != null ? new List<Versement>(r.versements) : new List<Versement>(),
+        // Revue 16c (D5-03) : sans eux, la pastille de la plateforme (FactureElectronique.Pastille) ne s'affichait jamais.
+        plateformeDonnees = r.plateformeDonnees, plateformeId = r.plateformeId, plateformeEtat = r.plateformeEtat,
+        plateformeErreur = r.plateformeErreur, encaisseeDeclaree = r.encaisseeDeclaree,
+        encaisseeMontant = r.encaisseeMontant, encaisseeDateISO = r.encaisseeDateISO
     };
 
     // ── État d'une ligne ────────────────────────────────────────────────────────
 
-    public static Etat EtatDe(FactureEtat f)
+    public static Etat EtatDe(FactureEtat f, Locataire loc = null)
     {
         string s = f.statut ?? "";
         DateTime today = DateTime.Today;
@@ -242,16 +262,16 @@ public static class FacturationSuivi
         // cycle normal (À faire / À venir) : il y a bien une facture à produire.
         if (s == "AttenteEnvoi" && !string.IsNullOrEmpty(f.pdfPath)) return Etat.AttenteEnvoi;
         if (s == "AttenteEnvoi")
-            return hasEch && today >= ech.AddDays(-Lead(f.type)) ? Etat.AFaire : Etat.AVenir;
+            return hasEch && today >= ech.AddDays(-Lead(f.type, loc)) ? Etat.AFaire : Etat.AVenir;
 
         if (s == "Envoye")
         {
-            // Envoyé → Impayé 15 j après l'échéance si non réglé. Jamais pour un avoir
+            // Envoyé → Impayé N j après l'échéance (ImpayeApres) si non réglé. Jamais pour un avoir
             // (montant négatif) : c'est nous qui devons, il n'y a rien à réclamer — il
             // reste « Envoyé » jusqu'au remboursement, marqué « Payé » à la main.
             // ponytail: ligne par ligne — une régul regroupée aux parts de signes mêlés
             // garderait sa part négative « Envoyé » ; juger sur MemeFacture si ça arrive.
-            if (hasEch && today >= ech.AddDays(ImpayeApresEcheanceJours) && f.montant >= 0f)
+            if (hasEch && today >= ech.AddDays(ImpayeApres(loc)) && f.montant >= 0f)
                 return Etat.Impaye;
             return Etat.Envoye;
         }
@@ -259,7 +279,7 @@ public static class FacturationSuivi
         if (s == "AFaire") return Etat.AFaire;
 
         // Pas d'enregistrement : À faire quand on approche l'échéance, sinon À venir.
-        if (hasEch && today >= ech.AddDays(-Lead(f.type)))
+        if (hasEch && today >= ech.AddDays(-Lead(f.type, loc)))
             return Etat.AFaire;
         return Etat.AVenir;
     }
@@ -311,7 +331,7 @@ public static class FacturationSuivi
     /// toujours dans les impayés (Créances, filtre, rappel d'échéance).
     public static Etat EtatAffiche(Locataire loc, FactureEtat f)
     {
-        var e = EtatDe(f);
+        var e = EtatDe(f, loc);
         if (e != Etat.Envoye && e != Etat.Impaye) return e;
         Solde(loc, f.key, out _, out float paye);
         return paye > 0f ? Etat.Partiel : e;
@@ -409,7 +429,7 @@ public static class FacturationSuivi
     {
         rec = loc?.facturesEtat?.FirstOrDefault(x => x.key == key);
         if (rec == null) return false;
-        var e = EtatDe(rec);
+        var e = EtatDe(rec, loc);
         bool emise = e == Etat.AttenteEnvoi || e == Etat.Envoye
                   || e == Etat.Impaye || e == Etat.Paye;
         return emise && !string.IsNullOrEmpty(rec.pdfPath);
@@ -428,7 +448,8 @@ public static class FacturationSuivi
     // « Envoyé » afficherait un envoi qui n'a pas eu lieu), et une facture payée reste
     // payée. Seule une ligne sans statut devient « Envoyé ».
     // Renvoie X (le nouveau nombre de corrections).
-    public static int MarquerCorrige(Locataire loc, string key, string libelleBase, string pdfPath, float montant)
+    public static int MarquerCorrige(Locataire loc, string key, string libelleBase, string pdfPath, float montant,
+                                     string echeanceISO = null, string ribId = null, string ribNom = null)
     {
         var rec = loc?.facturesEtat?.FirstOrDefault(x => x.key == key);
         if (rec == null) return 0;
@@ -445,6 +466,10 @@ public static class FacturationSuivi
         rec.pdfPath = DossiersDonnees.VersRelatif(pdfPath);
         if (montant != 0f) rec.montant = montant;   // 0 = non fourni ; négatif = avoir
         rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
+        // Revue 16c (D4-03) : l'échéance et le RIB imprimés sur la version corrigée suivent la ligne (« Impayé »
+        // calculé sur la bonne date, Créances sur le bon compte).
+        if (!string.IsNullOrEmpty(echeanceISO)) rec.echeanceISO = echeanceISO;
+        if (ribId != null) { rec.ribId = ribId; rec.ribNom = ribNom; }
         // Corriger ne fait rien partir : une ligne sans statut est prête, pas envoyée.
         if (string.IsNullOrEmpty(rec.statut)) rec.statut = "AttenteEnvoi";
         return rec.corrections;
@@ -485,7 +510,7 @@ public static class FacturationSuivi
             r.statut = statut ?? "";
             if (statut == "Envoye" && string.IsNullOrEmpty(r.dateEnvoiISO))
                 r.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
-            RepercuterSurCharges(loc, bat, r, EtatDe(r));
+            RepercuterSurCharges(loc, bat, r, EtatDe(r, loc));
         }
     }
 
@@ -496,6 +521,14 @@ public static class FacturationSuivi
     /// ses lignes laisserait celle-ci pointer sur l'ancien document.
     /// Vrai si c'est possible : `cle` = la ligne qui porte la facture. Faux : `oubliees`
     /// = les lignes retirées, ou null si deux factures existantes sont mélangées.
+    /// Une facture déjà payée ne reçoit plus de ligne (revue 16c, D4-12 ; décision du 31/10) : `cle` est sa ligne
+    /// porteuse, `cles` ce que l'on veut y mettre ; vrai si l'une des clés n'y est pas encore et que la facture est payée.
+    public static bool ElargitUneFacturePayee(Locataire loc, string cle, IList<string> cles)
+    {
+        if (cle == null || !EstDejaEmise(loc, cle, out var rec) || EtatDe(rec, loc) != Etat.Paye) return false;
+        return cles.Any(k => !EstDejaEmise(loc, k, out _));
+    }
+
     public static bool Regroupable(Locataire loc, IList<string> cles, out string cle, out List<FactureEtat> oubliees)
     {
         cle = cles.Count > 0 ? cles[0] : null;
@@ -596,7 +629,7 @@ public static class FacturationSuivi
             if (bp == null || bp.listLocataire == null) continue;
             foreach (var loc in bp.listLocataire)
                 foreach (var r in DuesDe(loc))
-                    res.Add(new Due { bp = bp, loc = loc, rec = r, etat = EtatDe(r) });
+                    res.Add(new Due { bp = bp, loc = loc, rec = r, etat = EtatDe(r, loc) });
         }
         return res;
     }
@@ -612,7 +645,7 @@ public static class FacturationSuivi
         if (loc?.facturesEtat == null) return res;
         foreach (var r in loc.facturesEtat)
         {
-            var e = EtatDe(r);
+            var e = EtatDe(r, loc);
             if (e != Etat.Envoye && e != Etat.Impaye) continue;
             int i = string.IsNullOrEmpty(r.pdfPath) ? -1 : res.FindIndex(x => x.pdfPath == r.pdfPath);
             if (i >= 0) res[i].montant += r.montant;
@@ -724,22 +757,22 @@ public static class FacturationSuivi
 
     /// Date à laquelle une facture doit partir, ou null si son type n'en a pas.
     ///
-    /// Seul le loyer est attendu à date fixe (échéance − 15 j) : une régularisation,
+    /// Seul le loyer est attendu à date fixe (échéance − délai d'envoi, `EnvoiAvant`) : une régularisation,
     /// une refacturation ou une révision de dépôt s'envoient quand on les fait.
     /// Sert au suivi, aux alertes, à l'envoi groupé du lancement — et au panneau
     /// Loyer, qui refuse d'expédier avant cette date.
-    public static DateTime? DateEnvoi(string type, string echeanceISO)
+    public static DateTime? DateEnvoi(string type, string echeanceISO, Locataire loc = null)
     {
         if (type != "Loyer") return null;
         if (!TryEcheance(echeanceISO, out var ech)) return null;
-        return ech.AddDays(-EnvoiAvantJours).Date;
+        return ech.AddDays(-EnvoiAvant(loc)).Date;
     }
 
     /// Vrai si la facture peut partir aujourd'hui : soit son type n'a pas de date
     /// d'envoi, soit cette date est atteinte (ou dépassée — un retard doit partir).
-    public static bool PeutPartir(string type, string echeanceISO, DateTime aujourdhui)
+    public static bool PeutPartir(string type, string echeanceISO, DateTime aujourdhui, Locataire loc = null)
     {
-        var d = DateEnvoi(type, echeanceISO);
+        var d = DateEnvoi(type, echeanceISO, loc);
         return !d.HasValue || aujourdhui.Date >= d.Value;
     }
 

@@ -54,6 +54,9 @@ public class Locataire : Data
 
     // Loyer : demande / périodicité de facturation / régularisation.
     public int jourDemandeLoyer;                    // jour du mois où le loyer est demandé (ex. 1 = le 1er)
+    // Délais de facturation propres à ce locataire (01/11) ; sinon ceux de l'entreprise (ReglageData).
+    public bool delaisPropres;
+    public int envoiAvantJours, impayeApresJours, echeanceAutresJours;
     public List<int> moisFacturationLoyer = new List<int>(); // mois facturés (si trimestriel/bi-annuel), 1-12
     public string dateRegularisationChargeISO;      // date de régularisation des charges (événement annuel)
     // Une date et une provision par liste de charges SPÉCIFIQUE (Réglages). La liste
@@ -71,6 +74,11 @@ public class Locataire : Data
 
     // Dépôt de garantie : date de révision (le montant = depotDeGarantie ci-dessus).
     public string dateRevisionDepotISO;
+    // Revue 16c (D6-08) : « Réviser » (carte Dépôt) cliqué AVANT la facture de révision : le dépôt d'avant et la date
+    // de cette révision, pour que la facture réclame le bon complément et se range sous la bonne année ; effacés
+    // une fois la facture émise.
+    public float depotPrecedent;
+    public string depotPrecedentRevisionISO;
     // Base du calcul du dépôt : loyer TTC (locataire soumis à TVA) ou HT (sinon).
     public bool depotSurTTC = true;
     // Dépôt passé par l'écran « Initialiser » (voir DepotInitialise pour les anciennes fiches).

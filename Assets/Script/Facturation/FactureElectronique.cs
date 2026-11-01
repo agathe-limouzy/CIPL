@@ -16,7 +16,7 @@ using UnityEngine;
 /// Sur le cloud seulement.
 public static class FactureElectronique
 {
-    [Serializable] class Demande { public string action, entreprise, cle, facture, pdf, id; }
+    [Serializable] class Demande { public string action, entreprise, cle, facture, pdf, id, montant, date; }
     [Serializable] public class Reponse
     {
         public bool ok, relie, configure, bac_a_sable;
@@ -84,15 +84,27 @@ public static class FactureElectronique
     /// Une facture de loyer part-elle aussi par la plateforme ? Mode e-mail (Pennylane a son propre chemin),
     /// SCI reliée et vérifiée, locataire assujetti à la TVA et avec son SIREN (sans lui, l'annuaire ne le trouve
     /// pas : règle BR-FR-12, 30/10 ; voir SansSiret), TVA sur la facture.
-    public static bool Concerne(Locataire loc, float tva) =>
+    public static bool Concerne(Locataire loc, float tva, string siretFormulaire = null) =>
         Active && ReglageService.Current?.modeEnvoi == ModeEnvoi.Email && Locataire.AssujettiTva(loc)
-        && SocieteLocataire.Siren(loc.siretNumber).Length == 9 && tva > 0.005f;
+        && SocieteLocataire.Siren(SiretAcheteur(loc, siretFormulaire)).Length == 9 && tva > 0.005f;
 
     /// Locataire qui devrait recevoir une facture électronique, mais sans SIRET : sa facture part par e-mail
     /// seulement, et le formulaire le signale (décision du 30/10).
-    public static bool SansSiret(Locataire loc) =>
+    public static bool SansSiret(Locataire loc, string siretFormulaire = null) =>
         Active && ReglageService.Current?.modeEnvoi == ModeEnvoi.Email && Locataire.AssujettiTva(loc)
-        && SocieteLocataire.Siren(loc.siretNumber).Length != 9;
+        && SocieteLocataire.Siren(SiretAcheteur(loc, siretFormulaire)).Length != 9;
+
+    /// L'acheteur de la facture électronique est celui du PDF : le SIRET saisi dans le formulaire quand il y en a un
+    /// (facture adressée à une holding…), sinon celui de la fiche (revue 16c, D5-08 ; décision du 01/11).
+    public static string SiretAcheteur(Locataire loc, string siretFormulaire) =>
+        string.IsNullOrWhiteSpace(siretFormulaire) ? (loc?.siretNumber ?? "") : siretFormulaire.Trim();
+
+    /// Les 14 chiffres d'un SIRET (espaces et points enlevés), ou null s'il n'en a pas 14 (D5-13).
+    public static string Siret14(string siret)
+    {
+        string chiffres = new string((siret ?? "").Where(char.IsDigit).ToArray());
+        return chiffres.Length == 14 ? chiffres : null;
+    }
 
     /// Le 1er septembre 2027, les PME (presque toutes les SCI) doivent émettre leurs factures par une plateforme :
     /// dès ce jour, un loyer qui part par Super PDP n'est plus envoyé en PDF, le locataire reçoit un e-mail de
@@ -142,8 +154,24 @@ public static class FactureElectronique
         var e = FacturationSuivi.EtatDe(r);
         return (!string.IsNullOrEmpty(r.plateformeDonnees) && string.IsNullOrEmpty(r.plateformeId)
                 && r.plateformeEtat != "refusee" && r.plateformeEtat != "perimee" && Emise(e))
-            || (!string.IsNullOrEmpty(r.plateformeId) && !r.encaisseeDeclaree && e == FacturationSuivi.Etat.Paye);
+            || (!string.IsNullOrEmpty(r.plateformeId) && !r.encaisseeDeclaree && e == FacturationSuivi.Etat.Paye)
+            // Revue 16c (D5-12) : la facture a quitté « Payé » après la déclaration : l'annulation (212 négatif) attend.
+            || (!string.IsNullOrEmpty(r.plateformeId) && r.encaisseeDeclaree && e != FacturationSuivi.Etat.Paye);
     }
+
+    /// Ce que déclare « Encaissée » : le total TTC de la facture (toutes ses lignes) et la date du dernier versement
+    /// saisi, sinon aujourd'hui (revue 16c, D5-07 ; décision du 01/11 : pour la TVA sur les encaissements, c'est la
+    /// date du versement qui fixe la période).
+    public static (float montant, string dateISO) Encaissement(Locataire loc, FactureEtat r)
+    {
+        var lignes = FacturationSuivi.MemeFacture(loc, r.key).DefaultIfEmpty(r).ToList();
+        float montant = lignes.Sum(x => x.montant);
+        string date = lignes.SelectMany(x => x.versements ?? new List<Versement>()).Select(v => v.dateISO)
+            .Where(d => !string.IsNullOrEmpty(d)).OrderBy(d => d).LastOrDefault();
+        return (montant, string.IsNullOrEmpty(date) ? DateTime.Today.ToString("yyyy-MM-dd") : date);
+    }
+
+    static string Montant(float v) => v.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
 
     /// La pastille de la ligne dans le suivi (null : pas concernée).
     public static string Pastille(FactureEtat r)
@@ -167,22 +195,37 @@ public static class FactureElectronique
         try
         {
             string batId = bp.getID();
-            var (envoyees, encaissees, change, panne) = await Traiter(loc, bp);
+            var (envoyees, encaissees, annulees, change, panne) = await Traiter(loc, bp);
             if (panne == null && loc.facturesEtat.Any(EnAttente))
             {
-                var (a, b, c, p) = await Traiter(loc, bp);
-                envoyees += a; encaissees += b; change |= c; panne = p;
+                var (a, b, d, c, p) = await Traiter(loc, bp);
+                envoyees += a; encaissees += b; annulees += d; change |= c; panne = p;
             }
             if (change) Enregistrer(batId, loc);
             RafraichirSuivi(loc);
             var morceaux = new List<string>();
             if (envoyees > 0) morceaux.Add(envoyees == 1 ? "Facture transmise à Super PDP." : $"{envoyees} factures transmises à Super PDP.");
             if (encaissees > 0) morceaux.Add(encaissees == 1 ? "« Encaissée » déclaré à Super PDP." : $"{encaissees} « Encaissée » déclarés à Super PDP.");
-            if (panne != null) morceaux.Add("Plateforme injoignable : nouvel essai au prochain lancement.");
+            if (annulees > 0) morceaux.Add(annulees == 1 ? "1 encaissement annulé chez Super PDP (facture plus payée)."
+                                                         : $"{annulees} encaissements annulés chez Super PDP (factures plus payées).");
+            if (panne != null) morceaux.Add(Panne(loc, panne));
             if (morceaux.Count > 0) UndoToast.Instance?.ShowInfo(string.Join(" ", morceaux));
         }
         catch (Exception e) { Debug.LogWarning("[FactureElectronique] " + e.Message); }
         finally { _enCours.Remove(loc.id); }
+    }
+
+    /// Un appel à la plateforme a échoué (01/11) : le motif est journalisé, et un REFUS de Super PDP (règle non respectée)
+    /// est montré tel quel au lieu de passer pour une panne : « injoignable » cachait le vrai message, et un refus ne se
+    /// répare pas tout seul au prochain lancement. Rend la phrase du résumé.
+    static string Panne(Locataire loc, Reponse panne)
+    {
+        string motif = Motif(panne) ?? "pas de réponse";
+        Debug.LogWarning($"[FactureElectronique] {loc?.Name} : {motif}");
+        if (panne.refus != "refusee") return "Plateforme injoignable : nouvel essai au prochain lancement.";
+        ConfirmDialog.Erreur($"Super PDP a refusé une déclaration pour {loc?.Name}.\nDétail technique : {panne.erreur}\n\n"
+                             + "Nouvel essai au prochain lancement ; si le refus se répète, signalez-le.");
+        return "Déclaration refusée par Super PDP (voir le message).";
     }
 
     /// Locataires dont les factures sont en cours de transmission sur ce poste (un seul traitement à la fois).
@@ -240,8 +283,8 @@ public static class FactureElectronique
             if (!Active || bm == null) return;
             var libre = await EcritureCloud.LocatairesLibres();
             if (libre == null || SessionCloud.Entreprise != e) return;
-            int envoyees = 0, encaissees = 0;
-            string panne = null;
+            int envoyees = 0, encaissees = 0, annulees = 0;
+            Reponse panne = null; Locataire bloque = null;
             foreach (var bp in bm.BatimentPrefab.ToList())
             {
                 foreach (var loc in (bp?.listLocataire ?? new List<Locataire>()).ToList())
@@ -251,36 +294,48 @@ public static class FactureElectronique
                     try
                     {
                         string batId = bp.getID();
-                        var (a, b, change, p) = await Traiter(loc, bp);
+                        var (a, b, d, change, p) = await Traiter(loc, bp);
                         if (change) Enregistrer(batId, loc);
-                        envoyees += a; encaissees += b;
-                        panne = p;
+                        envoyees += a; encaissees += b; annulees += d;
+                        panne = p; if (p != null) bloque = loc;
                     }
                     finally { _enCours.Remove(loc.id); }
                     if (panne != null) break;
                 }
-                if (panne != null) { Debug.LogWarning("[FactureElectronique] " + panne); break; }
+                if (panne != null) break;
             }
-            if (envoyees + encaissees > 0)
-                UndoToast.Instance?.ShowInfo($"Super PDP : {envoyees} facture(s) transmise(s), {encaissees} « Encaissée » déclaré(s).");
+            // Un locataire bloqué (refus, panne) arrête la tournée : son motif est dit, le reste repartira au prochain lancement.
+            string fin = panne != null ? " " + Panne(bloque, panne) : "";
+            if (envoyees + encaissees + annulees > 0 || fin != "")
+                UndoToast.Instance?.ShowInfo($"Super PDP : {envoyees} facture(s) transmise(s), {encaissees} « Encaissée » déclaré(s), {annulees} annulé(s).{fin}");
         }
         catch (Exception ex) { Debug.LogWarning("[FactureElectronique] Démarrage : " + ex.Message); }
     }
 
     /// Les lignes d'un locataire qui attendent la plateforme, une par une. Plateforme injoignable (`panne`) :
     /// on s'arrête, la ligne garde son état et repartira au prochain lancement.
-    static async Task<(int envoyees, int encaissees, bool change, string panne)> Traiter(Locataire loc, BatimentPrefab bp)
+    static async Task<(int envoyees, int encaissees, int annulees, bool change, Reponse panne)> Traiter(Locataire loc, BatimentPrefab bp)
     {
-        int envoyees = 0, encaissees = 0;
+        int envoyees = 0, encaissees = 0, annulees = 0;
         bool change = false;
+        // Revue 16c (D5-11) : l'entreprise ouverte au départ ; si elle change pendant l'attente de Super PDP, on s'arrête
+        // (sinon les factures de la SCI A partaient avec la session de la SCI B).
+        var e = SessionCloud.Entreprise;
+        var Changee = new Reponse { refus = "changee", erreur = "entreprise changée pendant le traitement" };
         foreach (var r in loc.facturesEtat.ToList())
         {
             if (!EnAttente(r)) continue;
+            if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee);
             if (string.IsNullOrEmpty(r.plateformeId))
             {
+                string cheminPdf = FacturationSuivi.CheminPdf(r, bp.getName(), loc.Name);
                 byte[] pdf = null;
-                try { pdf = File.ReadAllBytes(FacturationSuivi.CheminPdf(r, bp.getName(), loc.Name)); } catch (Exception) { /* plus bas */ }
-                if (pdf == null) { r.plateformeEtat = "refusee"; r.plateformeErreur = "PDF introuvable sur ce PC."; change = true; continue; }
+                try { pdf = File.ReadAllBytes(cheminPdf); } catch (Exception) { /* plus bas */ }
+                // Revue 16c (D5-06) : pas encore recopié sur ce PC (émis sur un autre poste) : lu dans le cloud. Toujours
+                // absent : la ligne reste à transmettre, elle n'est plus marquée « refusée » pour tout le monde.
+                if (pdf == null) pdf = await DocumentsCloud.LireOctets(cheminPdf);
+                if (pdf == null) { Debug.LogWarning($"[FactureElectronique] {loc.Name} · {r.libelle} : PDF introuvable ici et dans le cloud, transmission remise."); continue; }
+                if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee);
                 var rep = await AppelerLong(new Demande { action = "envoyer", cle = Cle(loc, r), facture = r.plateformeDonnees, pdf = Convert.ToBase64String(pdf) });
                 if (rep.ok)
                 {
@@ -290,25 +345,44 @@ public static class FactureElectronique
                 else if (rep.refus == "refusee")
                 {
                     r.plateformeEtat = "refusee"; r.plateformeErreur = rep.erreur; change = true;
+                    // Revue 16c (D5-05, décision du 31/10) : après la bascule, rien n'est parti : la facture revient « en attente
+                    // d'envoi » (toutes ses lignes), à corriger depuis le suivi ; l'envoi automatique ne la repropose pas telle quelle.
+                    if (NotificationSeule)
+                        foreach (var m in FacturationSuivi.MemeFacture(loc, r.key).DefaultIfEmpty(r)) m.statut = "AttenteEnvoi";
                     Debug.LogWarning($"[FactureElectronique] {loc.Name} · {r.libelle} : refusée par Super PDP : {rep.erreur}");
                     ConfirmDialog.Erreur($"Super PDP a refusé la facture « {r.libelle} » de {loc.Name}"
-                                         + (NotificationSeule ? " : elle n'est pas partie, le locataire n'a rien reçu." : " (le PDF est bien parti par e-mail).")
+                                         + (NotificationSeule ? " : elle n'est pas partie, le locataire n'a rien reçu. Elle revient « en attente d'envoi » : corrigez-la depuis le suivi (Corriger)."
+                                                              : " (le PDF est bien parti par e-mail).")
                                          + "\nDétail technique : " + rep.erreur);
                 }
                 else
                 {
                     if (r.plateformeEtat != "a_renvoyer") { r.plateformeEtat = "a_renvoyer"; change = true; }
-                    return (envoyees, encaissees, change, Motif(rep));
+                    return (envoyees, encaissees, annulees, change, rep);
                 }
             }
-            if (!string.IsNullOrEmpty(r.plateformeId) && !r.encaisseeDeclaree && FacturationSuivi.EtatDe(r) == FacturationSuivi.Etat.Paye)
+            var etat = FacturationSuivi.EtatDe(r);
+            if (!string.IsNullOrEmpty(r.plateformeId) && !r.encaisseeDeclaree && etat == FacturationSuivi.Etat.Paye)
             {
-                var rep = await Appeler(new Demande { action = "encaisser", id = r.plateformeId });
-                if (!rep.ok) return (envoyees, encaissees, change, Motif(rep));
-                r.encaisseeDeclaree = true; encaissees++; change = true;
+                var (montant, date) = Encaissement(loc, r);   // revue 16c, D5-07 : montant TTC et date du versement
+                if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee);
+                var rep = await Appeler(new Demande { action = "encaisser", id = r.plateformeId, montant = Montant(montant), date = date });
+                if (!rep.ok) return (envoyees, encaissees, annulees, change, rep);
+                r.encaisseeDeclaree = true; r.encaisseeMontant = montant; r.encaisseeDateISO = date; encaissees++; change = true;
+            }
+            else if (!string.IsNullOrEmpty(r.plateformeId) && r.encaisseeDeclaree && etat != FacturationSuivi.Etat.Paye)
+            {
+                // Revue 16c (D5-12, décision du 31/10) : la facture a quitté « Payé » : l'encaissement déclaré est annulé par un
+                // second 212 du même montant en négatif (cas d'usage officiel « annulation d'encaissement »), daté du jour.
+                float montant = r.encaisseeMontant > 0f ? r.encaisseeMontant : Encaissement(loc, r).montant;
+                if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee);
+                var rep = await Appeler(new Demande { action = "encaisser", id = r.plateformeId, montant = Montant(-montant), date = DateTime.Today.ToString("yyyy-MM-dd") });
+                if (!rep.ok) return (envoyees, encaissees, annulees, change, rep);
+                r.encaisseeDeclaree = false; r.encaisseeMontant = 0f; r.encaisseeDateISO = ""; change = true;
+                annulees++;   // dit dans le résumé (un message à part était recouvert par le suivant)
             }
         }
-        return (envoyees, encaissees, change, null);
+        return (envoyees, encaissees, annulees, change, null);
     }
 
     /// Dès la bascule : le locataire apprend par e-mail que sa facture est transmise (modèle de Réglages › Textes
@@ -398,6 +472,7 @@ public static class FactureElectronique
             case "retire": return "L'autorisation de Super PDP a expiré ou a été retirée : « Se déconnecter », puis « Activer avec Super PDP » de nouveau.";
             case "jeton": return "Super PDP refuse de renouveler l'autorisation." + detail;
             case "non_relie": return "Cette SCI n'est pas reliée à Super PDP (Réglages → Intégrations → Facture électronique).";
+            case "changee": return "Entreprise changée pendant le traitement : la suite partira au prochain lancement.";
             case "refusee": return "Super PDP a refusé la facture." + detail;
             case "indisponible": return "Super PDP est injoignable pour le moment." + detail;
             default: return "La fonction « facture-electronique » du serveur n'a pas pu répondre." + (detail == "" ? "\nDétail technique : " + r.refus : detail);

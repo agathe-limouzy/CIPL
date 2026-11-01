@@ -71,6 +71,12 @@ public class ReglageData
     public ModeEnvoi modeEnvoi = ModeEnvoi.Pennylane;
     public SmtpConfig smtp = new SmtpConfig();
 
+    // Délais de facturation (01/11) : le calendrier figé du code (15 / 15 / 30) devient un réglage de l'entreprise ;
+    // un locataire peut avoir les siens (Locataire.delaisPropres). Lus par FacturationSuivi.EnvoiAvant & co.
+    public int envoiAvantJours = 15;     // le loyer part N jours avant son échéance
+    public int impayeApresJours = 15;    // « Impayé » N jours après l'échéance sans règlement
+    public int echeanceAutresJours = 30; // charges, régularisation, dépôt : échéance = date de facture + N jours
+
     public List<RibData> ribs = new List<RibData>();
     public List<EnteteData> entetes = new List<EnteteData>();
 

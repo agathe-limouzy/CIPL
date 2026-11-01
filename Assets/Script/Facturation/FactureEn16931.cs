@@ -16,6 +16,7 @@ public static class FactureEn16931
         public string numero, dateISO, echeanceISO;
         public string vendeurNom, vendeurSiren;
         public string acheteurNom, acheteurSiren, acheteurAdresse;
+        public string acheteurSiret;   // 14 chiffres quand il est connu : l'adresse de facturation électronique de l'établissement (D5-13)
         public List<KeyValuePair<string, float>> lignes = new List<KeyValuePair<string, float>>();   // libellé, montant HT
         public float tauxTva = 20f;
         public string mention;   // phrase TVA imprimée (« TVA acquittée sur les débits… »), ou vide
@@ -78,7 +79,7 @@ public static class FactureEn16931
         if (!string.IsNullOrWhiteSpace(e.mention)) j.Append(",{\"note\":").Append(Q(e.mention)).Append('}');
         j.Append("],");
         j.Append("\"seller\":").Append(Partie(e.vendeurNom, e.vendeurSiren, null)).Append(',');
-        j.Append("\"buyer\":").Append(Partie(e.acheteurNom, e.acheteurSiren, e.acheteurAdresse)).Append(',');
+        j.Append("\"buyer\":").Append(Partie(e.acheteurNom, e.acheteurSiren, e.acheteurAdresse, e.acheteurSiret)).Append(',');
         j.Append("\"totals\":{");
         Champ(j, "sum_invoice_lines_amount", M(totalHT));
         Champ(j, "total_without_vat", M(totalHT));
@@ -110,8 +111,9 @@ public static class FactureEn16931
     }
 
     /// Vendeur ou acheteur : nom, SIREN (schéma 0002), n° de TVA, adresse, adresse de facturation électronique
-    /// (schéma 0225 : le SIREN, que l'annuaire de l'État relie à sa plateforme).
-    static string Partie(string nom, string siren, string adresse)
+    /// (schéma 0225 : le SIRET de l'établissement quand il est connu, sinon le SIREN ; l'annuaire de l'État relie
+    /// l'un ou l'autre à sa plateforme — revue 16c, D5-13 : le serveur préfère l'entrée du SIRET).
+    static string Partie(string nom, string siren, string adresse, string siret = null)
     {
         var (ligne, cp, ville) = Adresse(adresse);
         var j = new StringBuilder("{");
@@ -120,7 +122,8 @@ public static class FactureEn16931
         {
             j.Append("\"legal_registration_identifier\":{\"value\":").Append(Q(siren)).Append(",\"scheme\":\"0002\"},");
             Champ(j, "vat_identifier", TvaIntra(siren));
-            j.Append("\"electronic_address\":{\"value\":").Append(Q(siren)).Append(",\"scheme\":\"0225\"},");
+            string adresseElectronique = siret != null && siret.Length == 14 && siret.StartsWith(siren) ? siret : siren;
+            j.Append("\"electronic_address\":{\"value\":").Append(Q(adresseElectronique)).Append(",\"scheme\":\"0225\"},");
         }
         j.Append("\"postal_address\":{");
         if (ligne != "") Champ(j, "address_line1", ligne);

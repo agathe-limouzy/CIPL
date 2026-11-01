@@ -49,6 +49,20 @@ async function refus(r: Response | null) {
 // deno-lint-ignore no-explicit-any
 type Ligne = Record<string, any>;
 
+// Ventilation TTC par taux de TVA d'une facture transmise (GET en16931 : `vat_break_down`), pour « Encaissée ».
+async function ventilation(auth: Record<string, string>, id: unknown) {
+  const r = await fetch(`${API}/v1.beta/invoices/${id}?format=en16931`, { headers: auth }).catch(() => null);
+  if (!r?.ok) return null;
+  const f: Ligne | null = await r.json().catch(() => null);
+  // La réponse est l'enveloppe de la facture (id, direction, events…) : le modèle EN 16931 est dans `en_invoice`.
+  const vb = (f?.en_invoice ?? f)?.vat_break_down;
+  if (!Array.isArray(vb) || !vb.length) return [];
+  return vb.map((b: Ligne) => ({
+    taux: String(b.vat_category_rate ?? "0"),
+    ttc: Number(b.vat_category_taxable_amount ?? 0) + Number(b.vat_category_tax_amount ?? 0),
+  }));
+}
+
 /** Un jeton d'accès valable : celui gardé, ou un nouveau (et le nouveau jeton de renouvellement est gardé). */
 async function jeton(lien: Ligne): Promise<{ jeton?: string; refus?: string; erreur?: string }> {
   // Marge de 5 min (revue 16c, D1-07) : moins de renouvellements, donc moins d'occasions d'en faire deux à la fois.
@@ -79,7 +93,7 @@ async function jeton(lien: Ligne): Promise<{ jeton?: string; refus?: string; err
 
 Deno.serve(async (req) => {
   try {
-    const { action, entreprise, cle, facture, pdf, id } = await req.json();
+    const { action, entreprise, cle, facture, pdf, id, montant, date } = await req.json();
     const utilisateur = createClient(URL_PROJET, Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
 
@@ -154,6 +168,19 @@ Deno.serve(async (req) => {
     }
 
     // Étape 18b : un loyer (notre PDF + la facture au modèle EN 16931 → Factur-X → envoi), puis « Encaissée ».
+    // Diagnostic (01/11) : les événements de cycle de vie d'une facture transmise, tels que Super PDP les tient
+    // (la déclaration « Encaissée » est mise en file et traitée après coup : on peut vérifier ici ce qu'il en est).
+    if (action === "evenements") {
+      if (!lien) return json({ ok: false, refus: "non_relie" });
+      const j = await jeton(lien);
+      if (!j.jeton) return json({ ok: false, refus: j.refus, erreur: j.erreur });
+      const r = await fetch(`${API}/v1.beta/invoices/${Number(id) || id}?expand[]=events`,
+        { headers: { Authorization: `Bearer ${j.jeton}` } }).catch(() => null);
+      if (!r?.ok) return await refus(r);
+      const f = await r.json().catch(() => null);
+      return json({ ok: true, evenements: f?.events ?? [] });
+    }
+
     if (action === "envoyer" || action === "encaisser") {
       if (!lien) return json({ ok: false, refus: "non_relie" });
       const j = await jeton(lien);
@@ -161,10 +188,30 @@ Deno.serve(async (req) => {
       const auth = { Authorization: `Bearer ${j.jeton}` };
 
       if (action === "encaisser") {
-        // fr:212 sans détail : le montant est le total de la facture (documentation Super PDP).
+        // fr:212 avec le montant encaissé (MEN) et sa date (revue 16c, D5-07 : pour la TVA sur les encaissements, la date
+        // fixe la période déclarée) ; un montant négatif annule un encaissement déclaré (D5-12, cas d'usage officiel
+        // « annulation d'encaissement »). Sans montant : le total de la facture, à la date de l'événement (comme avant).
+        const corps: Record<string, unknown> = { invoice_id: Number(id) || id, status_code: "fr:212" };
+        if (montant) {
+          // Validé au bac à sable le 01/11 (OpenAPI 1.38.0, règle BR-FR-CDV-14) : `details` est une LISTE de détails, et
+          // chaque bloc MEN de `reported_data` porte le montant TTC encaissé POUR UN TAUX de TVA (MDT-215) et ce taux
+          // (MDT-224, `value_percent`). La ventilation vient de la facture telle que Super PDP la connaît ; le montant
+          // reçu (partiel, ou négatif pour une annulation) est réparti au prorata des taux, au centime près.
+          const v = await ventilation(auth, Number(id) || id);
+          if (!v) return json({ ok: false, refus: "indisponible", erreur: "Super PDP n'a pas rendu la facture (GET en16931)" });
+          if (!v.length) return json({ ok: false, refus: "refusee", erreur: "facture sans ventilation TVA chez Super PDP (en_invoice.vat_break_down)" });
+          const m = Number(montant), total = v.reduce((s, b) => s + b.ttc, 0);
+          const quand = String(date ?? new Date().toISOString().slice(0, 10));
+          let reste = Math.round(m * 100);
+          corps.details = [{ reported_data: v.map((b, i) => {
+            const part = i === v.length - 1 ? reste : (total ? Math.round(m * 100 * b.ttc / total) : 0);
+            reste -= part;
+            return { type_code: "MEN", amount: (part / 100).toFixed(2), value_percent: b.taux, date: quand, currency_code: "EUR" };
+          }) }];
+        }
         const r = await fetch(`${API}/v1.beta/invoice_events`, {
           method: "POST", headers: { ...auth, "Content-Type": "application/json" },
-          body: JSON.stringify({ invoice_id: Number(id) || id, status_code: "fr:212" }),
+          body: JSON.stringify(corps),
         }).catch(() => null);
         return r?.ok ? json({ ok: true }) : await refus(r);
       }
@@ -200,12 +247,16 @@ Deno.serve(async (req) => {
       // Production : l'adresse de l'acheteur (BT-49) est celle que l'annuaire donne pour son SIREN, le SIREN
       // lui-même s'il y est. Absent de l'annuaire : le SIREN, et Super PDP refusera.
       const sirenAcheteur = String(fe.buyer?.legal_registration_identifier?.value ?? "");
+      // Revue 16c (D5-13) : CIPL met le SIRET (14 chiffres) de l'établissement dans l'adresse quand il le connaît :
+      // son entrée est préférée à celle du SIREN, puis au premier résultat (société à plusieurs établissements).
+      const siretAcheteur = String(fe.buyer?.electronic_address?.value ?? "");
       if (!BAC_A_SABLE && sirenAcheteur) {
         const a = await fetch(`${API}/v1.beta/french_directory/entries?number=${encodeURIComponent(sirenAcheteur)}`, { headers: auth })
           .then((r) => r.json()).catch(() => null);
         const actives: string[] = (a?.data ?? []).filter((x: Ligne) => x.is_active).map((x: Ligne) => String(x.identifier))
           .filter((x: string) => x.startsWith("0225:") && !x.includes("replyto"));
-        const choix = actives.find((x) => x === `0225:${sirenAcheteur}`) ?? actives[0];
+        const choix = (siretAcheteur.length === 14 ? actives.find((x) => x === `0225:${siretAcheteur}`) : undefined)
+          ?? actives.find((x) => x === `0225:${sirenAcheteur}`) ?? actives[0];
         if (choix) fe.buyer.electronic_address = { value: choix.slice(5), scheme: "0225" };
       }
       // La facture convertie (Factur-X : notre PDF avec la facture jointe ; UBL : la facture seule), puis envoyée.

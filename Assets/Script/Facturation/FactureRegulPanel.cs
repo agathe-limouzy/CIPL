@@ -15,6 +15,10 @@ using UnityEngine.UI;
 /// « payé » et avance le numéro. AUCUN envoi réel (Pennylane/email) ici.
 public class FactureRegulPanel : MonoBehaviour
 {
+    // Revue 16c (D6-06) : les montants en écriture française (« 1 234,56 »), comme le PDF et Créances, quelle que
+    // soit la langue de Windows (la culture courante donnait « 1,234.56 » dans les textes et les e-mails).
+    static string N2(float v) => v.ToString("N2", FacturePdfService.FrCulture);
+
     public static FactureRegulPanel Instance { get; private set; }
 
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
@@ -37,6 +41,16 @@ public class FactureRegulPanel : MonoBehaviour
     TMP_InputField _texteTvaDebit;
     TMP_InputField _emailObjet, _emailCorps;
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
+    string _numeroEmis;   // le numéro décidé par FactureEmission.Preparer pendant l'émission (revue 16c, D6-03)
+    string NumeroDocument() => _numeroEmis ?? ComposedNumero();
+    string _autoEcheance; // échéance proposée, suivie tant qu'elle n'est pas saisie à la main (revue 16c, D6-02)
+
+    void SuivreEcheance()
+    {
+        if (_echeance == null || _echeance.text != _autoEcheance || !TryDate(_date.text, out var d)) return;
+        _autoEcheance = d.AddDays(FacturationSuivi.EcheanceAutres(_loc)).ToString("dd/MM/yyyy");
+        _echeance.text = _autoEcheance;
+    }
     TMP_Text _numeroPrefixe;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     string _autoProv;    // dernière provision auto (suit l'année tant que non saisie à la main)
@@ -161,7 +175,7 @@ public class FactureRegulPanel : MonoBehaviour
         // ── 1. En-tête du document ──
         var e = UIFactory.Section(content, "En-tête du document", CoBleu, CoBleuL);
         _date = Labeled(e, "Date");
-        _date.onValueChanged.AddListener(_ => RefreshNumero());
+        _date.onValueChanged.AddListener(_ => { RefreshNumero(); SuivreEcheance(); });
         _refInterne = Labeled(e, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
         _refInterne.onValueChanged.AddListener(_ => RefreshEntetePreview());
         UIFactory.Text(e.transform, "Format du n° de facture", UITheme.Role.Donnee, UITheme.TexteSecondaire);
@@ -314,11 +328,13 @@ public class FactureRegulPanel : MonoBehaviour
             R.entetes.Select(e => e.id).ToList(), ReglageService.EnteteChoisi(f?.enteteId, "Regul"));
 
         DateTime now = DateTime.Today;
-        _date.text = f != null && DateTime.TryParse(f.dateISO, out var dd)
-            ? dd.ToString("dd/MM/yyyy") : now.ToString("dd/MM/yyyy");
-        _echeance.text = f != null && DateTime.TryParse(f.dateEcheanceISO, out var de)
-            ? de.ToString("dd/MM/yyyy")
-            : (TryDate(_date.text, out var dbase) ? dbase.AddDays(30) : now.AddDays(30)).ToString("dd/MM/yyyy");
+        // Revue 16c (D6-02) : la date d'aujourd'hui et une échéance à 30 jours qui suit la date tant qu'elle n'est pas
+        // saisie à la main — et non celles de la facture précédente du même type (PDF daté de février en juin, « Impayé »
+        // dès l'envoi).
+        _numeroEmis = null;
+        _date.text = now.ToString("dd/MM/yyyy");
+        _autoEcheance = now.AddDays(FacturationSuivi.EcheanceAutres(_loc)).ToString("dd/MM/yyyy");
+        _echeance.text = _autoEcheance;
         _autoSomme = DefaultSomme();
         _sommePhrase.text = !string.IsNullOrEmpty(f?.sommePhrase) ? f.sommePhrase : _autoSomme;
 
@@ -441,7 +457,11 @@ public class FactureRegulPanel : MonoBehaviour
         cle = null;
         if (listes == null || listes.Count == 0) return "Coche au moins une liste de charges à régulariser.";
         var cles = listes.Select(id => ListesCharges.Cle(id, year)).ToList();
-        if (FacturationSuivi.Regroupable(loc, cles, out cle, out var oubliees)) return null;
+        if (FacturationSuivi.Regroupable(loc, cles, out cle, out var oubliees))
+            // Revue 16c (D4-12, décision du 31/10) : une facture payée ne reçoit plus de liste.
+            return FacturationSuivi.ElargitUneFacturePayee(loc, cle, cles)
+                ? "Cette facture est déjà payée : elle ne peut plus recevoir de liste de charges. Décochez celles déjà facturées et faites une nouvelle facture pour les listes ajoutées."
+                : null;
         if (oubliees == null)
             return $"Ces listes ont déjà des factures différentes pour {year} : corrige chacune depuis le suivi, "
                  + "ou décoche celles déjà facturées.";
@@ -559,7 +579,7 @@ public class FactureRegulPanel : MonoBehaviour
         string dstr = DateTime.TryParse(c.dateISO, out var cd) ? cd.ToString("dd/MM/yyyy") : "";
         var l = UIFactory.Text(row.transform, $"{c.nom}  ·  {dstr}{mention}", UITheme.Role.Donnee, couleur);
         UIFactory.LE(l.gameObject, flexW: 1);
-        UIFactory.Text(row.transform, $"{montant:N2} €", UITheme.Role.Donnee, couleur, true, TextAlignmentOptions.Right);
+        UIFactory.Text(row.transform, $"{N2(montant)} €", UITheme.Role.Donnee, couleur, true, TextAlignmentOptions.Right);
     }
 
     void RefreshTotaux()
@@ -568,7 +588,7 @@ public class FactureRegulPanel : MonoBehaviour
         float provisions = ParseF(_provisions.text);
         // Charges refacturées : comptées dans le total ET déduites — le solde ne bouge pas.
         float deja = RefacFor(SelectedYear()).Sum(x => x.ht);
-        _tDeja.text = $"{deja:N2} €";
+        _tDeja.text = $"{N2(deja)} €";
         _tDeja.transform.parent.gameObject.SetActive(deja > 0.005f);
 
         // TVA et TTC dérivés du HT DÉJÀ ARRONDI, et TTC = HT + TVA.
@@ -579,17 +599,17 @@ public class FactureRegulPanel : MonoBehaviour
         float tva = Cents(solde * .2f);
         float ttc = solde + tva;
 
-        _tCharges.text    = $"{totalCharges + deja:N2} €";
-        _tProvisions.text = $"{provisions:N2} €";
-        _tSolde.text      = $"{solde:N2} €";
-        _tTVA.text        = $"{tva:N2} €";
-        _tTTC.text        = $"{ttc:N2} €";
+        _tCharges.text    = $"{N2(totalCharges + deja)} €";
+        _tProvisions.text = $"{N2(provisions)} €";
+        _tSolde.text      = $"{N2(solde)} €";
+        _tTVA.text        = $"{N2(tva)} €";
+        _tTTC.text        = $"{N2(ttc)} €";
 
         // Provisions supérieures aux charges : il s'agit d'un trop-perçu, donc
         // d'un AVOIR — pas d'une facture. On le signale au lieu de laisser passer
         // une facture à montant négatif.
         if (solde < 0f)
-            _tSolde.text = $"{solde:N2} €  — trop-perçu (avoir)";   // pas de « ⚠ » : absent de la police
+            _tSolde.text = $"{N2(solde)} €  — trop-perçu (avoir)";   // pas de « ⚠ » : absent de la police
 
         RefreshSommeDefault();   // le solde vient de changer : la phrase doit suivre son signe
     }
@@ -661,7 +681,7 @@ public class FactureRegulPanel : MonoBehaviour
         {
             date = d,
             periode = $"charges {year}",
-            numero = ComposedNumero(),
+            numero = NumeroDocument(),
             loyerHT = solde,
             tva = solde * .2f,
             ttc = solde * 1.2f,
@@ -716,7 +736,7 @@ public class FactureRegulPanel : MonoBehaviour
             clientSiret = _siret.text,
             refInterne = _refInterne.text,
             dateStr = dateStr,
-            numero = ComposedNumero(),
+            numero = NumeroDocument(),
             subtitle = ListesCharges.Libelle(ListesSel(), year),
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             charges = lignes,
@@ -765,10 +785,14 @@ public class FactureRegulPanel : MonoBehaviour
     {
         // Refus AVANT tout (PDF, confirmation) si les listes cochées ne peuvent pas
         // former une seule facture.
-        string refus = Regroupement(_loc, ListesSel(), SelectedYear(), out _);
+        string refus = Regroupement(_loc, ListesSel(), SelectedYear(), out string cle);
         if (refus != null) { ConfirmDialog.Erreur(refus); return; }
 
         SaveFromUI(markPaid: false);
+        // Revue 16c (D6-03) : le numéro décidé AVANT de construire le document (entête, phrase, e-mail : {numero}).
+        var emission = FactureEmission.Preparer(_loc, cle ?? ListesCharges.Cle(ListesSel()[0], SelectedYear()), ComposedNumero());
+        if (emission.Refus != null) { ConfirmDialog.Erreur(emission.Refus); return; }   // D4-04 : numéro déjà pris
+        _numeroEmis = emission.NumeroFacture;
         var d = BuildData();
 
         // Un solde négatif (provisions > charges) est un AVOIR, pas une facture :

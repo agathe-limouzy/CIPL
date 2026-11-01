@@ -340,6 +340,27 @@ public static class DocumentsCloud
         catch (Exception ex) { ConfirmDialog.Erreur($"« {nom} » : ouverture impossible ({ex.Message})."); }
     }
 
+    /// Le contenu d'un document de l'entreprise absent de ce PC, lu dans le cloud (revue 16c, D5-06 : la facture
+    /// électronique émise sur un autre poste part aussi d'ici) ; null s'il n'y est pas non plus.
+    public static async Task<byte[]> LireOctets(string absolu)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(absolu) || !SessionCloud.Active || SessionCloud.Entreprise == null) return null;
+            string chemin = Relatif(SaveLocationService.GetSaveRoot(), absolu);
+            if (chemin == null) return null;
+            var e = SessionCloud.Entreprise;
+            string jeton = await SessionCloud.Jeton();
+            var r = await CloudClient.Table("GET", SessionCloud.Url, SessionCloud.Cle, jeton, "documents",
+                $"entreprise_id=eq.{e.id}&chemin=eq.{Uri.EscapeDataString(chemin)}&select=chemin,empreinte,supprime_le");
+            var ligne = r.Ok ? JsonUtility.FromJson<LignesDoc>("{\"items\":" + r.Corps + "}")?.items?.FirstOrDefault() : null;
+            if (ligne == null || !string.IsNullOrEmpty(ligne.supprime_le)) return null;
+            var (contenu, _) = await CloudClient.LireFichier(SessionCloud.Url, SessionCloud.Cle, jeton, Compartiment, e.id + "/" + ligne.empreinte);
+            return contenu;
+        }
+        catch (Exception ex) { Debug.LogWarning("[Documents] Lecture dans le cloud : " + ex.Message); return null; }
+    }
+
     /// Chemin relatif au dossier de l'entreprise (« Batiment/rivoli/… »), null s'il est ailleurs.
     public static string Relatif(string racine, string absolu)
     {

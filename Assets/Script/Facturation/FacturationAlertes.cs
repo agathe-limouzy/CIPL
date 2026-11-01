@@ -22,7 +22,7 @@ public static class FacturationAlertes
 
     // Le calendrier du loyer vit dans FacturationSuivi : le redéclarer ici a déjà
     // laissé les deux écrans annoncer des dates différentes.
-    const int LoyerEnvoiAvant    = FacturationSuivi.EnvoiAvantJours;     // envoi 15 j avant l'échéance
+    // Le délai d'envoi se règle (FacturationSuivi.EnvoiAvant : l'entreprise, ou le locataire).
     const int LoyerAttentionLead = FacturationSuivi.RappelAvantEnvoiJours; // + 1 semaine pour préparer
     const int RegulAttentionLead = 7;   // régularisation : 1 semaine avant
     const int DepotAttentionLead = 15;  // dépôt : 15 j avant
@@ -48,7 +48,7 @@ public static class FacturationAlertes
         if (e.HasValue && !AvantReprise(loc, e.Value) && Loyers.PeriodeFacturable(loc, e.Value.Year, pe)
             && !FacturationSuivi.DejaTraite(loc, $"loyer-{e.Value.Year}-P{pe}"))
         {
-            DateTime E = e.Value, envoi = E.AddDays(-LoyerEnvoiAvant);
+            DateTime E = e.Value, envoi = E.AddDays(-FacturationSuivi.EnvoiAvant(loc));
             if (today >= envoi)
                 res.Add(new Alerte { niveau = Niveau.Urgent, type = AlerteType.Loyer,
                     message = $"URGENT — Loyer : échéance le {E:dd/MM}, à envoyer avant le {envoi:dd/MM}." });

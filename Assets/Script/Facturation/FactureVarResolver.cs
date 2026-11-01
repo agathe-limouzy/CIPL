@@ -18,6 +18,10 @@ public struct FactureContext
 /// texte d'entête par les valeurs réelles (voir FactureVariables pour le catalogue).
 public static class FactureVarResolver
 {
+    // Revue 16c (D6-06) : les montants en écriture française (« 1 234,56 »), comme le PDF et Créances, quelle que
+    // soit la langue de Windows (la culture courante donnait « 1,234.56 » dans les textes et les e-mails).
+    static string N2(float v) => v.ToString("N2", FacturePdfService.FrCulture);
+
     // Société émettrice quand aucune entreprise n'a de nom (Groupe CIPL, comme avant le multi-entreprise).
     public const string SocieteNom = "GROUPE CIPL";
     public const string SocieteSiret = "717 220 883 00044";
@@ -63,11 +67,11 @@ public static class FactureVarResolver
         m["{loc.debutBail}"]   = D(loc?.dateDebutBailISO);
         m["{loc.finBail}"]     = D(loc?.dateFinBailISO);
         m["{loc.premierBail}"] = D(loc?.dateDebutPremierBailISO);
-        m["{loc.depot}"]       = loc != null ? $"{loc.depotDeGarantie:N2} €" : "";
-        m["{loc.loyer}"]       = loc != null ? $"{loc.loyerAnnuel:N2} €" : "";
+        m["{loc.depot}"]       = loc != null ? $"{N2(loc.depotDeGarantie)} €" : "";
+        m["{loc.loyer}"]       = loc != null ? $"{N2(loc.loyerAnnuel)} €" : "";
         m["{loc.periodicite}"] = periodicite;
         m["{loc.provision}"]   = loc != null && loc.provisionPourCharges
-                                 ? $"{ListesCharges.ProvisionTotale(loc):N2} €" : "—";   // toutes listes
+                                 ? $"{N2(ListesCharges.ProvisionTotale(loc))} €" : "—";   // toutes listes
         m["{loc.taux}"]        = loc != null ? $"{loc.tauxDeRentabilité:0.##} %" : "";
 
         // ── Bâtiment ──
@@ -83,10 +87,10 @@ public static class FactureVarResolver
         m["{periode}"]         = S(ctx.periode);
         m["{numero}"]          = S(ctx.numero);
         m["{echeance}"]        = S(ctx.echeance);
-        m["{loyer.ht}"]        = $"{ctx.loyerHT:N2} €";
-        m["{loyer.tva}"]       = $"{ctx.tva:N2} €";
-        m["{loyer.ttc}"]       = $"{ctx.ttc:N2} €";
-        m["{reste}"]           = $"{ctx.reste:N2} €";
+        m["{loyer.ht}"]        = $"{N2(ctx.loyerHT)} €";
+        m["{loyer.tva}"]       = $"{N2(ctx.tva)} €";
+        m["{loyer.ttc}"]       = $"{N2(ctx.ttc)} €";
+        m["{reste}"]           = $"{N2(ctx.reste)} €";
         m["{retard}"]          = S(ReglageService.Current?.phraseRetard);
 
         // ── Société ──

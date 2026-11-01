@@ -16,6 +16,10 @@ using UnityEngine.UI;
 /// paiement » et avance le numéro.
 public class FactureRefacPanel : MonoBehaviour
 {
+    // Revue 16c (D6-06) : les montants en écriture française (« 1 234,56 »), comme le PDF et Créances, quelle que
+    // soit la langue de Windows (la culture courante donnait « 1,234.56 » dans les textes et les e-mails).
+    static string N2(float v) => v.ToString("N2", FacturePdfService.FrCulture);
+
     public static FactureRefacPanel Instance { get; private set; }
 
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
@@ -43,6 +47,16 @@ public class FactureRefacPanel : MonoBehaviour
     TMP_InputField _texteTvaDebit;
     TMP_InputField _emailObjet, _emailCorps;
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
+    string _numeroEmis;   // le numéro décidé par FactureEmission.Preparer pendant l'émission (revue 16c, D6-03)
+    string NumeroDocument() => _numeroEmis ?? ComposedNumero();
+    string _autoEcheance; // échéance proposée, suivie tant qu'elle n'est pas saisie à la main (revue 16c, D6-02)
+
+    void SuivreEcheance()
+    {
+        if (_echeance == null || _echeance.text != _autoEcheance || !TryDate(_date.text, out var d)) return;
+        _autoEcheance = d.AddDays(FacturationSuivi.EcheanceAutres(_loc)).ToString("dd/MM/yyyy");
+        _echeance.text = _autoEcheance;
+    }
     TMP_Text _numeroPrefixe;
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _origineDD;
     GameObject _origineBox;   // « Avoir sur la facture n° » : visible sur un avoir seulement
@@ -157,7 +171,7 @@ public class FactureRefacPanel : MonoBehaviour
         // ── 1. En-tête du document ──
         var e = UIFactory.Section(content, "En-tête du document", CoBleu, CoBleuL);
         _date = Labeled(e, "Date");
-        _date.onValueChanged.AddListener(_ => RefreshNumero());
+        _date.onValueChanged.AddListener(_ => { RefreshNumero(); SuivreEcheance(); });
         _refInterne = Labeled(e, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
         _refInterne.onValueChanged.AddListener(_ => RefreshEntetePreview());
         UIFactory.Text(e.transform, "Format du n° de facture", UITheme.Role.Donnee, UITheme.TexteSecondaire);
@@ -308,11 +322,13 @@ public class FactureRefacPanel : MonoBehaviour
             R.entetes.Select(e => e.id).ToList(), ReglageService.EnteteChoisi(f?.enteteId, "Refac"));
 
         DateTime now = DateTime.Today;
-        _date.text = f != null && DateTime.TryParse(f.dateISO, out var dd)
-            ? dd.ToString("dd/MM/yyyy") : now.ToString("dd/MM/yyyy");
-        _echeance.text = f != null && DateTime.TryParse(f.dateEcheanceISO, out var de)
-            ? de.ToString("dd/MM/yyyy")
-            : (TryDate(_date.text, out var dbase) ? dbase.AddDays(30) : now.AddDays(30)).ToString("dd/MM/yyyy");
+        // Revue 16c (D6-02) : la date d'aujourd'hui et une échéance à 30 jours qui suit la date tant qu'elle n'est pas
+        // saisie à la main — et non celles de la facture précédente du même type (PDF daté de février en juin, « Impayé »
+        // dès l'envoi).
+        _numeroEmis = null;
+        _date.text = now.ToString("dd/MM/yyyy");
+        _autoEcheance = now.AddDays(FacturationSuivi.EcheanceAutres(_loc)).ToString("dd/MM/yyyy");
+        _echeance.text = _autoEcheance;
         _autoSomme = DefaultSomme();
         _sommePhrase.text = !string.IsNullOrEmpty(f?.sommePhrase) ? f.sommePhrase : _autoSomme;
 
@@ -430,7 +446,12 @@ public class FactureRefacPanel : MonoBehaviour
     {
         cle = null;
         if (charges == null || charges.Count == 0) return "Coche au moins une charge à refacturer.";
-        if (FacturationSuivi.Regroupable(loc, charges.Select(c => "refac-" + c.id).ToList(), out cle, out var oubliees)) return null;
+        var cles = charges.Select(c => "refac-" + c.id).ToList();
+        if (FacturationSuivi.Regroupable(loc, cles, out cle, out var oubliees))
+            // Revue 16c (D4-12, décision du 31/10) : une facture payée ne reçoit plus de charge.
+            return FacturationSuivi.ElargitUneFacturePayee(loc, cle, cles)
+                ? "Cette facture est déjà payée : elle ne peut plus recevoir de charge. Décochez celles déjà facturées et faites une nouvelle facture pour les charges ajoutées."
+                : null;
         if (oubliees == null)
             return "Ces charges sont déjà sur des factures différentes : corrige chacune depuis le suivi, "
                  + "ou décoche celles déjà refacturées.";
@@ -502,9 +523,9 @@ public class FactureRefacPanel : MonoBehaviour
     void RefreshTotaux()
     {
         float ht = Selection().Sum(x => x.ht);
-        _tHT.text  = $"{ht:N2} €";
-        _tTVA.text = $"{ht * .2f:N2} €";
-        _tTTC.text = $"{ht * 1.2f:N2} €" + (ht < -0.005f ? "  — avoir (remboursement au locataire)" : "");   // pas de « ⚠ » : absent de la police
+        _tHT.text  = $"{N2(ht)} €";
+        _tTVA.text = $"{N2(ht * .2f)} €";
+        _tTTC.text = $"{N2(ht * 1.2f)} €" + (ht < -0.005f ? "  — avoir (remboursement au locataire)" : "");   // pas de « ⚠ » : absent de la police
         _origineBox.SetActive(ht < -0.005f);
         RefreshSommeDefault();   // la phrase suit le signe du total
     }
@@ -564,7 +585,7 @@ public class FactureRefacPanel : MonoBehaviour
         {
             date = d,
             periode = sel.Count > 0 ? Noms(sel) : "refacturation",
-            numero = ComposedNumero(),
+            numero = NumeroDocument(),
             loyerHT = ht,
             tva = ht * .2f,
             ttc = ht * 1.2f,
@@ -600,7 +621,7 @@ public class FactureRefacPanel : MonoBehaviour
             totalPeriode = sel.Count > 0 ? sel[0].ht : 0f,
             lignesProvision = sel.Skip(1).Select(x => new KeyValuePair<string, float>(x.c.nom, x.ht)).ToList(),
             dateStr = ctx.date.ToString("d MMMM yyyy", FacturePdfService.FrCulture),
-            numero = ComposedNumero(),
+            numero = NumeroDocument(),
             subtitle = $"{(ht < -0.005f ? "Avoir sur refacturation" : "Refacturation")} : {Noms(sel)}",
             bodyHtml = body,
             provision = 0f, totalHT = ht, tva = ht * .2f, ttc = ht * 1.2f,
@@ -642,14 +663,14 @@ public class FactureRefacPanel : MonoBehaviour
         // charges — `key` est la ligne qui porte la facture.
         string refus = Regroupement(_loc, sel.Select(x => x.c).ToList(), out string key);
         if (refus != null) { ConfirmDialog.Erreur(refus); return; }
+        // Déjà refacturée → version « corrigée(X) » : même numéro, aucune nouvelle séquence consommée, PDF d'origine
+        // conservé. Décidé AVANT de construire le document (revue 16c, D6-03 : {numero} de l'entête et de l'e-mail).
+        var emission = FactureEmission.Preparer(_loc, key, ComposedNumero());
+        if (emission.Refus != null) { ConfirmDialog.Erreur(emission.Refus); return; }   // D4-04 : numéro déjà pris
+        _numeroEmis = emission.NumeroFacture;
         var d = BuildData();
         string dir = FactureDir();
         DateTime dt = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
-
-        // Déjà refacturée → version « corrigée(X) » : même numéro, aucune nouvelle
-        // séquence consommée, PDF d'origine conservé.
-        var emission = FactureEmission.Preparer(_loc, key, d.numero);
-        d.numero = emission.NumeroFacture;
         bool correction = emission.Correction;
 
         string quoi = sel.Count == 1 ? sel[0].c.nom : $"{sel.Count} charges";
