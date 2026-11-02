@@ -102,7 +102,7 @@ public static class FacturePdfService
             .Replace("{{PROVISION_ROW}}", LignesProvision(d))
             .Replace("{{TOTAUX}}", Totaux(d))
             .Replace("{{TVA_DEBIT}}", d.tvaDebit
-                ? $"<div class=\"tva\">&nbsp;{Texte(d.texteTvaDebit, TvaDebitDefaut)}</div>" : "")
+                ? $"<div class=\"tva\">&nbsp;{H(Texte(d.texteTvaDebit, TvaDebitDefaut))}</div>" : "")
             .Replace("{{MENSUEL_ROW}}", d.afficherMensuel && d.montantMensuel > 0f
                 ? $"<div class=\"mensuel\">{Texte(d.texteMensuel, MensuelDefaut).Replace("{montant}", $"<b>{Euro(d.montantMensuel)}</b>")}</div>"
                 : "")
@@ -112,7 +112,7 @@ public static class FacturePdfService
             .Replace("{{RIB_NUM}}", H(d.ribNum))
             .Replace("{{RIB_IBAN}}", H(d.ribIban))
             .Replace("{{RIB_BIC}}", H(d.ribBic))
-            .Replace("{{LEGAL}}", d.retard ? H(d.legal) : "")
+            .Replace("{{LEGAL}}", d.retard ? H(FactureEn16931.MentionsRetard(d.legal)) : "")   // D5-17 : même repli que le XML
             .Replace("{{FOOT1}}", H(d.foot1))
             .Replace("{{FOOT2}}", H(d.foot2));
     }
@@ -334,7 +334,7 @@ public static class FacturePdfService
             .Replace("{{RIB_NUM}}", H(d.ribNum))
             .Replace("{{RIB_IBAN}}", H(d.ribIban))
             .Replace("{{RIB_BIC}}", H(d.ribBic))
-            .Replace("{{LEGAL}}", d.retard ? H(d.legal) : "")
+            .Replace("{{LEGAL}}", d.retard ? H(FactureEn16931.MentionsRetard(d.legal)) : "")   // D5-17 : même repli que le XML
             .Replace("{{FOOT1}}", H(d.foot1))
             .Replace("{{FOOT2}}", H(d.foot2));
     }
@@ -369,7 +369,7 @@ public static class FacturePdfService
         // cette mention : les lier interdisait de l'imprimer sur la facture de dépôt,
         // qui masque ces lignes. La case du panneau décide seule.
         if (d.tvaDebit)
-            sb.Append($"<div class=\"tva\">&nbsp;{Texte(d.texteTvaDebit, TvaDebitDefaut)}</div>");
+            sb.Append($"<div class=\"tva\">&nbsp;{H(Texte(d.texteTvaDebit, TvaDebitDefaut))}</div>");
         return sb.ToString();
     }
 

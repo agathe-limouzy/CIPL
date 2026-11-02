@@ -11,7 +11,7 @@ public static class FactureRappelService
     {
         if (loc == null || l == null) return;
 
-        string email    = (loc.emailLocataire ?? "").Trim();
+        string email    = Adresse(loc, l);   // revue 16c (D4-10)
         string dejaTxt  = DateTime.TryParse(l.dernierRappelISO, out var dr)
             ? $"\n\nUn rappel a déjà été préparé le {dr:dd/MM/yyyy}." : "";
 
@@ -41,6 +41,9 @@ public static class FactureRappelService
         else
             Confirmer();
     }
+
+    /// Revue 16c (D4-10) : l'adresse mémorisée sur la facture (compta@…) d'abord, sinon celle de la fiche, comme l'envoi.
+    public static string Adresse(Locataire loc, FactureEtat l) => FactureEnvoiAuto.Destinataire(loc, l?.type);
 
     /// Le brouillon, d'après le modèle de Réglages › Facturation › Modèles d'e-mail (décision du 31/10).
     /// Paiement partiel (08/10) : le rappel réclame le reste, pas le total ({reste}).

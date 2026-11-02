@@ -86,7 +86,7 @@ public static class FactureElectronique
     /// pas : règle BR-FR-12, 30/10 ; voir SansSiret), TVA sur la facture.
     public static bool Concerne(Locataire loc, float tva, string siretFormulaire = null) =>
         Active && ReglageService.Current?.modeEnvoi == ModeEnvoi.Email && Locataire.AssujettiTva(loc)
-        && SocieteLocataire.Siren(SiretAcheteur(loc, siretFormulaire)).Length == 9 && tva > 0.005f;
+        && SocieteLocataire.Siren(SiretAcheteur(loc, siretFormulaire)).Length == 9 && Math.Abs(tva) > 0.005f;   // BI8 (02/11) : un avoir a une TVA négative
 
     /// Locataire qui devrait recevoir une facture électronique, mais sans SIRET : sa facture part par e-mail
     /// seulement, et le formulaire le signale (décision du 30/10).
@@ -143,6 +143,71 @@ public static class FactureElectronique
         rec.plateformeErreur = "";
         rec.encaisseeDeclaree = false;
     }
+
+    /// Régularisation et refacturation (décision du 02/11, BI5) : même départ que le loyer. `avant` = la ligne d'avant
+    /// l'enregistrement (une correction transmise cite la facture remplacée) ; `e` porte l'acheteur et les lignes du PDF,
+    /// le vendeur est posé ici. Hors plateforme : Preparer(ligne, null), comme le loyer.
+    public static void Preparer(FactureEtat ligne, FactureEtat avant, bool parPlateforme, FactureEn16931.Entree e)
+    {
+        if (ligne == null) return;
+        if (!parPlateforme) { Preparer(ligne, null); return; }
+        e.vendeurNom = ReglageService.Current?.entrepriseNom;
+        e.vendeurSiren = SocieteLocataire.Siren(SessionCloud.Entreprise?.siret);
+        (e.precedentNumero, e.precedentDateISO) = FactureEn16931.Remplacee(avant);
+        Preparer(ligne, FactureEn16931.Json(e));
+    }
+
+    /// Un avoir électronique cite les factures qu'il corrige (règle BR-FR-CO-05, refus du bac à sable le 02/11) : la version
+    /// précédente de la même ligne quand il la corrige ; sinon la facture d'origine choisie d'un avoir sur refacturation
+    /// (`origine` : son numéro) et les loyers de l'année (`annee`), dont les provisions couvrent les charges : régularisation,
+    /// refacturation d'une charge négative ou loyer à provision négative qui remboursent. Une ligne transmise est citée telle
+    /// que la plateforme la connaît (Remplacee), les autres par leur numéro et leur date d'envoi. Vide = rien à citer : le
+    /// formulaire refuse l'avoir avant tout envoi.
+    public static List<KeyValuePair<string, string>> ReferencesAvoir(Locataire loc, FactureEtat avant, int annee = 0, string origine = null)
+    {
+        var res = new List<KeyValuePair<string, string>>();
+        void Citer(FactureEtat r)
+        {
+            if (r == null || string.IsNullOrEmpty(r.numero) || r == avant && res.Count > 0) return;
+            var (n, d) = FactureEn16931.Remplacee(r);
+            if (res.Any(x => x.Key == (n ?? FactureEn16931.Numero(r.numero)))) return;
+            res.Add(new KeyValuePair<string, string>(n ?? FactureEn16931.Numero(r.numero), d ?? r.dateEnvoiISO));
+        }
+        if (!string.IsNullOrEmpty(avant?.numero)) { Citer(avant); return res; }
+        if (!string.IsNullOrEmpty(origine)) Citer(loc?.facturesEtat?.FirstOrDefault(x => x != null && x.numero == origine));
+        if (annee > 0 && loc?.facturesEtat != null)
+            foreach (var r in loc.facturesEtat.Where(x => x != null && x.type == "Loyer" && x != avant && (x.key ?? "").StartsWith($"loyer-{annee}-")))
+                Citer(r);
+        return res;
+    }
+
+    /// L'année d'une clé du suivi (« loyer-2026-P4 », « regul-2026-… ») ; 0 si elle n'en porte pas.
+    public static int AnneeDeCle(string key)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(key ?? "", @"-(\d{4})(-|$)");
+        return m.Success ? int.Parse(m.Groups[1].Value) : 0;
+    }
+
+    /// L'année d'une date ISO (celle de la charge refacturée), sinon l'année en cours.
+    public static int Annee(string iso) => DateTime.TryParse(iso, out var d) ? d.Year : DateTime.Today.Year;
+
+    /// Refus, avant tout envoi, d'un avoir qui n'a aucune facture à citer.
+    public static string RefusAvoir(string sujet, string conseil) =>
+        $"« {sujet} » a un total négatif : c'est un avoir, et {FactureEn16931.AvoirSansReference} {conseil} Rien n'a été émis.";
+
+    /// La ligne « Envoi : … » des formulaires de facture : ce qui va partir, et pourquoi pas la plateforme le cas échéant.
+    /// `notification` : après la bascule, le loyer part sans PDF (e-mail de notification) ; régul et refacturation gardent
+    /// la copie PDF par e-mail (02/11 : pas encore de mode notification pour elles).
+    public static string LibelleEnvoi(Locataire loc, string siretFormulaire, bool notification = false) =>
+        ReglageService.Current?.modeEnvoi == ModeEnvoi.Pennylane ? "Mode global : Pennylane (e-facture Factur-X)."
+        : Concerne(loc, 1f, siretFormulaire) ? (notification
+            ? "Envoi : plateforme agréée (Super PDP), puis un e-mail de notification au locataire. La phrase de retard y est obligatoire."
+            : "Envoi : plateforme agréée (Super PDP) + copie PDF par e-mail. La phrase de retard y est obligatoire.")
+        : SansSiret(loc, siretFormulaire) ? "Envoi : e-mail seulement — ajoutez le SIRET du locataire pour la facture électronique (Super PDP)."
+        : Active ? "Envoi : e-mail (locataire non assujetti à la TVA : pas de facture électronique)."
+        : EnVerification ? "Envoi : e-mail seulement (Super PDP : vérification du gérant en cours, voir Réglages → Intégrations)."
+        : EtatInconnu ? "Envoi : e-mail seulement (Super PDP : état non lu au lancement ; relancez CIPL pour la facture électronique)."
+        : "Mode global : Email direct (SMTP).";
 
     static bool Emise(FacturationSuivi.Etat e) =>
         e == FacturationSuivi.Etat.Envoye || e == FacturationSuivi.Etat.Impaye || e == FacturationSuivi.Etat.Paye;
@@ -240,10 +305,23 @@ public static class FactureElectronique
         string motif = Motif(panne) ?? "pas de réponse";
         Debug.LogWarning($"[FactureElectronique] {loc?.Name} : {motif}");
         if (panne.refus == "origine") { ConfirmDialog.Erreur(panne.erreur); return "Déclaration impossible d'ici (voir le message)."; }
-        if (panne.refus != "refusee") return "Plateforme injoignable : nouvel essai au prochain lancement.";
+        if (panne.refus != "refusee") return Phrase(panne);
         ConfirmDialog.Erreur($"Super PDP a refusé une déclaration pour {loc?.Name}.\nDétail technique : {panne.erreur}\n\n"
                              + "Nouvel essai au prochain lancement ; si le refus se répète, signalez-le.");
         return "Déclaration refusée par Super PDP (voir le message).";
+    }
+
+    /// Revue 16c (D5-14) : la phrase du résumé selon l'échec : une panne passagère annonce un nouvel essai ; un refus qui ne se
+    /// réparera pas seul (autorisation retirée, SCI non reliée, SIRET absent…) dit quoi faire, au lieu d'« injoignable ».
+    public static string Phrase(Reponse panne)
+    {
+        switch (panne?.refus)
+        {
+            case null: case "": case "indisponible": case "serveur":
+                return "Plateforme injoignable : nouvel essai au prochain lancement.";
+            default:
+                return Motif(panne) ?? "Plateforme injoignable : nouvel essai au prochain lancement.";
+        }
     }
 
     /// Locataires dont les factures sont en cours de transmission sur ce poste (un seul traitement à la fois).

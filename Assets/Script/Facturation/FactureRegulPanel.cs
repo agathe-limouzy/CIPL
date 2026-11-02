@@ -351,12 +351,17 @@ public class FactureRegulPanel : MonoBehaviour
 
         MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
         _retard.isOn = f?.ajouterRetard ?? true;
+        // Décision du 02/11 (BI5) : même départ que le loyer. Sur la plateforme, la phrase de retard est obligatoire
+        // (note PMD, règle BR-FR-05) : la case reste cochée pour que le PDF dise la même chose.
+        bool plateforme = FactureElectronique.Concerne(_loc, 1f, _siret.text);
+        if (plateforme) _retard.isOn = true;
+        _retard.interactable = !plateforme;
+        _modeInfo.text = FactureElectronique.LibelleEnvoi(_loc, _siret.text);
+        _modeInfo.color = FactureElectronique.SansSiret(_loc, _siret.text) ? UITheme.Alerte : UITheme.TexteSecondaire;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
         _emailObjet.text = EmailService.ObjetFacture(f?.emailObjet);
         _emailCorps.text = EmailService.CorpsFacture(f?.emailCorps);
-        _modeInfo.text = R.modeEnvoi == ModeEnvoi.Pennylane
-            ? "Mode global : Pennylane (e-facture Factur-X)."
-            : "Mode global : Email direct (SMTP).";
+        // La ligne « Envoi : … » (_modeInfo) est posée avec la case retard, ci-dessus (02/11).
 
         RefreshCharges();
         RefreshEntetePreview();
@@ -773,7 +778,7 @@ public class FactureRegulPanel : MonoBehaviour
 
     void GenererApercu()
     {
-        SaveFromUI(markPaid: false);
+        SaveFromUI();
         var d = BuildData();
         string png = DossiersDonnees.Apercu("apercu_regul.png");
         // Hauteur 2 pages : la facture (p.1) + le détail des charges (p.2).
@@ -788,7 +793,7 @@ public class FactureRegulPanel : MonoBehaviour
         string refus = Regroupement(_loc, ListesSel(), SelectedYear(), out string cle);
         if (refus != null) { ConfirmDialog.Erreur(refus); return; }
 
-        SaveFromUI(markPaid: false);
+        SaveFromUI();
         // Revue 16c (D6-03) : le numéro décidé AVANT de construire le document (entête, phrase, e-mail : {numero}).
         var emission = FactureEmission.Preparer(_loc, cle ?? ListesCharges.Cle(ListesSel()[0], SelectedYear()), ComposedNumero());
         if (emission.Refus != null) { ConfirmDialog.Erreur(emission.Refus); return; }   // D4-04 : numéro déjà pris
@@ -837,6 +842,14 @@ public class FactureRegulPanel : MonoBehaviour
         var emission = FactureEmission.Preparer(_loc, key, d.numero);
         d.numero = emission.NumeroFacture;
         bool correction = emission.Correction;
+        // BI8 (02/11) : un avoir cite les factures qu'il corrige (BR-FR-CO-05) : la version précédente, sinon les loyers de l'année.
+        if (FactureElectronique.Concerne(_loc, d.tva, _siret.text) && d.ttc < -0.004f
+            && FactureElectronique.ReferencesAvoir(_loc, _loc.facturesEtat?.Find(x => x.key == key), year).Count == 0)
+        {
+            ConfirmDialog.Erreur(FactureElectronique.RefusAvoir(d.subtitle,
+                $"Aucun loyer {year} émis dans CIPL à citer : émettez d'abord les loyers de l'année, ou rendez ce trop-perçu sur le prochain loyer."));
+            return;
+        }
 
         string liste = listes.Count == 1 && listes[0] == "" ? "" : "-" + string.Join("+", listes.Select(ListesCharges.Nom));
         string fname = Sanitize($"RegularisationdeCharge-{_nom.text}-{year}{liste}{emission.SuffixeFichier}") + ".pdf";
@@ -856,7 +869,7 @@ public class FactureRegulPanel : MonoBehaviour
         if (R.modeEnvoi != ModeEnvoi.Email)
         {
             Finaliser(d, year, key, emission, correction, pdf, false,
-                "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
+                FactureEmission.SansEmail);
             return;
         }
 
@@ -939,6 +952,7 @@ public class FactureRegulPanel : MonoBehaviour
         string aujourdhui = DateTime.Today.ToString("yyyy-MM-dd");
         foreach (var c in ChargesFor(year)) c.MarquerFacturee(_loc.id, aujourdhui);
 
+        var avant = _loc.facturesEtat?.Find(x => x.key == key);   // lue avant l'enregistrement : une correction transmise la cite
         string message = FactureEmission.Enregistrer(_loc, key, "Regul", emission,
             d.subtitle, _loc.factureRegul?.dateEcheanceISO, pdf, montants[listes[0]], _ribDD?.SelectedId,
             _loc.factureRegul, "Régularisation", envoye,
@@ -958,8 +972,20 @@ public class FactureRegulPanel : MonoBehaviour
                     d.numero, pdf, montants[listes[i]], _ribDD?.SelectedId, FactureEmission.RibNom(_ribDD?.SelectedId), envoye);
         }
 
+        // Décision du 02/11 (BI5) : la facture électronique sur la ligne principale, comme le loyer ; un total négatif part en
+        // avoir (FactureEn16931). Hors plateforme (sans SIRET, SCI non reliée…) : rien, la copie PDF part par e-mail comme avant.
+        FactureElectronique.Preparer(_loc.facturesEtat?.Find(x => x.key == key), avant,
+            FactureElectronique.Concerne(_loc, d.tva, _siret.text), new FactureEn16931.Entree
+            {
+                numero = d.numero, dateISO = BuildContext().date.ToString("yyyy-MM-dd"), echeanceISO = _loc.factureRegul?.dateEcheanceISO,
+                acheteurNom = d.clientNom, acheteurSiren = SocieteLocataire.Siren(FactureElectronique.SiretAcheteur(_loc, _siret.text)),
+                acheteurSiret = FactureElectronique.Siret14(FactureElectronique.SiretAcheteur(_loc, _siret.text)), acheteurAdresse = _adresse.text,
+                lignes = FactureEn16931.LignesRegul(d), mention = d.tvaDebit ? d.texteTvaDebit : null, penalites = d.legal,
+                references = FactureElectronique.ReferencesAvoir(_loc, avant, year),   // BI8 : la version précédente, sinon les loyers de l'année
+            });
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();   // persiste locataire + charges
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
+        FactureElectronique.Rattraper(_fiche.batimentPrefabOrigin, _loc);
 
         if (!correction)
         {
@@ -973,15 +999,21 @@ public class FactureRegulPanel : MonoBehaviour
 
     /// Part de chaque liste dans le TTC de la facture : ses charges moins sa provision.
     /// La première liste porte le reste, pour que la somme redonne exactement le total.
-    Dictionary<string, float> MontantsParListe(List<string> listes, int year, float ttcTotal)
+    Dictionary<string, float> MontantsParListe(List<string> listes, int year, float ttcTotal) =>
+        MontantsParListe(listes, id => ChargesDeRegul(_bat, _loc, year, id).Sum(QuotePart), id => ListesCharges.Provision(_loc, id),
+                         Loyers.PeriodesFacturees(_loc, year), ttcTotal);
+
+    /// La part de chaque liste dans une régularisation regroupée (la première absorbe l'écart : la somme des lignes redonne le
+    /// TTC). Revue 16c (D4-08, D6-11) : les provisions déduites comptent les périodes FACTURÉES de l'année (arrivée, départ),
+    /// comme le total du formulaire, et plus celles d'une année pleine.
+    public static Dictionary<string, float> MontantsParListe(List<string> listes, Func<string, float> chargesDe,
+                                                             Func<string, float> provisionDe, int periodesFacturees, float ttcTotal)
     {
         var res = new Dictionary<string, float>();
-        int n = LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer);
         float autres = 0f;
         for (int i = 1; i < listes.Count; i++)
         {
-            float charges = ChargesDeRegul(_bat, _loc, year, listes[i]).Sum(QuotePart);
-            float solde = Cents(charges - ListesCharges.Provision(_loc, listes[i]) * n);
+            float solde = Cents(chargesDe(listes[i]) - provisionDe(listes[i]) * periodesFacturees);
             float ttc = solde + Cents(solde * .2f);
             res[listes[i]] = ttc;
             autres += ttc;
@@ -1010,7 +1042,7 @@ public class FactureRegulPanel : MonoBehaviour
 
     // ── Sauvegarde (mémorisé sur le locataire) ─────────────────────────────────
 
-    void SaveFromUI(bool markPaid)
+    void SaveFromUI()
     {
         if (_loc == null) return;
         var f = _loc.factureRegul ?? new FactureInfo();

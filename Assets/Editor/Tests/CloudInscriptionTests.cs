@@ -85,7 +85,7 @@ public class CloudInscriptionTests
         Assert.That(r.sansLogo, Is.True, "pas le logo de CIPL (retour du 25/10)");
         Assert.That(r.modeEnvoi, Is.EqualTo(ModeEnvoi.Email), "envoi par e-mail au départ (retour du 25/10)");
         Assert.That(r.smtp.host, Is.Empty, "pas le serveur d'envoi de CIPL");
-        Assert.That(new ReglageData().modeEnvoi, Is.EqualTo(ModeEnvoi.Pennylane), "les Réglages déjà enregistrés ne changent pas");
+        Assert.That(new ReglageData().modeEnvoi, Is.EqualTo(ModeEnvoi.Email), "revue 16c D4-09 (décision du 02/11) : e-mail par défaut, Pennylane se choisit dans Réglages › Intégrations");
         Assert.That(new AnnuaireSiege { commune = "92048" }.Ville, Is.EqualTo(""), "jamais le code INSEE comme nom de ville");
         Assert.That(new ReglageData().sansLogo, Is.False, "les Réglages déjà enregistrés gardent le logo CIPL");
 

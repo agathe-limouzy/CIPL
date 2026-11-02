@@ -871,7 +871,7 @@ public class FactureDepotPanel : MonoBehaviour
         if (R.modeEnvoi != ModeEnvoi.Email)
         {
             Finaliser(d, key, emission, correction, pdf, false,
-                "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
+                FactureEmission.SansEmail);
             return;
         }
 

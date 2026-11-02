@@ -349,12 +349,17 @@ public class FactureRefacPanel : MonoBehaviour
 
         MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
         _retard.isOn = f?.ajouterRetard ?? true;
+        // Décision du 02/11 (BI5) : même départ que le loyer. Sur la plateforme, la phrase de retard est obligatoire
+        // (note PMD, règle BR-FR-05) : la case reste cochée pour que le PDF dise la même chose.
+        bool plateforme = FactureElectronique.Concerne(_loc, 1f, _siret.text);
+        if (plateforme) _retard.isOn = true;
+        _retard.interactable = !plateforme;
+        _modeInfo.text = FactureElectronique.LibelleEnvoi(_loc, _siret.text);
+        _modeInfo.color = FactureElectronique.SansSiret(_loc, _siret.text) ? UITheme.Alerte : UITheme.TexteSecondaire;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
         _emailObjet.text = EmailService.ObjetFacture(f?.emailObjet);
         _emailCorps.text = EmailService.CorpsFacture(f?.emailCorps);
-        _modeInfo.text = R.modeEnvoi == ModeEnvoi.Pennylane
-            ? "Mode global : Pennylane (e-facture Factur-X)."
-            : "Mode global : Email direct (SMTP).";
+        // La ligne « Envoi : … » (_modeInfo) est posée avec la case retard, ci-dessus (02/11).
 
         RefreshTotaux();
         RefreshEntetePreview();
@@ -672,6 +677,16 @@ public class FactureRefacPanel : MonoBehaviour
         string dir = FactureDir();
         DateTime dt = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
         bool correction = emission.Correction;
+        // BI8 (02/11) : un avoir cite les factures qu'il corrige (BR-FR-CO-05) : la version précédente, sinon la facture d'origine
+        // choisie et les loyers de l'année de la charge (leurs provisions la couvrent).
+        int anneeCharge = FactureElectronique.Annee(sel.Count > 0 ? sel[0].c.dateISO : null);
+        if (FactureElectronique.Concerne(_loc, d.tva, _siret.text) && d.ttc < -0.004f
+            && FactureElectronique.ReferencesAvoir(_loc, _loc.facturesEtat?.Find(x => x.key == key), anneeCharge, d.factureOrigine).Count == 0)
+        {
+            ConfirmDialog.Erreur(FactureElectronique.RefusAvoir(d.subtitle,
+                $"Choisissez la facture d'origine (« Avoir sur la facture n° »), ou émettez d'abord un loyer {anneeCharge} dans CIPL."));
+            return;
+        }
 
         string quoi = sel.Count == 1 ? sel[0].c.nom : $"{sel.Count} charges";
         string type = d.ttc < -0.005f ? "Avoir" : "Refacturation";
@@ -693,7 +708,7 @@ public class FactureRefacPanel : MonoBehaviour
         if (R.modeEnvoi != ModeEnvoi.Email)
         {
             Finaliser(d, sel, key, emission, correction, pdf, false,
-                "  Aucun email envoyé : la case « Envoyer par email » est décochée (Options & envoi).");
+                FactureEmission.SansEmail);
             return;
         }
 
@@ -780,6 +795,7 @@ public class FactureRefacPanel : MonoBehaviour
         bool avoir = d.ttc < -0.005f;
         // Même libellé sur chaque ligne : le suivi n'en affiche qu'une par facture.
         string libelle = LibelleFacture(sel.Select(x => x.c.nom).ToList(), avoir);
+        var avant = _loc.facturesEtat?.Find(x => x.key == key);   // lue avant l'enregistrement : une correction transmise la cite
         string message = FactureEmission.Enregistrer(_loc, key, "Refac", emission,
             libelle, _loc.factureRefac?.dateEcheanceISO, pdf, parts[0], _ribDD?.SelectedId,
             _loc.factureRefac, avoir ? "Avoir" : "Refacturation", envoye,
@@ -796,8 +812,20 @@ public class FactureRefacPanel : MonoBehaviour
                     d.numero, pdf, parts[i], _ribDD?.SelectedId, FactureEmission.RibNom(_ribDD?.SelectedId), envoye);
         }
 
+        // Décision du 02/11 (BI5) : la facture électronique sur la ligne principale, comme le loyer ; un total négatif part en
+        // avoir (FactureEn16931). Hors plateforme (sans SIRET, SCI non reliée…) : rien, la copie PDF part par e-mail comme avant.
+        FactureElectronique.Preparer(_loc.facturesEtat?.Find(x => x.key == key), avant,
+            FactureElectronique.Concerne(_loc, d.tva, _siret.text), new FactureEn16931.Entree
+            {
+                numero = d.numero, dateISO = BuildContext().date.ToString("yyyy-MM-dd"), echeanceISO = _loc.factureRefac?.dateEcheanceISO,
+                acheteurNom = d.clientNom, acheteurSiren = SocieteLocataire.Siren(FactureElectronique.SiretAcheteur(_loc, _siret.text)),
+                acheteurSiret = FactureElectronique.Siret14(FactureElectronique.SiretAcheteur(_loc, _siret.text)), acheteurAdresse = _adresse.text,
+                lignes = FactureEn16931.Lignes(d), mention = d.tvaDebit ? d.texteTvaDebit : null, penalites = d.legal,
+                references = FactureElectronique.ReferencesAvoir(_loc, avant, FactureElectronique.Annee(sel.Count > 0 ? sel[0].c.dateISO : null), d.factureOrigine),   // BI8
+            });
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
+        FactureElectronique.Rattraper(_fiche.batimentPrefabOrigin, _loc);
 
         if (!correction)
         {

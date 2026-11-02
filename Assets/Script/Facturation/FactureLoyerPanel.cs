@@ -382,14 +382,17 @@ public class FactureLoyerPanel : MonoBehaviour
         _btnSauver.onClick.AddListener(SauvegarderEtEnvoyer);
     }
 
+    static float Cents(float v) => Mathf.Round(v * 100f) / 100f;
+
     // Construit les données de la facture (au visuel réel) depuis l'UI courante.
     FacturePdfService.Data BuildData()
     {
         var ctx = BuildContext();
         var rib = ReglageService.GetRib(_ribDD?.SelectedId);
         var ent = ReglageService.GetEntete(_enteteDD?.SelectedId);
-        float loyer = ParseF(_loyer.text), prov = ProvisionSaisie();
-        float totalHT = loyer + prov, tva = totalHT * .2f, ttc = totalHT * 1.2f;
+        // Revue 16c (D5-16) : au centime ligne par ligne, et TTC = HT + TVA arrondie : le PDF et le XML du Factur-X disent pareil.
+        float loyer = Cents(ParseF(_loyer.text)), prov = Cents(ProvisionSaisie());
+        float totalHT = loyer + prov, tva = Cents(totalHT * .2f), ttc = totalHT + tva;
         // Montant mensuel = TTC de la période ÷ nombre de mois de la période (hors mensuel).
         int moisParPeriode = Mathf.Max(1, 12 / LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer));
         bool afficheMensuel = _mensuel != null && _mensuel.isOn && _loc.periodiciteLoyer != Periodicite.mensuel;
@@ -510,6 +513,23 @@ public class FactureLoyerPanel : MonoBehaviour
         // Une transmission ne se rappelle pas : elle se confirme, comme un e-mail. Une correction d'une facture
         // déjà transmise part aussi par la plateforme, comme facture rectificative (Finaliser, 31/10).
         bool parPlateforme = FactureElectronique.Concerne(_loc, d.tva, _siret.text);
+        // Revue 16c (D5-16) puis BI5 (02/11) : une ligne négative part en quantité −1, un TOTAL négatif part en avoir (381), tous
+        // deux dans FactureEn16931 ; un total nul n'est ni une facture ni un avoir : rien à facturer, plateforme ou non (BI8 : sans
+        // TVA, la plateforme ne le concernait pas et un loyer de 0 € partait par e-mail).
+        if (Math.Abs(d.ttc) <= 0.004f)
+        {
+            ConfirmDialog.Erreur($"Le total de « {d.subtitle} » est nul : rien à facturer. Corrigez les montants.");
+            return;
+        }
+        // BI8 (02/11) : un avoir cite les factures qu'il corrige (BR-FR-CO-05) : la version précédente, sinon les loyers de l'année
+        // (leurs provisions couvrent ce qui est rendu).
+        if (parPlateforme && d.ttc < -0.004f
+            && FactureElectronique.ReferencesAvoir(_loc, _loc.facturesEtat?.Find(x => x.key == key), FactureElectronique.AnneeDeCle(key)).Count == 0)
+        {
+            ConfirmDialog.Erreur(FactureElectronique.RefusAvoir(d.subtitle,
+                $"Aucun loyer {FactureElectronique.AnneeDeCle(key)} émis dans CIPL à citer : corrigez plutôt une facture existante depuis le suivi (« Corriger »)."));
+            return;
+        }
         if (parPlateforme && FactureElectronique.NotificationSeule)
         {
             if (ConfirmDialog.Instance == null)
@@ -687,6 +707,7 @@ public class FactureLoyerPanel : MonoBehaviour
                 acheteurSiret = FactureElectronique.Siret14(FactureElectronique.SiretAcheteur(_loc, _siret.text)), acheteurAdresse = _adresse.text,
                 lignes = FactureEn16931.Lignes(d), mention = d.tvaDebit ? d.texteTvaDebit : null, penalites = d.legal,
                 precedentNumero = precedentNumero, precedentDateISO = precedentDate,
+                references = FactureElectronique.ReferencesAvoir(_loc, avant, FactureElectronique.AnneeDeCle(key)),   // BI8 : la version précédente, sinon les loyers de l'année
             }));
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
@@ -911,16 +932,7 @@ public class FactureLoyerPanel : MonoBehaviour
             : _modeCopie
             ? "« / » ouvre la liste des variables. La facture part aussi par la plateforme : cet e-mail en joint la copie PDF. Modèle : Réglages › Modèles d'e-mail."
             : "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement. Modèle : Réglages › Modèles d'e-mail.";
-        _modeInfo.text = R.modeEnvoi == ModeEnvoi.Pennylane
-            ? "Mode global : Pennylane (e-facture Factur-X)."
-            : plateforme ? (FactureElectronique.NotificationSeule
-                ? "Envoi : plateforme agréée (Super PDP), puis un e-mail de notification au locataire. La phrase de retard y est obligatoire."
-                : "Envoi : plateforme agréée (Super PDP) + copie PDF par e-mail. La phrase de retard y est obligatoire.")
-            : FactureElectronique.SansSiret(_loc, _siret.text) ? "Envoi : e-mail seulement — ajoutez le SIRET du locataire pour la facture électronique (Super PDP)."
-            : FactureElectronique.Active ? "Envoi : e-mail (locataire non assujetti à la TVA : pas de facture électronique)."
-            : FactureElectronique.EnVerification ? "Envoi : e-mail seulement (Super PDP : vérification du gérant en cours, voir Réglages → Intégrations)."
-            : FactureElectronique.EtatInconnu ? "Envoi : e-mail seulement (Super PDP : état non lu au lancement ; relancez CIPL pour la facture électronique)."
-            : "Mode global : Email direct (SMTP).";
+        _modeInfo.text = FactureElectronique.LibelleEnvoi(_loc, _siret.text, FactureElectronique.NotificationSeule);   // partagé (02/11)
         _modeInfo.color = FactureElectronique.SansSiret(_loc, _siret.text) ? UITheme.Alerte : UITheme.TexteSecondaire;
         if (_avertPennylane != null) _avertPennylane.gameObject.SetActive(R.modeEnvoi == ModeEnvoi.Pennylane);
 
@@ -978,8 +990,9 @@ public class FactureLoyerPanel : MonoBehaviour
 
     void RefreshMontants()
     {
-        float loyer = ParseF(_loyer.text), prov = ProvisionSaisie();
-        float totalHT = loyer + prov, tva = totalHT * .2f, ttc = totalHT * 1.2f;
+        // Revue 16c (D5-16) : au centime ligne par ligne, et TTC = HT + TVA arrondie : le PDF et le XML du Factur-X disent pareil.
+        float loyer = Cents(ParseF(_loyer.text)), prov = Cents(ProvisionSaisie());
+        float totalHT = loyer + prov, tva = Cents(totalHT * .2f), ttc = totalHT + tva;
         _mTotalHT.text = $"{N2(totalHT)} €";
         _mTVA.text     = $"{N2(tva)} €";
         _mTTC.text     = $"{N2(ttc)} €";
@@ -1197,77 +1210,6 @@ public class FactureLoyerPanel : MonoBehaviour
         string pfx = _numeroPrefixe != null ? _numeroPrefixe.text : "";
         string id = _numeroId != null ? (_numeroId.text ?? "").Trim() : "";
         return pfx + id;
-    }
-
-    // ── Aperçu (texte — le PDF au visuel réel viendra ensuite) ─────────────────
-
-    void ShowApercu()
-    {
-        var ctx = BuildContext();
-        var rib = ReglageService.GetRib(_ribDD?.SelectedId);
-        var ent = ReglageService.GetEntete(_enteteDD?.SelectedId);
-        float loyer = ParseF(_loyer.text), prov = ProvisionSaisie();
-        float totalHT = loyer + prov, tva = totalHT * .2f, ttc = totalHT * 1.2f;
-
-        var sb = new System.Text.StringBuilder();
-        string numAff = ComposedNumero();
-        sb.AppendLine($"<b>FACTURE {(!string.IsNullOrWhiteSpace(numAff) ? "n° " + numAff : "")} — {ctx.periode}</b>");
-        sb.AppendLine($"Date : {ctx.date:dd/MM/yyyy}");
-        sb.AppendLine();
-        sb.AppendLine($"<b>Destinataire</b> : {_nom.text}");
-        sb.AppendLine($"{_adresse.text}");
-        if (!string.IsNullOrWhiteSpace(_siret.text)) sb.AppendLine($"SIRET : {_siret.text}");
-        sb.AppendLine();
-        if (ent != null && !string.IsNullOrEmpty(ent.texte))
-        {
-            sb.AppendLine(FactureVarResolver.Resolve(ent.texte, _loc, _bat, ctx));
-            sb.AppendLine();
-        }
-        sb.AppendLine($"{LigneLoyer(loyer) ?? "Loyer HT (période)"} : {N2(loyer)} €");
-        if (prov > 0f) sb.AppendLine($"Provision charges : {N2(prov)} €");
-        sb.AppendLine($"Total HT : {N2(totalHT)} €");
-        sb.AppendLine($"TVA 20 % : {N2(tva)} €");
-        sb.AppendLine($"<b>Total TTC : {N2(ttc)} €</b>");
-        if (MentionTva.Imprimee(_mentionTva))
-            sb.AppendLine("« " + FactureVarResolver.Resolve(
-                MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, BuildContext()) + " »");
-        sb.AppendLine();
-        if (rib != null)
-        {
-            sb.AppendLine("<b>Règlement</b>");
-            sb.AppendLine($"{rib.titulaire} · {rib.domiciliation}");
-            sb.AppendLine($"IBAN {rib.iban} · BIC {rib.bic}");
-            sb.AppendLine();
-        }
-        if (_retard.isOn) sb.AppendLine(R.phraseRetard);
-
-        Modal("Aperçu de la facture (loyer)", sb.ToString());
-    }
-
-    void Modal(string titre, string texte)
-    {
-        var scrim = UIFactory.Rect("ApercuScrim", transform);
-        UIFactory.Stretch(scrim);
-        scrim.gameObject.AddComponent<Image>().color = new Color(0, 0, 0, 0.5f);
-        scrim.SetAsLastSibling();
-
-        var cardImg = UIFactory.Panel("ApercuCard", scrim, UITheme.Carte);
-        UIFactory.Border(cardImg.gameObject);
-        var card = (RectTransform)cardImg.transform;
-        card.anchorMin = card.anchorMax = card.pivot = new Vector2(.5f, .5f);
-        card.sizeDelta = new Vector2(760, 820);
-        var v = cardImg.gameObject.AddComponent<VerticalLayoutGroup>();
-        v.spacing = 10; v.padding = new RectOffset(20, 20, 18, 18);
-        v.childControlWidth = true; v.childControlHeight = true;
-        v.childForceExpandWidth = true; v.childForceExpandHeight = false;
-
-        UIFactory.Text(v.transform, titre, UITheme.Role.Section, UITheme.TextePrincipal, true);
-        var body = MakeScroll(v.transform);
-        UIFactory.LE(((Transform)body.parent.parent).gameObject, flexH: 1);
-        UIFactory.Text(body, texte, UITheme.Role.Donnee, UITheme.TextePrincipal);
-
-        var close = UIFactory.Button(v.transform, "Fermer", UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
-        close.onClick.AddListener(() => Destroy(scrim.gameObject));
     }
 
     // ── Sauvegarde (mémorisé sur le locataire) ─────────────────────────────────

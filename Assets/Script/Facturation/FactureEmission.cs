@@ -15,6 +15,9 @@ using UnityEngine;
 ///      facture qui n'existe pas sur le disque.
 public static class FactureEmission
 {
+    /// Revue 16c (D4-09) : le mode d'envoi est un réglage d'entreprise (Réglages › Intégrations), plus une case par facture.
+    public const string SansEmail = "  Mode d'envoi : Pennylane (Réglages › Intégrations) : rien n'est parti par e-mail.";
+
     /// Ce que `Preparer` a décidé. À passer tel quel à `Enregistrer`.
     public class Decision
     {

@@ -116,19 +116,19 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 | D3-13 | D3 | Hygiène de la session : jeton jamais invalidé côté serveur, copie locale rendue sans vérifier le propriétaire du jeton |  | 02/11 (code et test) |
 | D3-14 | D3 | Trois copies de `Q()` qui n'échappent ni tabulation ni retour à la ligne |  | 02/11 (code et test) |
 | D3-15 | D3 | Code mort autour des licences et de la lecture seule |  | 02/11 (code) |
-| D4-07 | D4 | `DoitPartir` applique le délai de 15 jours à tous les types, contrairement à `DateEnvoi` ; `PeutPartir` n'est utilisé que par les tests ; le diagnostic dit « échéance illisible » |  | |
-| D4-08 | D4 | Régul regroupée : les parts par liste sont calculées sur `NbPeriodes` au lieu des périodes facturées, et ignorent la provision saisie | D6-11 | |
-| D4-09 | D4 | Message obsolète « la case « Envoyer par email » est décochée (Options & envoi) » ; mode d'envoi par défaut = Pennylane pour une entreprise locale |  | |
-| D4-10 | D4 | Le rappel d'impayé est adressé à l'e-mail de la fiche, pas au destinataire mémorisé sur la facture |  | |
-| D4-11 | D4 | `FactureEnvoiAuto.Contexte` déduit HT = TTC ÷ 1,2 pour tous les types : `{loyer.ht}` / `{loyer.tva}` faux dans les e-mails d'un dépôt ou d'un décompte |  | |
+| D4-07 | D4 | `DoitPartir` applique le délai de 15 jours à tous les types, contrairement à `DateEnvoi` ; `PeutPartir` n'est utilisé que par les tests ; le diagnostic dit « échéance illisible » |  | 02/11 (code et test ; parcours BI1) |
+| D4-08 | D4 | Régul regroupée : les parts par liste sont calculées sur `NbPeriodes` au lieu des périodes facturées, et ignorent la provision saisie | D6-11 | 02/11 (code et test ; parcours BI2) |
+| D4-09 | D4 | Message obsolète « la case « Envoyer par email » est décochée (Options & envoi) » ; mode d'envoi par défaut = Pennylane pour une entreprise locale |  | 02/11 (code et test ; parcours BI3 ; décision du 02/11 : e-mail par défaut) |
+| D4-10 | D4 | Le rappel d'impayé est adressé à l'e-mail de la fiche, pas au destinataire mémorisé sur la facture |  | 02/11 (code et test ; parcours BI4) |
+| D4-11 | D4 | `FactureEnvoiAuto.Contexte` déduit HT = TTC ÷ 1,2 pour tous les types : `{loyer.ht}` / `{loyer.tva}` faux dans les e-mails d'un dépôt ou d'un décompte |  | 02/11 (code et test) |
 | D4-12 | D4 | Correction élargie d'une facture regroupée : la ligne ajoutée reçoit un statut neuf alors que les autres gardent le leur |  | 01/11 (code et test ; parcours BE9) |
-| D5-14 | D5 | Toast « Plateforme injoignable » pour tout échec, même « autorisation retirée » |  | |
-| D5-16 | D5 | Montants à trois décimales ou négatifs : écart PDF/XML ou refus BR-27 |  | |
-| D5-17 | D5 | Phrase de retard vide : le JSON dit la phrase légale, le PDF ne dit rien |  | |
-| D5-18 | D5 | `plateformes.societe` jamais rempli |  | |
-| D5-19 | D5 | N° de TVA de l'acheteur calculé, non vérifié |  | |
-| D6-09 | D6 | Textes libres insérés dans le HTML sans échappement |  | |
-| D6-10 | D6 | Code mort et paramètre inutilisé |  | |
+| D5-14 | D5 | Toast « Plateforme injoignable » pour tout échec, même « autorisation retirée » |  | 02/11 (code et test) |
+| D5-16 | D5 | Montants à trois décimales ou négatifs : écart PDF/XML ou refus BR-27 |  | 02/11 (code et test ; parcours BI5 ; ligne négative en quantité −1 ; total négatif → avoir 381 depuis la décision BI5, total nul refusé) |
+| D5-17 | D5 | Phrase de retard vide : le JSON dit la phrase légale, le PDF ne dit rien |  | 02/11 (code et test ; parcours BI6) |
+| D5-18 | D5 | `plateformes.societe` jamais rempli |  | 02/11 (code et test ; colonne gardée, plus écrite) |
+| D5-19 | D5 | N° de TVA de l'acheteur calculé, non vérifié |  | 02/11 (code et test) |
+| D6-09 | D6 | Textes libres insérés dans le HTML sans échappement |  | 02/11 (code et test ; parcours BI7) |
+| D6-10 | D6 | Code mort et paramètre inutilisé |  | 02/11 (code) |
 | D7a-10 | D7a | Un refus du nom (doublon, dossier bloqué) repasse le champ nom en lecture seule et perd la saisie |  | |
 | D7a-11 | D7a | BODACC : 100 annonces pour 40 sociétés, une société en procédure peut passer pour « SAINE » |  | |
 | D7a-12 | D7a | SIRET avec espaces : bouton Pappers, tournée cloud et annuaire local ne le lisent pas pareil |  | |
@@ -221,3 +221,13 @@ Tant que la facture de révision du dépôt n'est pas partie, « Réviser » (ca
 | Hors ligne, l'ouverture d'une entreprise enchaînait trois appels de 15 s (Réglages, abonnement, bâtiments) sans rien à l'écran : 45 s « gelées », le temps de recliquer partout, l'ancienne entreprise restant affichée et modifiable (vu en BH3, second essai) | mineur | 02/11 (écran vidé et voilé dès le clic (`EcransCloud.Attente`, « Ouverture de … »), sonde `Sonder(timeout: 5)` : message en 5 s au plus ; `DemarrageCloud.EchecLecture`) |
 | Les copies hors ligne effacées laissaient leur `.bak` (écriture atomique) sur le PC, avec les mêmes données, y compris après « Se déconnecter » (vu en BH6) | mineur | 02/11 (`CopieLocale.Effacer` retire aussi le `.bak`) |
 | Un enregistrement refusé (version, fiche supprimée) rechargeait toute l'entreprise au OK, et ne laissait aucune trace dans le journal (vu en BH8) | mineur | 02/11 (`DirectCloud.ARelire` : le seul bâtiment ; trace `enregistrement refusé`) |
+
+## Trouvés pendant le parcours BI (02/11)
+
+| Défaut | Gravité | Corrigé |
+|---|---|---|
+| La fenêtre « Initialisation du loyer » (`RevisionPanel`) dépassait l'écran : 1 519 px de haut pour 1 080, depuis les délais propres (01/11) et les listes de charges ; le bouton Enregistrer n'était plus atteignable (vu en BI2) | mineur | 02/11 (corps dans un `ScrollRect`, fenêtre plafonnée à l'écran et centrée, même montage que `ChargePanel.MakeScroll`) |
+| Seul le loyer partait par la plateforme : la régularisation et la refacturation de charges (TVA) restaient par e-mail, et un total négatif était refusé au lieu de partir en avoir (vu en BI5 ; obligation 2027) | majeur | 02/11 (régul et refacturation par `FactureElectronique.Preparer(ligne, avant, parPlateforme, entrée)`, avoir 381 dans `FactureEn16931.Json`, parcours BI8) |
+| Une facture à total négatif ne partait pas par la plateforme (`FactureElectronique.Concerne` exigeait une TVA > 0, celle d'un avoir est négative), et le suivi affichait « — » à la place d'un montant négatif (vu en BI8) | mineur | 02/11 (`Math.Abs(tva)` dans `Concerne`, `Math.Abs(v)` dans l'affichage du montant ; test texte `BI8_*`) |
+| Le bac à sable a refusé l'avoir 381 : règle BR-FR-CO-05, un avoir doit citer au moins une facture antérieure (BT-25, BT-26), et CIPL n'en citait aucune (vu en BI8) | majeur | 02/11 (`FactureEn16931.Entree.references` écrites dans `preceding_invoice_references` ; `FactureElectronique.ReferencesAvoir` : la version précédente, sinon la facture d'origine (refac) et les loyers de l'année, dont les provisions couvrent ce qui est rendu ; refus au centre avant tout envoi quand il n'y a rien à citer, `RefusAvoir`) |
+| Une régul regroupée n'affichait la pastille « Plateforme » que sur la ligne qui porte la facture électronique ; un loyer de 0 € (sans TVA, donc hors plateforme) partait par e-mail au lieu d'être refusé (vu en BI8) | mineur | 02/11 (pastille reprise des lignes du même PDF, `FacturationSuivi.MemeFacture` ; total nul refusé dans tous les cas) |

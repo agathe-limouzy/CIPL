@@ -39,11 +39,15 @@ public static class FactureVarResolver
         return (nom, siret, tva == "" ? "" : $"FR {tva.Substring(2, 2)} {tva.Substring(4, 3)} {tva.Substring(7, 3)} {tva.Substring(10)}");
     }
 
-    public static string Resolve(string texte, Locataire loc, Batiment bat, FactureContext ctx)
+    public static string Resolve(string texte, Locataire loc, Batiment bat, FactureContext ctx) => Resolve(texte, loc, bat, ctx, null);
+
+    /// `valeur` (revue 16c, D6-09) : transformation de chaque valeur substituée (échappement HTML dans un gabarit) ; le modèle,
+    /// lui, est inséré tel quel.
+    public static string Resolve(string texte, Locataire loc, Batiment bat, FactureContext ctx, Func<string, string> valeur)
     {
         if (string.IsNullOrEmpty(texte)) return "";
         foreach (var kv in BuildMap(loc, bat, ctx))
-            texte = texte.Replace(kv.Key, kv.Value);
+            texte = texte.Replace(kv.Key, valeur != null ? valeur(kv.Value) : kv.Value);
         return texte;
     }
 

@@ -68,7 +68,7 @@ public class SmtpConfig
 public class ReglageData
 {
     public string entrepriseNom = "";   // nom de l'entreprise (multi-entreprise / sélecteur)
-    public ModeEnvoi modeEnvoi = ModeEnvoi.Pennylane;
+    public ModeEnvoi modeEnvoi = ModeEnvoi.Email;   // revue 16c (D4-09, décision du 02/11) : une entreprise neuve envoie par e-mail ; Pennylane se choisit dans Réglages › Intégrations
     public SmtpConfig smtp = new SmtpConfig();
 
     // Délais de facturation (01/11) : le calendrier figé du code (15 / 15 / 30) devient un réglage de l'entreprise ;

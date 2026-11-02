@@ -23,7 +23,11 @@ public static class FactureEn16931
         public string penalites; // phrase de retard des Réglages (note PMD), ou vide : la phrase légale d'usine
         // Correction : la facture transmise qu'elle annule et remplace (voir Remplacee), ou vide.
         public string precedentNumero, precedentDateISO;
+        // Avoir : les factures qu'il corrige (numéro tel que la plateforme le connaît, date), règle BR-FR-CO-05 (02/11).
+        public List<KeyValuePair<string, string>> references = new List<KeyValuePair<string, string>>();
     }
+
+    public const string AvoirSansReference = "un avoir électronique doit citer la facture qu'il corrige (règle BR-FR-CO-05).";
 
     /// Les lignes d'un loyer, telles que le PDF les imprime : le loyer, puis les provisions.
     public static List<KeyValuePair<string, float>> Lignes(FacturePdfService.Data d)
@@ -36,10 +40,31 @@ public static class FactureEn16931
 
     static string Libelle(string a, string b) => !string.IsNullOrWhiteSpace(a) ? a.Trim() : (b ?? "Loyer").Trim();
 
+    /// Les lignes d'une régularisation (décision du 02/11, BI5) : les charges (quote-part), puis ce qui s'en déduit. La
+    /// première est posée depuis le solde, pour que la somme redonne exactement le solde HT du PDF.
+    public static List<KeyValuePair<string, float>> LignesRegul(FacturePdfService.RegulData d)
+    {
+        var l = new List<KeyValuePair<string, float>>
+            { new KeyValuePair<string, float>(Libelle(null, d.subtitle) + " : charges (quote-part)", d.soldeHT + d.provisions + d.dejaRefacture) };
+        if (Math.Abs(d.dejaRefacture) > 0.004f) l.Add(new KeyValuePair<string, float>("Charges déjà refacturées à part", -d.dejaRefacture));
+        if (Math.Abs(d.provisions) > 0.004f) l.Add(new KeyValuePair<string, float>("Provisions déjà versées", -d.provisions));
+        return l;
+    }
+
+    /// Mentions de retard (règle BR-FR-05) : la phrase des Réglages, sinon les phrases de repli, les mêmes dans le XML et sur le
+    /// PDF (revue 16c, D5-17 : le PDF restait muet quand la phrase était vide).
+    public const string PenalitesDefaut = "En cas de retard de paiement, des pénalités au taux égal à trois fois le taux d'intérêt légal sont exigibles.";
+    public const string IndemniteDefaut = "Indemnité forfaitaire pour frais de recouvrement en cas de retard de paiement : 40 €.";
+    public static string MentionsRetard(string saisie) => !string.IsNullOrWhiteSpace(saisie) ? saisie.Trim() : PenalitesDefaut + " " + IndemniteDefaut;
+
     public static string Json(Entree e)
     {
         var lignes = e.lignes.Select(x => (nom: x.Key, ht: Arrondi(x.Value))).ToList();
         decimal totalHT = lignes.Sum(x => x.ht);
+        // Avoir (décision du 02/11, BI5) : un total négatif n'est pas une facture mais un avoir (381), aux montants positifs :
+        // chaque ligne change de signe (les charges d'une régul qui rembourse passent en quantité −1), les totaux aussi.
+        bool avoir = totalHT < 0m;
+        if (avoir) { lignes = lignes.Select(x => (x.nom, -x.ht)).ToList(); totalHT = -totalHT; }
         decimal taux = Arrondi(e.tauxTva);
         decimal tva = Math.Round(totalHT * taux / 100m, 2, MidpointRounding.AwayFromZero);
         decimal ttc = totalHT + tva;
@@ -47,16 +72,29 @@ public static class FactureEn16931
         // Correction d'une facture déjà transmise : facture rectificative (384), qui annule et remplace la
         // précédente en citant son numéro et sa date tels que la plateforme les a reçus (décision du 31/10). Sans
         // son type : le Factur-X EN 16931 le refuse (31/10, « Element 'ram:TypeCode' is marked as not used »).
-        bool rectificative = !string.IsNullOrEmpty(e.precedentNumero);
+        // Factures citées (BT-25, BT-26) : la précédente transmise d'une correction ; pour un avoir, aussi celles qu'il corrige
+        // (BR-FR-CO-05 : le bac à sable a refusé, le 02/11, un avoir sans référence). Un avoir sans rien à citer ne part pas.
+        var refs = new List<KeyValuePair<string, string>>();
+        if (!string.IsNullOrEmpty(e.precedentNumero)) refs.Add(new KeyValuePair<string, string>(e.precedentNumero, e.precedentDateISO));
+        if (avoir)
+            foreach (var r in e.references ?? new List<KeyValuePair<string, string>>())
+                if (!string.IsNullOrEmpty(r.Key) && refs.All(x => x.Key != r.Key)) refs.Add(r);
+        if (avoir && refs.Count == 0) throw new InvalidOperationException(AvoirSansReference);
+        bool rectificative = !avoir && refs.Count > 0;
         var j = new StringBuilder("{");
         Champ(j, "number", Numero(e.numero));
         Champ(j, "issue_date", e.dateISO);
-        j.Append("\"type_code\":").Append(rectificative ? "384" : "380").Append(',');
-        if (rectificative)
+        j.Append("\"type_code\":").Append(avoir ? "381" : rectificative ? "384" : "380").Append(',');
+        if (refs.Count > 0)
         {
-            j.Append("\"preceding_invoice_references\":[{\"reference\":").Append(Q(e.precedentNumero));
-            if (!string.IsNullOrEmpty(e.precedentDateISO)) j.Append(",\"issue_date\":").Append(Q(e.precedentDateISO));
-            j.Append("}],");
+            j.Append("\"preceding_invoice_references\":[");
+            for (int i = 0; i < refs.Count; i++)
+            {
+                j.Append(i > 0 ? ",{" : "{").Append("\"reference\":").Append(Q(refs[i].Key));
+                if (!string.IsNullOrEmpty(refs[i].Value)) j.Append(",\"issue_date\":").Append(Q(refs[i].Value));
+                j.Append('}');
+            }
+            j.Append("],");
         }
         Champ(j, "currency_code", "EUR");
         // BR-FR-CO-07 : l'échéance (BT-9) ne précède pas la date de facture (30/10 : loyer de février corrigé en
@@ -70,15 +108,14 @@ public static class FactureEn16931
         j.Append("\"process_control\":{\"specification_identifier\":\"urn:cen.eu:en16931:2017\",\"business_process_type\":\"S1\"},");
         // Mentions obligatoires en France (règle BR-FR-05, constaté le 30/10) : pénalités de retard (PMD), indemnité
         // forfaitaire de recouvrement (PMT), escompte (AAB) ; puis la mention TVA imprimée.
-        string pmd = !string.IsNullOrWhiteSpace(e.penalites) ? e.penalites.Trim()
-            : "En cas de retard de paiement, des pénalités au taux égal à trois fois le taux d'intérêt légal sont exigibles.";
+        string pmd = !string.IsNullOrWhiteSpace(e.penalites) ? e.penalites.Trim() : PenalitesDefaut;
         j.Append("\"notes\":[");
         j.Append("{\"note\":").Append(Q(pmd)).Append(",\"subject_code\":\"PMD\"},");
-        j.Append("{\"note\":").Append(Q("Indemnité forfaitaire pour frais de recouvrement en cas de retard de paiement : 40 €.")).Append(",\"subject_code\":\"PMT\"},");
+        j.Append("{\"note\":").Append(Q(IndemniteDefaut)).Append(",\"subject_code\":\"PMT\"},");
         j.Append("{\"note\":").Append(Q("Pas d'escompte pour paiement anticipé.")).Append(",\"subject_code\":\"AAB\"}");
         if (!string.IsNullOrWhiteSpace(e.mention)) j.Append(",{\"note\":").Append(Q(e.mention)).Append('}');
         j.Append("],");
-        j.Append("\"seller\":").Append(Partie(e.vendeurNom, e.vendeurSiren, null)).Append(',');
+        j.Append("\"seller\":").Append(Partie(e.vendeurNom, e.vendeurSiren, null, vendeur: true)).Append(',');
         j.Append("\"buyer\":").Append(Partie(e.acheteurNom, e.acheteurSiren, e.acheteurAdresse, e.acheteurSiret)).Append(',');
         j.Append("\"totals\":{");
         Champ(j, "sum_invoice_lines_amount", M(totalHT));
@@ -99,10 +136,13 @@ public static class FactureEn16931
             if (i > 0) j.Append(',');
             j.Append('{');
             Champ(j, "identifier", (i + 1).ToString(CultureInfo.InvariantCulture));
+            // Revue 16c (D5-16, décision du 02/11) : une ligne négative (provision en déduction, avoir sur la période) s'écrit en
+            // quantité −1 et prix positif : le prix unitaire ne peut pas être négatif (règle BR-27), la quantité si.
+            bool negative = lignes[i].ht < 0m;
             Champ(j, "net_amount", M(lignes[i].ht));
-            Champ(j, "invoiced_quantity", "1");
+            Champ(j, "invoiced_quantity", negative ? "-1" : "1");
             Champ(j, "invoiced_quantity_code", "C62");   // unité (UN/ECE 20)
-            j.Append("\"price_details\":{\"item_net_price\":").Append(Q(M(lignes[i].ht))).Append("},");
+            j.Append("\"price_details\":{\"item_net_price\":").Append(Q(M(Math.Abs(lignes[i].ht)))).Append("},");
             j.Append("\"vat_information\":{\"invoiced_item_vat_category_code\":\"S\",\"invoiced_item_vat_rate\":").Append(Q(M(taux))).Append("},");
             j.Append("\"item_information\":{\"name\":").Append(Q(lignes[i].nom)).Append("}}");
         }
@@ -113,7 +153,7 @@ public static class FactureEn16931
     /// Vendeur ou acheteur : nom, SIREN (schéma 0002), n° de TVA, adresse, adresse de facturation électronique
     /// (schéma 0225 : le SIRET de l'établissement quand il est connu, sinon le SIREN ; l'annuaire de l'État relie
     /// l'un ou l'autre à sa plateforme — revue 16c, D5-13 : le serveur préfère l'entrée du SIRET).
-    static string Partie(string nom, string siren, string adresse, string siret = null)
+    static string Partie(string nom, string siren, string adresse, string siret = null, bool vendeur = false)
     {
         var (ligne, cp, ville) = Adresse(adresse);
         var j = new StringBuilder("{");
@@ -121,7 +161,7 @@ public static class FactureEn16931
         if (siren != null && siren.Length == 9)
         {
             j.Append("\"legal_registration_identifier\":{\"value\":").Append(Q(siren)).Append(",\"scheme\":\"0002\"},");
-            Champ(j, "vat_identifier", TvaIntra(siren));
+            if (vendeur) Champ(j, "vat_identifier", TvaIntra(siren));   // revue 16c (D5-19) : BT-48 facultatif ; l'acheteur n'a pas forcément de n° intracommunautaire
             string adresseElectronique = siret != null && siret.Length == 14 && siret.StartsWith(siren) ? siret : siren;
             j.Append("\"electronic_address\":{\"value\":").Append(Q(adresseElectronique)).Append(",\"scheme\":\"0225\"},");
         }

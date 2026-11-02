@@ -74,6 +74,7 @@ public class RevisionPanel : MonoBehaviour
     // Largeur de la fenêtre : d'origine pour Initialiser, élargie pour la révision.
     const float LargeurFormulaire = 560f, LargeurRevision = 900f;
     LayoutElement _leFenetre, _leTitre;
+    ScrollRect _scroll; LayoutElement _leScroll; RectTransform _fenetre;   // BI2 (02/11) : corps défilant, fenêtre plafonnée à l'écran
 
     // ── Champs facturation ajoutés par code (jour de demande, mois, régularisation) ──
     TMP_InputField _jourDemande, _dEnvoi, _dImpaye, _dAutres;
@@ -140,6 +141,7 @@ public class RevisionPanel : MonoBehaviour
 
         // Champs facturation (jour de demande, mois facturés, date de régularisation)
         EnsureExtraBuilt();
+        if (_scroll != null) _scroll.verticalNormalizedPosition = 1f;   // BI2 (02/11) : la fenêtre s'ouvre en haut de son contenu
         _jourDemande.text = loc.jourDemandeLoyer > 0 ? loc.jourDemandeLoyer.ToString() : "";
         if (_delaisToggle != null)
         {
@@ -964,6 +966,51 @@ public class RevisionPanel : MonoBehaviour
 
         // En dernier : les clones ci-dessus partent des blocs d'origine, hors des lignes.
         LignesCompactes(content);
+        EnvelopperDansScroll((RectTransform)content);
+    }
+
+    // ── Fenêtre plafonnée à l'écran (BI2, 02/11) ──────────────────────────────
+    // Les champs ajoutés (délais propres, listes de charges) ont porté « Initialiser » à 1 519 px pour un écran de
+    // 1 080 : le bas (Enregistrer) n'était plus atteignable. Le corps défile dans la fenêtre, qui ne dépasse plus
+    // l'écran et se centre. Même montage que ChargePanel.MakeScroll ; comme là-bas, un menu déroulant ouvert tout
+    // en bas est rogné par le masque.
+    const float MargeEcran = 24f;
+
+    void EnvelopperDansScroll(RectTransform corps)
+    {
+        _fenetre = (RectTransform)corps.parent;
+        var srGO = UIFactory.Rect("Scroll", _fenetre);
+        srGO.SetSiblingIndex(corps.GetSiblingIndex());
+        _scroll = srGO.gameObject.AddComponent<ScrollRect>();
+        _scroll.horizontal = false; _scroll.vertical = true; _scroll.scrollSensitivity = 32;
+        _scroll.movementType = ScrollRect.MovementType.Clamped;
+        _leScroll = UIFactory.LE(srGO.gameObject, flexH: 1);
+        var viewport = UIFactory.Rect("Viewport", srGO);
+        UIFactory.Stretch(viewport);
+        viewport.gameObject.AddComponent<RectMask2D>();
+        viewport.gameObject.AddComponent<Image>().color = Color.clear;   // la molette prend aussi dans les vides
+        corps.SetParent(viewport, false);
+        corps.anchorMin = new Vector2(0, 1); corps.anchorMax = new Vector2(1, 1); corps.pivot = new Vector2(.5f, 1);
+        corps.offsetMin = Vector2.zero; corps.offsetMax = Vector2.zero;
+        var csf = corps.gameObject.AddComponent<ContentSizeFitter>();
+        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+        _scroll.viewport = viewport; _scroll.content = corps;
+        LayoutRebuilder.ForceRebuildLayoutImmediate(corps);
+        PlafonnerHauteur();
+    }
+
+    void LateUpdate() { if (_leScroll != null) PlafonnerHauteur(); }
+
+    // Le panneau (parent de la fenêtre) couvre l'écran : sa hauteur est celle de l'écran.
+    void PlafonnerHauteur()
+    {
+        var ecran = (RectTransform)transform;
+        float titre = _leTitre != null ? LayoutUtility.GetPreferredHeight((RectTransform)_leTitre.transform) : 0f;
+        float h = Mathf.Min(LayoutUtility.GetPreferredHeight(_scroll.content), ecran.rect.height - 2 * MargeEcran - titre);
+        if (!Mathf.Approximately(_leScroll.preferredHeight, h)) _leScroll.preferredHeight = h;
+        float y = -ecran.rect.height / 2f;   // centrée : la scène la posait à une hauteur fixe, pensée pour un contenu court
+        if (!Mathf.Approximately(_fenetre.anchoredPosition.y, y)) _fenetre.anchoredPosition = new Vector2(_fenetre.anchoredPosition.x, y);
     }
 
     // Mois visibles seulement dans le volet Initialiser, hors mensuel ;

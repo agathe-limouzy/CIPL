@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -340,7 +341,10 @@ public class LocataireSuiviInline : MonoBehaviour
             var row = Ligne(prefab, cv.transform);
             var affiche = FacturationSuivi.EtatAffiche(_loc, l);   // « Partiel » : réglée en partie (08/10)
             // Étape 18b : où en est la facture électronique (Plateforme, À renvoyer, Encaissée déclarée…).
-            string pastille = FactureElectronique.Pastille(l);
+            // BI8 (02/11) : une régul regroupée a plusieurs lignes pour UNE facture ; la facture électronique est portée par l'une
+            // d'elles (même PDF), les autres reprennent sa pastille.
+            string pastille = FactureElectronique.Pastille(l)
+                ?? FacturationSuivi.MemeFacture(_loc, l.key).Select(FactureElectronique.Pastille).FirstOrDefault(p => p != null);
             string libelle = pastille == null ? Libelle(l) : $"{Libelle(l)}  <size=80%><color=#16697A>· {pastille}</color></size>";
             row.Setup(libelle, Ech(l.echeanceISO), MontantLigne(l, etat), couleurs,
                 FacturationSuivi.EtatLibelle(affiche), EtatBg(affiche), EtatFg(affiche),
@@ -504,7 +508,8 @@ public class LocataireSuiviInline : MonoBehaviour
             : l.libelle;
     }
 
-    static string Montant(float v) => v > 0f ? v.ToString("#,##0.00", Fr) + " €" : "—";
+    // BI8 (02/11) : un avoir (montant négatif) s'affiche avec son signe ; « — » seulement sans montant.
+    static string Montant(float v) => Math.Abs(v) > 0.004f ? v.ToString("#,##0.00", Fr) + " €" : "—";
 
     // Réglée en partie (08/10) : « reste 200,00 € », puis « sur 1 000,00 € » en petit — sur
     // une seule ligne, le texte (209 px) débordait la colonne de 140 ; deux lignes tiennent

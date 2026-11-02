@@ -53,8 +53,10 @@ public class FactureEnvoiAuto : MonoBehaviour
         // La date d'envoi, c'est l'échéance moins le délai d'envoi — la même règle que
         // l'alerte URGENT. Une facture en retard part aussi : ne pas rattraper serait
         // le pire des deux mondes, ni rappel ni envoi.
-        if (!FacturationSuivi.TryEcheance(rec.echeanceISO, out var ech)) return false;
-        if (aujourdhui.Date < ech.AddDays(-FacturationSuivi.EnvoiAvant(loc)).Date) return false;
+        // Revue 16c (D4-07) : la règle écrite et testée (PeutPartir) : seul le loyer attend sa date d'envoi ; une régularisation,
+        // une refacturation ou un dépôt partent dès qu'ils sont prêts. Une échéance illisible retient toujours (elle serait fausse).
+        if (!FacturationSuivi.TryEcheance(rec.echeanceISO, out _)) return false;
+        if (!FacturationSuivi.PeutPartir(rec.type, rec.echeanceISO, aujourdhui, loc)) return false;
 
         pdfAbsolu = FacturationSuivi.CheminPdf(rec, nomBatiment, loc.Name);
         if (string.IsNullOrEmpty(pdfAbsolu) || !(pdfExiste?.Invoke(pdfAbsolu) ?? false)) return false;
@@ -226,8 +228,10 @@ public class FactureEnvoiAuto : MonoBehaviour
                         raisons.Add($"{quoi} : PDF introuvable");
                     else if (string.IsNullOrWhiteSpace(Destinataire(loc, rec.type)))
                         raisons.Add($"{quoi} : aucune adresse email");
-                    else
+                    else if (!FacturationSuivi.TryEcheance(rec.echeanceISO, out _))
                         raisons.Add($"{quoi} : échéance illisible « {rec.echeanceISO} »");
+                    else
+                        raisons.Add($"{quoi} : prête, mais refusée par la plateforme (à corriger depuis le suivi)");   // D4-07
                 }
             }
         }
@@ -539,7 +543,7 @@ public class FactureEnvoiAuto : MonoBehaviour
     {
         // Montant du DOCUMENT : une régularisation regroupée le répartit sur ses lignes.
         float ttc = FacturationSuivi.MemeFacture(loc, rec.key).DefaultIfEmpty(rec).Sum(r => r.montant);
-        float ht = ttc / 1.2f;
+        float ht = rec.type == "Depot" ? ttc : ttc / 1.2f;   // revue 16c (D4-11) : un dépôt de garantie n'a pas de TVA
         return new FactureContext
         {
             date = DateTime.Today,

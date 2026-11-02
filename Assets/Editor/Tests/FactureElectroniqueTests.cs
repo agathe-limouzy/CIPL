@@ -71,7 +71,8 @@ public class FactureElectroniqueTests
             + "\"total_vat_amount\":{\"value\":\"220.00\",\"currency_code\":\"EUR\"},\"total_with_vat\":\"1320.00\",\"amount_due_for_payment\":\"1320.00\"", j);
         StringAssert.Contains("\"vat_category_taxable_amount\":\"1100.00\",\"vat_category_tax_amount\":\"220.00\"", j);
         StringAssert.Contains("\"name\":\"Danone \\\"SA\\\"\"", j);
-        StringAssert.Contains("\"vat_identifier\":\"FR27552032534\"", j);
+        Assert.That(j, Does.Not.Contain("\"vat_identifier\":\"FR27552032534\""), "revue 16c D5-19 : aucun n° de TVA affirmé pour l'acheteur (BT-48 facultatif)");
+        StringAssert.Contains("\"vat_identifier\":\"FR56843965716\"", j, "le vendeur garde le sien");
         StringAssert.Contains("\"electronic_address\":{\"value\":\"552032534\",\"scheme\":\"0225\"}", j);
         StringAssert.Contains("\"post_code\":\"75009\",\"city\":\"Paris\",\"country_code\":\"FR\"", j);
         foreach (var code in new[] { "PMD", "PMT", "AAB" })
@@ -109,6 +110,76 @@ public class FactureElectroniqueTests
         string passee = FactureEn16931.Json(e);
         StringAssert.DoesNotContain("payment_due_date", passee, "BR-FR-CO-07 : échéance passée");
         StringAssert.Contains("\"payment_terms\":\"Loyer exigible le 1er février 2026.\"", passee);
+    }
+
+    [Test]
+    public void L_avoir_au_format_EN_16931()
+    {
+        // Décision du 02/11 (BI5) : un total négatif (régul qui rembourse) part en avoir (381) aux montants positifs, lignes inversées.
+        var e = new FactureEn16931.Entree
+        {
+            numero = "R-2026-001", dateISO = "2026-11-02", echeanceISO = "2026-11-12",
+            vendeurNom = "SCI JBC", vendeurSiren = "843965716", acheteurNom = "Danone", acheteurSiren = "552032534",
+        };
+        e.lignes.Add(new System.Collections.Generic.KeyValuePair<string, float>("Régularisation des charges 2026 : charges (quote-part)", 552f));
+        e.lignes.Add(new System.Collections.Generic.KeyValuePair<string, float>("Provisions déjà versées", -800f));
+        // Règle BR-FR-CO-05 (refus du bac à sable le 02/11) : un avoir cite au moins une facture antérieure, sinon il ne part pas.
+        Assert.Throws<System.InvalidOperationException>(() => FactureEn16931.Json(e), "avoir sans référence");
+        e.references.Add(new System.Collections.Generic.KeyValuePair<string, string>("L-2026-003", "2026-07-01"));
+        e.references.Add(new System.Collections.Generic.KeyValuePair<string, string>("L-2026-004", "2026-10-01"));
+        string j = FactureEn16931.Json(e);
+        StringAssert.StartsWith("{\"number\":\"R-2026-001\",\"issue_date\":\"2026-11-02\",\"type_code\":381,"
+            + "\"preceding_invoice_references\":[{\"reference\":\"L-2026-003\",\"issue_date\":\"2026-07-01\"},{\"reference\":\"L-2026-004\",\"issue_date\":\"2026-10-01\"}],", j);
+        StringAssert.Contains("\"sum_invoice_lines_amount\":\"248.00\",\"total_without_vat\":\"248.00\","
+            + "\"total_vat_amount\":{\"value\":\"49.60\",\"currency_code\":\"EUR\"},\"total_with_vat\":\"297.60\",\"amount_due_for_payment\":\"297.60\"", j);
+        StringAssert.Contains("\"net_amount\":\"800.00\",\"invoiced_quantity\":\"1\"", j, "les provisions rendues");
+        StringAssert.Contains("\"net_amount\":\"-552.00\",\"invoiced_quantity\":\"-1\"", j, "les charges, en déduction de l'avoir");
+        StringAssert.Contains("\"item_net_price\":\"552.00\"", j, "BR-27 : prix positif");
+        StringAssert.DoesNotContain("-800.00", j);
+
+        // Correction transmise qui rembourse : un avoir qui cite la facture remplacée.
+        e.precedentNumero = "R-2026-000"; e.precedentDateISO = "2026-10-01";
+        StringAssert.Contains("\"type_code\":381,\"preceding_invoice_references\":[{\"reference\":\"R-2026-000\",\"issue_date\":\"2026-10-01\"},{\"reference\":\"L-2026-003\"", FactureEn16931.Json(e));
+        // Un total positif reste une facture, et ne cite rien (les références ne servent qu'à l'avoir).
+        e.precedentNumero = null; e.lignes[1] = new System.Collections.Generic.KeyValuePair<string, float>("Provisions déjà versées", -300f);
+        string positif = FactureEn16931.Json(e);
+        StringAssert.Contains("\"type_code\":380,", positif);
+        StringAssert.DoesNotContain("preceding_invoice_references", positif);
+
+        // Ce qu'un avoir cite : la version précédente s'il corrige, sinon les loyers de l'année (régul) ou l'origine (refac).
+        var loc = new Locataire();
+        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2026-P3", type = "Loyer", numero = "2026/10001", dateEnvoiISO = "2026-07-01" });
+        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2026-P4", type = "Loyer", numero = "2026/10002 corrigée(1)", dateEnvoiISO = "2026-10-02" });
+        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2025-P4", type = "Loyer", numero = "2025/10009", dateEnvoiISO = "2025-10-01" });
+        loc.facturesEtat.Add(new FactureEtat { key = "refac-a", type = "Refac", numero = "2026/10005", dateEnvoiISO = "2026-09-01" });
+        var regul = FactureElectronique.ReferencesAvoir(loc, null, 2026);
+        Assert.That(regul.Select(x => x.Key), Is.EqualTo(new[] { "2026/10001", "2026/10002-corrigee-1" }), "les loyers de l'année, numéros au format BR-FR-02");
+        Assert.That(regul[1].Value, Is.EqualTo("2026-10-02"));
+        var avant = new FactureEtat { key = "regul-2026", numero = "2026/11001 corrigée(2)", dateEnvoiISO = "2026-11-02" };
+        Assert.That(FactureElectronique.ReferencesAvoir(loc, avant, 2026).Select(x => x.Key), Is.EqualTo(new[] { "2026/11001-corrigee-2" }), "correction : la version précédente seule");
+        var refac = FactureElectronique.ReferencesAvoir(loc, null, 2026, "2026/10005");
+        Assert.That(refac.Select(x => x.Key), Is.EqualTo(new[] { "2026/10005", "2026/10001", "2026/10002-corrigee-1" }), "avoir sur refacturation : l'origine, puis les loyers de l'année");
+        Assert.That(refac[0].Value, Is.EqualTo("2026-09-01"));
+        Assert.That(FactureElectronique.ReferencesAvoir(loc, null, 2027), Is.Empty, "rien à citer : le formulaire refuse");
+        Assert.That(FactureElectronique.ReferencesAvoir(loc, new FactureEtat { key = "loyer-2026-P1" }, 2026).Count, Is.EqualTo(2),
+            "première émission d'un loyer négatif : les autres loyers de l'année (leurs provisions)");
+        Assert.That(FactureElectronique.AnneeDeCle("loyer-2026-P4"), Is.EqualTo(2026));
+        Assert.That(FactureElectronique.AnneeDeCle("regul-2026-ae59605ce31d4d8cb21669207271f38e"), Is.EqualTo(2026));
+        Assert.That(FactureElectronique.AnneeDeCle("refac-eef9ad8d"), Is.EqualTo(0));
+        Assert.That(FactureElectronique.Annee("2026-10-15"), Is.EqualTo(2026));
+        StringAssert.Contains("BR-FR-CO-05", FactureElectronique.RefusAvoir("Loyer T4 2026", "Corrigez plutôt."));
+
+        // Les lignes d'une régularisation : leur somme redonne le solde HT du PDF, quoi qu'il arrive.
+        var d = new FacturePdfService.RegulData { subtitle = "Régularisation des charges 2026", totalCharges = 552f, provisions = 800f, soldeHT = -248f };
+        var l = FactureEn16931.LignesRegul(d);
+        Assert.That(l.Count, Is.EqualTo(2));
+        Assert.That(l[0].Key, Is.EqualTo("Régularisation des charges 2026 : charges (quote-part)"));
+        Assert.That(l[0].Value, Is.EqualTo(552f).Within(0.001f));
+        Assert.That(l.Sum(x => x.Value), Is.EqualTo(-248f).Within(0.001f));
+        d.dejaRefacture = 100f; d.soldeHT = -348f;
+        Assert.That(FactureEn16931.LignesRegul(d).Sum(x => x.Value), Is.EqualTo(-348f).Within(0.001f), "déjà refacturé déduit");
+        Assert.That(FactureEn16931.LignesRegul(new FacturePdfService.RegulData { subtitle = "Régularisation des charges 2026", soldeHT = 252f }).Count,
+                    Is.EqualTo(1), "sans provision ni déjà refacturé : la seule ligne des charges");
     }
 
     [Test]

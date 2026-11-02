@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
       .then((x) => x.json()).catch(() => ({}));
     const { error } = await service.from("plateformes").upsert({
       entreprise_id: demande.entreprise_id, fournisseur: "superpdp",
-      societe: String(s.company_id ?? s.company?.id ?? ""), statut: String(s.company_verification_status ?? ""),
+      statut: String(s.company_verification_status ?? ""),   // revue 16c, D5-18 : « societe » n'est pas fourni par /oauth2_sessions/me : plus écrit (colonne gardée, vide)
       refresh_token: d.refresh_token, access_token: d.access_token,
       expire_le: new Date(Date.now() + (d.expires_in ?? 3600) * 1000).toISOString(), maj_le: new Date().toISOString(),
     });

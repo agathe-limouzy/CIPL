@@ -109,7 +109,7 @@ public static class ExplicationDepot
     {
         if (string.IsNullOrWhiteSpace(modele)) return "";
 
-        string texte = FactureVarResolver.Resolve(modele, loc, bat, default);
+        string texte = FactureVarResolver.Resolve(modele, loc, bat, default, H);   // revue 16c (D6-09) : valeurs échappées, comme promis
 
         return texte
             .Replace("{depot.termes}",  H($"{EnLettres(nbTermes)} terme{(nbTermes > 1 ? "s" : "")}"))

@@ -195,7 +195,23 @@ public class Revue16cTests
         StringAssert.Contains("indisponible: true", Serveur("fonctions", "facture-electronique.ts"));
         var r = JsonUtility.FromJson<FactureElectronique.Reponse>("{\"ok\":true,\"relie\":true,\"statut\":\"verified\",\"indisponible\":true}");
         Assert.That(r.ok && r.relie && r.indisponible && r.statut == "verified");
-        StringAssert.Contains("FactureElectronique.EtatInconnu ?", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", "FactureLoyerPanel.cs")));
+        // 02/11 (BI5) : la ligne « Envoi : … » est partagée par les trois formulaires (FactureElectronique.LibelleEnvoi).
+        StringAssert.Contains(": EtatInconnu ?", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", "FactureElectronique.cs")));
+        foreach (var panneau in new[] { "FactureLoyerPanel", "FactureRegulPanel", "FactureRefacPanel" })
+            StringAssert.Contains("FactureElectronique.LibelleEnvoi(", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", panneau + ".cs")), panneau);
+    }
+
+    [Test]
+    public void BI8_un_avoir_part_par_la_plateforme_et_s_affiche()
+    {
+        // 02/11 : la régul corrigée en avoir (TVA −49,60) restait par e-mail (« tva > 0 ») et le suivi affichait « — » pour son montant.
+        StringAssert.Contains("Math.Abs(tva) > 0.005f", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", "FactureElectronique.cs")));
+        StringAssert.Contains("Math.Abs(v) > 0.004f ? v.ToString", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", "LocataireSuiviInline.cs")));
+        // Retours du 02/11 : la pastille sur toutes les lignes d'une régul regroupée ; un loyer de 0 € refusé, plateforme ou non.
+        StringAssert.Contains("MemeFacture(_loc, l.key).Select(FactureElectronique.Pastille)", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", "LocataireSuiviInline.cs")));
+        string loyer = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", "FactureLoyerPanel.cs"));
+        StringAssert.Contains("if (Math.Abs(d.ttc) <= 0.004f)", loyer);
+        StringAssert.DoesNotContain("parPlateforme && Math.Abs(d.ttc)", loyer);
     }
 
     [Test]
@@ -795,6 +811,108 @@ public class Revue16cTests
         StringAssert.Contains("stripe.customers.update(", abo, "D3-11");
         Assert.That(abo, Does.Not.Contain(".from(\"groupes\").update({ licences_max"), "D3-15");
         StringAssert.Contains("/auth/v1/logout", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Cloud", "CloudClient.cs")), "D3-13");
+    }
+
+    // ── Mineurs, lot 6 (facturation), 02/11 ─────────────────────────────────────────────────────────────
+
+    [Test]
+    public void Mineurs_D4_07_une_refacturation_en_attente_part_sans_attendre_J_moins_15()
+    {
+        var loc = new Locataire { Name = "Dupont", emailLocataire = "locataire@exemple.fr" };
+        string dans30j = System.DateTime.Today.AddDays(30).ToString("yyyy-MM-dd");
+        var refac = new FactureEtat { key = "refac-x", type = "Refac", libelle = "Refacturation : Jardin", statut = "AttenteEnvoi", echeanceISO = dans30j, montant = 120f, pdfPath = "Batiment/Test/Dupont/Factures/refac.pdf" };
+        Assert.That(FactureEnvoiAuto.DoitPartir("Test", loc, refac, System.DateTime.Today, _ => true, out _, out _), Is.True, "pas de date d'envoi pour une refacturation");
+        var loyer = new FactureEtat { key = "loyer-2026-P9", type = "Loyer", libelle = "Loyer", statut = "AttenteEnvoi", echeanceISO = dans30j, montant = 1000f, pdfPath = "Batiment/Test/Dupont/Factures/loyer.pdf" };
+        Assert.That(FactureEnvoiAuto.DoitPartir("Test", loc, loyer, System.DateTime.Today, _ => true, out _, out _), Is.False, "un loyer attend sa date d'envoi");
+        refac.echeanceISO = "";
+        Assert.That(FactureEnvoiAuto.DoitPartir("Test", loc, refac, System.DateTime.Today, _ => true, out _, out _), Is.False, "échéance illisible : retenue");
+    }
+
+    [Test]
+    public void Mineurs_D4_08_les_parts_par_liste_suivent_les_periodes_facturees()
+    {
+        var listes = new List<string> { "generale", "tf" };
+        System.Func<string, float> charges = id => id == "tf" ? 800f : 2000f, provision = id => id == "tf" ? 300f : 0f;
+        var parts = FactureRegulPanel.MontantsParListe(listes, charges, provision, 2, 1000f);
+        Assert.That(parts["tf"], Is.EqualTo(240f).Within(0.01f), "départ en cours d'année : 800 − 2 × 300 = 200 HT, 240 TTC");
+        Assert.That(parts["generale"] + parts["tf"], Is.EqualTo(1000f).Within(0.01f), "la somme des lignes redonne le total");
+        Assert.That(FactureRegulPanel.MontantsParListe(listes, charges, provision, 4, 1000f)["tf"], Is.EqualTo(-480f).Within(0.01f), "année pleine : quatre provisions déduites");
+    }
+
+    [Test]
+    public void Mineurs_D4_09_mode_d_envoi_par_defaut_et_message()
+    {
+        Assert.That(new ReglageData().modeEnvoi, Is.EqualTo(ModeEnvoi.Email), "une entreprise neuve envoie par e-mail (décision du 02/11)");
+        StringAssert.Contains("Réglages › Intégrations", FactureEmission.SansEmail);
+        foreach (var p in new[] { "FactureRegulPanel", "FactureRefacPanel", "FactureDepotPanel" })
+            Assert.That(File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", p + ".cs")), Does.Not.Contain("est décochée (Options & envoi)"), p);
+    }
+
+    [Test]
+    public void Mineurs_D4_10_le_rappel_part_vers_le_destinataire_de_la_facture()
+    {
+        var loc = new Locataire { Name = "Dupont", emailLocataire = "gerant@locataire.fr", factureLoyer = new FactureInfo { emailDest = "compta@locataire.fr" } };
+        var l = new FactureEtat { key = "loyer-2026-P1", type = "Loyer" };
+        Assert.That(FactureRappelService.Adresse(loc, l), Is.EqualTo("compta@locataire.fr"));
+        loc.factureLoyer.emailDest = "";
+        Assert.That(FactureRappelService.Adresse(loc, l), Is.EqualTo("gerant@locataire.fr"));
+    }
+
+    [Test]
+    public void Mineurs_D4_11_le_contexte_d_un_depot_n_invente_pas_de_TVA()
+    {
+        var depot = new FactureEtat { key = "depot-2026", type = "Depot", libelle = "Dépôt de garantie", montant = 3000f, statut = "Envoye" };
+        var loyer = new FactureEtat { key = "loyer-2026-P1", type = "Loyer", libelle = "Loyer", montant = 1200f, statut = "Envoye" };
+        var loc = new Locataire { Name = "Dupont", facturesEtat = new List<FactureEtat> { depot, loyer } };
+        var ctx = FactureEnvoiAuto.Contexte(loc, depot);
+        Assert.That(ctx.tva, Is.EqualTo(0f).Within(0.001f));
+        Assert.That(ctx.loyerHT, Is.EqualTo(3000f).Within(0.001f));
+        Assert.That(FactureEnvoiAuto.Contexte(loc, loyer).tva, Is.EqualTo(200f).Within(0.01f));
+    }
+
+    [Test]
+    public void Mineurs_D5_14_la_phrase_du_resume_dit_le_vrai_refus()
+    {
+        StringAssert.Contains("injoignable", FactureElectronique.Phrase(new FactureElectronique.Reponse { refus = "indisponible" }));
+        StringAssert.Contains("injoignable", FactureElectronique.Phrase(new FactureElectronique.Reponse { refus = "serveur", erreur = "HTTP 500" }));
+        StringAssert.Contains("autorisation", FactureElectronique.Phrase(new FactureElectronique.Reponse { refus = "retire" }));
+        StringAssert.Contains("SIRET", FactureElectronique.Phrase(new FactureElectronique.Reponse { refus = "siren" }));
+    }
+
+    [Test]
+    public void Mineurs_D5_16_17_18_19_ligne_negative_mentions_de_repli_vendeur_seul_avec_TVA()
+    {
+        var e = new FactureEn16931.Entree
+        {
+            numero = "F-2026-010", dateISO = "2026-11-02", echeanceISO = "2026-12-01",
+            vendeurNom = "SCI JBC", vendeurSiren = "843965716",
+            acheteurNom = "Danone", acheteurSiren = "552032534", acheteurAdresse = "17 boulevard Haussmann 75009 Paris",
+        };
+        e.lignes.Add(new KeyValuePair<string, float>("Loyer", 1000f));
+        e.lignes.Add(new KeyValuePair<string, float>("Régularisation de provision", -50f));
+        string j = FactureEn16931.Json(e);
+        StringAssert.Contains("\"net_amount\":\"-50.00\",\"invoiced_quantity\":\"-1\"", j, "D5-16 : la quantité porte le signe");
+        StringAssert.Contains("\"item_net_price\":\"50.00\"", j, "D5-16 : le prix unitaire reste positif (BR-27)");
+        StringAssert.Contains("\"sum_invoice_lines_amount\":\"950.00\"", j);
+        Assert.That(System.Text.RegularExpressions.Regex.Matches(j, "vat_identifier").Count, Is.EqualTo(1), "D5-19 : le vendeur seul");
+        StringAssert.Contains(FactureEn16931.PenalitesDefaut, j, "D5-17 : phrase de repli dans le XML");
+        Assert.That(FactureEn16931.MentionsRetard(""), Does.Contain("40 €").And.Contain("pénalités"), "D5-17 : le PDF reprend les deux mentions");
+        Assert.That(FactureEn16931.MentionsRetard(" Ma phrase. "), Is.EqualTo("Ma phrase."));
+        Assert.That(Serveur("fonctions", "facture-electronique-retour.ts"), Does.Not.Contain("societe:"), "D5-18");
+    }
+
+    [Test]
+    public void Mineurs_D6_09_les_valeurs_substituees_dans_l_explication_du_depot_sont_echappees()
+    {
+        var loc = new Locataire
+        {
+            Name = "Dupont & Fils <SARL>", loyerAnnuelPrecedent = 55800f, loyerAnnuel = 57490.78f,
+            indiceImmoAuDepart = "133.66  (2023-T3)", indiceImmoActuel = "137.71  (2024-T3)", trimestreDeRevision = "2023-T3", depotSurTTC = false
+        };
+        var depot = new FactureInfo { depotDu = "Pour {loc.nom} : {depot.montant}." };
+        string html = ExplicationDepot.Html(loc, 2, 281.80f, System.DateTime.Today, null, depot);
+        StringAssert.Contains("Dupont &amp; Fils &lt;SARL&gt;", html);
+        Assert.That(html, Does.Not.Contain("<SARL>"));
     }
 
     [Test]
