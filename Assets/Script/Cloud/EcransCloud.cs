@@ -187,7 +187,8 @@ public static class EcransCloud
         var (voile, carte) = Fenetre(canvas, "CIPL — J'ai reçu une invitation", 440, true);
         var corps = UIFactory.VBox(carte.transform, 12, 18, 18, 16, 6, "Corps");
         UIFactory.Text(corps.transform, "Saisissez l'adresse qui a reçu l'invitation et le code de l'e-mail, " +
-                       "puis choisissez votre mot de passe.", UITheme.Role.Aide, UITheme.TexteSecondaire);
+                       "puis choisissez votre mot de passe. Vous avez déjà un compte CIPL : saisissez votre mot de passe actuel.",
+                       UITheme.Role.Aide, UITheme.TexteSecondaire);
         var email = DepartPanel.Champ(corps.transform, "E-mail", "vous@entreprise.fr", 1f);
         email.contentType = TMP_InputField.ContentType.EmailAddress;
         var code = DepartPanel.Champ(corps.transform, "Code d'invitation", "K7F2-9QXD", 1f);
@@ -510,6 +511,57 @@ public static class EcransCloud
         siret.Select();
     }
 
+    /// Revue 16c (D3-09) : seulement le code, pour un compte déjà connecté (code refusé au premier essai, ou seconde
+    /// invitation) : avant, il fallait se déconnecter et passer par la fenêtre d'inscription, qui demandait un mot de
+    /// passe « nouveau » et refusait le compte existant. `fait(nom)` après l'acceptation.
+    static void AfficherCode(Canvas canvas, Action<string> fait)
+    {
+        var (voile, carte) = Fenetre(canvas, "Code d'invitation", 420, true);
+        var corps = UIFactory.VBox(carte.transform, 12, 18, 18, 16, 6, "Corps");
+        UIFactory.Text(corps.transform, "Saisissez le code reçu par e-mail. L'invitation doit être adressée à l'adresse de ce compte.",
+                       UITheme.Role.Aide, UITheme.TexteSecondaire);
+        var code = DepartPanel.Champ(corps.transform, "Code d'invitation", "K7F2-9QXD", 1f);
+        var pied = Pied(carte.transform);
+        var annuler = Bouton(pied.transform, "Annuler", false);
+        annuler.onClick.AddListener(() => UnityEngine.Object.Destroy(voile.gameObject));
+        var rejoindre = Bouton(pied.transform, "Rejoindre", true);
+        var zones = new Zones();
+        zones.Ajouter(RegleMotDePasse.ChampCode, code);
+        bool enCours = false;
+        async void Essayer()
+        {
+            if (enCours) return;
+            if (string.IsNullOrWhiteSpace(code.text)) { Refuser(zones, "Saisissez le code de l'invitation.", new[] { RegleMotDePasse.ChampCode }); return; }
+            enCours = true; rejoindre.interactable = false;
+            try
+            {
+                var res = await UtilisateursCloud.Accepter(code.text.Trim());
+                if (res?.ok != true)
+                {
+                    Refuser(zones, UtilisateursCloud.Motif(res), res?.refus == "code" || res?.refus == "expire" ? new[] { RegleMotDePasse.ChampCode } : null);
+                    return;
+                }
+                UnityEngine.Object.Destroy(voile.gameObject);
+                UndoToast.Instance?.ShowInfo(string.IsNullOrEmpty(res.nom) ? "Invitation acceptée." : $"Bienvenue dans {res.nom}.");
+                fait?.Invoke(res.nom);
+            }
+            finally { enCours = false; if (rejoindre != null) rejoindre.interactable = true; }
+        }
+        rejoindre.onClick.AddListener(Essayer);
+        code.onSubmit.AddListener(_ => Essayer());
+        code.Select();
+    }
+
+    /// BH3 (02/11) : un voile « Ouverture de … » le temps des lectures d'une entreprise : rien de l'ancienne n'est
+    /// cliquable (une sauvegarde faite là partait sous la nouvelle), et on ne voit pas l'écran se vider. Rendu à l'appelant, qui le détruit.
+    public static RectTransform Attente(Canvas canvas, string titre)
+    {
+        var (voile, carte) = Fenetre(canvas, titre, 380, true);   // opaque : on ne voit pas l'accueil se vider derrière
+        var corps = UIFactory.VBox(carte.transform, 8, 18, 18, 14, 14, "Corps");
+        UIFactory.Text(corps.transform, "Lecture des données sur le cloud…", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        return voile;
+    }
+
     // ── 2. Choisir l'entreprise ────────────────────────────────────────────────
 
     /// L'entreprise choisie, ou null si « Se déconnecter ».
@@ -537,6 +589,17 @@ public static class EcransCloud
 
         var pied = UIFactory.HBox(carte.transform, 8, false, "Pied");
         pied.padding = new RectOffset(18, 18, 6, 16);
+        if (liste.Count == 0)
+        {
+            // Revue 16c (D3-09) : un compte sans entreprise saisit son code d'ici ; la liste est relue, la fenêtre refaite.
+            var inv = Bouton(pied.transform, "J'ai reçu une invitation", true);
+            inv.onClick.AddListener(() => AfficherCode(canvas, async nom =>
+            {
+                var (relue, _) = await DonneesCloud.MesEntreprises();
+                UnityEngine.Object.Destroy(voile.gameObject);
+                fin.TrySetResult(await Choisir(canvas, relue ?? liste, connecte));
+            }));
+        }
         var deco = Bouton(pied.transform, "Se déconnecter", false);
         deco.onClick.AddListener(() => { UnityEngine.Object.Destroy(voile.gameObject); fin.TrySetResult(null); });
         return fin.Task;
@@ -710,6 +773,12 @@ public static class EcransCloud
             });
         // Étape 15 (maquette 4 du 26/10) : la version installée, pour le support et les mises à jour.
         UIFactory.Text(corps.transform, "CIPL version " + Application.version, UITheme.Role.Aide, UITheme.TexteSecondaire);
+        // Revue 16c (D3-09) : rejoindre une entreprise de plus (seconde invitation) sans passer par l'écran de connexion.
+        Lien(corps.transform, "J'ai reçu une invitation").onClick.AddListener(() =>
+        {
+            UnityEngine.Object.Destroy(voile.gameObject);
+            AfficherCode(canvas, _ => FermetureGuard.ConfirmerPerteSaisies("Changer d'entreprise", changer));
+        });
 
         var pied = UIFactory.HBox(carte.transform, 8, false, "Pied");
         pied.padding = new RectOffset(18, 18, 6, 16);

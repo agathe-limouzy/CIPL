@@ -29,9 +29,9 @@ Deno.serve(async (req) => {
       return page(`Activation annulée dans Super PDP (${q.get("error")}${q.get("error_description") ? " : " + q.get("error_description") : ""}). `
         + "Rien n'est relié : revenez dans CIPL pour recommencer.");
 
-    const { data: demande } = await service.from("plateformes_demandes").select("*").eq("etat", etat).maybeSingle();
+    // Revue 16c (D1-14) : le « state » est consommé en UNE requête (delete … returning) : deux appels simultanés ne passent pas tous deux.
+    const { data: demande } = await service.from("plateformes_demandes").delete().eq("etat", etat).select().maybeSingle();
     if (!demande || !code) return page("Lien d'activation inconnu ou déjà utilisé : recommencez « Activer » depuis CIPL.", 400);
-    await service.from("plateformes_demandes").delete().eq("etat", etat);
     if (Date.now() - new Date(demande.cree_le).getTime() > 3600_000)
       return page("Lien d'activation expiré (plus d'une heure) : recommencez « Activer » depuis CIPL.", 400);
 
@@ -56,6 +56,7 @@ Deno.serve(async (req) => {
     if (error) throw error;
     return page("C'est fait : la SCI est reliée à Super PDP. Vous pouvez fermer cet onglet et revenir dans CIPL.");
   } catch (e) {
-    return page("Erreur du serveur de CIPL : " + String((e as Error)?.message ?? e), 500);
+    console.error("[facture-electronique-retour]", e);   // revue 16c, D1-14 : le détail reste dans le journal, pas dans la page
+    return page("Erreur du serveur de CIPL : recommencez « Activer » depuis CIPL ; si cela se répète, signalez-le au support.", 500);
   }
 });

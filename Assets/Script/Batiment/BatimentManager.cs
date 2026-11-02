@@ -39,85 +39,8 @@ public class BatimentManager : MonoBehaviour
         // Étape 2 du multi-utilisateur (CONCEPTION_MULTIUTILISATEUR.md) : les données viennent
         // du cloud. Sauvegarde au démarrage, purge, migration des dossiers et Pappers sont
         // suspendus ; l'envoi automatique des factures est relancé par DemarrageCloud, avec
-        // réservation de chaque facture (étape 7). Le chemin local ci-dessous n'est plus appelé.
+        // réservation de chaque facture (étape 7). Le démarrage local d'avant le cloud a été retiré (revue 16c, D2-14).
         DemarrageCloud.Lancer(this);
-    }
-
-    /// Ancien démarrage local, gardé jusqu'à l'étape 4 (écriture dans le cloud).
-    void DemarrageLocal()
-    {
-        BackupService.RunStartupBackup();
-        PhotoService.PurgerCorbeille();   // photos supprimées il y a plus de 7 jours
-        LoadAll();
-
-        // Migration des dossiers GUID → nommage par nom. Après LoadAll, qui fournit les
-        // noms ; elle valide tout son plan avant de déplacer quoi que ce soit, et ne
-        // marque l'opération faite que si elle a entièrement réussi.
-        if (MigrationDossiers.Migrer(_batiments, out string rapportMigration))
-        {
-            // Les chemins de photos ont pu être réécrits en relatif : il faut les
-            // persister, sinon la réécriture serait refaite à chaque démarrage.
-            if (!MigrationDossiers.DejaFaite || rapportMigration.StartsWith("Migration réussie"))
-                SaveAll();
-        }
-        else
-        {
-            ConfirmDialog.Erreur("Migration des dossiers annulée — voir la console.");
-        }
-
-        // L'application démarre sur le menu général (Home)
-        menuManager.OpenGeneralMenu();
-
-        // Factures prêtes dont la date d'envoi est atteinte : on propose de les
-        // envoyer maintenant. Après OpenGeneralMenu, pour que la fenêtre s'affiche
-        // par-dessus l'écran d'accueil et non l'inverse. Ne demande rien s'il n'y a
-        // rien à envoyer, si l'email n'est pas configuré, ou si c'est déjà reporté
-        // pour aujourd'hui.
-        FactureEnvoiAuto.ProposerAuDemarrage(BatimentPrefab);
-
-        // Résumés d'entreprise (annuaire de l'État) rafraîchis pour tous les
-        // locataires. En coroutine : les appels réseau s'enchaînent en arrière-plan,
-        // l'écran reste utilisable, et rien n'est sauvegardé si rien n'a changé.
-        StartCoroutine(PappersSync.Tout(BatimentPrefab));
-    }
-
-    // Racine utilisée par le dernier LoadAll. La sauvegarde de fermeture ne doit pas
-    // écrire ailleurs si l'emplacement a changé entre-temps (disque débranché, bascule
-    // d'entreprise), sinon elle dupliquerait les données au mauvais endroit.
-    private string _racineChargement;
-
-    private void OnApplicationQuit() => SauvegardeDeFermeture();
-
-    /// Filet de sécurité à la fermeture : réécrit sur le disque l'état en mémoire.
-    /// Utile surtout quand une écriture précédente avait échoué (fichier verrouillé par
-    /// un antivirus, lecteur réseau momentanément absent) : la mémoire portait alors la
-    /// modification, pas le fichier.
-    public void SauvegardeDeFermeture()
-    {
-        if (SessionCloud.Active) return;   // données du cloud : rien à réécrire sur ce PC
-        if (_batiments == null || _batiments.Count == 0) return;
-        // Ne réécrit que ce qui a été lu du disque (LoadAll). Sur le cloud, SessionCloud peut être
-        // vidée par un rechargement des scripts en plein Play : sans ce garde, les fiches du cloud
-        // partaient en batiment_*.json dans le dossier des documents, peut-être un Drive (16/10).
-        if (string.IsNullOrEmpty(_racineChargement)) return;
-
-        string racine = SaveLocationService.GetSaveRoot();
-        if (!string.Equals(racine, _racineChargement, StringComparison.OrdinalIgnoreCase))
-        {
-            Debug.LogWarning("[BatimentManager] Sauvegarde de fermeture ignorée : l'emplacement a changé " +
-                             $"depuis le chargement ({_racineChargement} → {racine}).");
-            return;
-        }
-
-        // Copie : voir SaveAll — SaveBatiment modifie `_batiments` pendant l'itération.
-        int echecs = 0;
-        foreach (var b in _batiments.ToArray())
-            if (!SaveBatiment(b)) echecs++;
-
-        if (echecs > 0)
-            Debug.LogError($"[BatimentManager] Sauvegarde de fermeture : {echecs} bâtiment(s) NON écrit(s).");
-        else
-            Debug.Log($"[BatimentManager] Sauvegarde de fermeture : {_batiments.Count} bâtiment(s) écrit(s).");
     }
 
     public void ReloadFromDisk()
@@ -314,16 +237,6 @@ public class BatimentManager : MonoBehaviour
     /// `silencieux` : écriture de fond (revue 16c, D2-04) : un refus est journalisé, jamais affiché ni suivi d'un rechargement.
     public bool SaveBatiment(Batiment data, bool silencieux = false)
     {
-        // Étape 2 : lecture seule sur le cloud. Rien n'est écrit, ni ici ni sur le serveur,
-        // et on le dit (une fois par série d'appels : un écran enregistre souvent plusieurs fois).
-        if (SessionCloud.LectureSeule)
-        {
-            if (Time.realtimeSinceStartup - _dernierAvisLectureSeule > 3f)
-                ConfirmDialog.Erreur("Lecture seule pendant la construction : vos modifications ne sont pas enregistrées.");
-            _dernierAvisLectureSeule = Time.realtimeSinceStartup;
-            return false;
-        }
-
         // Étape 5 : écran resté ouvert sur une fiche relue depuis (changement d'un collègue,
         // rechargement) : il renverrait des locataires périmés avec la version à jour.
         if (SessionCloud.Active && EcritureCloud.Perime(data))
@@ -362,7 +275,6 @@ public class BatimentManager : MonoBehaviour
         return true;
     }
 
-    float _dernierAvisLectureSeule = -10f;
 
     // ── Cloud : vider l'écran et installer les bâtiments lus (étape 2) ─────────
 
@@ -382,6 +294,9 @@ public class BatimentManager : MonoBehaviour
         _batiments.Clear();
         foreach (Transform child in batimentsContainer) Destroy(child.gameObject);
         PhotoService.ViderCache();
+        // Revue 16c (D3-10, vu en BH3 le 02/11) : l'accueil gardait les cartes des fiches détruites ; un clic dessus levait
+        // une MissingReferenceException. Redessiné ici, pour tous les appelants (échec de lecture, retrait, déconnexion).
+        GeneralMenuPanel.Instance?.Refresh();
     }
 
     /// Crée les fiches et onglets des bâtiments lus sur le cloud, avec les mêmes mises à
@@ -468,15 +383,6 @@ public class BatimentManager : MonoBehaviour
         return nom;
     }
 
-    public void SaveAll()
-    {
-        // Itération sur une COPIE : SaveBatiment réaffecte `_batiments[idx]`, or
-        // l'indexeur de List<T> incrémente sa version interne et invalide donc
-        // l'énumérateur en cours (InvalidOperationException dès le 2e élément).
-        foreach (var b in _batiments.ToArray())
-            SaveBatiment(b);
-    }
-
     // ── Chargement ───────────────────────────────────────────────────────────
 
     // Cession prévue arrivée à son jour (retour du 06/10) : le dossier suit le nouveau nom,
@@ -530,7 +436,6 @@ public class BatimentManager : MonoBehaviour
         }
 
         Debug.Log(SaveFolder);
-        _racineChargement = SaveLocationService.GetSaveRoot();   // référence pour la sauvegarde de fermeture
         string[] files = Directory.GetFiles(SaveFolder, "*.json");
         var illisibles = new List<string>();
 

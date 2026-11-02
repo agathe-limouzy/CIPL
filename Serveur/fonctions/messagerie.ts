@@ -80,6 +80,7 @@ Deno.serve(async (req) => {
         { grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: redirect });
       if (!ok || !d.refresh_token)
         return json({ ok: false, refus: "echange", erreur: d.error_description ?? d.error ?? "pas d'autorisation durable" });
+      if (!d.id_token) return json({ ok: false, refus: "echange", erreur: "pas d'identité dans la réponse du fournisseur" });   // revue 16c, D1-16
       const a = adresse(d.id_token);
       const { error } = await service.from("messageries").upsert({
         entreprise_id: entreprise, fournisseur, adresse: a, refresh_token: d.refresh_token, maj_le: new Date().toISOString(),

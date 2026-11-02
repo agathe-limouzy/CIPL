@@ -84,7 +84,11 @@ public static class PappersSync
             List<SocieteLocataire.Procedure> procs = null;
             yield return Bodacc(new List<string> { SocieteLocataire.Siren(loc.siretNumber) }, r => procs = r);
             if (procs == null) yield break;   // BODACC injoignable : la tournée de demain s'en chargera
-            yield return Appliquer(loc, procs, r => change = r, refus => Debug.LogWarning($"[PappersSync] {loc.Name} : {refus}"));
+            yield return Appliquer(loc, procs, r => change = r, refus =>
+            {
+                Debug.LogWarning($"[PappersSync] {loc.Name} : {refus}");
+                if (refus.StartsWith("quota")) UndoToast.Instance?.ShowInfo(QuotaAtteint);
+            });
         }
         else yield return Interroger(loc, r => change = r, _ => { });
         if (!change) yield break;
@@ -124,7 +128,11 @@ public static class PappersSync
     // ── Étape 16b (décisions du 28/10) : sur le cloud, Pappers par le serveur et le BODACC ─────
 
     // Refus qui vaudront pour tous les locataires : inutile d'interroger les suivants.
-    static readonly HashSet<string> Bloquants = new HashSet<string> { "config", "cle", "jetons", "abonnement", "acces" };
+    static readonly HashSet<string> Bloquants = new HashSet<string> { "config", "cle", "jetons", "abonnement", "acces", "quota" };
+
+    /// Revue 16c (D1-15, décision du 01/11) : 50 sociétés nouvelles par jour et par entreprise chez Pappers (lecture payante).
+    const string QuotaAtteint = "Pappers : limite du jour atteinte pour cette entreprise (50 sociétés nouvelles). "
+                              + "Les sociétés déjà connues restent consultées ; réessayez demain pour les autres.";
 
     /// La tournée du cloud : le BODACC d'abord (gratuit, 40 sociétés par appel), puis la fiche Pappers de chaque
     /// locataire (relue par le serveur une fois par mois au plus). BODACC injoignable : rien n'est écrit
@@ -164,6 +172,7 @@ public static class PappersSync
         }
         Debug.Log($"[PappersSync] Pappers et BODACC : {majs} locataire(s) mis à jour, {echecs} en échec"
                   + (arret != null ? $", tournée arrêtée ({arret})." : "."));
+        if (arret != null && arret.StartsWith("quota")) UndoToast.Instance?.ShowInfo(QuotaAtteint);
         if (majs > 0) RafraichirFichesOuvertes();
     }
 

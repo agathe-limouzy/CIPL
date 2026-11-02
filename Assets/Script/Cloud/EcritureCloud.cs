@@ -118,10 +118,12 @@ public static class EcritureCloud
 
     public static string MotifRefus(Resultat r, string nomFiche) => r.refus == "verrou"
         ? $"« {nomFiche} » : {RegleVerrou.Libelle(r.nom, r.motif, CloudClient.Date(r.pris_le) ?? DateTime.Now)}. Vos modifications ne sont pas enregistrées."
+        : r.refus == "supprimee"   // revue 16c, D2-15 : la fiche n'existe plus (le serveur le dit depuis etape16c4)
+        ? $"« {nomFiche} » a été supprimé entre-temps par un collègue : vos modifications ne sont pas enregistrées."
         : $"« {nomFiche} » a été modifié entre-temps par {(string.IsNullOrEmpty(r.nom) ? "un collègue" : r.nom)} : " +
           "vos modifications ne sont pas enregistrées, la fiche est rechargée.";
 
-    static string Q(string s) => "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    static string Q(string s) => CloudClient.Q(s);   // D3-14 : un seul échappement JSON pour tout le cloud
 
     [Serializable] class LigneB { public string id; public int version; public Batiment data; }
     [Serializable] class LigneL { public string id, batiment_id; public int ordre, version; public Locataire data; }
@@ -272,14 +274,16 @@ public static class EcritureCloud
         // Étape 9c1 : abonnement expiré, lecture seule ; la fiche est relue (la modification n'est
         // faite qu'en mémoire).
         if (AbonnementCloud.LectureSeule) { if (!silencieux) ConfirmDialog.Erreur(AbonnementCloud.Refus, DemarrageCloud.Recharger); return; }
-        var avant = _file; _file = Envoyer(avant, b, silencieux);
+        var avant = _file; _file = Envoyer(avant, b, silencieux, SessionCloud.Entreprise);   // D2-09 : l'entreprise de la mise en file
     }
 
-    static async Task Envoyer(Task avant, Batiment b, bool silencieux)
+    static async Task Envoyer(Task avant, Batiment b, bool silencieux, EntrepriseCloud e = null)
     {
         try { await avant; } catch (Exception) { /* l'échec précédent a déjà été signalé */ }
-        var e = SessionCloud.Entreprise;
+        if (e == null) e = SessionCloud.Entreprise;
         if (e == null || b == null) return;
+        // Revue 16c (D2-09) : l'entreprise a changé pendant l'attente : la fiche de A ne part pas vers B.
+        if (e != SessionCloud.Entreprise) { Debug.LogWarning($"[Cloud] « {b.Name} » : entreprise changée pendant l'attente, enregistrement abandonné."); return; }
         // Revue 16c (D2-07) : vérifié au DÉPART réel, pas seulement à la mise en file : une fiche périmée par un
         // rechargement pendant l'attente repartirait avec les versions neuves et écraserait l'écriture d'un collègue.
         if (Perime(b)) { Debug.LogWarning($"[Cloud] « {b.Name} » : fiche périmée pendant l'attente, enregistrement abandonné."); return; }
@@ -288,6 +292,9 @@ public static class EcritureCloud
             foreach (var op in Differences(b, _cache))
             {
                 string jeton = await SessionCloud.Jeton();
+                // Revue 16c (D2-10) : noté AVANT l'appel : l'écho temps réel de ma suppression peut arriver avant la réponse,
+                // il passait pour la suppression d'un collègue (fiche relue, « mis à jour par un collègue »).
+                if (op.Type == TypeOp.SupprimerLocataire) _supprimesParMoi.Add(op.Id);
                 var r = op.Type == TypeOp.SupprimerLocataire
                     ? await CloudClient.FonctionJson(Url, CleApi, jeton, "supprimer_fiche",
                         $"{{\"p_entreprise\":{Q(e.id)},\"p_type\":\"locataire\",\"p_id\":{Q(op.Id)},\"p_session\":{Q(SessionId)}}}")
@@ -298,6 +305,7 @@ public static class EcritureCloud
                 // connexion (étape 8). Autre échec : retenté au prochain enregistrement.
                 if (!r.Ok)
                 {
+                    if (op.Type == TypeOp.SupprimerLocataire) _supprimesParMoi.Remove(op.Id);
                     if (HorsLigne.Panne(r.Ok, r.Code)) MettreEnAttente(b);
                     else if (silencieux) Debug.LogWarning($"[Cloud] « {b.Name} » : écriture de fond impossible ({r.Erreur}), reprise plus tard.");
                     else ConfirmDialog.Erreur($"Enregistrement de « {b.Name} » impossible : {r.Erreur}");
@@ -307,6 +315,7 @@ public static class EcritureCloud
                 var res = JsonUtility.FromJson<Resultat>(r.Corps);
                 if (res == null || !res.ok)
                 {
+                    if (op.Type == TypeOp.SupprimerLocataire) _supprimesParMoi.Remove(op.Id);
                     string nom = op.Type == TypeOp.Batiment ? b.Name
                         : b.locataireDuBatiment?.FirstOrDefault(l => l?.id == op.Id)?.Name ?? b.Name;
                     // Les saisies refusées restent à l'écran derrière le message ; la fiche se recharge
@@ -319,9 +328,12 @@ public static class EcritureCloud
                                          + "— écriture de fond abandonnée, reprise à la prochaine occasion.");
                         return;
                     }
+                    // BH8 (02/11) : une trace par refus (deux essais ont été perdus à deviner ce qui s'était passé), et au OK la seule
+                    // fiche concernée se relit, pas toute l'entreprise.
+                    Debug.LogWarning($"[Cloud] « {nom} » : enregistrement refusé ({res?.refus ?? "réponse illisible"}{(string.IsNullOrEmpty(res?.nom) ? "" : ", " + res.nom)}).");
                     _refusOuverts.Add(id);
                     ConfirmDialog.Erreur(MotifRefus(res ?? new Resultat { refus = "version" }, nom),
-                                         () => { _refusOuverts.Remove(id); DemarrageCloud.Recharger(); });
+                                         () => { _refusOuverts.Remove(id); DirectCloud.ARelire(id); });
                     return;
                 }
                 if (op.Type == TypeOp.SupprimerLocataire)
@@ -345,11 +357,13 @@ public static class EcritureCloud
         try { await avant; } catch (Exception) { }
         var e = SessionCloud.Entreprise;
         if (e == null) return;
+        _supprimesParMoi.Add(id);   // D2-10 : avant l'appel (voir Envoyer)
         var r = await CloudClient.FonctionJson(Url, CleApi, await SessionCloud.Jeton(), "supprimer_fiche",
             $"{{\"p_entreprise\":{Q(e.id)},\"p_type\":\"batiment\",\"p_id\":{Q(id)},\"p_session\":{Q(SessionId)}}}");
         var res = r.Ok ? JsonUtility.FromJson<Resultat>(r.Corps) : null;
         if (res == null || !res.ok)
         {
+            _supprimesParMoi.Remove(id);
             // Retour du 01/11 : le bâtiment n'a pas quitté l'écran, rien à recharger ; la relecture en direct le tient à jour.
             ConfirmDialog.Erreur(res != null ? MotifRefus(res, nom) : $"Suppression de « {nom} » impossible : {r.Erreur}");
             return;
@@ -386,7 +400,11 @@ public static class EcritureCloud
     /// « Modifier » : demande le verrou de la fiche, et ne passe en saisie que s'il est obtenu.
     public static void ModifierSiLibre(PrefabBatLoc fiche, string type, Action modifier) =>
         Reserver(new[] { (type, fiche != null ? fiche.getID() : null, fiche != null ? fiche.getName() : null) },
-                 "modification", modifier, () => fiche != null && fiche.EnEdition);
+                 "modification",
+                 // Revue 16c (D2-11) : pendant l'aller-retour du verrou, une relecture a pu remplacer la fiche (objet détruit) :
+                 // on le dit au lieu d'ouvrir l'écran dessus ; le verrou retombe au signal suivant (`actif` faux).
+                 () => { if (fiche == null) ConfirmDialog.Erreur("La fiche vient d'être mise à jour par un collègue : réessayez « Modifier »."); else modifier(); },
+                 () => fiche != null && fiche.EnEdition);
 
     /// Réserve les fiches, puis ouvre l'écran ; refus au centre, avec le nom, si l'une est prise
     /// (rien n'est gardé à moitié). Une fiche que je tiens déjà ne coûte pas d'aller-retour :

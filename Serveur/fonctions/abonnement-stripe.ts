@@ -66,6 +66,12 @@ Deno.serve(async (req) => {
 
     // Seul un admin de l'entreprise passe : la même règle que dans CIPL (groupe_admin).
     const utilisateur = createClient(URL_PROJET, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: jeton } } });
+    // Revue 16c (D3-11) : l'admin qui ouvre le portail (ou ajuste) devient le contact Stripe (reçus, cartes qui expirent) :
+    // avant, l'adresse du premier souscripteur restait pour toujours, même retiré du groupe.
+    const contact = async (client: string) => {
+      const { data: moi } = await utilisateur.auth.getUser(jeton.replace(/^Bearer\s+/i, ""));
+      if (moi?.user?.email) await stripe.customers.update(client, { email: moi.user.email }).catch((e) => console.error("customers.update", e));
+    };
     const { data: g, error: refus } = await utilisateur.rpc("groupe_admin", { p_entreprise: entreprise });
     if (refus || !g) return json({ erreur: "Réservé à l'administrateur." }, 403);
 
@@ -108,6 +114,7 @@ Deno.serve(async (req) => {
       const total = Object.values(parEntreprise).reduce((a, b) => a + b, 0);
 
       let client = groupe.stripe_client;
+      if (client) await contact(client);   // D3-11 (BH9) : client Stripe déjà créé par un autre admin : celui qui souscrit devient le contact
       if (!client) {
         const { data: moi } = await utilisateur.auth.getUser(jeton.replace(/^Bearer\s+/i, ""));
         // Étape 14 : les reçus, paiements refusés et cartes qui expirent sont envoyés par Stripe, en français.
@@ -148,12 +155,14 @@ Deno.serve(async (req) => {
 
     if (action === "portail") {
       if (!groupe.stripe_client) return json({ erreur: "Aucun abonnement : choisissez-en un d'abord." });
+      await contact(groupe.stripe_client);   // D3-11
       const s = await stripe.billingPortal.sessions.create({ customer: groupe.stripe_client, return_url: RETOUR + "portail", locale: "fr" });
       return json({ url: s.url });
     }
 
     if (action === "ajuster") {
       if (!groupe.stripe_abonnement) return json({ erreur: "Aucun abonnement en cours." });
+      if (groupe.stripe_client) await contact(groupe.stripe_client);   // D3-11
       const sub = await stripe.subscriptions.retrieve(groupe.stripe_abonnement);
       const f = sub.items.data[0]?.price.recurring?.interval === "year" ? "annuel" : "mensuel";
       const ligne = (nom: string) => sub.items.data.find((i) => i.price.lookup_key === `cipl_${nom}_${f}`);
@@ -179,8 +188,6 @@ Deno.serve(async (req) => {
         const { error } = await service.from("entreprises").update({ licences_max: licences }).eq("id", cible);
         if (error) throw error;
       }
-      const { error: e3 } = await service.from("groupes").update({ licences_max: total }).eq("id", g);
-      if (e3) throw e3;
 
       // Entreprises : la ligne « supplémentaire » suit le nombre d'entreprises du groupe.
       const suivantes = n - 1, s = ligne("entreprise_suivante");

@@ -415,15 +415,17 @@ public static class DocumentsCloud
                 string c = abs.Substring(racine.Length).TrimStart('\\', '/').Replace('\\', '/');
                 // Encore rangé à l'ancienne (bloqué à l'ouverture) : ignoré jusqu'au rangement suivant.
                 if (!SyncDocuments.Partage(c) || DossiersDonnees.Nouveau(c) != c) continue;
+                connus.TryGetValue(c, out var k);
                 try
                 {
                     var fi = new FileInfo(abs);
                     long d = fi.LastWriteTimeUtc.Ticks;
-                    connus.TryGetValue(c, out var k);
                     string e = k != null && k.e != null && k.t == fi.Length && k.d == d ? k.e : SyncDocuments.Empreinte(File.ReadAllBytes(abs));
                     res[c] = new Fichier { c = c, e = e, m = k?.m, t = fi.Length, d = d };
                 }
-                catch (Exception) { /* ouvert ou en cours d'écriture : au prochain passage */ }
+                // Ouvert ou en cours d'écriture : vu inchangé jusqu'au prochain passage (revue 16c, D2-12 : absent de la
+                // liste, un fichier connu passait pour supprimé ici, et l'était au serveur).
+                catch (Exception) { if (k != null) res[c] = k; }
             }
         }
         return res;

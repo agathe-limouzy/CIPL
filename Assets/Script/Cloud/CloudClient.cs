@@ -5,9 +5,9 @@ using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Networking;
 
-/// Appels REST au projet Supabase : comptes (/auth/v1), fonctions SQL et tables (/rest/v1).
-/// Étape 1 (essai technique) : seule la fenêtre CIPL › Essai cloud l'appelle ; rien dans
-/// l'application ne passe encore par le cloud. Voir CONCEPTION_MULTIUTILISATEUR.md.
+/// Appels REST au projet Supabase : comptes (/auth/v1), fonctions SQL et tables (/rest/v1), fonctions
+/// serveur (/functions/v1) et stockage. Toute l'application passe par ici (SessionCloud, EcritureCloud,
+/// DocumentsCloud…). Voir CONCEPTION_MULTIUTILISATEUR.md.
 public static class CloudClient
 {
     [Serializable] public class Utilisateur { public string id; public string email; public Metadonnees user_metadata; }
@@ -92,13 +92,32 @@ public static class CloudClient
         Envoyer("POST", url + "/auth/v1/token?grant_type=refresh_token", cle, null,
                 JsonUtility.ToJson(new Renouvellement { refresh_token = refreshToken }));
 
+    /// Une chaîne en JSON (revue 16c, D3-14) : guillemets, barres obliques inverses et caractères de contrôle
+    /// (tabulation d'un copier-coller…) échappés. Avant, trois copies n'échappaient que les deux premiers : un
+    /// nom collé depuis un tableur donnait un JSON invalide et un refus illisible.
+    public static string Q(string s)
+    {
+        var sb = new StringBuilder("\"");
+        foreach (char c in s ?? "")
+        {
+            if (c == '"') sb.Append("\\\"");
+            else if (c == '\\') sb.Append("\\\\");
+            else if (c == '\n') sb.Append("\\n");
+            else if (c == '\r') sb.Append("\\r");
+            else if (c == '\t') sb.Append("\\t");
+            else if (c < ' ') sb.Append("\\u").Append(((int)c).ToString("x4"));
+            else sb.Append(c);
+        }
+        return sb.Append('"').ToString();
+    }
+
     /// Fonction SQL (POST /rest/v1/rpc/<nom>), exécutée avec les droits de l'utilisateur du jeton.
     public static Task<Reponse> Fonction(string url, string cle, string jeton, string nom, object parametres) =>
         Envoyer("POST", url + "/rest/v1/rpc/" + nom, cle, jeton, JsonUtility.ToJson(parametres));
 
     /// Étape 9c2 : fonction serveur (Edge Function, POST /functions/v1/<nom>), avec le jeton de l'utilisateur.
     public static Task<Reponse> FonctionServeur(string url, string cle, string jeton, string nom, string corpsJson) =>
-        Envoyer("POST", url + "/functions/v1/" + nom, cle, jeton, corpsJson);
+        Envoyer("POST", url + "/functions/v1/" + nom, cle, jeton, corpsJson, fonction: true);
 
     /// Étape 16b : fonction serveur qui répond par un fichier (l'image d'une carte). Les octets sont
     /// rendus aussi quand elle répond un refus en JSON avec un statut 200.
@@ -140,7 +159,11 @@ public static class CloudClient
     }
 
     /// Étape 8 : un appel léger pour savoir si le serveur répond (« Réessayer », toutes les 30 s).
-    public static Task<Reponse> Sonder(string url, string cle) => Envoyer("GET", url + "/auth/v1/health", cle, null, null);
+    /// `timeout` (BH3, 02/11) : avant d'ouvrir une entreprise, 5 s suffisent pour savoir si le réseau répond.
+    public static Task<Reponse> Sonder(string url, string cle, int timeout = 15) => Envoyer("GET", url + "/auth/v1/health", cle, null, null, timeout: timeout);
+
+    /// « Se déconnecter » (revue 16c, D3-13) : la session est aussi close côté serveur ; résultat ignoré.
+    public static Task<Reponse> Deconnecter(string url, string cle, string jeton) => Envoyer("POST", url + "/auth/v1/logout", cle, jeton, null);
 
     static Reponse SansReseau() => new Reponse { Ok = false, Code = 0, Erreur = "Serveur injoignable (hors ligne simulé)" };
 
@@ -169,8 +192,9 @@ public static class CloudClient
         }
     }
 
+    /// `fonction` (revue 16c, D1-12) : une fonction serveur ; un délai dépassé (code 0) n'est pas une panne du cloud.
     static async Task<Reponse> Envoyer(string methode, string adresse, string cle, string jeton, string corps,
-                                       string prefer = null)
+                                       string prefer = null, bool fonction = false, int timeout = 15)
     {
         if (HorsLigne.Simulee) { HorsLigne.Constater(false, 0); return SansReseau(); }
         using (var r = new UnityWebRequest(adresse, methode) { downloadHandler = new DownloadHandlerBuffer() })
@@ -183,7 +207,7 @@ public static class CloudClient
             r.SetRequestHeader("apikey", cle);
             if (!string.IsNullOrEmpty(jeton)) r.SetRequestHeader("Authorization", "Bearer " + jeton);
             if (prefer != null) r.SetRequestHeader("Prefer", prefer);
-            r.timeout = 15;
+            r.timeout = timeout;
 
             var fin = new TaskCompletionSource<bool>();
             r.SendWebRequest().completed += _ => fin.TrySetResult(true);
@@ -192,7 +216,7 @@ public static class CloudClient
             var rep = new Reponse { Code = r.responseCode, Corps = r.downloadHandler?.text ?? "" };
             rep.Ok = r.result == UnityWebRequest.Result.Success;
             if (!rep.Ok) rep.Erreur = LireErreur(r.responseCode, rep.Corps, r.error);
-            HorsLigne.Constater(rep.Ok, rep.Code);   // étape 8
+            HorsLigne.Constater(rep.Ok, rep.Code, fonction);   // étape 8 ; D1-12 : une fonction lente ne coupe pas CIPL
             if (!rep.Ok) AbonnementCloud.Constater(rep.Erreur);   // étape 9c1 : expiré pendant la session
             return rep;
         }

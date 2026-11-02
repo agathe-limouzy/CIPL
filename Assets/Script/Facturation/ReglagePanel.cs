@@ -1028,18 +1028,29 @@ public class ReglagePanel : MonoBehaviour
             (nb > 0 ? $"Ses {nb} charge(s) passent dans « {ListesCharges.NomGenerale} » : elles restent dans l'historique des charges.\n\n"
                     : "Aucune charge n'est rangée dans cette liste.\n\n")
             + "Les dates et provisions saisies pour elle chez les locataires sont retirées.",
-            // Sur le cloud : refusé si un bâtiment est en cours de modification (étape 4b).
-            () => EcritureCloud.SiAucunBatimentPris(bats, () =>
+            // Sur le cloud : tous les bâtiments sont réservés le temps de l'opération (revue 16c, D2-08 : avant, on lisait
+            // les verrous puis on écrivait N bâtiments sans en tenir aucun ; un collègue pouvait en prendre un entre-temps,
+            // et la liste quittait les Réglages avec des charges encore rangées dedans). Tout ou rien, refus nommé sinon.
+            () =>
             {
-                foreach (var b in bats)
+                bool tenu = true;
+                EcritureCloud.Reserver(bats.Select(b => ("batiment", b.id, b.Name)).ToArray(), "réglages", async () =>
                 {
-                    ListesCharges.BasculerVersGenerale(b, liste.id);
-                    BatimentManager.Instance.SaveBatiment(b);
-                }
-                R.listesCharges.Remove(liste);
-                ReglageService.Save();
-                RebuildListesCharges();
-            }), "Supprimer");
+                    try
+                    {
+                        foreach (var b in bats)
+                        {
+                            ListesCharges.BasculerVersGenerale(b, liste.id);
+                            BatimentManager.Instance.SaveBatiment(b);
+                        }
+                        await EcritureCloud.Attendre();   // la liste ne quitte les Réglages qu'une fois les bâtiments écrits
+                        R.listesCharges.Remove(liste);
+                        ReglageService.Save();
+                        RebuildListesCharges();
+                    }
+                    finally { tenu = false; }
+                }, () => tenu);
+            }, "Supprimer");
     }
 
     /// Une ligne de la liste : nom, « Renommer », et « Supprimer » si `supprimer`

@@ -15,6 +15,7 @@ const URL_PROJET = Deno.env.get("SUPABASE_URL")!;
 const service = createClient(URL_PROJET, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const CLE = Deno.env.get("PAPPERS_API_KEY") ?? "";
 const UN_MOIS = 30 * 24 * 3600 * 1000;
+const QUOTA = 50;   // revue 16c, D1-15 : sociétés NOUVELLES (lecture payante) par jour et par entreprise (décision du 01/11)
 
 const json = (corps: unknown, status = 200) =>
   new Response(JSON.stringify(corps), { status, headers: { "Content-Type": "application/json" } });
@@ -72,6 +73,12 @@ Deno.serve(async (req) => {
     if (garde && Date.now() - new Date(garde.lu_le).getTime() < UN_MOIS)
       return json({ ok: true, fiche: garde.fiche, lu_le: garde.lu_le });
 
+    // Revue 16c (D1-15) : au plus QUOTA lectures payantes par jour et par entreprise ; les fiches déjà en cache (ci-dessus)
+    // restent servies. Le jour est celui du serveur (UTC).
+    const jour = new Date().toISOString().slice(0, 10);
+    const { data: journal } = await service.from("pappers_journal").select("n").eq("entreprise_id", entreprise).eq("jour", jour).maybeSingle();
+    if ((journal?.n ?? 0) >= QUOTA)
+      return json({ ok: false, refus: "quota", erreur: `limite du jour atteinte pour cette entreprise (${QUOTA} sociétés nouvelles) : réessayez demain` });
     if (!CLE) return json({ ok: false, refus: "config" });
     const r = await fetch(`https://api.pappers.fr/v2/entreprise?api_token=${encodeURIComponent(CLE)}&siren=${s}`);
     if (r.status === 404) return json({ ok: false, refus: "introuvable" });
@@ -89,6 +96,7 @@ Deno.serve(async (req) => {
     const lu_le = new Date().toISOString();
     const { error } = await service.from("pappers_fiches").upsert({ siren: s, fiche: f, lu_le });
     if (error) throw error;
+    await service.from("pappers_journal").upsert({ entreprise_id: entreprise, jour, n: (journal?.n ?? 0) + 1 });   // D1-15
     return json({ ok: true, fiche: f, lu_le });
   } catch (e) {
     // Revue 16c (D1-02) : le message d'une erreur réseau cite l'adresse appelée, qui contient la clé de CIPL ;

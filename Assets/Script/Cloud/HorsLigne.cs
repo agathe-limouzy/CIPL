@@ -13,7 +13,10 @@ public static class HorsLigne
 
     /// Le serveur n'a pas répondu (coupure, délai dépassé) ou il est indisponible (502 à 504).
     /// Un refus (4xx) prouve au contraire que la connexion est là.
-    public static bool Panne(bool ok, long code) => !ok && (code == 0 || (code >= 502 && code <= 504));
+    /// `fonctionServeur` (revue 16c, D1-12) : un délai dépassé (code 0) sur une fonction serveur (Pappers ou Stripe
+    /// lents, démarrage à froid > 15 s) n'est pas une panne : l'appel échoue seul, CIPL ne passe pas hors ligne.
+    public static bool Panne(bool ok, long code, bool fonctionServeur = false) =>
+        !ok && ((code == 0 && !fonctionServeur) || (code >= 502 && code <= 504));
 
     public static string Texte(DateTime aJour) =>
         $"Hors ligne — lecture seule. Données à jour au {aJour:dd'/'MM} à {aJour.Hour} h {aJour:mm}";
@@ -49,8 +52,9 @@ public static class HorsLigne
 #endif
 
     /// Appelé par CloudClient après chaque appel.
-    public static void Constater(bool ok, long code)
+    public static void Constater(bool ok, long code, bool fonctionServeur = false)
     {
+        if (fonctionServeur && !ok && code == 0) return;   // D1-12 : ni panne, ni connexion retrouvée
         if (Panne(ok, code)) { if (!Actif) Perdue(); }
         else
         {

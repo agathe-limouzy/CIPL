@@ -712,6 +712,91 @@ public class Revue16cTests
         Assert.That(FactureElectronique.Pastille(c), Is.EqualTo("Encaissée déclarée (plateformeOrigine)"));
     }
 
+    // ── Mineurs, lot 5 (serveur, cloud et comptes), partie client (01/11) ──────────────────────────────
+
+    [Test]
+    public void Mineurs_D1_12_une_fonction_serveur_lente_n_est_pas_une_panne()
+    {
+        Assert.That(HorsLigne.Panne(false, 0), Is.True, "délai dépassé sur Supabase : panne");
+        Assert.That(HorsLigne.Panne(false, 0, fonctionServeur: true), Is.False, "délai dépassé sur une fonction serveur : l'appel échoue seul");
+        Assert.That(HorsLigne.Panne(false, 503, fonctionServeur: true), Is.True, "indisponible : panne, fonction ou pas");
+        Assert.That(HorsLigne.Panne(false, 400, fonctionServeur: true), Is.False);
+    }
+
+    [Test]
+    public void Mineurs_D2_15_refus_supprimee()
+    {
+        string m = EcritureCloud.MotifRefus(new EcritureCloud.Resultat { refus = "supprimee" }, "Volteo");
+        Assert.That(m, Does.Contain("« Volteo » a été supprimé entre-temps par un collègue"));
+        Assert.That(m, Does.Not.Contain("rechargée"));
+        Assert.That(EcritureCloud.MotifRefus(new EcritureCloud.Resultat { refus = "version", nom = "Marie" }, "Volteo"), Does.Contain("modifié entre-temps par Marie"));
+    }
+
+    [Test]
+    public void Mineurs_D3_12_le_refus_du_serveur_fait_foi_sans_abonnement_lu()
+    {
+        AbonnementCloud.Oublier();
+        AbonnementCloud.Constater("HTTP 400 abonnement expiré : lecture seule");
+        Assert.That(AbonnementCloud.Etat, Is.EqualTo(RegleAbonnement.Etat.Expire));
+        AbonnementCloud.Oublier();
+        AbonnementCloud.Constater("HTTP 500 autre chose");
+        Assert.That(AbonnementCloud.Courant, Is.Null, "un autre refus ne change rien");
+    }
+
+    [Test]
+    public void Mineurs_D3_14_un_seul_echappement_JSON_qui_couvre_les_controles()
+    {
+        Assert.That(CloudClient.Q("SCI\tRivoli"), Is.EqualTo("\"SCI\\tRivoli\""));
+        Assert.That(CloudClient.Q("a\"b\\c\r\nd\u0001"), Is.EqualTo("\"a\\\"b\\\\c\\r\\nd\\u0001\""));
+        Assert.That(CloudClient.Q(null), Is.EqualTo("\"\""));
+        var relu = JsonUtility.FromJson<Mot>("{\"v\":" + CloudClient.Q("SCI\tRivoli \"x\"") + "}");
+        Assert.That(relu.v, Is.EqualTo("SCI\tRivoli \"x\""));
+        string corps = RegleInscription.Corps("societe", "SCI\tRivoli", "12345678901234", "Marie", "{}");
+        Assert.That(corps, Does.Contain("SCI\\tRivoli").And.Not.Contain("SCI\tRivoli"), "la tabulation part échappée");
+    }
+    [System.Serializable] class Mot { public string v; }
+
+    // ── Mineurs, lot 5, partie serveur (02/11) : le texte du script SQL et des fonctions ─────────────────
+
+    [Test]
+    public void Mineurs_5b_le_script_SQL_porte_les_corrections()
+    {
+        string sql = Serveur("etape16c4_supabase.sql");
+        foreach (var f in new[] { "ecriture_permise(uuid)", "licences_utilisees(uuid)", "licences_utilisees_entreprise(uuid)", "entreprises_licences(uuid)" })
+            StringAssert.Contains("'" + f + "'", sql, "D1-10 : " + f);
+        StringAssert.Contains("from public, anon, authenticated", sql, "D1-10");
+        StringAssert.Contains("if avant.cible_id is not null then", sql, "D1-13");
+        StringAssert.Contains("if p_type not in ('batiment', 'locataire')", sql, "D1-16");
+        Assert.That(System.Text.RegularExpressions.Regex.Matches(sql, "'refus', 'supprimee'").Count, Is.EqualTo(2), "D2-15 : bâtiment et locataire");
+        Assert.That(System.Text.RegularExpressions.Regex.Matches(sql, "for update;").Count, Is.EqualTo(2), "D3-08 : inviter et changer_acces");
+        StringAssert.Contains("create table if not exists public.pappers_journal", sql, "D1-15");
+        StringAssert.Contains("drop table if exists public.essai_fiches", sql, "D1-16");
+        // 02/11 : la première version recréait enregistrer_* sans maj_session (texte de l'étape 4) : chaque enregistrement
+        // passait pour celui d'un collègue. Les clauses vitales de la dernière définition (étape 5) doivent y être.
+        Assert.That(System.Text.RegularExpressions.Regex.Matches(sql, "maj_session = p_session").Count, Is.EqualTo(2), "maj_session (étape 5) dans les deux enregistrer_*");
+        Assert.That(System.Text.RegularExpressions.Regex.Matches(sql, @"maj_par, maj_session\)").Count, Is.EqualTo(2), "maj_session à l'insertion aussi");
+    }
+
+    [Test]
+    public void Mineurs_5b_les_fonctions_serveur_portent_les_corrections()
+    {
+        string webhook = Serveur("fonctions", "stripe-webhook.ts");
+        StringAssert.Contains("avant !== sub.id", webhook, "D1-11");
+        StringAssert.Contains("evt.type === \"customer.subscription.created\" && !avant", webhook, "D1-11 : répartition une seule fois");
+        Assert.That(webhook, Does.Not.Contain("licences_max: licence"), "D3-15 : groupes.licences_max n'est plus écrit");
+        string retour = Serveur("fonctions", "facture-electronique-retour.ts");
+        StringAssert.Contains(".delete().eq(\"etat\", etat).select()", retour, "D1-14");
+        Assert.That(retour, Does.Not.Contain("\"Erreur du serveur de CIPL : \" + String("), "D1-14 : détail interne hors de la page");
+        string pappers = Serveur("fonctions", "pappers.ts");
+        StringAssert.Contains("const QUOTA = 50;", pappers, "D1-15");
+        StringAssert.Contains("refus: \"quota\"", pappers, "D1-15");
+        StringAssert.Contains("if (!d.id_token) return json({ ok: false, refus: \"echange\"", Serveur("fonctions", "messagerie.ts"), "D1-16");
+        string abo = Serveur("fonctions", "abonnement-stripe.ts");
+        StringAssert.Contains("stripe.customers.update(", abo, "D3-11");
+        Assert.That(abo, Does.Not.Contain(".from(\"groupes\").update({ licences_max"), "D3-15");
+        StringAssert.Contains("/auth/v1/logout", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Cloud", "CloudClient.cs")), "D3-13");
+    }
+
     [Test]
     public void Transfert_listes_de_charges_retrouvees_par_nom()
     {

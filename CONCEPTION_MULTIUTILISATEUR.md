@@ -621,3 +621,33 @@ Suivi de Sephora dans SCI du Port, facture transmise avant le transfert :
 - Un échec entre l'étape 3 et l'étape 4 laisse des documents en plus dans la destination (invisibles : aucune fiche ne les cite) ; un échec dans l'étape 4 annule la transaction ; un échec à l'étape 5 laisse des documents « vivants » à l'origine, sans fiche : la passe suivante de la synchronisation ne les touche pas (ils existent encore sur les postes), un nettoyage serveur les marquera supprimés à la prochaine tentative.
 - Une facture transmise par l'origine et **refusée** plus tard par Super PDP (après le transfert) n'a plus personne pour la corriger : à surveiller côté origine (le suivi de l'origine n'a plus la ligne). À documenter pour l'utilisatrice : régler la plateforme avant de transférer.
 - Si les deux entreprises ont des documents au **même chemin** avec des contenus différents (homonyme, même nom de facture), la version transférée l'emporte, l'autre est rangée en corbeille sur chaque poste : même règle que le transfert local.
+
+## 17. Mineurs de la revue 16c, lot 5 (serveur, cloud et comptes) — partie client (02/11)
+
+Règles ajoutées ou précisées (REVUE_16C/SYNTHESE.md, D1 à D3) :
+
+- **Une fonction serveur lente n'est pas une panne** (D1-12) : un délai dépassé (15 s) sur `/functions/v1/` (Pappers, Stripe, démarrage à froid) fait échouer l'appel seul ; CIPL ne passe hors ligne que sur un délai du serveur Supabase lui-même ou un 502-504.
+- **Supprimer une liste de charges = réserver tous les bâtiments** (D2-08) : même mécanisme que « Modifier » (`EcritureCloud.Reserver`, motif « réglages »), tout ou rien, refus nommé si l'un est pris ; la liste ne quitte les Réglages qu'une fois les bâtiments écrits.
+- **Une écriture mise en file appartient à l'entreprise ouverte à ce moment** (D2-09) : fiches et Réglages mis en file dans A ne partent jamais vers B si l'entreprise change pendant l'attente.
+- **Ma propre suppression n'est jamais prise pour celle d'un collègue** (D2-10) : l'identifiant est noté avant l'appel, retiré si le serveur refuse.
+- **« Modifier » sur une fiche remplacée entre-temps** (D2-11) : message « La fiche vient d'être mise à jour par un collègue : réessayez » au lieu d'un écran sur un objet détruit ; le verrou retombe au signal suivant.
+- **Un fichier illisible pendant le balayage est vu inchangé** (D2-12), jamais « supprimé ici ».
+- **Retiré d'une entreprise = seule sa copie hors ligne est effacée** (D2-13).
+- **La fiche n'existe plus** (D2-15) : message « supprimé entre-temps par un collègue », sans rechargement ; le refus `supprimee` vient du serveur (lot 5b).
+- **Code d'invitation sans se déconnecter** (D3-09) : fenêtre « Code d'invitation » depuis l'écran « aucune entreprise » et depuis le menu Compte (seconde invitation) ; la fenêtre d'inscription dit qu'un compte existant garde son mot de passe.
+- **Échec de lecture à l'ouverture = écran vide** (D3-10) et choix d'entreprise reproposé : jamais les fiches de A sous les Réglages de B.
+- **Le refus « abonnement expiré » du serveur fait foi** (D3-12) même si l'abonnement n'a pas pu être lu : bandeau et lecture seule.
+- **Un seul échappement JSON** (D3-14, `CloudClient.Q`) : tabulations et retours à la ligne collés dans un nom ne cassent plus une inscription.
+- **Code mort retiré** (D2-14, D3-15) : démarrage local, sauvegarde de fermeture, `SaveAll`, `LectureSeule`, totaux de licences jamais lus. Le chargement depuis le disque (`LoadAll`) reste tant que les menus disque existent (décision du 01/11 : le Drive partagé est un mode de copie des documents, il n'est pas concerné).
+
+Partie serveur (02/11) :
+
+- **Droits des fonctions internes** (D1-10) : `ecriture_permise`, `licences_utilisees`, `licences_utilisees_entreprise`, `entreprises_licences` ne sont plus appelables par un compte connecté ; `mes_acces`, `est_admin`, `groupe_admin` restent ouvertes aux connectés (règles d'accès et fonctions serveur). Le déclencheur `refuser_si_expire` est laissé tel quel.
+- **Un événement Stripe d'un ancien abonnement est ignoré** (D1-11) tant que l'abonnement gardé n'est pas terminé chez Stripe ; la répartition des licences ne s'applique qu'au premier abonnement.
+- **Un envoi refusé ne libère pas le verrou d'une saisie en cours** (D1-13, `reserver_envoi` : motif rendu).
+- **Le lien de retour Super PDP est à usage unique garanti** (D1-14, suppression et lecture en une requête) ; la page d'erreur ne montre plus de détail interne.
+- **Quota Pappers** (D1-15, décision du 01/11) : 50 sociétés nouvelles par jour et par entreprise (table `pappers_journal`) ; au-delà, refus `quota`, message en bas de l'écran, tournée arrêtée jusqu'au lendemain ; les fiches en cache restent servies.
+- **Restes** (D1-16) : `supprimer_fiche` contrôle le type, les objets de l'essai technique sont retirés, une réponse sans identité d'un fournisseur de messagerie est un refus clair.
+- **Deux admins qui invitent en même temps** (D3-08) : les entreprises visées sont verrouillées le temps de la transaction.
+- **Le contact Stripe suit l'admin** (D3-11) : l'adresse du client Stripe est celle de l'admin qui ouvre le portail ou ajuste.
+- **Hygiène de la session** (D3-13) : « Se déconnecter » ferme aussi la session côté serveur ; un jeton refusé efface les copies hors ligne ; la copie hors ligne ne s'ouvre qu'avec le jeton de son propriétaire.

@@ -4,9 +4,9 @@ using UnityEngine;
 
 /// Empêche de quitter l'application en perdant une saisie en cours.
 ///
-/// La sauvegarde automatique de fermeture (BatimentManager.SauvegardeDeFermeture)
-/// réécrit l'état EN MÉMOIRE. Elle ne peut pas capturer une fiche restée en cours
-/// d'édition : reverser l'UI dans les données passe par BatimentPrefab.SaveBatiment(),
+/// Sur le cloud, chaque modification part au fil de l'eau (EcritureCloud) ; rien n'est
+/// réécrit à la fermeture. Une fiche restée en cours d'édition n'est pas enregistrée :
+/// reverser l'UI dans les données passe par BatimentPrefab.SaveBatiment(),
 /// qui manipule aussi l'interface (boutons, ShowFiche) et n'a rien à faire pendant la
 /// destruction de l'application. La seule réponse correcte est donc de PRÉVENIR
 /// l'utilisatrice avant de fermer, pas d'enregistrer à sa place.

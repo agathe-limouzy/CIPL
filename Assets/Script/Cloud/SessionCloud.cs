@@ -102,7 +102,6 @@ public static class SessionCloud
     public static CloudClient.Session Session { get; private set; }
     public static EntrepriseCloud Entreprise { get; set; }
     public static bool Active => Session != null;
-    public static bool LectureSeule => false;   // étape 4a : on écrit dans le cloud (EcritureCloud)
 
     static bool _memoriser;
     /// L'éditeur et le build partagent persistentDataPath : avec un seul fichier, se connecter dans
@@ -158,7 +157,7 @@ public static class SessionCloud
         {
             // Jeton refusé par le serveur (4xx) : il ne vaut plus rien. Réseau qui ne répond pas
             // (code 0, 5xx) : on le garde pour la prochaine fois (retour du 14/10).
-            if (r.Ok || (r.Code >= 400 && r.Code < 500)) EffacerFichier();
+            if (r.Ok || (r.Code >= 400 && r.Code < 500)) { EffacerFichier(); CopieLocale.Effacer(); }   // D3-13 : plus de jeton, plus de copie hors ligne
             Debug.LogWarning("[Cloud] Reprise de la connexion impossible : " + (r.Ok ? "réponse illisible" : r.Erreur));
             return false;
         }
@@ -174,6 +173,7 @@ public static class SessionCloud
     public static bool RestaurerHorsLigne(CloudClient.Utilisateur u)
     {
         if (u == null || string.IsNullOrEmpty(u.id)) return false;
+        if (PlayerPrefs.GetString(CleUtilisateur, "") != u.id) return false;   // revue 16c, D3-13 : la copie d'un autre compte ne s'ouvre pas avec ce jeton
         string garde = JetonGarde();
         if (string.IsNullOrEmpty(garde)) return false;
         Session = new CloudClient.Session { access_token = "", refresh_token = garde, expires_at = 0, user = u };
@@ -331,6 +331,9 @@ public static class SessionCloud
     /// Se déconnecter : oublie la session et efface le jeton gardé sur ce PC.
     public static void Oublier()
     {
+        // Revue 16c (D3-13) : close aussi côté serveur (résultat ignoré) : une copie antérieure du fichier de session ne vaut plus rien.
+        var s = Session;
+        if (s != null && !string.IsNullOrEmpty(s.access_token) && Configure) _ = CloudClient.Deconnecter(Url, Cle, s.access_token);
         Session = null;
         Entreprise = null;
         _memoriser = false;
@@ -339,6 +342,9 @@ public static class SessionCloud
 
     /// Étape 15b : sur Mac, le jeton est dans le trousseau, au nom du fichier qu'il aurait sous Windows.
     static string Compte => Path.GetFileNameWithoutExtension(Fichier);
+
+    /// À qui est le jeton gardé (revue 16c, D3-13) ; l'éditeur a le sien, comme pour le fichier.
+    static string CleUtilisateur => "cipl_session_utilisateur" + (Application.isEditor ? "_editeur" : "");
 
     /// Le jeton gardé sur cet ordinateur : null s'il n'y en a pas, "" s'il est illisible (autre compte,
     /// autre PC). Windows : chiffré par Dpapi dans `Fichier` ; Mac : dans le trousseau.
@@ -354,6 +360,7 @@ public static class SessionCloud
 
     static void Memoriser()
     {
+        PlayerPrefs.SetString(CleUtilisateur, Session?.user?.id ?? "");
         if (Plateforme.Mac)
         {
             if (!Trousseau.Ecrire(Compte, Session.refresh_token ?? "")) Debug.LogWarning("[SessionCloud] Trousseau indisponible : connexion non gardée.");
@@ -367,6 +374,7 @@ public static class SessionCloud
 
     static void EffacerFichier()
     {
+        PlayerPrefs.DeleteKey(CleUtilisateur);
         if (Plateforme.Mac) { Trousseau.Effacer(Compte); return; }
         try { if (File.Exists(Fichier)) File.Delete(Fichier); }
         catch (Exception e) { Debug.LogWarning("[SessionCloud] " + e.Message); }

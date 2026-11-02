@@ -32,18 +32,22 @@ function statut(s: string): string {
 
 const jourIso = (t: number | null | undefined) => t ? new Date(t * 1000).toISOString().slice(0, 10) : null;
 
-async function appliquer(sub: Stripe.Subscription): Promise<{ groupe: string; echeance: string | null } | null> {
+async function appliquer(sub: Stripe.Subscription, avant: string | null): Promise<{ groupe: string; echeance: string | null } | null> {
   const g = sub.metadata?.groupe_id;
   if (!g) return null;   // abonnement créé hors de CIPL
+  // Revue 16c (D1-11) : un événement d'un ANCIEN abonnement (relivré par Stripe après la création du nouveau) ne touche
+  // pas au groupe, sauf si l'abonnement gardé est lui-même terminé chez Stripe.
+  if (avant && avant !== sub.id) {
+    const garde = await stripe.subscriptions.retrieve(avant).catch(() => null);
+    if (garde && garde.status !== "canceled") { console.log("événement ignoré : abonnement", sub.id, "≠", avant); return null; }
+  }
   const st = statut(sub.status);
-  const licence = sub.items.data.find((i) => i.price.lookup_key?.startsWith("cipl_licence_"));
   // L'échéance est sur l'abonnement, ou sur ses lignes selon la version de l'API Stripe.
   // deno-lint-ignore no-explicit-any
   const echeance = jourIso((sub as any).current_period_end ?? (sub.items.data[0] as any)?.current_period_end);
   const { error } = await service.from("groupes").update({
     statut: st,
     stripe_abonnement: st === "expire" ? null : sub.id,
-    licences_max: licence?.quantity ?? undefined,
     formule: sub.items.data[0]?.price.recurring?.interval === "year" ? "annuel" : "mensuel",
     echeance,
     resilie: sub.cancel_at_period_end,
@@ -101,8 +105,11 @@ Deno.serve(async (req) => {
     // Relu chez Stripe plutôt que pris dans l'événement : les événements peuvent arriver dans
     // le désordre, l'état relu est toujours le dernier.
     const sub = await stripe.subscriptions.retrieve((evt.data.object as Stripe.Subscription).id);
-    if (evt.type === "customer.subscription.created") await repartir(sub);
-    const r = await appliquer(sub);
+    const gid = sub.metadata?.groupe_id;
+    const avant = gid ? (await service.from("groupes").select("stripe_abonnement").eq("id", gid).maybeSingle()).data?.stripe_abonnement ?? null : null;
+    // Revue 16c (D1-11) : la répartition initiale ne s'applique qu'au PREMIER « created » (un événement rejoué ne la refait pas).
+    if (evt.type === "customer.subscription.created" && !avant) await repartir(sub);
+    const r = await appliquer(sub, avant);
     // Sur l'état relu, pas sur le type d'événement : un « updated » arrivé après la fin ne
     // redonne pas « résiliation enregistrée ». Fin : le jour réel (paiements refusés : avant l'échéance).
     if (r && sub.status === "canceled") await prevenir(r.groupe, "abonnement_fin", jourIso(sub.ended_at) ?? r.echeance);

@@ -67,7 +67,7 @@ public static class DemarrageCloud
         EcritureCloud.FermerEcrans();
         _bm.Vider();
         EcransCloud.Pastille(Canvas, null);
-        CopieLocale.Effacer();
+        CopieLocale.Effacer(e.id);   // D2-13 : seulement celle-ci, les autres restent ouvrables hors ligne
         SessionCloud.Entreprise = null;
         ConfirmDialog.Erreur($"Vous n'avez plus accès à « {e.nom} » : un administrateur vous a retiré(e) de l'entreprise.",
                              ChangerEntreprise);
@@ -164,28 +164,52 @@ public static class DemarrageCloud
     static async Task Ouvrir(EntrepriseCloud e)
     {
         SessionCloud.Entreprise = e;
+        // BH3 (02/11) : un voile bloque l'écran pendant les lectures (les boutons de l'accueil répondaient encore, alors que
+        // CIPL avait déjà basculé d'entreprise) ; retiré au succès comme à l'échec.
+        var attente = _bm != null ? EcransCloud.Attente(Canvas, $"Ouverture de {e.nom}…") : null;
+        try
+        {
+            // BH3 (02/11) : dès le changement, plus rien de l'ancienne entreprise à l'écran (une saisie pendant l'attente serait
+            // enregistrée sous la nouvelle), un état visible le temps des lectures, et une sonde de 5 s avant de lire.
+            if (_bm != null) { EcritureCloud.FermerEcrans(); _bm.Vider(); _bm.menuManager.OpenGeneralMenu(); EcransCloud.Pastille(Canvas, $"Ouverture de {e.nom}…"); }
+            var sonde = await CloudClient.Sonder(SessionCloud.Url, SessionCloud.Cle, timeout: 5);
+            if (HorsLigne.Panne(sonde.Ok, sonde.Code)) { EchecLecture(e, "pas de connexion"); return; }
 
-        var (dossier, telecharger) = await DossierDocuments(e);
-        SaveLocationService.UseRoot(dossier);
-        ReglageService.Load();
-        Debug.Log($"[Cloud] Ouverture de « {e.nom} », dossier {dossier}{(telecharger ? "" : " (Drive partagé)")}");
-        await ReglagesCloud.Synchroniser(e);   // étape 9a : Réglages et secrets de l'entreprise
-        string abo = await AbonnementCloud.Lire(e);   // étape 9c1 : expiré → lecture seule
-        if (abo != null) Debug.LogWarning("[Cloud] Abonnement illisible : " + abo);
+            var (dossier, telecharger) = await DossierDocuments(e);
+            SaveLocationService.UseRoot(dossier);
+            ReglageService.Load();
+            Debug.Log($"[Cloud] Ouverture de « {e.nom} », dossier {dossier}{(telecharger ? "" : " (Drive partagé)")}");
+            await ReglagesCloud.Synchroniser(e);   // étape 9a : Réglages et secrets de l'entreprise
+            // Revue 16c (D3-10, BH3 du 02/11) : sans connexion, Réglages, abonnement puis lecture attendaient chacun 15 s sans rien
+            // à l'écran (45 s « gelées », le temps de recliquer partout). Le premier échec suffit.
+            if (HorsLigne.Actif) { EchecLecture(e, "pas de connexion"); return; }
+            string abo = await AbonnementCloud.Lire(e);   // étape 9c1 : expiré → lecture seule
+            if (abo != null) Debug.LogWarning("[Cloud] Abonnement illisible : " + abo);
 
-        await EcritureCloud.VerifierNom(Canvas);   // « Votre nom », à la première ouverture
+            await EcritureCloud.VerifierNom(Canvas);   // « Votre nom », à la première ouverture
 
-        Debug.Log("[Cloud] Lecture des bâtiments…");
-        var (bats, erreur) = await EcritureCloud.Charger(e.id);   // avec les versions (étape 4a)
-        if (bats == null) { Debug.LogWarning("[Cloud] Lecture : " + erreur); ConfirmDialog.Erreur($"Lecture de « {e.nom} » impossible : {erreur}"); return; }
-        // Play arrêté pendant la lecture : la suite s'exécuterait hors Play et installerait
-        // les fiches et leurs onglets dans la scène d'édition (retour du 16/10).
-        if (_bm == null) return;
+            Debug.Log("[Cloud] Lecture des bâtiments…");
+            var (bats, erreur) = await EcritureCloud.Charger(e.id);   // avec les versions (étape 4a)
+            if (bats == null) { EchecLecture(e, erreur); return; }
+            // Play arrêté pendant la lecture : la suite s'exécuterait hors Play et installerait
+            // les fiches et leurs onglets dans la scène d'édition (retour du 16/10).
+            if (_bm == null) return;
 
-        Afficher(e, bats, telecharger);
-        CopieLocale.Retenir(e.id);                  // étape 8b : celle qu'on ouvre sans connexion
-        EcritureCloud.GarderCopie(maintenant: true);
-        UndoToast.Instance?.ShowInfo($"{e.nom} : {bats.Count} bâtiment(s) lu(s) depuis le cloud.");
+            Afficher(e, bats, telecharger);
+            CopieLocale.Retenir(e.id);                  // étape 8b : celle qu'on ouvre sans connexion
+            EcritureCloud.GarderCopie(maintenant: true);
+            UndoToast.Instance?.ShowInfo($"{e.nom} : {bats.Count} bâtiment(s) lu(s) depuis le cloud.");
+        }
+        finally { if (attente != null) UnityEngine.Object.Destroy(attente.gameObject); }
+    }
+
+    /// Revue 16c (D3-10) : lecture impossible à l'ouverture : l'écran ne garde pas les fiches de l'entreprise d'avant sous
+    /// les Réglages (RIB, logo…) de celle-ci : fiches vidées, accueil redessiné, message, puis le choix d'entreprise.
+    static void EchecLecture(EntrepriseCloud e, string erreur)
+    {
+        Debug.LogWarning("[Cloud] Lecture : " + erreur);
+        if (_bm != null) { EcritureCloud.FermerEcrans(); _bm.Vider(); _bm.menuManager.OpenGeneralMenu(); EcransCloud.Pastille(Canvas, null); }
+        ConfirmDialog.Erreur($"Lecture de « {e.nom} » impossible : {erreur}", ChangerEntreprise);
     }
 
     static void Afficher(EntrepriseCloud e, System.Collections.Generic.List<Batiment> bats, bool telecharger)

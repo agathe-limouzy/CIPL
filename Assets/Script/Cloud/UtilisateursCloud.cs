@@ -15,7 +15,7 @@ public static class UtilisateursCloud
     [Serializable] public class Entreprise { public string id, nom; public int licences_max, licences_utilisees; }
     [Serializable] public class Membre { public string user_id, nom, email, role; public string[] entreprises; public bool en_ligne, moi; }
     [Serializable] public class Invitation { public string id, email, role, expire_le; public string[] entreprises; }
-    [Serializable] public class Annuaire { public int licences_max, licences_utilisees; public Entreprise[] entreprises; public Membre[] membres; public Invitation[] invitations; }
+    [Serializable] public class Annuaire { public Entreprise[] entreprises; public Membre[] membres; public Invitation[] invitations; }
     [Serializable] public class Resultat { public bool ok; public string refus, id, nom, erreur; public int utilisees, max; }
 
     // ── Sans réseau (testé en EditMode) ────────────────────────────────────────

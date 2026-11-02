@@ -13,7 +13,6 @@ public static class AbonnementCloud
     public class Lu
     {
         public string statut, fin_essai, aujourdhui, admin;
-        public int licences_max, licences_utilisees;
         public UtilisateursCloud.Entreprise[] entreprises;
         public bool abonne, resilie;      // étape 9c2 : abonnement Stripe en cours, résilié à l'échéance
         public string formule, echeance;  // mensuel | annuel ; prochaine échéance (YYYY-MM-DD)
@@ -56,10 +55,20 @@ public static class AbonnementCloud
     /// l'a dit en refusant une écriture). Le bandeau apparaît sans attendre la prochaine lecture.
     public static void Constater(string erreur)
     {
-        if (Courant == null || erreur == null || !erreur.Contains("abonnement expiré")) return;
-        Courant.statut = "expire";
-        Bandeau.Assurer();
+        if (erreur == null || !erreur.Contains("abonnement expiré")) return;
+        // Revue 16c (D3-12) : abonnement illisible à l'ouverture : le refus du serveur fait foi, le bandeau et la lecture
+        // seule apparaissent quand même (avant, chaque « Sauvegarder » était refusé un par un, sans bandeau).
+        if (Courant == null)
+        {
+            string jour = DateTime.Today.ToString("yyyy-MM-dd");
+            Courant = new Lu { statut = "expire", aujourdhui = jour, fin_essai = jour };
+        }
+        else Courant.statut = "expire";
+        if (Application.isPlaying) Bandeau.Assurer();
     }
+
+    /// Pour les tests : comme avant la lecture.
+    public static void Oublier() => Courant = null;
 
     public static async Task<Ajout> Ajouter(string nom, string type, string siret)
     {

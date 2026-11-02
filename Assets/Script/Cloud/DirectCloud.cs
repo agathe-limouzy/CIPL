@@ -115,6 +115,10 @@ public static class DirectCloud
         if (auteur != null) a.Auteur = auteur;
     }
 
+    /// Un enregistrement refusé (version dépassée, fiche supprimée) : au OK, la fiche se relit seule, pas toute
+    /// l'entreprise (BH8, 02/11 : le rechargement complet était long et déroutant pour une seule fiche).
+    public static void ARelire(string batimentId) { if (_entreprise != null && batimentId != null) Marquer(batimentId, null, silencieux: true); }
+
     /// Étape 8 : connexion revenue. Des changements ont pu être manqués : tout est relu en silence,
     /// sauf ce sur quoi je travaille (relu quand j'aurai fini).
     public static void ToutRelire()

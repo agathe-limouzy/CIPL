@@ -93,29 +93,29 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 
 | N° | Domaine | Défaut | Aussi trouvé par | Corrigé |
 |---|---|---|---|---|
-| D1-10 | D1 | Les révocations oublient `authenticated` : plusieurs fonctions « internes » restent appelables par tout compte |  | |
-| D1-11 | D1 | Webhook : `repartir` rejoue la répartition initiale ; `appliquer` prend un événement d'un ancien abonnement pour le courant |  | |
-| D1-12 | D1 | Une fonction serveur lente (> 15 s) passe CIPL « hors ligne » pendant 30 s |  | |
-| D1-13 | D1 | `reserver_envoi` refusé rend un verrou que la même session tenait déjà pour autre chose |  | |
-| D1-14 | D1 | Page de retour Super PDP : `state` consommé en deux temps, message d'erreur brut |  | |
-| D1-15 | D1 | `pappers` : aucune limite par entreprise sur les jetons payés par CIPL |  | |
-| D1-16 | D1 | Restes et incohérences |  | |
-| D2-08 | D2 | Supprimer une liste de charges : vérification des verrous puis écriture de tous les bâtiments, sans verrou pris (écriture partielle possible) |  | |
-| D2-09 | D2 | Changement d'entreprise pendant une file d'envoi : `Envoyer` et `EnvoyerApres` lisent `SessionCloud.Entreprise` après l'attente |  | |
-| D2-10 | D2 | L'écho d'une suppression peut arriver avant la réponse du serveur : la fiche est relue et annoncée « mise à jour par un collègue » |  | |
-| D2-11 | D2 | « Modifier » pendant qu'une relecture remplace la fiche : l'écran s'ouvre sur une fiche détruite |  | |
-| D2-12 | D2 | Un fichier illisible pendant le balayage est vu « supprimé ici » et marqué supprimé au serveur |  | |
-| D2-13 | D2 | « Retiré de l'entreprise » efface les copies hors ligne de toutes les entreprises |  | |
-| D2-14 | D2 | Code mort et commentaires périmés de l'ancien mode local |  | |
-| D2-15 | D2 | Message de refus « version » quand la fiche n'existe plus |  | |
-| D3-08 | D3 | Deux admins qui invitent en même temps peuvent dépasser les licences |  | |
-| D3-09 | D3 | Un compte sans entreprise ne peut pas saisir un code d'invitation, et la fenêtre trompe un compte existant |  | |
-| D3-10 | D3 | Après un échec d'ouverture, l'écran garde l'entreprise précédente sous l'identité de la nouvelle |  | |
-| D3-11 | D3 | Le client Stripe garde l'adresse de l'admin qui a souscrit, même s'il est retiré du groupe |  | |
-| D3-12 | D3 | `Constater` ne fait rien si l'abonnement n'a pas pu être lu à l'ouverture |  | |
-| D3-13 | D3 | Hygiène de la session : jeton jamais invalidé côté serveur, copie locale rendue sans vérifier le propriétaire du jeton |  | |
-| D3-14 | D3 | Trois copies de `Q()` qui n'échappent ni tabulation ni retour à la ligne |  | |
-| D3-15 | D3 | Code mort autour des licences et de la lecture seule |  | |
+| D1-10 | D1 | Les révocations oublient `authenticated` : plusieurs fonctions « internes » restent appelables par tout compte |  | 02/11 (SQL et test ; parcours BH7) |
+| D1-11 | D1 | Webhook : `repartir` rejoue la répartition initiale ; `appliquer` prend un événement d'un ancien abonnement pour le courant |  | 02/11 (code et test) |
+| D1-12 | D1 | Une fonction serveur lente (> 15 s) passe CIPL « hors ligne » pendant 30 s |  | 02/11 (code et test ; pas de cas manuel) |
+| D1-13 | D1 | `reserver_envoi` refusé rend un verrou que la même session tenait déjà pour autre chose |  | 02/11 (SQL et test) |
+| D1-14 | D1 | Page de retour Super PDP : `state` consommé en deux temps, message d'erreur brut |  | 02/11 (code et test) |
+| D1-15 | D1 | `pappers` : aucune limite par entreprise sur les jetons payés par CIPL |  | 02/11 (SQL, code et test ; 50 par jour) |
+| D1-16 | D1 | Restes et incohérences |  | 02/11 (SQL, code et test) |
+| D2-08 | D2 | Supprimer une liste de charges : vérification des verrous puis écriture de tous les bâtiments, sans verrou pris (écriture partielle possible) |  | 02/11 (code ; parcours BH1) |
+| D2-09 | D2 | Changement d'entreprise pendant une file d'envoi : `Envoyer` et `EnvoyerApres` lisent `SessionCloud.Entreprise` après l'attente |  | 02/11 (code) |
+| D2-10 | D2 | L'écho d'une suppression peut arriver avant la réponse du serveur : la fiche est relue et annoncée « mise à jour par un collègue » |  | 02/11 (code ; parcours BH2) |
+| D2-11 | D2 | « Modifier » pendant qu'une relecture remplace la fiche : l'écran s'ouvre sur une fiche détruite |  | 02/11 (code) |
+| D2-12 | D2 | Un fichier illisible pendant le balayage est vu « supprimé ici » et marqué supprimé au serveur |  | 02/11 (code) |
+| D2-13 | D2 | « Retiré de l'entreprise » efface les copies hors ligne de toutes les entreprises |  | 02/11 (code ; parcours BH6) |
+| D2-14 | D2 | Code mort et commentaires périmés de l'ancien mode local |  | 02/11 (code) |
+| D2-15 | D2 | Message de refus « version » quand la fiche n'existe plus |  | 02/11 (code, SQL et test ; parcours BH8) |
+| D3-08 | D3 | Deux admins qui invitent en même temps peuvent dépasser les licences |  | 02/11 (SQL et test) |
+| D3-09 | D3 | Un compte sans entreprise ne peut pas saisir un code d'invitation, et la fenêtre trompe un compte existant |  | 02/11 (code ; parcours BH4 et BH5) |
+| D3-10 | D3 | Après un échec d'ouverture, l'écran garde l'entreprise précédente sous l'identité de la nouvelle |  | 02/11 (code ; parcours BH3) |
+| D3-11 | D3 | Le client Stripe garde l'adresse de l'admin qui a souscrit, même s'il est retiré du groupe |  | 02/11 (code et test ; parcours BH9 : portail, ajustement et souscription avec un client existant) |
+| D3-12 | D3 | `Constater` ne fait rien si l'abonnement n'a pas pu être lu à l'ouverture |  | 02/11 (code et test) |
+| D3-13 | D3 | Hygiène de la session : jeton jamais invalidé côté serveur, copie locale rendue sans vérifier le propriétaire du jeton |  | 02/11 (code et test) |
+| D3-14 | D3 | Trois copies de `Q()` qui n'échappent ni tabulation ni retour à la ligne |  | 02/11 (code et test) |
+| D3-15 | D3 | Code mort autour des licences et de la lecture seule |  | 02/11 (code) |
 | D4-07 | D4 | `DoitPartir` applique le délai de 15 jours à tous les types, contrairement à `DateEnvoi` ; `PeutPartir` n'est utilisé que par les tests ; le diagnostic dit « échéance illisible » |  | |
 | D4-08 | D4 | Régul regroupée : les parts par liste sont calculées sur `NbPeriodes` au lieu des périodes facturées, et ignorent la provision saisie | D6-11 | |
 | D4-09 | D4 | Message obsolète « la case « Envoyer par email » est décochée (Options & envoi) » ; mode d'envoi par défaut = Pennylane pour une entreprise locale |  | |
@@ -208,6 +208,16 @@ Tant que la facture de révision du dépôt n'est pas partie, « Réviser » (ca
 - **D5-12 « Encaissée »** : déclaré tout de suite au clic « Payé » (comme le 29/10), mais **annulé si la facture quitte « Payé »** : CIPL envoie alors un « Encaissée » (fr:212) de montant **négatif** (cas d'usage officiel « encaissement partiel et annulation d'encaissement », Sovos cas 34 ; fiche FNFE « Avoirs, factures négatives »). Avec D5-07, chaque « Encaissée » porte le montant et la date du paiement (`details.reported_data`, type `MEN`). Format exact à valider au bac à sable.
 - **D6-08 Révision du dépôt** : mémoriser le dépôt d'avant « Réviser », pour que la facture de révision soit juste dans les deux ordres.
 - **D5-05 Refus de Super PDP après la bascule (1/9/2027)** : la ligne revient « En attente d'envoi », la fenêtre dit « corrigez-la depuis le suivi (Corriger) », et l'envoi automatique ne la repropose pas telle quelle.
-- **D2-01 / D8-01 « Transférer » sur le cloud** : un **vrai transfert entre entreprises du cloud, maintenant** (fonction serveur). En attendant qu'il existe, le bouton est masqué sur le cloud (correction critique immédiate). Sa conception a été validée le 01/11 (CONCEPTION §16) : admin du groupe seulement, vers les entreprises du groupe où il a accès ; refus tant qu'une facture attend Super PDP (transmission ou « Encaissée ») ; factures transmises suivent le locataire, « Encaissée » déclaré au nom de SCI X (revu le 01/11, BG7 : une facture impayée ne bloque pas, l'émettrice doit déclarer son encaissement) ; homonymes fusionnés ; documents copiés puis marqués supprimés à l'origine. **Code fait le 01/11** (`TransfertCloud`, `transferer_fiches`, `plateformeOrigine`) ; parcours BG à jouer. **BG7 (01/11)** : la copie affichée du suivi (`FacturationSuivi.CopieDe`) oubliait `plateformeOrigine`, la pastille « transmise par » n'apparaissait jamais : corrigé, test sur tous les champs de `FactureEtat`.
+- **D2-01 / D8-01 « Transférer » sur le cloud** : un **vrai transfert entre entreprises du cloud, maintenant** (fonction serveur). En attendant qu'il existe, le bouton est masqué sur le cloud (correction critique immédiate). Sa conception a été validée le 01/11 (CONCEPTION §16) : admin du groupe seulement, vers les entreprises du groupe où il a accès ; refus tant qu'une facture attend Super PDP (transmission ou « Encaissée ») ; factures transmises suivent le locataire, « Encaissée » déclaré au nom de SCI X (revu le 01/11, BG7 : une facture impayée ne bloque pas, l'émettrice doit déclarer son encaissement) ; homonymes fusionnés ; documents copiés puis marqués supprimés à l'origine. **Code fait le 01/11** (`TransfertCloud`, `transferer_fiches`, `plateformeOrigine`) ; parcours BG1 à BG8 validés le 01/11. **BG7 (01/11)** : la copie affichée du suivi (`FacturationSuivi.CopieDe`) oubliait `plateformeOrigine`, la pastille « transmise par » n'apparaissait jamais : corrigé, test sur tous les champs de `FactureEtat`.
 - **D4-12 Facture déjà payée** : on ne peut plus lui ajouter de charge en la refaisant ; un message propose une nouvelle facture.
 - D3-06 et D3-07 : corrections serveur sans décision (preuve de l'adresse par le code reçu ; Stripe « unpaid » = expiré) ; à noter pour l'étape 17 : réglage Stripe « annuler l'abonnement » après les relances.
+
+## Trouvés pendant le parcours BH (02/11)
+
+| Défaut | Gravité | Corrigé |
+|---|---|---|
+| `etape16c4` recréait `enregistrer_batiment` et `enregistrer_locataire` d'après l'étape 4, sans `maj_session` (étape 5) : chaque enregistrement passait pour celui d'un collègue, fiche reconstruite à chaque sauvegarde (vu en BH2 ; introduit et corrigé le même jour, avant tout commit) | majeur | 02/11 (SQL corrigé, test texte `maj_session = p_session` ×2) |
+| `BatimentManager.Vider` détruisait les fiches sans redessiner l'accueil : un clic sur une carte restée affichée levait une `MissingReferenceException` (vu en BH3, après un échec de lecture ; même chemin au retrait d'une entreprise) | mineur | 02/11 (`GeneralMenuPanel.Instance?.Refresh()` dans `Vider`, retour à l'accueil sur l'échec de lecture) |
+| Hors ligne, l'ouverture d'une entreprise enchaînait trois appels de 15 s (Réglages, abonnement, bâtiments) sans rien à l'écran : 45 s « gelées », le temps de recliquer partout, l'ancienne entreprise restant affichée et modifiable (vu en BH3, second essai) | mineur | 02/11 (écran vidé et voilé dès le clic (`EcransCloud.Attente`, « Ouverture de … »), sonde `Sonder(timeout: 5)` : message en 5 s au plus ; `DemarrageCloud.EchecLecture`) |
+| Les copies hors ligne effacées laissaient leur `.bak` (écriture atomique) sur le PC, avec les mêmes données, y compris après « Se déconnecter » (vu en BH6) | mineur | 02/11 (`CopieLocale.Effacer` retire aussi le `.bak`) |
+| Un enregistrement refusé (version, fiche supprimée) rechargeait toute l'entreprise au OK, et ne laissait aucune trace dans le journal (vu en BH8) | mineur | 02/11 (`DirectCloud.ARelire` : le seul bâtiment ; trace `enregistrement refusé`) |

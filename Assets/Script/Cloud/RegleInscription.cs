@@ -134,5 +134,5 @@ public static class RegleInscription
         }
     }
 
-    static string Q(string s) => "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    static string Q(string s) => CloudClient.Q(s);   // D3-14
 }

@@ -34,7 +34,7 @@ public static class ReglagesCloud
     /// Pas encore partagés (version 0) : seul un admin met les siens en commun (décision du 19/10).
     public static bool PeutEnvoyer(int version, bool admin) => version > 0 || admin;
 
-    static string Q(string s) => "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    static string Q(string s) => CloudClient.Q(s);   // D3-14
 
     static string Qui(string nom) => string.IsNullOrEmpty(nom) ? "un collègue" : RegleVerrou.Prenom(nom);
 
@@ -97,13 +97,15 @@ public static class ReglagesCloud
     // ── Enregistrement ─────────────────────────────────────────────────────────
 
     /// Après chaque ReglageService.Save sur le cloud.
-    public static void Envoyer() { var avant = _file; _file = EnvoyerApres(avant); }
+    public static void Envoyer() { var avant = _file; _file = EnvoyerApres(avant, SessionCloud.Entreprise); }   // D2-09
 
-    static async Task EnvoyerApres(Task avant)
+    static async Task EnvoyerApres(Task avant, EntrepriseCloud e = null)
     {
         try { await avant; } catch (Exception) { /* déjà signalé */ }
-        var e = SessionCloud.Entreprise;
-        if (e == null || !PeutEnvoyer(_version, e.EstAdmin)) return;   // pas encore partagés : seule la copie de ce PC change
+        if (e == null) e = SessionCloud.Entreprise;
+        // Revue 16c (D2-09) : Réglages mis en file dans A, dépilés après l'ouverture de B : ils ne partent pas vers B.
+        if (e == null || e != SessionCloud.Entreprise) return;
+        if (!PeutEnvoyer(_version, e.EstAdmin)) return;   // pas encore partagés : seule la copie de ce PC change
         try
         {
             var res = await EnvoyerMaintenant(e, _version);

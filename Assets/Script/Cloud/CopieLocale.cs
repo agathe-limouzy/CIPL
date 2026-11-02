@@ -98,14 +98,24 @@ public static class CopieLocale
         catch (Exception ex) { Debug.LogWarning("[Copie] Copie locale illisible : " + ex.Message); return false; }
     }
 
-    /// « Se déconnecter » : plus rien de lisible sur ce PC sans connexion.
-    public static void Effacer()
+    /// « Se déconnecter » : plus rien de lisible sur ce PC sans connexion. Avec `entrepriseId` (revue 16c, D2-13 :
+    /// retiré d'une seule entreprise) : seulement sa copie, les autres restent ouvrables hors ligne.
+    public static void Effacer(string entrepriseId = null)
     {
         try
         {
-            foreach (var f in Directory.GetFiles(Application.persistentDataPath, "cipl_copie_*.json")) File.Delete(f);
+            // BH6 (02/11) : l'écriture atomique garde la version précédente en `.bak`, avec les mêmes données : elle part avec la copie.
+            if (entrepriseId != null)
+            {
+                foreach (var f in new[] { Chemin(entrepriseId), AtomicFile.CheminBak(Chemin(entrepriseId)) }) if (File.Exists(f)) File.Delete(f);
+            }
+            else
+            {
+                foreach (var f in Directory.GetFiles(Application.persistentDataPath, "cipl_copie_*.json")) File.Delete(f);
+                foreach (var f in Directory.GetFiles(Application.persistentDataPath, "cipl_copie_*.json.bak")) File.Delete(f);
+            }
         }
         catch (Exception ex) { Debug.LogWarning("[Copie] Effacement des copies locales : " + ex.Message); }
-        Retenir("");
+        if (entrepriseId == null || Derniere == entrepriseId) Retenir("");
     }
 }
