@@ -133,7 +133,9 @@ public class Locataire : Data
         return null;
     }
 
-    public bool EstParti => FacturationSuivi.TryEcheance(dateSortieISO, out var s) && s.Date < DateTime.Today;
+    public bool EstParti => EstPartiLe(DateTime.Today);
+    /// Revue 16c (D7a-13) : la date du jour en paramètre, pour les tests ; les dates ISO se relisent en culture invariante.
+    public bool EstPartiLe(DateTime aujourdhui) => FacturationSuivi.TryEcheance(dateSortieISO, out var s) && s.Date < aujourdhui.Date;
 
     /// L'indice de départ est connu (révision par indice initialisée).
     public bool IndiceInitialise => !string.IsNullOrEmpty(indiceImmoAuDepart) && indiceImmoAuDepart != "—";
@@ -220,19 +222,15 @@ public class Locataire : Data
         l != null && (l.assujettiTva == "oui" || (l.assujettiTva != "non" && PappersResume.SiretExploitable(l.siretNumber)));
 
     // Propriété DateTime pratique (non sérialisée)
-    [NonSerialized]
-    private DateTime _dateDebutBail;
     public DateTime DateDebutBail
     {
-        get => DateTime.TryParse(dateDebutBailISO, out var d) ? d : DateTime.Today;
+        get => FacturationSuivi.TryEcheance(dateDebutBailISO, out var d) ? d : DateTime.Today;
         set => dateDebutBailISO = value.ToString("yyyy-MM-dd");
     }
 
-    [NonSerialized]
-    private DateTime _dateFinBail;
     public DateTime DateFinBail
     {
-        get => DateTime.TryParse(dateFinBailISO, out var d) ? d : DateTime.Today;
+        get => FacturationSuivi.TryEcheance(dateFinBailISO, out var d) ? d : DateTime.Today;
         set => dateFinBailISO = value.ToString("yyyy-MM-dd");
     }
 
@@ -250,7 +248,7 @@ public class Locataire : Data
         jours = 0;
         if (loc == null || string.IsNullOrEmpty(loc.Name)) return false;
         if (!string.IsNullOrEmpty(loc.dateSortieISO)) return false;   // départ saisi : la fin est décidée
-        if (!DateTime.TryParse(loc.dateFinBailISO, out var fin)) return false;
+        if (!FacturationSuivi.TryEcheance(loc.dateFinBailISO, out var fin)) return false;
         jours = (fin - aujourdhui).Days;
         return aujourdhui >= fin.AddMonths(-(PREAVIS_CONGE_MOIS + ALERTE_AVANT_LIMITE_MOIS));
     }
@@ -265,7 +263,7 @@ public class Locataire : Data
     {
         fin = limite = default;
         if (loc == null || !PeriodeFermePossible(loc.typeDeBail)) return false;
-        if (!DateTime.TryParse(loc.dateFinBailISO, out fin)) return false;
+        if (!FacturationSuivi.TryEcheance(loc.dateFinBailISO, out fin)) return false;
         limite = fin.AddMonths(-PREAVIS_CONGE_MOIS);
         return aujourdhui <= limite;
     }
@@ -292,7 +290,7 @@ public class Locataire : Data
                 : "Bail expiré — à renouveler";
         if (CongeFinDeBailPossible(loc, aujourdhui, out var fin, out var limite))
             return $"À renouveler — fin le {fin:dd/MM/yyyy}, congé jusqu'au {limite:dd/MM/yyyy}";
-        return DateTime.TryParse(loc.dateFinBailISO, out fin) ? $"À renouveler — fin le {fin:dd/MM/yyyy}" : "À renouveler";
+        return FacturationSuivi.TryEcheance(loc.dateFinBailISO, out fin) ? $"À renouveler — fin le {fin:dd/MM/yyyy}" : "À renouveler";
     }
 
     // ── Résiliation triennale (bail commercial) ───────────────────────────────
@@ -321,7 +319,7 @@ public class Locataire : Data
         echeance = limite = default;
         if (loc == null || string.IsNullOrEmpty(loc.Name) || !PeriodeFermePossible(loc.typeDeBail)) return false;
         if (!string.IsNullOrEmpty(loc.dateSortieISO)) return false;   // départ saisi : plus de congé à rappeler
-        if (!DateTime.TryParse(loc.dateDebutBailISO, out var debut)) return false;
+        if (!FacturationSuivi.TryEcheance(loc.dateDebutBailISO, out var debut)) return false;
         foreach (var e in EcheancesTriennales(debut, loc.DureeBail(), loc.AnneesFermes()))
         {
             var l = e.AddMonths(-PREAVIS_CONGE_MOIS);
@@ -417,7 +415,7 @@ public class Locataire : Data
     public int DureeBail()
     {
         if (dureeBailAns > 0) return dureeBailAns;
-        if (DateTime.TryParse(dateDebutBailISO, out var d) && DateTime.TryParse(dateFinBailISO, out var f))
+        if (FacturationSuivi.TryEcheance(dateDebutBailISO, out var d) && FacturationSuivi.TryEcheance(dateFinBailISO, out var f))
             for (int n = 1; n <= 99; n++)
                 if (Math.Abs((FinDeBail(d, n) - f).TotalDays) <= 3) return n;
         return DureeParDefaut(typeDeBail);
@@ -438,26 +436,13 @@ public class Locataire : Data
         return null;
     }
 
-    [NonSerialized]
-    private DateTime _moisDeRevisionISO;
     public DateTime MoisDeRevision
     {
-        get => DateTime.TryParse(moisDeRevisionISO, out var d) ? d : DateTime.Today;
+        get => FacturationSuivi.TryEcheance(moisDeRevisionISO, out var d) ? d : DateTime.Today;
         set => moisDeRevisionISO = value.ToString("yyyy-MM-dd");
     }
 
 
-    // Start is called before the first frame update
-    void Start()
-    {
-        
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
-    }
 }
 
 
@@ -482,7 +467,8 @@ public enum IndiceImmo
 {
     ILC,
     IRL,
-    ILAT
+    ILAT,
+    ICC   // indice du coût de la construction : baux commerciaux d'avant la loi Pinel (2014) ; revue 16c (D7b-20). Ordre figé.
 }
 
 public enum Periodicite

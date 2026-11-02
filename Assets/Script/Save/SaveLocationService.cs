@@ -89,6 +89,9 @@ public static class SaveLocationService
     /// Renvoie false (et renseigne `erreur`) sans rien copier si la destination
     /// contient déjà des données : l'appelant NE DOIT PAS considérer le déplacement
     /// comme fait dans ce cas.
+    /// Le nom donné à l'ancien dossier une fois ses données copiées ailleurs (revue 16c, D8-07).
+    public static string AncienneRacineDeplacee(string racine) => racine.TrimEnd('\\', '/') + "_deplace_" + DateTime.Now.ToString("yyyy-MM-dd");
+
     public static bool MigrateData(string oldRoot, string newRoot, out string erreur)
     {
         erreur = null;
@@ -126,6 +129,9 @@ public static class SaveLocationService
                 Directory.CreateDirectory(Path.GetDirectoryName(dest));
                 File.Copy(f, dest);
             }
+            // Revue 16c (D8-07) : l'ancien dossier ne reste pas en double (données, documents, secrets) : il est renommé.
+            try { Directory.Move(oldRoot, AncienneRacineDeplacee(oldRoot)); }
+            catch (Exception e) { Debug.LogWarning($"[SaveLocationService] Ancien dossier non renommé ({e.Message}) : à supprimer à la main."); }
             return true;
         }
         catch (Exception e)

@@ -86,6 +86,7 @@ public class DateInputController : MonoBehaviour
         {
             return;
         }
+        if (year < 1900) return;   // revue 16c (D7b-10) : même borne que LireDate (« 27 » n'est pas l'an 0027)
 
         // Vérifie que la date est valide
         try
@@ -113,17 +114,6 @@ public class DateInputController : MonoBehaviour
         return true;
     }
 
-    public bool  OnConfirm()
-    {
-        
-
-        // Sauvegarde en PlayerPrefs (persiste entre les sessions)
-       // PlayerPrefs.SetString("SavedDate", SelectedDate.ToString("yyyy-MM-dd"));
-        //PlayerPrefs.Save();
-
-        Debug.Log($"[Date] Enregistrée : {SelectedDate:yyyy-MM-dd}");
-        return HasValidDate;
-    }
     public DateTime saveThedate()
     {
         dateText.text= $"{SelectedDate:dd / MM / yyyy}";

@@ -134,7 +134,7 @@ public static class PappersSync
     const string QuotaAtteint = "Pappers : limite du jour atteinte pour cette entreprise (50 sociétés nouvelles). "
                               + "Les sociétés déjà connues restent consultées ; réessayez demain pour les autres.";
 
-    /// La tournée du cloud : le BODACC d'abord (gratuit, 40 sociétés par appel), puis la fiche Pappers de chaque
+    /// La tournée du cloud : le BODACC d'abord (gratuit, 10 sociétés par appel), puis la fiche Pappers de chaque
     /// locataire (relue par le serveur une fois par mois au plus). BODACC injoignable : rien n'est écrit
     /// aujourd'hui, la ligne « Procédures » serait fausse ; la tournée de demain recommencera.
     static IEnumerator ToutCloud(List<BatimentPrefab> bps, System.Func<string, bool> libre)
@@ -207,9 +207,11 @@ public static class PappersSync
     static IEnumerator Bodacc(List<string> sirens, System.Action<List<SocieteLocataire.Procedure>> fin)
     {
         var tout = new List<SocieteLocataire.Procedure>();
-        for (int i = 0; i < sirens.Count; i += 40)
+        // Revue 16c (D7a-11) : 10 SIREN par appel ; à 40, les 100 annonces rendues (les plus récentes) pouvaient couper une
+        // procédure ancienne toujours ouverte, qui passait alors pour « SAINE ».
+        for (int i = 0; i < sirens.Count; i += 10)
         {
-            using var req = UnityWebRequest.Get(SocieteLocataire.UrlBodacc(sirens.Skip(i).Take(40)));
+            using var req = UnityWebRequest.Get(SocieteLocataire.UrlBodacc(sirens.Skip(i).Take(10)));
             req.timeout = 30;
             yield return req.SendWebRequest();
             var lu = req.result == UnityWebRequest.Result.Success ? SocieteLocataire.LireBodacc(req.downloadHandler.text) : null;

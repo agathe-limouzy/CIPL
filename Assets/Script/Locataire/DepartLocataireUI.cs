@@ -425,6 +425,7 @@ public static class DepartPanel
         loc.dateSortieISO = dernier.ToString("yyyy-MM-dd");
         loc.delaiRestitutionMois = mois == DepartLocataire.DelaiRestitutionDefautMois ? 0 : mois;
         loc.sansEtatDesLieux = !avecEdl;
+        if (!avecEdl) loc.etatDesLieux = "";   // revue 16c (D7a-14) : le PDF joint n'est plus affiché (le fichier reste dans le dossier)
         loc.dateEtatDesLieuxISO = edlSaisi ? edl.ToString("yyyy-MM-dd") : "";
         return null;
     }

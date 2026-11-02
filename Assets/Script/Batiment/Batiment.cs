@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using NUnit.Framework;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -36,26 +35,12 @@ public class Batiment : Data
     //Locataire 
     public List<Locataire> locataireDuBatiment = new List<Locataire>();
 
-    // Propriété DateTime pratique (non sérialisée)
-    [NonSerialized]
-    private DateTime _dateAchat;
 
 
 
     // Propriétés calculées
   
 
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
-    {
-        
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
-    }
 }
 
 public enum ParkingState

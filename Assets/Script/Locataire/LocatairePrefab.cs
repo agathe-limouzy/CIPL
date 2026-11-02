@@ -51,8 +51,6 @@ public class LocatairePrefab : PrefabBatLoc
     public BatimentPrefab batimentPrefabOrigin;
 
     public Button pappersBtn;
-    public Button resumeSocieteBtn;
-    public PapperService papperService;
     public InputAndText Commentaire;
     private LocataireFacturationFields facturationFields;
     private LocataireBailFields bailFields;
@@ -157,7 +155,9 @@ public class LocatairePrefab : PrefabBatLoc
 
     public void RefreshTailleLot(float value)
     {
-        tailleLotTxt.ApplySave(value.ToString());
+        // Revue 16c (D7a-16) : une fiche en saisie garde son champ ouvert (un enregistrement voisin le refermait).
+        if (EnEdition) tailleLotTxt.ApplyValue(value.ToString());
+        else tailleLotTxt.ApplySave(value.ToString());
     }
 
     // ── En-tête de fiche (avatar + nom + bâtiment · lot) ─────────────────────
@@ -248,7 +248,6 @@ public class LocatairePrefab : PrefabBatLoc
         // Le bouton « résumé société » a disparu : le résumé se met à jour seul au
         // lancement, pour TOUS les locataires (PappersSync). Une information à jour
         // uniquement là où l'on avait pensé à cliquer ne valait pas grand-chose.
-        if (resumeSocieteBtn != null) resumeSocieteBtn.gameObject.SetActive(false);
 
         if (!NeedToModify)
         {
@@ -430,7 +429,9 @@ public class LocatairePrefab : PrefabBatLoc
         // locataires homonymes dans DEUX bâtiments différents ne se gênent donc pas et
         // restent autorisés. Seul un doublon au sein du même bâtiment est refusé.
         string ancienNomLoc = locataire.Name;
-        string nouveauNomLoc = nameOfLocataire.GetNewSave();
+        // Revue 16c (D7a-10) : le nom est LU pour les contrôles et le champ ne se referme qu'une fois le nom accepté : un refus
+        // (doublon, dossier bloqué) le laisse en saisie avec le nom tapé, comme le reste de la fiche.
+        string nouveauNomLoc = nameOfLocataire.GetValue();
         string nomBat = batimentPrefabOrigin.getName();
 
         if (!DossiersDonnees.MemeDossier(ancienNomLoc, nouveauNomLoc))
@@ -443,7 +444,6 @@ public class LocatairePrefab : PrefabBatLoc
                 ConfirmDialog.Erreur(
                     $"Un locataire nommé « {autre.Name} » existe déjà dans ce bâtiment. " +
                     "Choisissez un autre nom : le dossier de factures porte le nom du locataire.");
-                nameOfLocataire.ApplySave(ancienNomLoc);
                 return;
             }
 
@@ -451,11 +451,11 @@ public class LocatairePrefab : PrefabBatLoc
             {
                 ConfirmDialog.Erreur(
                     $"Renommage impossible ({errLoc}). Fermez les fichiers ouverts de ce locataire et réessayez.");
-                nameOfLocataire.ApplySave(ancienNomLoc);
                 return;
             }
         }
 
+        nameOfLocataire.GetNewSave();   // accepté : le champ se referme sur le nom
         locataire.Name = nouveauNomLoc;
         locataire.codeCompatable = codeComptableTxt.GetNewSave();
         locataire.emailLocataire = emailLocataireTxt.GetNewSave();
@@ -715,19 +715,6 @@ public class LocatairePrefab : PrefabBatLoc
             return;
         }
         Application.OpenURL($"https://www.pappers.fr/entreprise/{s.Substring(0, 9)}");
-    }
-
-    private void CreateResume()
-    {
-        var s = siret.GetValue().Trim();
-        if (s.Length < 9)
-        {
-            ConfirmDialog.Erreur("Siret incomplet — 9 chiffres minimum pour interroger la société.");
-            return;
-        }
-        papperService.FetchBySiret(s,
-            data => SetPappersSection(PappersResume.Construire(data)),
-            err => { SetPappersSection($"Erreur : {err}"); Debug.LogWarning($"[Annuaire] {err}"); });
     }
 
     // Remplace le bloc Pappers du commentaire, en gardant ce qui l'entoure.

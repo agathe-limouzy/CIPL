@@ -30,6 +30,7 @@ public class AchatFormPanel : MonoBehaviour
     public Button btnAnnuler;
 
     private static readonly int[] Durees = { 60, 84, 120, 180, 240, 300 };
+    bool _ecouteursPoses;   // revue 16c (D7b-17)
     private const float TAUX_FRAIS_AUTO = 0.08f;
 
     private AchatFinancement _data;
@@ -115,13 +116,18 @@ public class AchatFormPanel : MonoBehaviour
         DropdownComptant.onValueChanged.RemoveAllListeners();
         DropdownComptant.onValueChanged.AddListener(isOn => { panelEmprunt?.SetActive(isOn != 0); RefreshCalculs(); ForceLayoutRebuild(); });
 
-        toggleFraisAuto?.onValueChanged.AddListener(_ => RefreshCalculs());
-        txtPrixAchat.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
-        txtFraisNotaire.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
-        txtFraisAgence.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
-        txtMontantEmprunte.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
-        txtTaux.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
-        dropdownDuree.onValueChanged.AddListener(_ => RefreshCalculs());
+        // Revue 16c (D7b-17) : posés une fois (chaque ouverture les empilait : N recalculs par frappe).
+        if (!_ecouteursPoses)
+        {
+            _ecouteursPoses = true;
+            toggleFraisAuto?.onValueChanged.AddListener(_ => RefreshCalculs());
+            txtPrixAchat.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
+            txtFraisNotaire.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
+            txtFraisAgence.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
+            txtMontantEmprunte.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
+            txtTaux.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
+            dropdownDuree.onValueChanged.AddListener(_ => RefreshCalculs());
+        }
 
         btnSauvegarder.onClick.RemoveAllListeners();
         btnSauvegarder.onClick.AddListener(Save);
@@ -137,11 +143,11 @@ public class AchatFormPanel : MonoBehaviour
 
     private void RefreshCalculs()
     {
-        float prix = Parse(txtPrixAchat.GetValue());
-        float fraisNot = GetFraisNotaire(prix);
-        float fraisAg = Parse(txtFraisAgence.GetValue());
-        float montant = Parse(txtMontantEmprunte.GetValue());
-        float taux = Parse(txtTaux.GetValue());
+        double prix = Parse(txtPrixAchat.GetValue());
+        double fraisNot = GetFraisNotaire(prix);
+        double fraisAg = Parse(txtFraisAgence.GetValue());
+        double montant = Parse(txtMontantEmprunte.GetValue());
+        double taux = Parse(txtTaux.GetValue());
         int duree = GetDuree();
 
         if (toggleFraisAuto != null && toggleFraisAuto.isOn)
@@ -161,9 +167,9 @@ public class AchatFormPanel : MonoBehaviour
 
     private void Save()
     {
-        float prix = Parse(txtPrixAchat.GetNewSave());
-        float fraisNot = GetFraisNotaire(prix);
-        float fraisAg = Parse(txtFraisAgence.GetNewSave());
+        double prix = Parse(txtPrixAchat.GetNewSave());
+        double fraisNot = GetFraisNotaire(prix);
+        double fraisAg = Parse(txtFraisAgence.GetNewSave());
 
         _data.label = txtLabel.GetNewSave();
         _data.prixAchat = prix;
@@ -193,17 +199,21 @@ public class AchatFormPanel : MonoBehaviour
         _onClose?.Invoke();
     }
 
-    private float GetFraisNotaire(float prix)
+    private double GetFraisNotaire(double prix)
         => toggleFraisAuto != null && toggleFraisAuto.isOn
             ? prix * TAUX_FRAIS_AUTO
             : Parse(txtFraisNotaire.GetValue());
 
     // Voir SaisieNumerique : tolère la saisie française et signale une valeur
     // non numérique au lieu de la convertir silencieusement en 0.
-    private float Parse(string s) => SaisieNumerique.ParseOuAvertir(s, "AchatFormPanel");
+    private double Parse(string s) => SaisieNumerique.ParseOuAvertirD(s, "AchatFormPanel");   // revue 16c (D7b-12) : en double, comme le modèle
 
     private int GetDuree() => dropdownDuree.value < Durees.Length ? Durees[dropdownDuree.value] : 120;
-    private void SetDuree(int m) { for (int i = 0; i < Durees.Length; i++) if (Durees[i] == m) { dropdownDuree.value = i; return; } }
+    private void SetDuree(int m)
+    {
+        for (int i = 0; i < Durees.Length; i++) if (Durees[i] == m) { dropdownDuree.value = i; return; }
+        dropdownDuree.value = System.Array.IndexOf(Durees, 120);   // revue 16c (D7b-17) : durée inconnue (nouvel élément) → 120 mois, pas celle du formulaire précédent
+    }
     private static AchatFinancement Clone(AchatFinancement a)
         => JsonUtility.FromJson<AchatFinancement>(JsonUtility.ToJson(a));
 }

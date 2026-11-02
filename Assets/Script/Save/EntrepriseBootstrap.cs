@@ -4,7 +4,7 @@ using UnityEngine.UI;
 
 /// Amorce le multi-entreprise sans toucher la scène : enregistre l'entreprise
 /// active (1er lancement) et ajoute un bouton « Entreprises » au pied du menu Home
-/// (clone du bouton Sauvegardes), câblé sur EntreprisePanel.OpenPanel.
+/// (clone du bouton Sauvegardes). L'ancien panneau Entreprises local a disparu le 02/11 (revue 16c, D8-06).
 public static class EntrepriseBootstrap
 {
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]

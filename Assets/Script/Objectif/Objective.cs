@@ -7,7 +7,6 @@ public class Objective
 {
     public string id;
     public string text;
-    public DateTime createdAt;
 
     // Version 0 (avant le 06/10) : un seul `status` mêlait importance et avancement.
     // Repris par Objectifs.Migrer au chargement ; plus lu ni écrit ensuite.
@@ -34,7 +33,6 @@ public class Objective
         id = Guid.NewGuid().ToString();
         this.text = text;
         this.importance = importance;
-        createdAt = DateTime.Now;
         version = 1;
         prevenirJours = Objectifs.PREVENIR_DEFAUT;
     }
@@ -159,13 +157,27 @@ public static class Objectifs
 
     // ── Récurrence ─────────────────────────────────────────────────────────────
 
-    public static DateTime Suivante(DateTime echeance, int n, Objective.UniteRecurrence u) => u switch
+    public static DateTime Suivante(DateTime echeance, int n, Objective.UniteRecurrence u, int jourOrigine = 0)
     {
-        Objective.UniteRecurrence.Jours => echeance.AddDays(n),
-        Objective.UniteRecurrence.Semaines => echeance.AddDays(7 * n),
-        Objective.UniteRecurrence.Mois => echeance.AddMonths(n),
-        _ => echeance.AddYears(n)
-    };
+        switch (u)
+        {
+            case Objective.UniteRecurrence.Jours: return echeance.AddDays(n);
+            case Objective.UniteRecurrence.Semaines: return echeance.AddDays(7 * n);
+            case Objective.UniteRecurrence.Mois:
+                // Revue 16c (D7b-11) : le jour d'origine est reposé (31 janvier → 28 février → 31 mars) au lieu de glisser pour toujours.
+                var m = echeance.AddMonths(n);
+                return jourOrigine > 0 ? new DateTime(m.Year, m.Month, Math.Min(jourOrigine, DateTime.DaysInMonth(m.Year, m.Month))) : m;
+            default: return echeance.AddYears(n);
+        }
+    }
+
+    /// Le jour de la première occurrence de la chaîne (31 pour « le 31 de chaque mois »).
+    static int JourOrigine(List<Objective> liste, Objective o, DateTime echeance)
+    {
+        var prec = Precedentes(liste, o);
+        var premiere = prec.Count > 0 ? Echeance(prec[prec.Count - 1]) : null;
+        return (premiere ?? echeance).Day;
+    }
 
     /// Passe l'objectif « Fait ». Récurrent avec échéance : crée l'occurrence suivante,
     /// datée de l'échéance PRÉVUE + intervalle (calendrier fixe, même fait en avance ou en
@@ -181,7 +193,7 @@ public static class Objectifs
 
         var s = new Objective(o.text, o.importance)
         {
-            echeanceISO = Iso(Suivante(e.Value, o.repeterTous, o.repeterUnite)),
+            echeanceISO = Iso(Suivante(e.Value, o.repeterTous, o.repeterUnite, JourOrigine(liste, o, e.Value))),
             prevenirJours = o.prevenirJours,
             repeterTous = o.repeterTous,
             repeterUnite = o.repeterUnite

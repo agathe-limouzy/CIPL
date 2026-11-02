@@ -22,7 +22,8 @@ public class BuildingCard : MonoBehaviour
     public void Setup(BatimentPrefab batiment, Action<BatimentPrefab> onClick)
     {
         var data = batiment.getBatiment();
-        int nbLoc = batiment.listLocataire.Count;
+        // Revue 16c (D7a-02, vu en BJ7 le 02/11) : la carte compte les lots occupés, comme la fiche du bâtiment (partis et archivés exclus).
+        int nbLoc = System.Linq.Enumerable.Count(BatimentPrefab.EnPlace(batiment.listLocataire));
 
         if (txtNom != null)
             txtNom.text = string.IsNullOrEmpty(data.Name) ? "Sans nom" : data.Name;

@@ -92,19 +92,26 @@ public class GeoCodingService : MonoBehaviour
             }
 
             // Parse GeoJSON { features: [ { geometry: { coordinates: [lon, lat] }, properties: { label } } ] }
-            GeoJsonResponse response = JsonUtility.FromJson<GeoJsonResponse>(request.downloadHandler.text);
-
-            if (response?.features == null || response.features.Length == 0)
+            // Revue 16c (D7b-14) : une réponse inattendue levait dans la coroutine (bouton de recherche figé) ; un résultat trop
+            // incertain (score < 0,5 : ville absente…) posait la carte ailleurs sans prévenir.
+            GeoJsonResponse response = null;
+            try { response = JsonUtility.FromJson<GeoJsonResponse>(request.downloadHandler.text); } catch (Exception) { }
+            var feature = response?.features != null && response.features.Length > 0 ? response.features[0] : null;
+            var coords = feature?.geometry?.coordinates;
+            if (coords == null || coords.Length < 2)
             {
                 onError?.Invoke("Adresse introuvable");
                 yield break;
             }
-
-            var coords = response.features[0].geometry.coordinates;
+            if (feature.properties != null && feature.properties.score > 0f && feature.properties.score < 0.5f)
+            {
+                onError?.Invoke("Adresse imprécise : précisez la ville ou le code postal.");
+                yield break;
+            }
             double lon = coords[0];
             double lat = coords[1];
 
-            Debug.Log($"[GeoCoding] Gouv → lat={lat}, lon={lon} ({response.features[0].properties.label})");
+            Debug.Log($"[GeoCoding] Gouv → lat={lat}, lon={lon} ({feature.properties?.label})");
             onSuccess?.Invoke(lat, lon);
         }
     }
@@ -177,5 +184,6 @@ public class GeoCodingService : MonoBehaviour
     private class GeoJsonProperties
     {
         public string label;
+        public float score;   // 0 à 1 : confiance d'api-adresse (revue 16c, D7b-14)
     }
 }

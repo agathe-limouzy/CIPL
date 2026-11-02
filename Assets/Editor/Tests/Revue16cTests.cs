@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -212,6 +213,135 @@ public class Revue16cTests
         string loyer = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", "FactureLoyerPanel.cs"));
         StringAssert.Contains("if (Math.Abs(d.ttc) <= 0.004f)", loyer);
         StringAssert.DoesNotContain("parPlateforme && Math.Abs(d.ttc)", loyer);
+    }
+
+    [Test]
+    public void Lot7_D7a_siret_dates_et_fiches()
+    {
+        // D7a-12 : une seule lecture du SIRET, chiffres seuls.
+        Assert.That(PappersResume.SiretExploitable("123 456 789"), Is.True);
+        Assert.That(PappersResume.SiretExploitable("12 34 56 7"), Is.False, "9 caractères mais 7 chiffres");
+        Assert.That(PappersResume.SiretExploitable("00000000200000"), Is.True);
+        Assert.That(SocieteLocataire.Siren("123 456 789 00012"), Is.EqualTo("123456789"));
+        // D7a-13 : les dates ISO se relisent en culture invariante, et EstParti se teste sans l'horloge.
+        foreach (var fichier in new[] { "Locataire/Locataire.cs", "Locataire/LocataireFacturationFields.cs", "Batiment/BatimentPrefab.cs",
+                                        "Batiment/BatimentSummaryView.cs", "RevisionLoyer/LoyerHistoryService.cs" })
+            StringAssert.DoesNotContain("DateTime.TryParse(", File.ReadAllText(Path.Combine(Application.dataPath, "Script", fichier)), fichier);
+        var parti = new Locataire { dateSortieISO = "2026-01-15" };
+        Assert.That(parti.EstPartiLe(new DateTime(2026, 1, 16)), Is.True);
+        Assert.That(parti.EstPartiLe(new DateTime(2026, 1, 15)), Is.False, "le jour du départ, encore là");
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("ar-SA");
+            Assert.That(parti.EstPartiLe(new DateTime(2026, 2, 1)), Is.True, "calendrier non grégorien : même lecture");
+            Assert.That(new Locataire { dateDebutBailISO = "2026-07-01" }.DateDebutBail, Is.EqualTo(new DateTime(2026, 7, 1)));
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = culture; }
+        // D7a-10, 14, 15, 16, 17 : règles de fiche, vérifiées sur le texte (écrans).
+        string prefab = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Locataire", "LocatairePrefab.cs"));
+        StringAssert.Contains("string nouveauNomLoc = nameOfLocataire.GetValue();", prefab, "D7a-10 : lu avant les contrôles");
+        StringAssert.DoesNotContain("nameOfLocataire.ApplySave(ancienNomLoc)", prefab, "D7a-10 : un refus ne referme plus le champ");
+        StringAssert.Contains("if (EnEdition) tailleLotTxt.ApplyValue", prefab, "D7a-16");
+        StringAssert.DoesNotContain("CreateResume", prefab, "D7a-17");
+        StringAssert.Contains("if (!avecEdl) loc.etatDesLieux = \"\";", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Locataire", "DepartLocataireUI.cs")), "D7a-14");
+        string bp = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Batiment", "BatimentPrefab.cs"));
+        Assert.That(System.Text.RegularExpressions.Regex.IsMatch(bp, @"loc\.archive = archive;[^\n]*\n\s*SaveAfterModifyToDoListLocataire\(\);"), Is.False, "D7a-15 : Archiver n'enregistre plus lui-même");
+        StringAssert.DoesNotContain("using NUnit.Framework;", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Batiment", "Batiment.cs")), "D7a-17");
+        StringAssert.DoesNotContain("using UnityEditor;", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "InputAndText.cs")), "D7a-17");
+        StringAssert.Contains("Take(10)", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Pappers", "PappersSync.cs")), "D7a-11 : 10 SIREN par appel BODACC");
+    }
+
+    [Test]
+    public void Lot7_D7b_revision_objectifs_saisies()
+    {
+        // D7b-08 : à la révision, la vraie base remplace la base de repli, datée au début du bail : plus de première année sur-indexée.
+        var loc = new Locataire { typeRevision = TypeRevision.Indice, dateDebutBailISO = "2026-11-01", loyerAnnuel = 12000f };
+        LoyerHistoryService.EnregistrerReference(loc, new DateTime(2026, 11, 1), IndiceImmo.ILC, "2025-T3", 100f, 12000f);
+        LoyerHistoryService.EnregistrerReference(loc, new DateTime(2026, 11, 1), IndiceImmo.ILC, "2026-T3", 110f, 12000f);
+        var obs = new System.Collections.Generic.Dictionary<IndiceImmo, System.Collections.Generic.List<(string periode, float valeur)>>
+            { { IndiceImmo.ILC, new System.Collections.Generic.List<(string periode, float valeur)> { ("2025-T3", 100f), ("2026-T3", 110f) } } };
+        Assert.That(LoyerHistoryService.LoyerPourAnnee(loc, 2026, obs), Is.EqualTo(2000f).Within(0.01f), "loyer de départ × 2/12, pas × 1,1");
+        // D7b-09 : l'historique des loyers couvre l'année → loyer facturé, pas théorique.
+        Assert.That(LoyerHistoryService.HistoriqueCouvre(loc, 2026), Is.False);
+        loc.historiqueLoyers.Add(new PalierLoyer { debutISO = "2025-01-01", finISO = "2025-12-31", loyer = 11000f });
+        Assert.That(LoyerHistoryService.HistoriqueCouvre(loc, 2026), Is.True);
+        Assert.That(LoyerHistoryService.HistoriqueCouvre(loc, 2024), Is.False, "avant l'historique : reconstruction INSEE");
+        // D7b-11 : « le 31 de chaque mois » : 31/01 → 28/02 → 31/03.
+        var o = new Objective("Loyer à encaisser") { echeanceISO = "2026-01-31", repeterTous = 1, repeterUnite = Objective.UniteRecurrence.Mois };
+        var liste = new System.Collections.Generic.List<Objective> { o };
+        var s1 = Objectifs.MarquerFait(liste, o, new DateTime(2026, 1, 31));
+        Assert.That(s1.echeanceISO, Is.EqualTo("2026-02-28"));
+        var s2 = Objectifs.MarquerFait(liste, s1, new DateTime(2026, 2, 28));
+        Assert.That(s2.echeanceISO, Is.EqualTo("2026-03-31"), "le jour d'origine est reposé");
+        Assert.That(Objectifs.Suivante(new DateTime(2026, 1, 31), 1, Objective.UniteRecurrence.Mois), Is.EqualTo(new DateTime(2026, 2, 28)), "sans origine : comme avant");
+        // D7b-12 : la saisie en double garde ses centimes.
+        Assert.That(SaisieNumerique.TryParse("2 500 000,45", out double d), Is.True);
+        Assert.That(d, Is.EqualTo(2500000.45d), "exact en double");
+        Assert.That(SaisieNumerique.TryParse("1.200,50", out float fl), Is.True);
+        Assert.That(fl, Is.EqualTo(1200.5f).Within(0.001f), "la version float suit");
+        // D7b-20 : l'ICC, en fin de liste (ordre figé).
+        Assert.That((int)IndiceImmo.ICC, Is.EqualTo(3));
+        StringAssert.Contains("Construction", InseeIndiceService.GetLabel(IndiceImmo.ICC));
+        // D7b-10, 13, 14, 15, 16, 17 : règles d'écran, vérifiées sur le texte.
+        StringAssert.Contains("if (year < 1900) return;", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Calender", "DateInputController.cs")), "D7b-10");
+        string insee = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "RevisionLoyer", "InseeIndiceService.cs"));
+        StringAssert.Contains("req.timeout = 15;", insee, "D7b-13"); StringAssert.Contains("Réponse INSEE illisible", insee, "D7b-13");
+        StringAssert.Contains("Adresse imprécise", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Maps", "GeoCodingService.cs")), "D7b-14");
+        StringAssert.Contains("MapThumbnailService.EstEnCache(ancienne)) Destroy(ancienne);", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Maps", "TileLoader.cs")), "D7b-15");
+        string plu = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "PLU", "PLUOverlayPanel.cs"));
+        StringAssert.Contains("yield return PLUService.Instance.FetchZone(", plu, "D7b-16"); StringAssert.DoesNotContain("float timeout = 10f;", plu, "D7b-16");
+        foreach (var fichier in new[] { "Achat/AchatFormPanel.cs", "Travaux/TravauxFormPanel.cs" })
+        {
+            string src = File.ReadAllText(Path.Combine(Application.dataPath, "Script", fichier));
+            StringAssert.Contains("if (!_ecouteursPoses)", src, "D7b-17 " + fichier);
+            StringAssert.Contains("System.Array.IndexOf(Durees, 120)", src, "D7b-17 " + fichier);
+            StringAssert.Contains("private double Parse(string s)", src, "D7b-12 " + fichier);
+        }
+        Assert.That(File.Exists(Path.Combine(Application.dataPath, "Script", "Travaux", "TravauxController.cs")), Is.False, "D7b-18");
+    }
+
+    [Test]
+    public void Lot7_D8_sauvegarde_transfert_accueil()
+    {
+        // D8-06 : le mode local d'avant le cloud a disparu (décision du 02/11).
+        foreach (var mort in new[] { "BackupService", "MigrationDossiers", "SaveLocationMenu", "EntreprisePanel" })
+            Assert.That(File.Exists(Path.Combine(Application.dataPath, "Script", "Save", mort + ".cs")), Is.False, mort);
+        string service = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Save", "EntrepriseService.cs"));
+        StringAssert.DoesNotContain("public static bool Creer(", service, "D8-06");
+        StringAssert.DoesNotContain("sauvegardesPanel", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "General", "GeneralMenuPanel.cs")), "D8-06");
+        // D8-07 : après la copie, l'ancien dossier est renommé (plus de double, plus de clé API oubliée).
+        string tmp = Path.Combine(Path.GetTempPath(), "cipl_d8_07_" + System.Guid.NewGuid().ToString("N"));
+        string ancien = Path.Combine(tmp, "ancien"), nouveau = Path.Combine(tmp, "nouveau");
+        Directory.CreateDirectory(Path.Combine(ancien, "batiments"));
+        File.WriteAllText(Path.Combine(ancien, "batiments", "b.json"), "{}");
+        try
+        {
+            Assert.That(SaveLocationService.MigrateData(ancien, nouveau, out string erreur), Is.True, erreur);
+            Assert.That(File.Exists(Path.Combine(nouveau, "batiments", "b.json")), Is.True, "copié");
+            Assert.That(Directory.Exists(ancien), Is.False, "l'ancien dossier n'existe plus sous son nom");
+            Assert.That(Directory.Exists(SaveLocationService.AncienneRacineDeplacee(ancien)), Is.True, "renommé « _deplace_<date> »");
+            StringAssert.EndsWith("_deplace_" + DateTime.Now.ToString("yyyy-MM-dd"), SaveLocationService.AncienneRacineDeplacee(@"C:\x\CIPL_Saves\"));
+        }
+        finally { try { Directory.Delete(tmp, true); } catch (System.Exception) { } }
+        // D8-08, D8-09, D8-10 : règles vérifiées sur le texte (écrans et disque).
+        string transfert = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Save", "TransfertEntreprise.cs"));
+        StringAssert.Contains("if (Directory.Exists(d)) MettreEnCorbeille(d, racineDest);", transfert, "D8-08");
+        StringAssert.DoesNotContain("Directory.Delete(d, true)", transfert, "D8-08");
+        string accueil = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "General", "GeneralMenuPanel.cs"));
+        StringAssert.Contains("RappelsAuto.Ouvrir(alerte);", accueil, "D8-09");
+        StringAssert.Contains("listLocataire.Count(l => l != null && !l.archive)", accueil, "D8-10");
+        // BJ7 (02/11) : la carte de bâtiment de l'accueil disait « 5 lots » quand la fiche en comptait 3 (partis, archivés).
+        StringAssert.Contains("BatimentPrefab.EnPlace(batiment.listLocataire)", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "General", "BuildingCard.cs")), "D7a-02 sur la carte de l'accueil");
+    }
+
+    [Test]
+    public void BJ4_une_date_illisible_est_refusee_dans_la_gestion_du_loyer()
+    {
+        // 02/11 : « 27 » dans l'année : « Réviser » révisait avec la date précédente, « Enregistrer » effaçait la date de régularisation.
+        string panneau = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "RevisionLoyer", "RevisionPanel.cs"));
+        StringAssert.Contains("static bool DateIllisible(DateInputController d)", panneau);
+        Assert.That(System.Text.RegularExpressions.Regex.Matches(panneau, @"DatesIllisibles\(\) is string refusDate").Count, Is.EqualTo(3), "Initialiser, Réviser, Enregistrer");
     }
 
     [Test]

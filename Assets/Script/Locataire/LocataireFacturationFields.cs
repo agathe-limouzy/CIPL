@@ -417,13 +417,6 @@ public class LocataireFacturationFields : MonoBehaviour
             _btnDepotFactLbl.text = !string.IsNullOrEmpty(loc?.dateSortieISO) ? "Décompte de sortie" : "Révision du dépôt (facture)";
     }
 
-    void AddSoon(Transform parent, string label)
-    {
-        var b = UIFactory.Button(parent, label + "  ·  à venir", UITheme.Carte, UITheme.TexteSecondaire, 40, UITheme.Role.Bouton);
-        UIFactory.Border(b.gameObject);
-        b.interactable = false;
-    }
-
     // ── Clone de coquille de section de scène (liseré + CardBg + bande + icône) ──
     // Renvoie le Content vidé ; `sectionRoot` = la carte clonée (recolorée/retitrée).
     // Utilisé pour Dépôt, Facturation et Suivi afin d'avoir EXACTEMENT le visuel
@@ -575,7 +568,7 @@ public class LocataireFacturationFields : MonoBehaviour
     {
         if (loc == null || loc.depotDeGarantie <= 0f) return false;
         if (!string.IsNullOrEmpty(loc.dateSortieISO)) return false;   // départ saisi : plus de révision
-        if (!DateTime.TryParse(loc.dateRevisionDepotISO, out var d)) return false;
+        if (!FacturationSuivi.TryEcheance(loc.dateRevisionDepotISO, out var d)) return false;
         if (FacturationSuivi.DejaTraite(loc, "depot-" + d.Year)) return false;
         return DateTime.Today >= d;
     }
@@ -633,11 +626,11 @@ public class LocataireFacturationFields : MonoBehaviour
             _valMoisEquiv.text = "—";
         }
 
-        _valDateRev.text = DateTime.TryParse(loc.dateRevisionDepotISO, out var dr)
+        _valDateRev.text = FacturationSuivi.TryEcheance(loc.dateRevisionDepotISO, out var dr)
             ? dr.ToString("dd/MM/yyyy") : "—";
         // Retour du 01/11 (BF18) : une révision en attente de sa facture se lit sur la carte, pas seulement dans la fenêtre
         // (la carte disait « 01/10/2027 » pendant que la fenêtre proposait le 01/10/2026 : on croyait à un décalage).
-        if (loc.depotPrecedent > 0f && DateTime.TryParse(loc.depotPrecedentRevisionISO, out var dp))
+        if (loc.depotPrecedent > 0f && FacturationSuivi.TryEcheance(loc.depotPrecedentRevisionISO, out var dp))
             _valDateRev.text = $"{dp:dd/MM/yyyy} en attente de sa facture · prochaine {_valDateRev.text}";
 
         bool due = RevisionDepotDue(loc);
@@ -690,8 +683,8 @@ public class LocataireFacturationFields : MonoBehaviour
     /// sinon `defaut`.
     public static DateTime DateRevisionProposee(Locataire loc, DateTime defaut)
     {
-        if (loc.depotPrecedent > 0f && DateTime.TryParse(loc.depotPrecedentRevisionISO, out var attente)) return attente;
-        return DateTime.TryParse(loc.dateRevisionDepotISO, out var d) ? d : defaut;
+        if (loc.depotPrecedent > 0f && FacturationSuivi.TryEcheance(loc.depotPrecedentRevisionISO, out var attente)) return attente;
+        return FacturationSuivi.TryEcheance(loc.dateRevisionDepotISO, out var d) ? d : defaut;
     }
 
     /// Ouvre l'initialisation (ou la révision) du dépôt — étape 4 du parcours de création.
@@ -768,7 +761,7 @@ public class LocataireFacturationFields : MonoBehaviour
         var dateInput = UIFactory.Input(body.transform, "JJ / MM / AAAA");
         // Initialisation sans date : un an après le début du bail.
         DateTime dateDefaut = DateTime.Today;
-        if (init && DateTime.TryParse(loc.dateDebutBailISO, out var debutBail)) dateDefaut = debutBail.AddYears(1);
+        if (init && FacturationSuivi.TryEcheance(loc.dateDebutBailISO, out var debutBail)) dateDefaut = debutBail.AddYears(1);
         dateInput.text = DateRevisionProposee(loc, dateDefaut).ToString("dd/MM/yyyy");
 
         // Soumis à TVA → loyer TTC ; sinon → loyer HT (mémorisé sur le locataire).
@@ -894,7 +887,7 @@ public class LocataireFacturationFields : MonoBehaviour
         string suite = "";
         if (montant > 0f && demande == "attendu")
         {
-            var echeance = DateTime.TryParse(loc.dateDebutBailISO, out var db) ? db : DateTime.Today;
+            var echeance = FacturationSuivi.TryEcheance(loc.dateDebutBailISO, out var db) ? db : DateTime.Today;
             FacturationSuivi.AjouterDepotInitial(loc, montant, "Envoye", echeance);
             suite = " — créance ajoutée au suivi.";
         }

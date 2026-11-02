@@ -27,7 +27,8 @@ public class PLUService : MonoBehaviour
         StartCoroutine(FetchZone(lat, lon, onSuccess, onError));
     }
 
-    private IEnumerator FetchZone(double lat, double lon,
+    /// Attendable depuis un panneau (revue 16c, D7b-16) : un seul délai, celui de la requête.
+    public IEnumerator FetchZone(double lat, double lon,
         Action<PLUZoneInfo> onSuccess,
         Action<string> onError)
     {

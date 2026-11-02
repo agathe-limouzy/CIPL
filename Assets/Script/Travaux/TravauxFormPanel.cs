@@ -27,6 +27,7 @@ public class TravauxFormPanel : MonoBehaviour
     public Button btnAnnuler;
 
     private static readonly int[] Durees = { 60, 84, 120, 180, 240, 300 };
+    bool _ecouteursPoses;   // revue 16c (D7b-17)
 
     private TravauxFinancement _data;
     private Action<TravauxFinancement> _onSave;
@@ -104,10 +105,15 @@ public class TravauxFormPanel : MonoBehaviour
         DropdownComptant.onValueChanged.RemoveAllListeners();
         DropdownComptant.onValueChanged.AddListener(isOn => { panelEmprunt?.SetActive(isOn != 0); RefreshCalculs(); ForceLayoutRebuild(); });
 
-        txtCoutTotal.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
-        txtMontantEmprunte.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
-        txtTaux.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
-        dropdownDuree.onValueChanged.AddListener(_ => RefreshCalculs());
+        // Revue 16c (D7b-17) : posés une fois (chaque ouverture les empilait : N recalculs par frappe).
+        if (!_ecouteursPoses)
+        {
+            _ecouteursPoses = true;
+            txtCoutTotal.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
+            txtMontantEmprunte.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
+            txtTaux.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
+            dropdownDuree.onValueChanged.AddListener(_ => RefreshCalculs());
+        }
 
         btnSauvegarder.onClick.RemoveAllListeners();
         btnSauvegarder.onClick.AddListener(Save);
@@ -123,9 +129,9 @@ public class TravauxFormPanel : MonoBehaviour
 
     private void RefreshCalculs()
     {
-        float cout = Parse(txtCoutTotal.GetValue());
-        float montant = Parse(txtMontantEmprunte.GetValue());
-        float taux = Parse(txtTaux.GetValue());
+        double cout = Parse(txtCoutTotal.GetValue());
+        double montant = Parse(txtMontantEmprunte.GetValue());
+        double taux = Parse(txtTaux.GetValue());
         int duree = GetDuree();
 
         double apport = cout - montant;
@@ -165,10 +171,14 @@ public class TravauxFormPanel : MonoBehaviour
 
     // Voir SaisieNumerique : tolère la saisie française et signale une valeur
     // non numérique au lieu de la convertir silencieusement en 0.
-    private float Parse(string s) => SaisieNumerique.ParseOuAvertir(s, "TravauxFormPanel");
+    private double Parse(string s) => SaisieNumerique.ParseOuAvertirD(s, "TravauxFormPanel");   // revue 16c (D7b-12) : en double, comme le modèle
 
     private int GetDuree() => dropdownDuree.value < Durees.Length ? Durees[dropdownDuree.value] : 120;
-    private void SetDuree(int m) { for (int i = 0; i < Durees.Length; i++) if (Durees[i] == m) { dropdownDuree.value = i; return; } }
+    private void SetDuree(int m)
+    {
+        for (int i = 0; i < Durees.Length; i++) if (Durees[i] == m) { dropdownDuree.value = i; return; }
+        dropdownDuree.value = System.Array.IndexOf(Durees, 120);   // revue 16c (D7b-17) : durée inconnue (nouvel élément) → 120 mois
+    }
     private static TravauxFinancement Clone(TravauxFinancement t)
         => JsonUtility.FromJson<TravauxFinancement>(JsonUtility.ToJson(t));
 }

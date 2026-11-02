@@ -38,7 +38,7 @@ public static class SaveIO
         }
 
         Reload();
-        // La sauvegarde a été DÉPLACÉE : l'entrée de l'ancienne racine devient obsolète,
+        // Les données ont été copiées et l'ancien dossier renommé « …_deplace_<date> » (D8-07) : l'entrée de l'ancienne racine devient obsolète,
         // on la remplace par la nouvelle dans la liste des entreprises.
         EntrepriseService.Oublier(ancien);
         EntrepriseService.EnsureActiveRegistered();

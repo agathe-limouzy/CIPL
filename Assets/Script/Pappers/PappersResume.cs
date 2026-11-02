@@ -98,7 +98,7 @@ public static class PappersResume
 
     /// Un SIRET utilisable pour l'interrogation : 9 chiffres au minimum.
     public static bool SiretExploitable(string siret)
-        => !string.IsNullOrWhiteSpace(siret) && siret.Trim().Length >= 9;
+        => SocieteLocataire.Siren(siret).Length == 9;   // revue 16c (D7a-12) : chiffres seuls, comme la tournée et l'annuaire
 
     public static string FormatSiren(string s)
         => s?.Length == 9 ? $"{s.Substring(0, 3)} {s.Substring(3, 3)} {s.Substring(6, 3)}" : s;

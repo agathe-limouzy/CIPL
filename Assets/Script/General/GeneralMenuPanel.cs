@@ -48,7 +48,6 @@ public class GeneralMenuPanel : MonoBehaviour
     public Button btnObjectifs;
     public Button btnSauvegardes;
     public GameObject objectifsPanel;
-    public GameObject sauvegardesPanel;
 
     [Header("Sections")]
     public GlobalObjectivesSection objectivesSection;
@@ -559,7 +558,7 @@ public class GeneralMenuPanel : MonoBehaviour
 
         foreach (var prefab in batimentManager.BatimentPrefab)
         {
-            nbLoc += prefab.listLocataire.Count;
+            nbLoc += prefab.listLocataire.Count(l => l != null && !l.archive);   // revue 16c (D8-10) : hors liste, hors compteur
             loyerTotal += prefab.GetLoyerTotal();
 
             var data = prefab.getBatiment();
@@ -631,6 +630,13 @@ public class GeneralMenuPanel : MonoBehaviour
         if (alerte.kind == HomeAlert.Kind.Objectif && alerte.objectif != null)
         {
             ObjectifPanel.OuvrirAlerte(alerte);
+            return;
+        }
+        // Revue 16c (D8-09, décision du 02/11) : un rappel de facturation ou de révision ouvre l'écran, comme la même carte
+        // dans le tableau d'objectifs ; fin de bail et résiliation : la fiche seulement.
+        if (alerte.kind == HomeAlert.Kind.Facturation || alerte.kind == HomeAlert.Kind.RevisionRetard || alerte.kind == HomeAlert.Kind.RevisionProche)
+        {
+            RappelsAuto.Ouvrir(alerte);
             return;
         }
         menuManager.OnSelect(alerte.batiment);

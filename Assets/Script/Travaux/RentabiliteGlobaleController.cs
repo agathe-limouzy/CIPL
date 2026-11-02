@@ -143,7 +143,6 @@ public class RentabiliteGlobaleController : MonoBehaviour
         double chargesAnnuel = mensTotales * 12d;
         double cashFlowAnnuel = loyerAnnuel - chargesAnnuel;
         double cashFlowMois = cashFlowAnnuel / 12d;
-        double rendBrut = investTotal > 0 ? loyerAnnuel / investTotal * 100d : 0d;
         double rendNet = investTotal > 0 ? cashFlowAnnuel / investTotal * 100d : 0d;
         double breakEven = RentabiliteCalculator.BreakEvenAns(investTotal, cashFlowAnnuel);
 

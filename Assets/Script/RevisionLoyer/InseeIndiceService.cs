@@ -13,6 +13,7 @@ public static class InseeIndiceService
             { IndiceImmo.ILC,  ("001532540", "Indice des Loyers Commerciaux") },
             { IndiceImmo.IRL,  ("001515334", "Indice de Référence des Loyers") },
             { IndiceImmo.ILAT, ("001617113", "Indice Loyers Activités Tertiaires") },
+            { IndiceImmo.ICC,  ("000008630", "Indice du Coût de la Construction") },   // série trimestrielle, base 100 au T4 1953 (BDM, 02/11)
         };
 
     public static string GetLabel(IndiceImmo type) => Indices[type].label;
@@ -25,6 +26,7 @@ public static class InseeIndiceService
 
         using (UnityWebRequest req = UnityWebRequest.Get(url))
         {
+            req.timeout = 15;   // revue 16c (D7b-13) : comme les autres services ; sans lui, « Récupération… » pour toujours
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
@@ -33,8 +35,12 @@ public static class InseeIndiceService
                 yield break;
             }
 
-            var obs = ParseObservations(req.downloadHandler.text);
-            if (obs.Count == 0) onError?.Invoke("Aucune donnée reçue");
+            // Revue 16c (D7b-13) : une page de maintenance (200 non XML) levait dans la coroutine et figeait le bouton.
+            List<(string periode, float valeur)> obs;
+            try { obs = ParseObservations(req.downloadHandler.text); }
+            catch (Exception) { obs = null; }
+            if (obs == null) onError?.Invoke("Réponse INSEE illisible (service en maintenance ?)");
+            else if (obs.Count == 0) onError?.Invoke("Aucune donnée reçue");
             else onSuccess?.Invoke(obs);
         }
     }

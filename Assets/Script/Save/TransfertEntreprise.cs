@@ -123,7 +123,7 @@ public static class TransfertEntreprise
 
             CopierFichiers(src, transferes.Select(l => l.Name).ToList(),
                            Dossier(racineOrigine, src.Name), Dossier(racineDest, resultat.Name),
-                           avecBatiment: seul == null || entree == null);
+                           avecBatiment: seul == null || entree == null, racineDest: racineDest);
 
             // Listes de charges créées dans la destination, puis le JSON en dernier :
             // c'est lui qui fait apparaître le bâtiment.
@@ -224,12 +224,13 @@ public static class TransfertEntreprise
     /// Chaque locataire transféré remplace EN ENTIER son dossier de destination.
     /// `avecBatiment` : on copie aussi le reste du dossier du bâtiment (photos,
     /// charges), sans les dossiers des locataires non transférés.
-    static void CopierFichiers(Batiment src, List<string> transferes, string srcBat, string dstBat, bool avecBatiment)
+    static void CopierFichiers(Batiment src, List<string> transferes, string srcBat, string dstBat, bool avecBatiment, string racineDest)
     {
         foreach (var nom in transferes)
         {
             string d = Path.Combine(dstBat, DossiersDonnees.NomDossier(nom));
-            if (Directory.Exists(d)) Directory.Delete(d, true);   // sauvegardé juste avant
+            // Revue 16c (D8-08) : en corbeille, jamais détruit : un dossier orphelin (bâtiment absent du JSON) n'a pas été sauvegardé.
+            if (Directory.Exists(d)) MettreEnCorbeille(d, racineDest);
         }
         if (!Directory.Exists(srcBat)) return;
 

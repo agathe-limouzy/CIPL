@@ -38,6 +38,8 @@ public class TileLoader : MonoBehaviour
         }
         if (targetImage != null)
         {
+            // Revue 16c (D7b-15) : l'image précédente (créée par code) est détruite, sauf une vignette du cache partagé.
+            if (targetImage.texture is Texture2D ancienne && ancienne != tex && !MapThumbnailService.EstEnCache(ancienne)) Destroy(ancienne);
             targetImage.texture = tex;
             targetImage.color = Color.white;
         }

@@ -38,6 +38,7 @@ public class RevisionPanel : MonoBehaviour
 
     [Header("Redesign — type d'indice (chips)")]
     public Button chipILC, chipIRL, chipILAT;   // pilotent indiceDropdown (0/1/2)
+    Button chipICC;   // revue 16c (D7b-20) : quatrième puce, clonée de la troisième à la volée (la scène n'en a que trois)
 
     [Header("Redesign — mode (toggle)")]
     public Button btnModeInit, btnModeReviser;
@@ -304,6 +305,14 @@ public class RevisionPanel : MonoBehaviour
         if (chipILC != null)  { chipILC.onClick.RemoveAllListeners();  chipILC.onClick.AddListener(() => SetIndice(0)); }
         if (chipIRL != null)  { chipIRL.onClick.RemoveAllListeners();  chipIRL.onClick.AddListener(() => SetIndice(1)); }
         if (chipILAT != null) { chipILAT.onClick.RemoveAllListeners(); chipILAT.onClick.AddListener(() => SetIndice(2)); }
+        if (chipICC == null && chipILAT != null)
+        {
+            chipICC = Instantiate(chipILAT, chipILAT.transform.parent);
+            chipICC.name = "chipICC";
+            var lbl = chipICC.GetComponentInChildren<TMP_Text>(true);
+            if (lbl != null) lbl.text = "ICC";
+        }
+        if (chipICC != null) { chipICC.onClick.RemoveAllListeners(); chipICC.onClick.AddListener(() => SetIndice(3)); }
     }
 
     private void SetIndice(int i)
@@ -312,6 +321,7 @@ public class RevisionPanel : MonoBehaviour
         StyleChip(chipILC,  i == 0);
         StyleChip(chipIRL,  i == 1);
         StyleChip(chipILAT, i == 2);
+        StyleChip(chipICC, i == 3);
     }
 
     private static void StyleChip(Button b, bool active)
@@ -414,6 +424,7 @@ public class RevisionPanel : MonoBehaviour
     private IEnumerator Initialiser()
     {
         if (!TryParseLoyer(out float loyer)) yield break;
+        if (DatesIllisibles() is string refusDate) { ConfirmDialog.Erreur(refusDate); yield break; }   // BJ4 (02/11)
 
         // Selon le CA : loyer min / max et % obligatoires, le max au moins égal au min.
         bool selonCA = _loc.typeRevision == TypeRevision.ChiffreAffaires;
@@ -468,7 +479,7 @@ public class RevisionPanel : MonoBehaviour
         // ou à la date de l'avenant après une renégociation)
         LoyerHistoryService.EnregistrerReference(_loc,
             FacturationSuivi.TryEcheance(_loc.debutConditionsISO, out var dbInit)
-                || DateTime.TryParse(_loc.dateDebutBailISO, out dbInit) ? dbInit : DateTime.Now,
+                || FacturationSuivi.TryEcheance(_loc.dateDebutBailISO, out dbInit) ? dbInit : DateTime.Now,
             (IndiceImmo)indiceDropdown.value, obsRef.periode, obsRef.valeur, loyer);
 
         txtIndiceDepart.text = _loc.indiceImmoAuDepart;
@@ -493,6 +504,7 @@ public class RevisionPanel : MonoBehaviour
     private IEnumerator Reviser()
     {
         if (!TryParseLoyer(out float loyer)) yield break;
+        if (DatesIllisibles() is string refusDate) { ConfirmDialog.Erreur(refusDate); yield break; }   // BJ4 (02/11)
 
         btnReviser.interactable = false;
         statusText.text = "Récupération des données INSEE...";
@@ -630,7 +642,11 @@ public class RevisionPanel : MonoBehaviour
 
         // Historique : n'enregistre un nouveau segment que si la référence
         // (trimestre de départ / indice / loyer de base) a réellement changé.
-        LoyerHistoryService.EnregistrerReference(_loc, d,
+        // Revue 16c (D7b-08) : datée comme à l'initialisation (début des conditions ou du bail), pas du jour de la révision :
+        // la vraie base remplace ainsi la base de repli pour TOUTES les années (Segments : à date égale, le dernier l'emporte).
+        LoyerHistoryService.EnregistrerReference(_loc,
+            FacturationSuivi.TryEcheance(_loc.debutConditionsISO, out var dbRev)
+                || FacturationSuivi.TryEcheance(_loc.dateDebutBailISO, out dbRev) ? dbRev : d,
             (IndiceImmo)indiceDropdown.value, obsDepart.periode, obsDepart.valeur, loyer);
 
         txtIndiceDepart.text = _loc.indiceImmoAuDepart;
@@ -1504,6 +1520,22 @@ public class RevisionPanel : MonoBehaviour
     static string Nombre(float v) => v > 0f ? v.ToString(CultureInfo.InvariantCulture) : "";
     static string Euros(float v) => v.ToString("N2", FacturePdfService.FrCulture) + " €";
 
+    // Revue 16c (BJ4, 02/11) : une date tapée mais illisible (année « 27 »…) est refusée. Avant, « Réviser » partait avec la
+    // date précédente et « Enregistrer » effaçait en silence une date de régularisation illisible. Vide = pas de date, admis.
+    static bool DateIllisible(DateInputController d)
+        => d != null && d.gameObject.activeInHierarchy && !d.LireDate(out _)
+           && !(string.IsNullOrWhiteSpace(d.dayInput.text) && string.IsNullOrWhiteSpace(d.monthInput.text) && string.IsNullOrWhiteSpace(d.yearInput.text));
+
+    /// Le refus à afficher pour les dates de l'écran, ou null si elles sont toutes lisibles (ou vides).
+    string DatesIllisibles()
+    {
+        if (DateIllisible(dateDeRevision)) return "Date de révision incomplète : jour, mois et année sur quatre chiffres.";
+        if (DateIllisible(_dateRegulCtrl)) return "Date de régularisation incomplète : jour, mois et année sur quatre chiffres, ou champs vides (pas de régularisation).";
+        foreach (var (id, date, prov) in _listesChamps)
+            if (DateIllisible(date)) return $"Date de régularisation « {ListesCharges.Nom(id)} » incomplète : jour, mois et année sur quatre chiffres, ou champs vides (pas de régularisation).";
+        return null;
+    }
+
     // Date d'un bloc « case + date » (ISO) : "" case décochée, null si illisible.
     static string DateSaisie(Toggle caseACocher, DateInputController date)
     {
@@ -1522,7 +1554,7 @@ public class RevisionPanel : MonoBehaviour
         if (_loc == null) return false;
         var type = TypeChoisi();
         if (type != _loc.typeRevision) return true;
-        float saisi = SaisieNumerique.TryParse(loyerDepart.text, out var v) ? v : 0f;
+        float saisi = SaisieNumerique.TryParse(loyerDepart.text, out float v) ? v : 0f;   // explicite : une version double existe (D7b-12)
         return !Mathf.Approximately(saisi, _loc.loyerDepart);
     }
 
@@ -1558,6 +1590,7 @@ public class RevisionPanel : MonoBehaviour
         if (_loc == null) return;
         if (!TryParseLoyer(out float loyer) || loyer <= 0f)
         { ConfirmDialog.Erreur("Saisissez le loyer de départ annuel (HT)."); return; }
+        if (DatesIllisibles() is string refusDate) { ConfirmDialog.Erreur(refusDate); return; }   // BJ4 (02/11)
 
         string franchise = FranchiseSaisie();
         if (franchise == null) { ConfirmDialog.Erreur("Date de fin de franchise invalide."); return; }

@@ -4,7 +4,7 @@ using UnityEngine;
 /// Conversion d'une saisie utilisateur en nombre.
 ///
 /// Mutualise une méthode `Parse` qui existait en triple (AchatFormPanel,
-/// TravauxFormPanel, TravauxController) et qui, en cas de saisie non numérique,
+/// TravauxFormPanel) et qui, en cas de saisie non numérique,
 /// renvoyait `0` **en silence** : un taux d'intérêt à 0 produit une mensualité
 /// sans intérêts, présentée comme un résultat valide.
 public static class SaisieNumerique
@@ -20,9 +20,9 @@ public static class SaisieNumerique
     /// Quand plusieurs séparateurs sont présents, seul le **dernier** est décimal,
     /// ceux qui le précèdent sont des groupements de milliers : « 1.200,50 »,
     /// « 1,200.50 » et « 1 200,50 » valent tous 1200,50.
-    public static bool TryParse(string saisie, out float valeur)
+    public static bool TryParse(string saisie, out double valeur)
     {
-        valeur = 0f;
+        valeur = 0d;
         if (string.IsNullOrWhiteSpace(saisie)) return true;   // champ vide = 0, cas normal
 
         // Espace ordinaire, insécable (U+00A0) et insécable étroit (U+202F) : les trois
@@ -44,7 +44,24 @@ public static class SaisieNumerique
             net = partieEntiere + "." + partieDecimale;
         }
 
-        return float.TryParse(net, NumberStyles.Float, CultureInfo.InvariantCulture, out valeur);
+        return double.TryParse(net, NumberStyles.Float, CultureInfo.InvariantCulture, out valeur);
+    }
+
+    /// Revue 16c (D7b-12) : la version `float` passe par la version `double` (2 500 000,45 restait 2 500 000,50 en float).
+    public static bool TryParse(string saisie, out float valeur)
+    {
+        bool ok = TryParse(saisie, out double d);
+        valeur = (float)d;
+        return ok;
+    }
+
+    /// Variante « formulaire » en double (achats, travaux : le modèle est en double).
+    public static double ParseOuAvertirD(string saisie, string contexte)
+    {
+        if (TryParse(saisie, out double v)) return v;
+        Debug.LogWarning($"[{contexte}] Valeur non numérique ignorée : « {saisie} » → 0 retenu.");
+        ConfirmDialog.Erreur($"« {saisie} » n'est pas un nombre valide — valeur ignorée (0).");
+        return 0d;
     }
 
     /// Variante « formulaire » : convertit, et signale visuellement une saisie

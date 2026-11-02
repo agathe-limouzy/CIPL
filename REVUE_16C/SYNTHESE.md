@@ -1,4 +1,4 @@
-# Revue complète du code — étape 16c (31/10/2026)
+ 02/11 (code et test ; parcours BJ7) | 02/11 (décision : l'écran ; parcours BJ6) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (décision : supprimé ; objet de scène « Savegarde » retiré) | 02/11 (ICC ajouté, série 000008630 ; parcours BJ5) | 02/11 (décision : inchangé ; chantier « TVA par entreprise » noté) | 02/11 (code mort retiré) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (code et test ; seuil 0,5) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (code et test ; parcours BJ4) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (code mort retiré ; PapperService reste un composant inerte du prefab) | 02/11 (code et test) | 02/11 (code et test ; parcours BJ3) | 02/11 (code et test ; parcours BJ2) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (10 SIREN par appel BODACC ; test) | 02/11 (code et test ; parcours BJ1) |# Revue complète du code — étape 16c (31/10/2026)
 
 Décisions du 31/10 : 8 domaines relus chacun à part par un relecteur Fable, en lecture seule (le domaine 7 en deux) ; chaque défaut a une gravité, un endroit, un scénario, une correction et un test ; **tout est corrigé avant le passage en réel (17)**.
 
@@ -231,3 +231,10 @@ Tant que la facture de révision du dépôt n'est pas partie, « Réviser » (ca
 | Une facture à total négatif ne partait pas par la plateforme (`FactureElectronique.Concerne` exigeait une TVA > 0, celle d'un avoir est négative), et le suivi affichait « — » à la place d'un montant négatif (vu en BI8) | mineur | 02/11 (`Math.Abs(tva)` dans `Concerne`, `Math.Abs(v)` dans l'affichage du montant ; test texte `BI8_*`) |
 | Le bac à sable a refusé l'avoir 381 : règle BR-FR-CO-05, un avoir doit citer au moins une facture antérieure (BT-25, BT-26), et CIPL n'en citait aucune (vu en BI8) | majeur | 02/11 (`FactureEn16931.Entree.references` écrites dans `preceding_invoice_references` ; `FactureElectronique.ReferencesAvoir` : la version précédente, sinon la facture d'origine (refac) et les loyers de l'année, dont les provisions couvrent ce qui est rendu ; refus au centre avant tout envoi quand il n'y a rien à citer, `RefusAvoir`) |
 | Une régul regroupée n'affichait la pastille « Plateforme » que sur la ligne qui porte la facture électronique ; un loyer de 0 € (sans TVA, donc hors plateforme) partait par e-mail au lieu d'être refusé (vu en BI8) | mineur | 02/11 (pastille reprise des lignes du même PDF, `FacturationSuivi.MemeFacture` ; total nul refusé dans tous les cas) |
+
+## Trouvés pendant le parcours BJ (02/11)
+
+| Défaut | Gravité | Corrigé |
+|---|---|---|
+| Gestion du loyer : une date tapée mais illisible (année « 27 ») était ignorée par « Réviser » (révision faite avec la date précédente) et effacée en silence par « Enregistrer » pour une date de régularisation (vu en BJ4) | mineur | 02/11 (`RevisionPanel.DatesIllisibles` : refus au centre avant Initialiser, Réviser et Enregistrer ; champs vides toujours admis) |
+| La carte de bâtiment de l'accueil comptait tous les locataires (« 5 lots ») quand la fiche du bâtiment ne compte que les lots occupés (« 3 lots », règle D7a-02) (vu en BJ7) | mineur | 02/11 (`BuildingCard` : `BatimentPrefab.EnPlace`, comme la fiche) |

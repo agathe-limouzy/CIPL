@@ -87,10 +87,10 @@ public static class LoyerHistoryService
     /// renouvellements. Retombe sur la date de début de bail courante sinon.
     public static DateTime PremierBail(Locataire loc)
     {
-        if (DateTime.TryParse(loc.dateDebutPremierBailISO, out var d1)) return d1;
-        if (DateTime.TryParse(loc.dateDebutBailISO, out var d2)) return d2;
+        if (FacturationSuivi.TryEcheance(loc.dateDebutPremierBailISO, out var d1)) return d1;
+        if (FacturationSuivi.TryEcheance(loc.dateDebutBailISO, out var d2)) return d2;
         if (loc.historiqueReferences != null && loc.historiqueReferences.Count > 0
-            && DateTime.TryParse(loc.historiqueReferences[0].dateEffetISO, out var d3)) return d3;
+            && FacturationSuivi.TryEcheance(loc.historiqueReferences[0].dateEffetISO, out var d3)) return d3;
         return DateTime.Today;
     }
 
@@ -107,7 +107,9 @@ public static class LoyerHistoryService
 
         // Paliers ou sans révision : le loyer de l'année = la somme de ses périodes,
         // qui tiennent déjà compte des paliers, de la franchise et du début du bail.
-        if (loc.typeRevision != TypeRevision.Indice)
+        // Revue 16c (D7b-09) : dès que l'historique des loyers couvre l'année (avenant, révision depuis D7b-02), le loyer de
+        // l'année est la somme de ses périodes réellement facturables ; la reconstruction INSEE ne sert qu'aux années d'avant.
+        if (loc.typeRevision != TypeRevision.Indice || HistoriqueCouvre(loc, annee))
         {
             float somme = 0f;
             int np = LoyerSummaryUI.NbPeriodes(loc.periodiciteLoyer);
@@ -155,6 +157,14 @@ public static class LoyerHistoryService
         return loyer;
     }
 
+    /// L'historique des loyers (avenants, révisions) commence au plus tard cette année-là.
+    public static bool HistoriqueCouvre(Locataire loc, int annee)
+    {
+        if (loc?.historiqueLoyers == null || loc.historiqueLoyers.Count == 0) return false;
+        var debut = loc.historiqueLoyers.Min(h => FacturationSuivi.TryEcheance(h?.debutISO, out var d) ? d : DateTime.MaxValue);
+        return debut != DateTime.MaxValue && annee >= debut.Year;
+    }
+
     private static float LoyerSegmentPourAnnee(Locataire loc, RevisionReference seg, int annee,
         Dictionary<IndiceImmo, List<(string periode, float valeur)>> obsParType)
     {
@@ -195,7 +205,7 @@ public static class LoyerHistoryService
             loc.historiqueReferences = new List<RevisionReference>();
 
         if (string.IsNullOrEmpty(loc.dateDebutPremierBailISO))
-            loc.dateDebutPremierBailISO = DateTime.TryParse(loc.dateDebutBailISO, out _)
+            loc.dateDebutPremierBailISO = FacturationSuivi.TryEcheance(loc.dateDebutBailISO, out _)
                 ? loc.dateDebutBailISO
                 : dateEffet.ToString("yyyy-MM-dd");
 
@@ -246,5 +256,5 @@ public static class LoyerHistoryService
     }
 
     private static DateTime ParseDate(string s)
-        => DateTime.TryParse(s, out var d) ? d : DateTime.MinValue;
+        => FacturationSuivi.TryEcheance(s, out var d) ? d : DateTime.MinValue;
 }

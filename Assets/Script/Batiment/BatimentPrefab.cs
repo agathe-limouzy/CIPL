@@ -91,7 +91,6 @@ public float GetLoyerTotal()
         total += loc.loyerAnnuel;
     return total;
 }
-public float GetTailleBatiment() => batiment.tailleBatiment;
 
     float _depassementSignale;   // dernier dépassement annoncé, pour ne pas le répéter
 
@@ -310,8 +309,7 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     public void Archiver(Locataire loc, bool archive)
     {
         if (loc == null) return;
-        loc.archive = archive;
-        SaveAfterModifyToDoListLocataire();
+        loc.archive = archive;   // enregistré par l'appelant (ApresDepart) : revue 16c (D7a-15), deux écritures pour une action
         if (dictionnairelocataire.TryGetValue(loc, out var prefab)) menulocataire.SetTabVisible(prefab, !archive);
         RebuildLocataireRows();
         if (archive)
@@ -357,12 +355,12 @@ public float GetTailleBatiment() => batiment.tailleBatiment;
     {
         if (acquisitionDate == null || batiment == null) return;
         DateTime d;
-        if (!DateTime.TryParse(batiment.dateAcquisitionISO, out d))
+        if (!FacturationSuivi.TryEcheance(batiment.dateAcquisitionISO, out d))
         {
             DateTime m = DateTime.MaxValue;
             if (batiment.historiquesAchat != null)
                 foreach (var a in batiment.historiquesAchat)
-                    if (DateTime.TryParse(a.dateAchat, out var da) && da < m) m = da;
+                    if (FacturationSuivi.TryEcheance(a.dateAchat, out var da) && da < m) m = da;
             d = m != DateTime.MaxValue ? m : DateTime.Today;
         }
         acquisitionDate.ApplyDate(d);

@@ -665,7 +665,7 @@ public class BatimentSummaryView : MonoBehaviour
         {
             int an = DateTime.Today.Year;
             foreach (var c in bat.charges)
-                if (DateTime.TryParse(c.dateISO, out var d) && d.Year == an)
+                if (FacturationSuivi.TryEcheance(c.dateISO, out var d) && d.Year == an)
                     chargesAn += c.cout;
         }
 
@@ -677,12 +677,12 @@ public class BatimentSummaryView : MonoBehaviour
     static float AnneesDepuisAcquisition(Batiment bat)
     {
         DateTime acq;
-        if (!DateTime.TryParse(bat.dateAcquisitionISO, out acq))
+        if (!FacturationSuivi.TryEcheance(bat.dateAcquisitionISO, out acq))
         {
             acq = DateTime.Today;
             if (bat.historiquesAchat != null)
                 foreach (var a in bat.historiquesAchat)
-                    if (DateTime.TryParse(a.dateAchat, out var d) && d < acq) acq = d;
+                    if (FacturationSuivi.TryEcheance(a.dateAchat, out var d) && d < acq) acq = d;
         }
         return Mathf.Max(0f, (float)(DateTime.Today - acq).TotalDays / 365.25f);
     }
@@ -690,12 +690,12 @@ public class BatimentSummaryView : MonoBehaviour
     public static string DateAcquisition(Batiment bat)
     {
         // Date saisie manuellement prioritaire, sinon date d'achat la plus ancienne.
-        if (DateTime.TryParse(bat.dateAcquisitionISO, out var manuelle))
+        if (FacturationSuivi.TryEcheance(bat.dateAcquisitionISO, out var manuelle))
             return manuelle.ToString("dd/MM/yyyy");
         if (bat.historiquesAchat == null || bat.historiquesAchat.Count == 0) return "—";
         DateTime plusAncienne = DateTime.MaxValue;
         foreach (var a in bat.historiquesAchat)
-            if (DateTime.TryParse(a.dateAchat, out var d) && d < plusAncienne)
+            if (FacturationSuivi.TryEcheance(a.dateAchat, out var d) && d < plusAncienne)
                 plusAncienne = d;
         return plusAncienne == DateTime.MaxValue ? "—" : plusAncienne.ToString("dd/MM/yyyy");
     }
@@ -710,7 +710,7 @@ public class BatimentSummaryView : MonoBehaviour
         string desc = string.IsNullOrEmpty(dernier.description) ? "Travaux" : dernier.description;
         if (desc.Length > 24) desc = desc.Substring(0, 24) + "…";
 
-        if (DateTime.TryParse(dernier.dateDebutTravaux, out var debut) && dernier.dureeMois > 0)
+        if (FacturationSuivi.TryEcheance(dernier.dateDebutTravaux, out var debut) && dernier.dureeMois > 0)
         {
             var fin = debut.AddMonths(dernier.dureeMois);
             if (fin > DateTime.Now)

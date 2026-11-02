@@ -334,17 +334,11 @@ public class PLUOverlayPanel : MonoBehaviour
         PLUZoneInfo zoneInfo = null;
         string pluError = "";
 
-        PLUService.Instance.GetZoneInfo(lat, lon,
+        // Revue 16c (D7b-16) : le panneau attend la requête elle-même (délai de 15 s dans le service) ; à 10 s, il abandonnait
+        // une réponse qui arrivait à 12 s, et « Réessayer » doublait la requête.
+        yield return PLUService.Instance.FetchZone(lat, lon,
             info => { zoneInfo = info; pluOk = true; },
             err => { pluError = err; });
-
-        float timeout = 10f;
-        float elapsed = 0f;
-        while (!pluOk && string.IsNullOrEmpty(pluError) && elapsed < timeout)
-        {
-            elapsed += Time.deltaTime;
-            yield return null;
-        }
 
         if (!pluOk)
         {

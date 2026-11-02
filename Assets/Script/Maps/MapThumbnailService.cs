@@ -10,6 +10,8 @@ using UnityEngine;
 public static class MapThumbnailService
 {
     private static readonly Dictionary<string, Texture2D> _cache = new Dictionary<string, Texture2D>();
+    /// Une vignette du cache ne doit pas être détruite par la carte (revue 16c, D7b-15).
+    public static bool EstEnCache(Texture2D t) => t != null && _cache.ContainsValue(t);
     private static readonly HashSet<string> _enCours = new HashSet<string>();
 
     // Zoom de la vignette, compté comme ceux des prefabs (Mapbox) : TileLoader.DecalageZoom de plus pour Google.
