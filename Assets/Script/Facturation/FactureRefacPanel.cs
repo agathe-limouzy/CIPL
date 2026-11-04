@@ -403,7 +403,7 @@ public class FactureRefacPanel : MonoBehaviour
             UIFactory.LE(t.gameObject, flexW: 1);
             var inp = UIFactory.Input(row.transform, "HT");
             UIFactory.LE(inp.gameObject, minW: 120, prefW: 120, flexW: 0);
-            inp.contentType = TMP_InputField.ContentType.DecimalNumber;
+            SaisieNumerique.Montant(inp);   // retour BN2 (04/11) : la virgule aussi
             inp.text = MontantPropose(c).ToString("0.00", CultureInfo.InvariantCulture);
             t.onValueChanged.AddListener(_ => { RefreshDeduit(); RefreshTotaux(); RefreshEntetePreview(); });
             inp.onValueChanged.AddListener(_ => { RefreshTotaux(); RefreshEntetePreview(); });
@@ -798,6 +798,7 @@ public class FactureRefacPanel : MonoBehaviour
         // Même libellé sur chaque ligne : le suivi n'en affiche qu'une par facture.
         string libelle = LibelleFacture(sel.Select(x => x.c.nom).ToList(), avoir);
         var avant = _loc.facturesEtat?.Find(x => x.key == key);   // lue avant l'enregistrement : une correction transmise la cite
+        FacturationSuivi.Solde(_loc, key, out float totalAvantCorrection, out _);   // Revue 17 (D4-03) : avant la correction
         string message = FactureEmission.Enregistrer(_loc, key, "Refac", emission,
             libelle, _loc.factureRefac?.dateEcheanceISO, pdf, parts[0], _ribDD?.SelectedId,
             _loc.factureRefac, avoir ? "Avoir" : "Refacturation", envoye,
@@ -813,6 +814,7 @@ public class FactureRefacPanel : MonoBehaviour
                 FacturationSuivi.MarquerEnvoye(_loc, k, "Refac", libelle, _loc.factureRefac?.dateEcheanceISO,
                     d.numero, pdf, parts[i], _ribDD?.SelectedId, FactureEmission.RibNom(_ribDD?.SelectedId), envoye);
         }
+        FacturationSuivi.ApresCorrection(_loc, key, totalAvantCorrection);   // Revue 17 (D4-03) : payée, l'écart redevient dû
 
         foreach (var l in FacturationSuivi.MemeFacture(_loc, key)) l.tauxTva = d.masquerTva ? 0f : TauxFacture();   // 02/11 : taux de l'époque
         // Décision du 02/11 (BI5) : la facture électronique sur la ligne principale, comme le loyer ; un total négatif part en

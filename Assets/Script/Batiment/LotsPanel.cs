@@ -112,7 +112,8 @@ public class LotsPanel : MonoBehaviour
         UIFactory.LE(row.gameObject, minH: 42);
         l.numero = Champ(row.transform, lot.numero > 0 ? lot.numero.ToString() : "", "N°", 70, TMP_InputField.ContentType.IntegerNumber);
         l.surface = Champ(row.transform, lot.surface > 0f ? lot.surface.ToString("0.##", CultureInfo.InvariantCulture) : "", "0", 110,
-                          TMP_InputField.ContentType.DecimalNumber);
+                          TMP_InputField.ContentType.Standard);
+        SaisieNumerique.Montant(l.surface);   // retour BN2 (04/11) : la virgule aussi
         l.designation = Champ(row.transform, lot.designation, "Local RDC, parking 12…", -1, TMP_InputField.ContentType.Standard);
         var occupant = UIFactory.Text(row.transform, "", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         occupant.enableWordWrapping = false; occupant.overflowMode = TextOverflowModes.Ellipsis;
@@ -161,7 +162,7 @@ public class LotsPanel : MonoBehaviour
         int vides = lots.Count(x => LotsBatiment.Occupants(bat, x.numero).Count == 0);
         _total.text = $"{lots.Count} lot{(lots.Count > 1 ? "s" : "")} · {lots.Sum(x => x.surface):0.##} m²"
                       + (vides > 0 ? $" · {vides} vide{(vides > 1 ? "s" : "")}" : "");
-        var sans = BatimentPrefab.EnPlace(bat.locataireDuBatiment).Where(o => !lots.Any(x => x.numero > 0 && x.numero == o.lotBatiment)).ToList();
+        var sans = LotsBatiment.Occupes(bat.locataireDuBatiment).Where(o => !lots.Any(x => x.numero > 0 && x.numero == o.lotBatiment)).ToList();
         _sansLot.text = sans.Count == 0 ? ""
             : $"Sans lot : {string.Join(", ", sans.Select(LotsBatiment.Nom))}. Après l'enregistrement, choisissez "
               + (sans.Count == 1 ? "son lot sur sa fiche." : "leur lot sur leur fiche.");

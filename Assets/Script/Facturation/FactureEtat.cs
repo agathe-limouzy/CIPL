@@ -18,6 +18,13 @@ public class FactureEtat
     public float montant;       // montant TTC
     public float tauxTva = Tva.TauxDefaut;   // taux appliqué à l'émission (0 = exonéré) ; absent des anciennes lignes = 20 (02/11)
     public float loyerHT;       // loyer HT facturé (Loyer seulement ; 0 = inconnu) — voir DepartLocataire.LoyerACorriger
+    // Revue 17 (D6-07) : les provisions imprimées sur CETTE facture (générale et par liste), pour sa correction ; faux sur les
+    // lignes émises avant (la correction retombe alors sur celles de la dernière facture du type).
+    public bool provisionsConnues;
+    // Revue 17 (D4-04) : la périodicité du loyer à son émission (« mensuel », « trimestriel »…) ; vide sur les lignes d'avant.
+    public string periodicite;
+    public float provision;
+    public List<MontantListe> provisionsListes = new List<MontantListe>();
     public string ribId;        // RIB CIPL (banque) sur lequel la facture est réglée
     public string ribNom;       // libellé du RIB (pour affichage / filtre)
     public int corrections;     // nb de fois où la facture a été refaite/corrigée (0 = originale)

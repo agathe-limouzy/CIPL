@@ -39,7 +39,7 @@ public class AchatFormPanel : MonoBehaviour
 
     public void Open(AchatFinancement existing, Action<AchatFinancement> onSave, Action onClose = null)
     {
-        _data = existing != null ? Clone(existing) : new AchatFinancement();
+        _data = existing != null ? Clone(existing) : new AchatFinancement { fraisNotaireAuto = true };   // nouvel achat : 8 % proposés
         _onSave = onSave;
         _onClose = onClose;
         gameObject.SetActive(true);
@@ -61,7 +61,7 @@ public class AchatFormPanel : MonoBehaviour
         DropdownComptant.ClearOptions();
         DropdownComptant.AddOptions(new System.Collections.Generic.List<string>
         {
-            "Compant", "Emprunt"
+            "Comptant", "Emprunt"
         });
     }
 
@@ -101,6 +101,7 @@ public class AchatFormPanel : MonoBehaviour
         DropdownComptant.interactable = true;
        
         if (toggleFraisAuto != null) toggleFraisAuto.interactable = true;
+        if (toggleFraisAuto != null) toggleFraisAuto.SetIsOnWithoutNotify(d.fraisNotaireAuto);   // Revue 17 (D7b-02)
         panelEmprunt?.SetActive(d.emprunt);
         dropdownDuree.interactable = true;
 
@@ -174,6 +175,7 @@ public class AchatFormPanel : MonoBehaviour
         _data.label = txtLabel.GetNewSave();
         _data.prixAchat = prix;
         _data.fraisNotaire = fraisNot;
+        _data.fraisNotaireAuto = toggleFraisAuto != null && toggleFraisAuto.isOn;   // Revue 17 (D7b-02)
         _data.fraisAgence = fraisAg;
         _data.emprunt = DropdownComptant.value == 1;
         _data.montantEmprunte = Parse(txtMontantEmprunte.GetNewSave());

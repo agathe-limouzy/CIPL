@@ -134,6 +134,20 @@ public class DateInputController : MonoBehaviour
 
     }
 
+    /// Revue 17 (D7a-06) : les trois cases sont vides (« pas de date », autre chose qu'une date mal tapée).
+    public bool Vide() => string.IsNullOrWhiteSpace(dayInput.text) && string.IsNullOrWhiteSpace(monthInput.text)
+                          && string.IsNullOrWhiteSpace(yearInput.text);
+
+    /// Revue 17 (D7a-06) : aucune date saisie : cases vides, `affichage` (une date proposée) à la place de la date.
+    public void Vider(string affichage)
+    {
+        SelectedDate = default; HasValidDate = false;
+        dayInput.text = monthInput.text = yearInput.text = "";
+        dateText.text = affichage ?? "";
+        dateText.gameObject.SetActive(true);
+        inputParent.SetActive(false);
+    }
+
     public void ModifyDate()
     {
         dateText.gameObject.SetActive(false);

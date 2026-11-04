@@ -389,7 +389,8 @@ public class DepartLocataireTests
         Assert.That(St(loc, DepartLocataire.Etape.EtatDesLieux), Is.EqualTo(DepartLocataire.Statut.Faite));
 
         Assert.That(St(loc, DepartLocataire.Etape.Decompte), Is.EqualTo(DepartLocataire.Statut.AFaire));
-        Assert.That(DepartLocataire.PeutAnnuler(loc), Is.Null);
+        // Revue 17 (D7a-01, décision du 04/11) : le T2 est facturé au prorata du départ : annuler le départ attend sa correction.
+        Assert.That(DepartLocataire.PeutAnnuler(loc), Does.Contain("facturé au prorata du départ"));
         loc.facturesEtat.Add(Emise(DepartLocataire.CleDecompte, "Paye", -2800f));
         Assert.That(St(loc, DepartLocataire.Etape.Decompte), Is.EqualTo(DepartLocataire.Statut.Faite));
         Assert.That(DepartLocataire.PeutAnnuler(loc), Is.Not.Null, "décompte émis : on n'annule plus");

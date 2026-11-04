@@ -21,4 +21,7 @@ public class AchatFinancement
     public int dureeMois;
     public double mensualiteCalculee;
     public string dateAchat;           // "YYYY-MM-DD"
+    // Revue 17 (D7b-02) : frais de notaire calculés (8 % du prix) ou saisis ; faux pour les achats déjà enregistrés, qui gardent
+    // leurs frais (la case, cochée d'office, les remplaçait par 8 % à chaque ouverture).
+    public bool fraisNotaireAuto;
 }

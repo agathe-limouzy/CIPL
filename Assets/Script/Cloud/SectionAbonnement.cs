@@ -247,11 +247,8 @@ public class SectionAbonnement
         bool annuel = AbonnementCloud.Courant?.formule == "annuel";
         _panel.Modal("Ajouter une entreprise", body =>
         {
-            UIFactory.Text(body.transform, abonne
-                ? $"Elle rejoint votre groupe : votre abonnement augmente de {RegleAbonnement.PrixEntrepriseSuivante * (annuel ? RegleAbonnement.MoisParAn : 1)} € HT " +
-                  $"{(annuel ? "par an" : "par mois")}, au prorata dès aujourd'hui. Vous y avez accès en tant qu'admin."
-                : $"Elle rejoint votre groupe : une seule facture, {RegleAbonnement.PrixEntrepriseSuivante} € au lieu de " +
-                  $"{RegleAbonnement.PrixEntreprise} €. Vous y avez accès en tant qu'admin.", UITheme.Role.Aide, UITheme.TexteSecondaire);
+            UIFactory.Text(body.transform, RegleAbonnement.TexteAjoutEntreprise(abonne, annuel),   // Revue 17 (D3-05)
+                UITheme.Role.Aide, UITheme.TexteSecondaire);
             UIFactory.Text(body.transform, "Vous la gérez en tant que", UITheme.Role.Libelle, UITheme.TexteSecondaire);
             GameObject[] champsSiret = null;
             TMP_Text aideParticulier = null;

@@ -237,7 +237,7 @@ public class PaliersPanel
 
         var colLoyer = Colonne(rangee.transform, "Loyer annuel HT (€)", 1f);
         _formLoyer = UIFactory.Input(colLoyer, "ex. 12000");
-        _formLoyer.contentType = TMP_InputField.ContentType.DecimalNumber;
+        SaisieNumerique.Montant(_formLoyer);   // retour BN2 (04/11) : la virgule aussi
 
         // « Du » : même bloc de date que partout dans l'app (clone du bloc « Date de
         // révision »), en lecture seule — il est calculé, jamais saisi.

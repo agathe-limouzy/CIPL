@@ -90,6 +90,8 @@ public class LocataireRowUI : MonoBehaviour
             if (loc.EstParti) { Presence(UITheme.Bordure, UITheme.TexteSecondaire, $"Parti le {sortie:dd/MM/yyyy}"); horsLieux = true; }
             else Presence(UITheme.AttentionClair, UITheme.AttentionTexte, $"Départ le {sortie:dd/MM/yyyy}");
         }
+        else if (Cessions.Etiquette(loc) is string cede)   // retour BN12 (04/11) : cession prévue
+            Presence(UITheme.AttentionClair, UITheme.AttentionTexte, cede);
         else if (loc.EstAVenir && Loyers.DebutPremierBail(loc, out var arrivee))   // retour BM6 : bail pas encore commencé
             Presence(UITheme.AttentionClair, UITheme.AttentionTexte, $"Arrive le {arrivee:dd/MM/yyyy}");
 

@@ -49,7 +49,8 @@ public static class DepartLocataire
         public float retenuesHT, creances, totalHT, tva, ttc;
     }
 
-    public static Decompte Calculer(float depot, IEnumerable<RetenueSortie> retenues, IEnumerable<FactureEtat> creances)
+    /// `taux` (Revue 17, D6-06) : la TVA des retenues, celle du bail (0 : exonéré) ; avant, 20 % en dur.
+    public static Decompte Calculer(float depot, IEnumerable<RetenueSortie> retenues, IEnumerable<FactureEtat> creances, float taux = Tva.TauxDefaut)
     {
         var d = new Decompte();
         double tva = 0;
@@ -58,9 +59,9 @@ public static class DepartLocataire
             if (r == null || Math.Abs(r.ht) < 0.005f) continue;
             d.lignes.Add(new KeyValuePair<string, float>(
                 "Retenue — " + (string.IsNullOrWhiteSpace(r.libelle) ? "remise en état" : r.libelle.Trim())
-                + (r.tva ? " (HT, TVA 20 %)" : ""), Cents(r.ht)));
+                + (r.tva && taux > 0f ? $" (HT, TVA {taux:0.##} %)" : ""), Cents(r.ht)));
             d.retenuesHT += Cents(r.ht);
-            if (r.tva) tva += r.ht * 0.2;
+            if (r.tva && taux > 0f) tva += r.ht * taux / 100.0;
         }
         foreach (var c in creances ?? Enumerable.Empty<FactureEtat>())
         {
@@ -127,7 +128,7 @@ public static class DepartLocataire
         {
             if (l.type != "Loyer") continue;
             var e = FacturationSuivi.EtatDe(l);
-            if (LoyerACorriger(loc, l)) r.Add($"« {l.libelle} » à corriger au prorata");
+            if (LoyerACorriger(loc, l)) r.Add($"« {l.libelle} » à corriger : il ne correspond plus au départ");
             else if (e == FacturationSuivi.Etat.AFaire || e == FacturationSuivi.Etat.AVenir) r.Add($"« {l.libelle} » à facturer");
             else if (e == FacturationSuivi.Etat.AttenteEnvoi) r.Add($"« {l.libelle} » à envoyer");
         }
@@ -166,7 +167,9 @@ public static class DepartLocataire
         if (!FacturationSuivi.EstDejaEmise(loc, l.key, out _)) return false;
         if (!LirePeriode(l.key, out int annee, out int periode)) return false;
         float du = Loyers.MontantPeriode(loc, annee, periode);
-        if (l.loyerHT > 0f) return l.loyerHT > du + 0.01f;
+        // Revue 17 (D7a-01, décision du 04/11) : avec le HT mémorisé, l'écart compte dans les deux sens : un départ repoussé
+        // après un dernier loyer au prorata laisse la fin de la période à facturer (avant : seul un loyer trop fort était vu).
+        if (l.loyerHT > 0f) return Math.Abs(l.loyerHT - du) > 0.01f;
         return du <= 0f && l.montant > 0.005f;
     }
 
@@ -283,7 +286,7 @@ public static class DepartLocataire
     static string LoyerACorrigerLibelle(Locataire loc, DateTime s)
     {
         var l = FacturationSuivi.Lignes(loc, s.Year).FirstOrDefault(x => LoyerACorriger(loc, x));
-        return l == null ? null : $"Étape 2 — Dernier loyer : « {l.libelle} » a été émis en entier, corrigez-le au prorata.";
+        return l == null ? null : $"Étape 2 — Dernier loyer : « {l.libelle} » ne correspond plus au départ : corrigez-le.";
     }
 
     /// Ligne du suivi à ouvrir pour l'étape « Dernier loyer » : celle à corriger, sinon
@@ -335,9 +338,26 @@ public static class DepartLocataire
     /// Annuler le départ : impossible une fois le décompte émis (il faudrait d'abord le
     /// traiter). Message de refus, ou null.
     public static string PeutAnnuler(Locataire loc)
-        => FacturationSuivi.EstDejaEmise(loc, CleDecompte, out _)
-            ? "Le décompte de sortie est déjà émis : traitez-le d'abord (avoir) avant d'annuler le départ."
-            : null;
+    {
+        if (FacturationSuivi.EstDejaEmise(loc, CleDecompte, out _))
+            return "Le décompte de sortie est déjà émis : traitez-le d'abord (avoir) avant d'annuler le départ.";
+        // Revue 17 (D7a-01, décision du 04/11) : un loyer facturé au prorata du départ (moins qu'une période pleine) ne se
+        // repèrerait plus une fois le départ effacé : il se corrige d'abord.
+        if (Sortie(loc, out var s))
+            foreach (var l in FacturationSuivi.Lignes(loc, s.Year).Where(x => x.type == "Loyer"))
+                if (l.loyerHT > 0f && FacturationSuivi.EstDejaEmise(loc, l.key, out _) && LirePeriode(l.key, out int a, out int p)
+                    && MontantSansDepart(loc, a, p) > l.loyerHT + 0.01f)
+                    return $"« {l.libelle} » a été facturé au prorata du départ : corrigez-le d'abord, puis annulez le départ.";
+        return null;
+    }
+
+    /// Revue 17 (D7a-01) : ce que coûterait la période sans le départ (la fiche est rendue telle quelle, même en cas d'erreur).
+    static float MontantSansDepart(Locataire loc, int annee, int periode)
+    {
+        string sortie = loc.dateSortieISO;
+        try { loc.dateSortieISO = ""; return Loyers.MontantPeriode(loc, annee, periode); }
+        finally { loc.dateSortieISO = sortie; }
+    }
 
     /// « loyer-2026-P2 » → 2026, 2.
     public static bool LirePeriode(string key, out int annee, out int periode)

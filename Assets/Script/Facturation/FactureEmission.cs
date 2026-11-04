@@ -54,7 +54,9 @@ public static class FactureEmission
     ///
     /// `numeroPropose` est le numéro calculé par le panneau pour une facture neuve ;
     /// il est ignoré si la facture a déjà été émise, puisqu'on conserve alors le sien.
-    public static Decision Preparer(Locataire loc, string key, string numeroPropose)
+    /// `periodicite` (Revue 17, D4-04) : celle du loyer préparé ; une facture émise sous la même clé avec une autre périodicité
+    /// n'est pas la même période, elle ne se corrige pas d'ici.
+    public static Decision Preparer(Locataire loc, string key, string numeroPropose, string periodicite = null)
     {
         bool dejaEmise = FacturationSuivi.EstDejaEmise(loc, key, out var existante);
 
@@ -84,6 +86,18 @@ public static class FactureEmission
                     refus = $"Le numéro {numeroPropose} est déjà celui d'une autre facture de ce locataire (« {autre.libelle} ») : changez l'ID.";
                     break;
                 }
+
+        // Revue 17 (D4-04) : la clé d'un loyer est un numéro de période ; après un changement de périodicité, « P3 » peut porter
+        // la facture de mars (mensuel) quand on prépare le 3e trimestre : la « corriger » ferait de mars une rectificative pour
+        // juillet à septembre. Refusé ; les périodes déjà facturées gardent leur périodicité.
+        if (refus == null && dejaEmise && periodicite != null && !string.IsNullOrEmpty(existante.periodicite)
+            && existante.periodicite != periodicite)
+        {
+            string n = string.IsNullOrEmpty(existante.numero) ? "" : " (n° " + existante.numero + ")";
+            refus = $"« {existante.libelle} »{n} a été émise avec l'ancienne périodicité ({existante.periodicite}) sous le même "
+                  + "numéro de période : générer cette période la remplacerait par une rectificative qui ne rectifie rien. Les "
+                  + "périodes déjà facturées gardent leur périodicité ; pour en changer, faites-le de préférence au 1er janvier.";
+        }
 
         return new Decision
         {

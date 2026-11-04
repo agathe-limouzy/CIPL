@@ -71,7 +71,7 @@ public class TvaTests
         StringAssert.Contains("Tva.Taux(loc)", src("RevisionLoyer/LoyerSummaryUI.cs"), "carte Loyer");
         StringAssert.Contains("bail exonéré de TVA", src("Facturation/FactureElectronique.cs"), "ligne d'envoi");
         StringAssert.Contains("Tva.Ht(ttc, rec.tauxTva)", src("Facturation/FactureEnvoiAuto.cs"), "e-mails");
-        StringAssert.Contains("Tva.Ttc(ht, Tva.Taux(_loc))", src("Facturation/FactureDepotPanel.cs"), "dépôt sur TTC");
+        StringAssert.Contains("Tva.PeriodeDepot(_loc", src("Facturation/FactureDepotPanel.cs"), "dépôt sur TTC (Revue 17, D6-06 : au taux du bail)");
         StringAssert.Contains("RefreshTvaVisibility", src("RevisionLoyer/RevisionPanel.cs"), "Gestion du loyer");
         StringAssert.Contains("BuildTva(facturation)", src("Facturation/ReglagePanel.cs"), "Réglages");
     }

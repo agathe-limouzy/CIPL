@@ -393,9 +393,9 @@ public class FacturationHomeSection : MonoBehaviour
     static DateTime Ech(string iso) => DateTime.TryParse(iso, out var d) ? d : DateTime.MaxValue;
 
     static Color EtatBg(FacturationSuivi.Etat e) => e == FacturationSuivi.Etat.Impaye ? Hex("#FCEBEB")
-        : e == FacturationSuivi.Etat.Partiel ? Hex("#FFE8D6") : Hex("#E6F1FB");
+        : e == FacturationSuivi.Etat.Partiel || e == FacturationSuivi.Etat.ARembourser ? Hex("#FFE8D6") : Hex("#E6F1FB");
     static Color EtatFg(FacturationSuivi.Etat e) => e == FacturationSuivi.Etat.Impaye ? Hex("#A32D2D")
-        : e == FacturationSuivi.Etat.Partiel ? Hex("#B4520A") : Hex("#185FA5");
+        : e == FacturationSuivi.Etat.Partiel || e == FacturationSuivi.Etat.ARembourser ? Hex("#B4520A") : Hex("#185FA5");
 
     // Couleur de pastille par banque (banques connues, sinon dérivée du nom).
     static Color BankColor(string bank)

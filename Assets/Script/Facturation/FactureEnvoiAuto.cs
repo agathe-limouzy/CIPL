@@ -61,15 +61,19 @@ public class FactureEnvoiAuto : MonoBehaviour
         pdfAbsolu = FacturationSuivi.CheminPdf(rec, nomBatiment, loc.Name);
         if (string.IsNullOrEmpty(pdfAbsolu) || !(pdfExiste?.Invoke(pdfAbsolu) ?? false)) return false;
 
-        destinataire = Destinataire(loc, rec.type);
+        destinataire = Destinataire(loc, rec.type, rec);
         return !string.IsNullOrWhiteSpace(destinataire);
     }
 
     /// Destinataire retenu : celui mémorisé sur le réglage du type, sinon l'adresse de
     /// la fiche locataire — le même ordre que le panneau de facture.
-    public static string Destinataire(Locataire loc, string type)
+    /// `rec` (Revue 17, D7a-03) : un loyer dont le titulaire n'est pas celui de la fiche (cession prévue ou faite) part à ce
+    /// titulaire.
+    public static string Destinataire(Locataire loc, string type, FactureEtat rec = null)
     {
         if (loc == null) return "";
+        var titulaire = Cessions.TitulaireLigne(loc, rec);
+        if (titulaire != null) return (titulaire[3] ?? "").Trim();
         var info = loc.FactureInfoDe(type);
         string memorise = info != null ? (info.emailDest ?? "").Trim() : "";
         return !string.IsNullOrEmpty(memorise) ? memorise : (loc.emailLocataire ?? "").Trim();
@@ -143,7 +147,7 @@ public class FactureEnvoiAuto : MonoBehaviour
             var loc = bp.listLocataire.FirstOrDefault(l => l != null && l.id == c.loc.id);
             var rec = loc?.facturesEtat?.FirstOrDefault(r => r.key == c.rec.key);
             if (rec == null) continue;
-            string dest = Destinataire(loc, rec.type);
+            string dest = Destinataire(loc, rec.type, rec);
             return new Candidate { bp = bp, loc = loc, rec = rec, pdfAbsolu = c.pdfAbsolu,
                                    destinataire = string.IsNullOrWhiteSpace(dest) ? c.destinataire : dest };
         }
@@ -216,7 +220,7 @@ public class FactureEnvoiAuto : MonoBehaviour
                         raisons.Add($"{quoi} : à envoyer le {envoi.Value:dd/MM/yyyy}");
                     else if (string.IsNullOrEmpty(pdf) || !File.Exists(pdf))
                         raisons.Add($"{quoi} : PDF introuvable");
-                    else if (string.IsNullOrWhiteSpace(Destinataire(loc, rec.type)))
+                    else if (string.IsNullOrWhiteSpace(Destinataire(loc, rec.type, rec)))
                         raisons.Add($"{quoi} : aucune adresse email");
                     else if (!FacturationSuivi.TryEcheance(rec.echeanceISO, out _))
                         raisons.Add($"{quoi} : échéance illisible « {rec.echeanceISO} »");

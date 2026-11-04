@@ -681,10 +681,15 @@ public class BatimentSummaryView : MonoBehaviour
 
     // Années (fractionnaires) écoulées depuis l'acquisition (date manuelle, sinon
     // achat le plus ancien). Sert au calcul du « Total gagné » cumulé.
-    static float AnneesDepuisAcquisition(Batiment bat)
+    /// Revue 17 (D7a-06) : la date d'acquisition saisie ; une année avant 1900 (« 01/01/0001 » des bâtiments enregistrés sans
+    /// date) n'en est pas une.
+    public static bool AcquisitionSaisie(Batiment bat, out DateTime d)
+        => FacturationSuivi.TryEcheance(bat?.dateAcquisitionISO, out d) && d.Year >= 1900;
+
+    public static float AnneesDepuisAcquisition(Batiment bat)
     {
         DateTime acq;
-        if (!FacturationSuivi.TryEcheance(bat.dateAcquisitionISO, out acq))
+        if (!AcquisitionSaisie(bat, out acq))
         {
             acq = DateTime.Today;
             if (bat.historiquesAchat != null)
@@ -697,7 +702,7 @@ public class BatimentSummaryView : MonoBehaviour
     public static string DateAcquisition(Batiment bat)
     {
         // Date saisie manuellement prioritaire, sinon date d'achat la plus ancienne.
-        if (FacturationSuivi.TryEcheance(bat.dateAcquisitionISO, out var manuelle))
+        if (AcquisitionSaisie(bat, out var manuelle))   // Revue 17 (D7a-06)
             return manuelle.ToString("dd/MM/yyyy");
         if (bat.historiquesAchat == null || bat.historiquesAchat.Count == 0) return "—";
         DateTime plusAncienne = DateTime.MaxValue;

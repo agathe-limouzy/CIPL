@@ -64,9 +64,11 @@ public class BatimentPrefab : PrefabBatLoc
 
 
     /// Revue 16c (D7a-02) : la règle unique « compte dans le bâtiment » : ni archivé, ni parti. Le loyer total, la
-    /// surface disponible, le nombre de lots et l'état du bâtiment passent par là.
+    /// surface disponible, le nombre de lots et l'état du bâtiment passent par là. Revue 17 (D7a-05) : ni pas encore arrivé (un
+    /// remplaçant compte à partir de son bail, l'ancien jusqu'à son départ) ; les lots, eux, gardent leurs occupants à venir
+    /// (LotsBatiment.Occupes).
     public static IEnumerable<Locataire> EnPlace(IEnumerable<Locataire> lots)
-        => (lots ?? Enumerable.Empty<Locataire>()).Where(l => l != null && !l.archive && !l.EstParti);
+        => (lots ?? Enumerable.Empty<Locataire>()).Where(l => l != null && !l.archive && !l.EstParti && !l.EstAVenir);   // Revue 17 (D7a-05)
 
     /// Revue 16c (D7a-03) : enregistrer ou modifier le bâtiment reconstruit toutes les fiches locataires ; une fiche en
     /// saisie y perdrait tout. Refus au centre, en nommant le locataire ; vrai si refusé.
@@ -357,16 +359,14 @@ public float GetLoyerTotal()
     private void LoadDateAcquisition()
     {
         if (acquisitionDate == null || batiment == null) return;
-        DateTime d;
-        if (!FacturationSuivi.TryEcheance(batiment.dateAcquisitionISO, out d))
-        {
-            DateTime m = DateTime.MaxValue;
-            if (batiment.historiquesAchat != null)
-                foreach (var a in batiment.historiquesAchat)
-                    if (FacturationSuivi.TryEcheance(a.dateAchat, out var da) && da < m) m = da;
-            d = m != DateTime.MaxValue ? m : DateTime.Today;
-        }
-        acquisitionDate.ApplyDate(d);
+        if (BatimentSummaryView.AcquisitionSaisie(batiment, out var d)) { acquisitionDate.ApplyDate(d); return; }
+        // Revue 17 (D7a-06) : pas de date saisie : les cases restent vides, la date proposée (le plus ancien achat) n'est qu'un
+        // affichage. Avant, elle était écrite au premier enregistrement (aujourd'hui, à défaut d'achat).
+        DateTime m = DateTime.MaxValue;
+        if (batiment.historiquesAchat != null)
+            foreach (var a in batiment.historiquesAchat)
+                if (FacturationSuivi.TryEcheance(a.dateAchat, out var da) && da < m) m = da;
+        acquisitionDate.Vider(m != DateTime.MaxValue ? $"{m:dd / MM / yyyy} (premier achat)" : "—");
     }
 
     // Point d'alerte de l'onglet bâtiment : révision de loyer en retard (un
@@ -754,7 +754,17 @@ public float GetLoyerTotal()
     public override void SaveBatiment()
     {
         if (RefuserSiLocataireEnSaisie()) return;   // revue 16c, D7a-03
-    
+
+        // Revue 17 (D7a-06) : la date d'acquisition lue telle qu'affichée et contrôlée, comme celles du bail : vide, pas de date ;
+        // incomplète ou invalide, refus, rien n'est enregistré. Avant : « 01/01/0001 » jamais touchée, l'ancienne sinon.
+        DateTime? acquisition = null;
+        if (acquisitionDate != null)
+        {
+            if (acquisitionDate.LireDate(out var acq)) acquisition = acq;
+            else if (!acquisitionDate.Vide())
+            { ConfirmDialog.Erreur("Date d'acquisition : saisissez une date complète (JJ/MM/AAAA), ou laissez-la vide."); return; }
+        }
+
         // ── Nom : unicité imposée + dossier déplacé si le nom change ──────────────
         // Les dossiers sont nommés par le NOM : deux homonymes partageraient factures
         // et photos, et un renommage sans déplacement laisserait tout orphelin sous
@@ -802,7 +812,10 @@ public float GetLoyerTotal()
         batiment.adressBatiment = mapController.GetAdress();
         if (cadastralTxt != null) batiment.cadastral = cadastralTxt.GetNewSave();
         if (acquisitionDate != null)
-            batiment.dateAcquisitionISO = acquisitionDate.saveThedate().ToString("yyyy-MM-dd");
+        {
+            batiment.dateAcquisitionISO = acquisition.HasValue ? acquisition.Value.ToString("yyyy-MM-dd") : "";
+            LoadDateAcquisition();   // la date enregistrée, ou les cases vides et le premier achat
+        }
         batiment.parkingEtat = (ParkingState)ParkingDropdown.value;
         ParkingDropdown.interactable = false;
         BatimentManager.Instance.menuManager.UpdateTabLabel(this, batiment.Name);

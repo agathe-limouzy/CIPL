@@ -839,6 +839,7 @@ public class Revue16cTests
             else if (f.FieldType == typeof(int)) f.SetValue(r, 7);
             else if (f.FieldType == typeof(float)) f.SetValue(r, 7.5f);
             else if (f.FieldType == typeof(List<Versement>)) f.SetValue(r, new List<Versement> { new Versement() });
+            else if (f.FieldType == typeof(List<MontantListe>)) f.SetValue(r, new List<MontantListe> { new MontantListe() });   // Revue 17 (D6-07)
             else Assert.Fail($"type non prévu pour {f.Name} : {f.FieldType.Name} (compléter le test)");
         }
         var copieDe = typeof(FacturationSuivi).GetMethod("CopieDe", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
@@ -846,7 +847,8 @@ public class Revue16cTests
         var c = (FactureEtat)copieDe.Invoke(null, new object[] { r });
         foreach (var f in champs)
         {
-            if (f.FieldType == typeof(List<Versement>)) Assert.That(((List<Versement>)f.GetValue(c)).Count, Is.EqualTo(1), f.Name);
+            if (f.FieldType == typeof(List<Versement>) || f.FieldType == typeof(List<MontantListe>))
+                Assert.That(((System.Collections.IList)f.GetValue(c)).Count, Is.EqualTo(1), f.Name);
             else Assert.That(f.GetValue(c), Is.EqualTo(f.GetValue(r)), $"champ oublié par CopieDe : {f.Name}");
         }
         Assert.That(FactureElectronique.Pastille(c), Is.EqualTo("Encaissée déclarée (plateformeOrigine)"));

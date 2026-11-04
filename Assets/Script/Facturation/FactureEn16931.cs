@@ -233,7 +233,7 @@ public static class FactureEn16931
         return "FR" + ((12 + 3 * (n % 97)) % 97).ToString("00", CultureInfo.InvariantCulture) + siren;
     }
 
-    static decimal Arrondi(float x) => Math.Round((decimal)x, 2, MidpointRounding.AwayFromZero);
+    static decimal Arrondi(float x) => Tva.Centimes(x);   // Revue 17 (D5-03) : le même arrondi que le PDF
     static string M(decimal x) => x.ToString("0.00", CultureInfo.InvariantCulture);
     static void Champ(StringBuilder j, string nom, string valeur) => j.Append(Q(nom)).Append(':').Append(Q(valeur ?? "")).Append(',');
 

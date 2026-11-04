@@ -223,6 +223,23 @@ public class LocatairePrefab : PrefabBatLoc
 
     // ── En-tête de fiche (avatar + nom + bâtiment · lot) ─────────────────────
 
+    // Retour BN15 (décision du 04/11) : une cession prévue se voit dans l'en-tête, en pastille orange comme l'étiquette de la
+    // liste (dans le sous-titre, en petit, elle passait inaperçue). Après le bloc du nom, juste avant les boutons.
+    void PastilleCession(Locataire loc)
+    {
+        var bloc = headerSousTitre != null ? headerSousTitre.transform.parent : null;
+        var entete = bloc != null ? bloc.parent : null;
+        if (entete == null) return;
+        var ancienne = entete.Find("PastilleCession");
+        if (ancienne != null) { ancienne.name = "PastilleCession (retirée)"; ancienne.gameObject.SetActive(false); Destroy(ancienne.gameObject); }
+        string texte = Cessions.TexteEntete(loc);
+        if (texte == null) return;
+        ObjectifsTableau.Pastille(entete, texte, UITheme.AttentionClair, UITheme.AttentionTexte, UITheme.Role.Donnee);
+        var p = entete.GetChild(entete.childCount - 1);
+        p.name = "PastilleCession";
+        p.SetSiblingIndex(bloc.GetSiblingIndex() + 1);
+    }
+
     public void RefreshHeader(Locataire loc)
     {
         if (loc == null) return;
@@ -242,6 +259,7 @@ public class LocatairePrefab : PrefabBatLoc
             headerSousTitre.text = string.IsNullOrEmpty(batNom)
                 ? $"Lot {loc.lotBatiment}"
                 : $"{batNom} · Lot {loc.lotBatiment}";
+            PastilleCession(loc);   // retour BN15 (décision du 04/11) : la cession prévue, en pastille orange
         }
         if (headerAvatarBg != null)
         {

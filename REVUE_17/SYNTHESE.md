@@ -40,7 +40,7 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 
 | N° | Domaine | Défaut | Aussi trouvé par | Corrigé |
 |---|---|---|---|---|
-| D1-01 | D1 | Une entreprise ajoutée à un groupe abonné n'est facturée que si un second appel réussit ; rien ne rattrape l'écart | | |
+| D1-01 | D1 | Une entreprise ajoutée à un groupe abonné n'est facturée que si un second appel réussit ; rien ne rattrape l'écart | | 04/11 (tâche du matin `emails-abonnement` ; à redéployer) |
 | D1-02 | D1 | Passage en réel : les identifiants Stripe de test restent dans `groupes` (paiement et portail bloqués, ou abonnement gratuit) | D3-11 | |
 | D1-03 | D1 | « Se déconnecter » ferme la session sur tous les PC de la personne ; le PC resté ouvert ne le dit jamais | D3-03 | |
 | D1-04 | D1 | `creer_entreprise_import` ouvre un essai à un compte dont l'adresse n'est pas prouvée (D3-06 de la 16c contourné) | | |
@@ -51,13 +51,13 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 | D2-06 | D2 | La liste des documents est lue en une page plafonnée (1 000) : suppressions défaites, documents jamais reçus, renvois toutes les 20 s | D9-05 | |
 | D3-02 | D3 | Le webhook peut perdre la répartition des licences choisie au paiement | | |
 | D3-04 | D3 | Le titulaire d'un groupe retiré par un autre admin ne peut plus jamais « Créer mon compte » | | |
-| D3-05 | D3 | « Ajouter une entreprise » annonce +28 € HT par mois, Stripe facture +43 € HT | | |
+| D3-05 | D3 | « Ajouter une entreprise » annonce +28 € HT par mois, Stripe facture +43 € HT | | 04/11 (code et test ; parcours BN3) |
 | D3-06 | D3 | Les factures Stripe de CIPL n'ont ni l'adresse du client ni son identifiant | | |
 | D4-01 | D4 | Le destinataire n'est pas mémorisé sur la facture : après une cession, envoi différé et rappel partent au cessionnaire | | |
 | D4-02 | D4 | « À faire » et « Automatique » dans le menu de la pastille dé-émettent une facture numérotée | | |
-| D4-03 | D4 | Une facture payée corrigée à un autre montant reste « Payé » : l'écart n'est ni réclamé ni remboursé | | |
-| D4-04 | D4 | Changement de périodicité en cours d'année : les loyers émis sont réétiquetés | | |
-| D5-03 | D5 | TVA arrondie autrement sur le PDF et dans le XML : un centime d'écart à 10 % ou 5,5 % | | |
+| D4-03 | D4 | Une facture payée corrigée à un autre montant reste « Payé » : l'écart n'est ni réclamé ni remboursé | | 04/11 (code et test ; parcours BN9 ; retour BN9 : « Payé » avec acompte, « Partiel » corrigé à la baisse ; décision révisée (BN17) : le trop-perçu, comme un avoir, est « À rembourser » jusqu'à « Remboursé… », puis « Payé ») |
+| D4-04 | D4 | Changement de périodicité en cours d'année : les loyers émis sont réétiquetés | | 04/11 (code et test, modèle 7 ; parcours BN11 ; limite : une période de la nouvelle périodicité dont le numéro est pris par une facture de l'ancienne ne se facture pas dans l'année ; le changement en cours d'année (avenant de périodicité daté) passe en 2c) |
+| D5-03 | D5 | TVA arrondie autrement sur le PDF et dans le XML : un centime d'écart à 10 % ou 5,5 % | | 04/11 (code et test ; parcours BN2) |
 | D5-04 | D5 | Un refus définitif d'« Encaissée » bloque les factures du locataire et le rattrapage de tous les suivants | | |
 | D5-05 | D5 | Après le 1/9/2027, une facture préparée sans facture électronique part quand même par e-mail seul | | |
 | D5-06 | D5 | Corriger une facture déclarée « Encaissée » laisse l'encaissement de l'ancienne déclaré | | |
@@ -68,23 +68,23 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 | D5-11 | D5 | « Encaissée » d'un avoir part en montant négatif (signe d'annulation) | | |
 | D6-04 | D6 | « Facturer le loyer » rouvre la dernière période facturée : « Sauvegarder et envoyer » envoie une correction | | |
 | D6-05 | D6 | Une date ou une échéance illisible est remplacée sans rien dire | | |
-| D6-06 | D6 | Le dépôt de garantie ignore la TVA du bail : calcul à 20 % et « soumis à la TVA » d'office | D7a-02 | |
-| D6-07 | D6 | Les provisions des listes de charges restent figées sur la dernière facture (D6-04 de la 16c incomplet) | | |
+| D6-06 | D6 | Le dépôt de garantie ignore la TVA du bail : calcul à 20 % et « soumis à la TVA » d'office | D7a-02 | 04/11 (code et test ; parcours BN6) |
+| D6-07 | D6 | Les provisions des listes de charges restent figées sur la dernière facture (D6-04 de la 16c incomplet) | | 04/11 (code et test, modèle 6 ; parcours BN7) |
 | D6-08 | D6 | Variables du menu « / » vides ou imprimées telles quelles (`{echeance}`, `{depot.*}`, `{montant}`) | | |
 | D6-09 | D6 | Supprimer une charge déjà facturée ne demande qu'une confirmation | | |
-| D7a-01 | D7a | Départ repoussé ou annulé après un dernier loyer au prorata : la fin de période n'est jamais facturée | | |
-| D7a-03 | D7a | Cession prévue : le loyer de la première période après la cession part au cédant | | |
+| D7a-01 | D7a | Départ repoussé ou annulé après un dernier loyer au prorata : la fin de période n'est jamais facturée | | 04/11 (code et test ; parcours BN10) |
+| D7a-03 | D7a | Cession prévue : le loyer de la première période après la cession part au cédant | | 04/11 (code et test ; parcours BN12 ; aussi l'envoi au lancement, et le cédant pour une période d'avant une cession faite ; retour BN12 : étiquette, sous-titre, ligne « Destinataire », SIRET du cessionnaire (BN15)) |
 | D7a-04 | D7a | Cession datée appliquée à l'ouverture sans verrou : dossier renommé avant l'accord du serveur | D2-08 | |
-| D7a-05 | D7a | Un remplaçant pas encore arrivé compte en double (surface, lots, loyers) | | |
-| D7a-06 | D7a | Date d'acquisition jamais saisie : bâtiment « acquis le 01/01/0001 », « Total gagné » multiplié par 2 025 | | |
+| D7a-05 | D7a | Un remplaçant pas encore arrivé compte en double (surface, lots, loyers) | | 04/11 (code et test ; parcours BN8 ; avec les lots, le lot reste occupé) |
+| D7a-06 | D7a | Date d'acquisition jamais saisie : bâtiment « acquis le 01/01/0001 », « Total gagné » multiplié par 2 025 | | 04/11 (code et test ; parcours BN4) |
 | D7a-07 | D7a | Un refus Pappers arrête toute la tournée : les procédures BODACC suivantes ne sont plus signalées | | |
 | D7a-08 | D7a | Photos en pleine résolution, chargées sur le fil principal et gardées sans limite | D9-06 | |
 | D7a-09 | D7a | Supprimer un locataire qui a des factures efface son suivi pour de bon | | |
 | D7b-01 | D7b | Révision : le trimestre proposé a un an de retard pour certains baux ; un trimestre égal à la référence est accepté sans effet | | |
-| D7b-02 | D7b | Achat : « frais de notaire automatiques » coché à chaque ouverture ; modifier un achat remplace les vrais frais par 8 % | | |
+| D7b-02 | D7b | Achat : « frais de notaire automatiques » coché à chaque ouverture ; modifier un achat remplace les vrais frais par 8 % | | 04/11 (code et test, modèle 5 ; parcours BN5) |
 | D8-02 | D8 | Une confirmation qui s'ouvre pendant un message d'erreur l'efface : sa suite ne s'exécute jamais | | |
 | D8-03 | D8 | La fermeture ne voit pas un envoi de facture en cours : la facture peut repartir au lancement suivant | | |
-| D8-04 | D8 | `SaisieNumerique` lit « 2.500.000 » comme 2 500 | | |
+| D8-04 | D8 | `SaisieNumerique` lit « 2.500.000 » comme 2 500 | | 04/11 (code et test ; parcours BN1) |
 | D9-01 | D9 | À chaque ouverture d'entreprise, toutes les fiches de tous les locataires sont construites en une image (gel estimé 5 à 15 s) | | |
 | D9-02 | D9 | `AppIconResizer` et `AppSectionColors` reparcourent toute l'interface deux fois par seconde | | |
 | D9-03 | D9 | Accueil : « Créances » recrée une ligne d'objets par facture due à chaque retour | | |

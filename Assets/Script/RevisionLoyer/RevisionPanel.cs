@@ -167,6 +167,7 @@ public class RevisionPanel : MonoBehaviour
         if (loc.moisFacturationLoyer != null)
             foreach (int m in loc.moisFacturationLoyer)
                 if (m >= 1 && m <= 12) _moisState[m - 1] = true;
+        CocherMoisStandard();   // retour BN11 (04/11) : aucun mois coché → ceux que le suivi prend d'office, cochés
         for (int i = 0; i < 12; i++) RefreshChip(i);
         RefreshRepriseOptions();
 
@@ -817,7 +818,7 @@ public class RevisionPanel : MonoBehaviour
         _tvaLabelGO = UIFactory.Text(content, "Taux de TVA du bail (%)", UITheme.Role.Donnee, UITheme.TexteSecondaire).gameObject;
         _tvaLabelGO.transform.SetSiblingIndex(idx++);
         _tvaTaux = UIFactory.Input(content, Tva.TauxDefaut.ToString("0.##", FacturePdfService.FrCulture));
-        _tvaTaux.contentType = TMP_InputField.ContentType.DecimalNumber;
+        SaisieNumerique.Montant(_tvaTaux);   // retour BN2 (04/11) : la virgule aussi
         _tvaTaux.onValueChanged.AddListener(_ => _tvaTouche = true);
         _tvaTaux.transform.SetSiblingIndex(idx++);
 
@@ -929,7 +930,7 @@ public class RevisionPanel : MonoBehaviour
             var droite = UIFactory.VBox(cote.transform, 4, 0, 0, 0, 0, "CANouveau");
             _caTitre = UIFactory.Text(droite.transform, "Nouveau CA HT", UITheme.Role.Donnee, UITheme.TexteSecondaire);
             _caMontant = UIFactory.Input(droite.transform, "CA HT de l'année (€)");
-            _caMontant.contentType = TMP_InputField.ContentType.DecimalNumber;
+            SaisieNumerique.Montant(_caMontant);   // retour BN2 (04/11) : la virgule aussi
             _caRevisionGO.SetActive(false);
         }
 
@@ -1229,7 +1230,7 @@ public class RevisionPanel : MonoBehaviour
 
             UIFactory.Text(_lignesListes, $"{nom} — provision par période (€)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
             var prov = UIFactory.Input(_lignesListes, "0");
-            prov.contentType = TMP_InputField.ContentType.DecimalNumber;
+            SaisieNumerique.Montant(prov);   // retour BN2 (04/11) : la virgule aussi
             prov.text = deja.Item2 ?? (provision > 0f ? provision.ToString("0.##", CultureInfo.InvariantCulture) : "");
             UIFactory.LE(prov.gameObject, minH: 40);
             _listesChamps.Add((id, date, prov));
@@ -1463,7 +1464,7 @@ public class RevisionPanel : MonoBehaviour
         }
         var f = go.GetComponentInChildren<TMP_InputField>(true);
         f.onValueChanged.RemoveAllListeners();
-        f.contentType = TMP_InputField.ContentType.DecimalNumber;
+        SaisieNumerique.Montant(f);   // retour BN2 (04/11) : la virgule aussi
         f.text = "";
         return f;
     }
@@ -1620,6 +1621,9 @@ public class RevisionPanel : MonoBehaviour
         if (!TryParseLoyer(out float loyer) || loyer <= 0f)
         { ConfirmDialog.Erreur("Saisissez le loyer de départ annuel (HT)."); return; }
         if (DatesIllisibles() is string refusDate) { ConfirmDialog.Erreur(refusDate); return; }   // BJ4 (02/11)
+        // Retour BN11 (décision du 04/11) : autant de mois cochés que de périodes, sinon deux échéances tombent le même mois.
+        if (RefusMois((Periodicite)periodiciteDropdown.value, _moisState.Count(x => x)) is string refusMois)
+        { ConfirmDialog.Erreur(refusMois); return; }
 
         string franchise = FranchiseSaisie();
         if (franchise == null) { ConfirmDialog.Erreur("Date de fin de franchise invalide."); return; }
@@ -1754,6 +1758,35 @@ public class RevisionPanel : MonoBehaviour
     }
 
     // Nombre max de mois sélectionnables selon la périodicité.
+    // Retour BN11 (décision du 04/11) : aucun mois coché → ceux que le suivi prend d'office, cochés pour qu'on les voie.
+    void CocherMoisStandard()
+    {
+        if (_moisState.Any(x => x)) return;
+        foreach (int m in MoisStandard((Periodicite)periodiciteDropdown.value)) _moisState[m - 1] = true;
+    }
+
+    /// Retour BN11 : les mois facturés d'office d'une périodicité, ceux que le suivi prend sans mois cochés (MoisEcheance) :
+    /// trimestriel → janvier, avril, juillet, octobre ; bi-annuel → janvier, juillet ; annuel → janvier. Vide en mensuel.
+    public static List<int> MoisStandard(Periodicite p)
+    {
+        var res = new List<int>();
+        int n = LoyerSummaryUI.NbPeriodes(p);
+        if (p != Periodicite.mensuel) for (int k = 1; k <= n; k++) res.Add((k - 1) * (12 / n) + 1);
+        return res;
+    }
+
+    /// Retour BN11 (décision du 04/11) : refus si le nombre de mois cochés n'est pas celui des périodes, sinon null.
+    public static string RefusMois(Periodicite p, int coches)
+    {
+        if (p == Periodicite.mensuel || coches == LoyerSummaryUI.NbPeriodes(p)) return null;
+        switch (p)
+        {
+            case Periodicite.trimestriel: return "Trimestriel : cochez 4 mois, un par trimestre (par exemple Jan, Avr, Juil, Oct).";
+            case Periodicite.BiAnnuel:    return "Bi-annuel : cochez 2 mois, un par semestre (par exemple Jan et Juil).";
+            default:                      return "Annuel : cochez le mois de facturation (par exemple Jan).";
+        }
+    }
+
     int MaxMois()
     {
         switch (periodiciteDropdown.value)
@@ -1768,9 +1801,14 @@ public class RevisionPanel : MonoBehaviour
     // Au changement de périodicité : rogne la sélection au max + maj visibilité.
     void OnPeriodiciteChanged()
     {
-        int max = MaxMois(), c = 0;
-        for (int i = 0; i < 12; i++)
-            if (_moisState[i]) { c++; if (c > max) _moisState[i] = false; }
+        // Retour BN11 (décision du 04/11) : une autre périodicité repart des mois d'office (janvier, avril, juillet, octobre en
+        // trimestriel…) quand le nombre de mois cochés ne lui va pas, plutôt que de garder les premiers de l'ancienne.
+        int max = MaxMois(), c = _moisState.Count(x => x);
+        if (max < 12 && c != max)
+        {
+            for (int i = 0; i < 12; i++) _moisState[i] = false;
+            foreach (int m in MoisStandard((Periodicite)periodiciteDropdown.value)) _moisState[m - 1] = true;
+        }
         for (int i = 0; i < 12; i++) RefreshChip(i);
         RefreshMoisVisibility();
         RefreshRepriseOptions();

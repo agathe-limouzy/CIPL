@@ -211,7 +211,7 @@ public class FactureRegulPanel : MonoBehaviour
         var cbox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "ChargesBox");
         _chargesBox = cbox.transform;
         _provisions = Labeled(g, "Provisions déjà versées (provision × périodes facturées)");
-        _provisions.contentType = TMP_InputField.ContentType.DecimalNumber;
+        SaisieNumerique.Montant(_provisions);   // retour BN2 (04/11) : la virgule aussi
         _provisions.onValueChanged.AddListener(_ => { RefreshTotaux(); RefreshEntetePreview(); });
         _tCharges    = MontRow(g, "Total des charges (quote-part)");
         _tProvisions = MontRow(g, "Provisions déjà versées");
@@ -626,7 +626,7 @@ public class FactureRegulPanel : MonoBehaviour
     }
 
     /// Arrondi au centime — évite les dérives de `float` sur les montants.
-    static float Cents(float v) => Mathf.Round(v * 100f) / 100f;
+    static float Cents(float v) => Tva.Cents(v);   // Revue 17 (D5-03) : décimal, « au plus loin », comme le XML
 
     // Provisions appelées : une par période facturée de l'année (départ, arrivée,
     // franchise sans provisions → moins de périodes).
@@ -955,6 +955,7 @@ public class FactureRegulPanel : MonoBehaviour
         foreach (var c in ChargesFor(year)) c.MarquerFacturee(_loc.id, aujourdhui);
 
         var avant = _loc.facturesEtat?.Find(x => x.key == key);   // lue avant l'enregistrement : une correction transmise la cite
+        FacturationSuivi.Solde(_loc, key, out float totalAvantCorrection, out _);   // Revue 17 (D4-03) : avant la correction
         string message = FactureEmission.Enregistrer(_loc, key, "Regul", emission,
             d.subtitle, _loc.factureRegul?.dateEcheanceISO, pdf, montants[listes[0]], _ribDD?.SelectedId,
             _loc.factureRegul, "Régularisation", envoye,
@@ -973,6 +974,7 @@ public class FactureRegulPanel : MonoBehaviour
                 FacturationSuivi.MarquerEnvoye(_loc, k, "Regul", lib, _loc.factureRegul?.dateEcheanceISO,
                     d.numero, pdf, montants[listes[i]], _ribDD?.SelectedId, FactureEmission.RibNom(_ribDD?.SelectedId), envoye);
         }
+        FacturationSuivi.ApresCorrection(_loc, key, totalAvantCorrection);   // Revue 17 (D4-03) : payée, l'écart redevient dû
 
         foreach (var l in FacturationSuivi.MemeFacture(_loc, key)) l.tauxTva = d.masquerTva ? 0f : TauxFacture();   // 02/11 : taux de l'époque
         // Décision du 02/11 (BI5) : la facture électronique sur la ligne principale, comme le loyer ; un total négatif part en

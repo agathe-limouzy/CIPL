@@ -263,7 +263,9 @@ public static class FactureElectronique
     {
         var lignes = FacturationSuivi.MemeFacture(loc, r.key).DefaultIfEmpty(r).ToList();
         float montant = lignes.Sum(x => x.montant);
-        string date = lignes.SelectMany(x => x.versements ?? new List<Versement>()).Select(v => v.dateISO)
+        // Retour BN17 : un remboursement (versement négatif) ne déplace pas la date d'une facture : celle du dernier paiement reçu.
+        string date = lignes.SelectMany(x => x.versements ?? new List<Versement>()).Where(v => montant < 0f || v.montant > 0f)
+            .Select(v => v.dateISO)
             .Where(d => !string.IsNullOrEmpty(d)).OrderBy(d => d).LastOrDefault();
         return (montant, string.IsNullOrEmpty(date) ? DateTime.Today.ToString("yyyy-MM-dd") : date);
     }
@@ -343,6 +345,16 @@ public static class FactureElectronique
 
     /// Locataires dont les factures sont en cours de transmission sur ce poste (un seul traitement à la fois).
     static readonly HashSet<string> _enCours = new HashSet<string>();
+
+    // Retour BN9 (04/11) : juste après sa transmission, Super PDP n'a pas encore lu la facture (pas de ventilation TVA) et
+    // refuse son « Encaissée » (« facture sans ventilation TVA ») ; une correction de facture payée déclenchait ce refus à
+    // chaque fois. On attend quelques minutes : la tournée suivante, ou le prochain lancement, le déclare. Sans effet sur la
+    // TVA : c'est la date du versement qui est déclarée.
+    static readonly Dictionary<string, DateTime> _transmisLe = new Dictionary<string, DateTime>();
+    public const double DelaiEncaissementMinutes = 5;
+    public static void NoterTransmission(string plateformeId, DateTime quand) { if (!string.IsNullOrEmpty(plateformeId)) _transmisLe[plateformeId] = quand; }
+    public static bool TransmiseALinstant(string plateformeId, DateTime maintenant)
+        => !string.IsNullOrEmpty(plateformeId) && _transmisLe.TryGetValue(plateformeId, out var t) && (maintenant - t).TotalMinutes < DelaiEncaissementMinutes;
 
     /// Après l'attente de Super PDP, la fiche a pu être relue (collègue, temps réel, rechargement) : l'objet traité
     /// est alors orphelin et son enregistrement perdu, la facture repartait au lancement suivant (revue 16c, D5-02).
@@ -456,6 +468,7 @@ public static class FactureElectronique
                 if (rep.ok)
                 {
                     r.plateformeId = rep.id; r.plateformeEtat = "envoyee"; r.plateformeErreur = ""; envoyees++; change = true;
+                    NoterTransmission(rep.id, DateTime.Now);   // retour BN9 : « Encaissée » attend que Super PDP l'ait lue
                     if (NotificationSeule) await Notifier(loc, r, bp.getBatiment());
                 }
                 else if (rep.refus == "refusee")
@@ -478,7 +491,9 @@ public static class FactureElectronique
                 }
             }
             var etat = FacturationSuivi.EtatDe(r);
-            if (!string.IsNullOrEmpty(r.plateformeId) && !r.encaisseeDeclaree && etat == FacturationSuivi.Etat.Paye)
+            if (!string.IsNullOrEmpty(r.plateformeId) && !r.encaisseeDeclaree && etat == FacturationSuivi.Etat.Paye
+                && !TransmiseALinstant(r.plateformeId, DateTime.Now)   // retour BN9
+                && FacturationSuivi.ARembourser(loc, r.key) <= 0.005f)   // retour BN17 : pas avant le remboursement
             {
                 var (montant, date) = Encaissement(loc, r);   // revue 16c, D5-07 : montant TTC et date du versement
                 if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee, auNomDe);

@@ -126,4 +126,71 @@ public static class VersementsPanel
                 : "Facture réglée : elle passe « Payé ».");
         });
     }
+
+    /// Retour BN17 (décisions du 04/11) : « Remboursé… » : ce que nous rendons au locataire (le trop-perçu d'une facture payée
+    /// puis corrigée à la baisse, ou un avoir) : montant proposé, date ; tout rendu → la facture passe « Payé ». Les règles
+    /// sont dans FacturationSuivi.EnregistrerRemboursement.
+    public static void Rembourser(LocatairePrefab fiche, FactureEtat ligne, Action apres)
+    {
+        var loc = fiche != null ? fiche.GetLocataire() : null;
+        var canvas = fiche != null ? fiche.GetComponentInParent<Canvas>() : null;
+        if (loc == null || canvas == null || FacturationSuivi.Porteuse(loc, ligne?.key) == null) return;
+        FacturationSuivi.Solde(loc, ligne.key, out float total, out float paye);
+        float du = FacturationSuivi.ARembourser(loc, ligne.key);
+
+        var scrim = UIFactory.Rect("RemboursementScrim", canvas.rootCanvas.transform);
+        UIFactory.Stretch(scrim);
+        scrim.gameObject.AddComponent<Image>().color = new Color(0, 0, 0, 0.45f);
+        scrim.SetAsLastSibling();
+        Action fermer = () => UnityEngine.Object.Destroy(scrim.gameObject);
+
+        var cardImg = UIFactory.Panel("RemboursementCard", scrim, UITheme.Carte);
+        UIFactory.Border(cardImg.gameObject);
+        var card = (RectTransform)cardImg.transform;
+        card.anchorMin = card.anchorMax = card.pivot = new Vector2(.5f, .5f);
+        card.sizeDelta = new Vector2(540, 100);
+        var v = cardImg.gameObject.AddComponent<VerticalLayoutGroup>();
+        v.childControlWidth = true; v.childControlHeight = true;
+        v.childForceExpandWidth = true; v.childForceExpandHeight = false;
+        cardImg.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        DepartPanel.Entete(v.transform, $"Remboursement — {ligne.libelle}", UITheme.Primaire);
+        var body = UIFactory.VBox(v.transform, 10, 18, 18, 14, 16, "Body");
+        UIFactory.Text(body.transform, total > 0f
+                ? $"Payé : {Euros(paye)} pour une facture de {Euros(total)} : {Euros(du)} à rendre au locataire."
+                : $"Avoir de {Euros(-total)} : {Euros(du)} à rembourser au locataire.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire).enableWordWrapping = true;
+        var champs = UIFactory.HBox(body.transform, 12, false, "Champs");
+        champs.childAlignment = TextAnchor.LowerLeft;
+        var date = DepartPanel.ChampDate(fiche, champs.transform, "Date du remboursement", DateTime.Today);
+        var montant = DepartPanel.Champ(champs.transform, "Montant (€)", "", 1f);
+        SaisieNumerique.Montant(montant);
+        montant.text = du.ToString("0.00", FacturePdfService.FrCulture);
+
+        var pied = UIFactory.HBox(v.transform, 8, false, "Pied");
+        pied.padding = new RectOffset(18, 18, 10, 14);
+        UIFactory.LE(UIFactory.Rect("Espace", pied.transform).gameObject, flexW: 1);
+        var annuler = UIFactory.Button(pied.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 40, UITheme.Role.Bouton, false);
+        UIFactory.Border(annuler.gameObject);
+        UIFactory.LargeurDuTexte(annuler);
+        annuler.onClick.AddListener(() => fermer());
+        var enregistrer = UIFactory.Button(pied.transform, "Enregistrer", UITheme.Primaire, Color.white, 40, UITheme.Role.Bouton);
+        UIFactory.LargeurDuTexte(enregistrer);
+        enregistrer.onClick.AddListener(() =>
+        {
+            if (!date.LireDate(out var d)) { ConfirmDialog.Erreur("Date du remboursement : saisissez une date (JJ/MM/AAAA)."); return; }
+            if (!SaisieNumerique.TryParse(montant.text, out float m)) { ConfirmDialog.Erreur($"« {montant.text} » n'est pas un montant."); return; }
+            string refus = FacturationSuivi.EnregistrerRemboursement(loc, ligne, m, d,
+                fiche.batimentPrefabOrigin != null ? fiche.batimentPrefabOrigin.getBatiment() : null);
+            if (refus != null) { ConfirmDialog.Erreur(refus); return; }
+            fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+            FactureElectronique.Rattraper(fiche.batimentPrefabOrigin, loc);   // « Encaissée » une fois tout rendu
+            fermer();
+            apres?.Invoke();
+            float reste = FacturationSuivi.ARembourser(loc, ligne.key);
+            UndoToast.Instance?.ShowInfo(reste > 0.005f
+                ? $"Remboursement enregistré : reste {Euros(reste)} à rendre."
+                : "Remboursement enregistré : la facture passe « Payé ».");
+        });
+    }
 }

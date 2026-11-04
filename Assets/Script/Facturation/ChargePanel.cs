@@ -121,7 +121,7 @@ public class ChargePanel : MonoBehaviour
         // Négatif = avoir d'un fournisseur : il doit se relire tel quel, sinon un nouvel
         // enregistrement le remettrait à 0 en silence.
         var fCout = LabeledInput(body, "Coût (€, négatif pour un avoir)", "0", _edit.cout != 0 ? _edit.cout.ToString(CultureInfo.InvariantCulture) : "");
-        fCout.contentType = TMP_InputField.ContentType.DecimalNumber;
+        SaisieNumerique.Montant(fCout);   // retour BN2 (04/11) : la virgule aussi
         _fCout = fCout;
         fCout.onValueChanged.AddListener(_ => MajMontants());
         var fDate = LabeledInput(body, "Date", "JJ/MM/AAAA",
@@ -273,7 +273,7 @@ public class ChargePanel : MonoBehaviour
             {
                 bool isLast = i == n - 1;
                 var inp = UIFactory.Input(row.transform, "0", 38);
-                inp.contentType = TMP_InputField.ContentType.DecimalNumber;
+                SaisieNumerique.Montant(inp);   // retour BN2 (04/11) : la virgule aussi
                 UIFactory.LE(inp.gameObject, prefW: 120, flexW: 0);
                 inp.text = manualInit[i].ToString("0.###", CultureInfo.InvariantCulture);
                 inp.interactable = !isLast;         // dernier = reste (auto)

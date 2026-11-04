@@ -57,6 +57,19 @@ public static class RegleAbonnement
     static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
 
     /// « 102 € », « 135,60 € ».
+    /// Revue 17 (D3-05) : ce qu'ajoute une entreprise à un groupe : l'entreprise ET la licence de l'admin (une licence par
+    /// personne et par entreprise, décision du 23/10) ; avant, seule l'entreprise était annoncée (28 € au lieu de 43 €).
+    public static string TexteAjoutEntreprise(bool abonne, bool annuel)
+    {
+        int m = annuel ? MoisParAn : 1;
+        return abonne
+            ? $"Elle rejoint votre groupe : votre abonnement augmente de {(PrixEntrepriseSuivante + PrixLicence) * m} € HT "
+              + $"{(annuel ? "par an" : "par mois")} ({PrixEntrepriseSuivante * m} € pour l'entreprise, {PrixLicence * m} € pour votre "
+              + "licence), au prorata dès aujourd'hui. Vous y avez accès en tant qu'admin."
+            : $"Elle rejoint votre groupe : une seule facture, {PrixEntrepriseSuivante} € au lieu de {PrixEntreprise} € par mois pour "
+              + "l'entreprise, plus ses licences, choisies au paiement. Vous y avez accès en tant qu'admin.";
+    }
+
     public static string Euros(decimal montant) => (montant % 1 == 0 ? montant.ToString("0", Fr) : montant.ToString("0.00", Fr)) + " €";
 
     /// Jamais moins de licences que de personnes (membres et invitations en cours), ni moins d'une.

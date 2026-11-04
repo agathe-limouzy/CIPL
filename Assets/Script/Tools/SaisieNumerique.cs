@@ -1,4 +1,5 @@
 using System.Globalization;
+using TMPro;
 using UnityEngine;
 
 /// Conversion d'une saisie utilisateur en nombre.
@@ -33,6 +34,11 @@ public static class SaisieNumerique
 
         if (net.Length == 0) return true;
 
+        // Revue 17 (D8-04) : une seule sorte de séparateur, répétée (« 2.500.000 », « 2,500,000 ») : ce sont des milliers, un
+        // nombre n'a qu'une virgule. Avant, le dernier était pris pour la virgule (2 500).
+        foreach (char sep in new[] { '.', ',' })
+            if (net.IndexOf(sep == '.' ? ',' : '.') < 0 && net.IndexOf(sep) != net.LastIndexOf(sep)) net = net.Replace(sep.ToString(), "");
+
         // Normalisation des séparateurs : le dernier « . » ou « , » devient LE point
         // décimal, ceux qui le précèdent sont retirés (milliers). Sans cela,
         // « 1.200,50 » était rejeté alors que « 1 200,50 » passait.
@@ -54,6 +60,21 @@ public static class SaisieNumerique
         valeur = (float)d;
         return ok;
     }
+
+    /// Retour BN2 (04/11) : un champ de montant accepte les chiffres, « . » et « , » (interchangeables, voir TryParse), les
+    /// espaces et le signe moins en tête. Le type « DecimalNumber » de TextMesh Pro n'acceptait que le séparateur du poste (le
+    /// point) : la virgule française était refusée à la frappe dans les formulaires de facture.
+    public static void Montant(TMP_InputField champ)
+    {
+        if (champ == null) return;
+        champ.contentType = TMP_InputField.ContentType.Custom;
+        champ.characterValidation = TMP_InputField.CharacterValidation.None;
+        champ.onValidateInput = CaractereMontant;
+    }
+
+    /// Le caractère tapé dans un champ de montant, ou '\0' s'il est refusé.
+    public static char CaractereMontant(string texte, int position, char c)
+        => char.IsDigit(c) || c == '.' || c == ',' || c == ' ' || (c == '-' && position == 0) ? c : '\0';
 
     /// Variante « formulaire » en double (achats, travaux : le modèle est en double).
     public static double ParseOuAvertirD(string saisie, string contexte)

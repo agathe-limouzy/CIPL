@@ -611,7 +611,7 @@ public class LocataireFacturationFields : MonoBehaviour
         // calcul : TTC si le locataire est soumis à TVA, HT sinon. La période suit
         // la périodicité du bail (mensuel / trimestriel / bi-annuel / annuel).
         float perPeriode = loc.loyerAnnuel / LoyerSummaryUI.NbPeriodes(loc.periodiciteLoyer);
-        float baseVal = loc.depotSurTTC ? perPeriode * 1.2f : perPeriode;
+        float baseVal = Tva.PeriodeDepot(loc, loc.depotSurTTC);   // Revue 17 (D6-06) : au taux du bail, comme le formulaire
         if (baseVal > 0f)
         {
             float nb = loc.depotDeGarantie / baseVal;
@@ -765,11 +765,12 @@ public class LocataireFacturationFields : MonoBehaviour
         dateInput.text = DateRevisionProposee(loc, dateDefaut).ToString("dd/MM/yyyy");
 
         // Soumis à TVA → loyer TTC ; sinon → loyer HT (mémorisé sur le locataire).
-        var ttcToggle = UIFactory.Toggle(body.transform, "Locataire soumis à la TVA (loyer TTC)", loc.depotSurTTC);
+        var ttcToggle = UIFactory.Toggle(body.transform, "Locataire soumis à la TVA (loyer TTC)", loc.depotSurTTC && Tva.Soumis(loc));
+        ttcToggle.gameObject.SetActive(Tva.Soumis(loc));   // Revue 17 (D6-06) : bail exonéré : pas de base TTC
 
         UIFactory.Text(body.transform, "Loyer par période hors charges (prérempli)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         var loyerLine = UIFactory.Text(body.transform, "", UITheme.Role.Valeur, UITheme.TextePrincipal, true);
-        Func<float> currentPeriode = () => ttcToggle.isOn ? periodeHT * 1.2f : periodeHT;
+        Func<float> currentPeriode = () => ttcToggle.isOn ? Tva.Ttc(periodeHT, Tva.Taux(loc)) : periodeHT;   // Revue 17 (D6-06)
         Action refreshLoyer = () =>
             loyerLine.text = $"{currentPeriode():0.00} € / période {(ttcToggle.isOn ? "TTC" : "HT")}";
         ttcToggle.onValueChanged.AddListener(_ => refreshLoyer());

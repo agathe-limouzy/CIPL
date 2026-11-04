@@ -4,19 +4,76 @@
 // maquettes du 25/10) :
 //   chaque matin (tâche planifiée d'etape14_supabase.sql, corps {}) : fin d'essai dans N jours
 //   (J-7 à J-2), demain (J-1), essai terminé ;
-//   à la demande de stripe-webhook ({groupe, sorte, date}) : résiliation enregistrée, abonnement terminé.
+//   à la demande de stripe-webhook ({groupe, sorte, date}) : résiliation enregistrée, abonnement terminé ;
+//   chaque matin aussi (Revue 17, D1-01) : les quantités Stripe de chaque groupe abonné suivent ses entreprises et licences.
 // Jamais deux fois le même : table envois_abonnement (groupe, sorte, date concernée).
 // « Verify JWT » DÉSACTIVÉ : la tâche planifiée présente la clé du coffre (en-tête x-cipl-cron),
 // stripe-webhook la clé service_role ; tout autre appel est refusé.
 // Secrets (Supabase › Edge Functions › Secrets) : CIPL_GMAIL (l'adresse Gmail de CIPL) et
-// CIPL_GMAIL_MOT_DE_PASSE (son mot de passe d'application, le même que pour les codes de Supabase).
+// CIPL_GMAIL_MOT_DE_PASSE (son mot de passe d'application, le même que pour les codes de Supabase), et
+// STRIPE_SECRET_KEY (la même que pour abonnement-stripe ; absente, rien n'est aligné et les e-mails partent quand même).
 // ════════════════════════════════════════════════════════════════════════════
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+import Stripe from "npm:stripe@17";
 
 const CLE_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const service = createClient(Deno.env.get("SUPABASE_URL")!, CLE_SERVICE);
 const GMAIL = Deno.env.get("CIPL_GMAIL") ?? "";
+
+// Revue 17 (D1-01) : la facturation d'une entreprise ajoutée ne dépend plus seulement du second appel fait par le PC
+// (« ajuster ») : chaque matin, les lignes Stripe de chaque groupe abonné suivent ses entreprises et leurs licences, comme à
+// la fin d'« ajuster » (abonnement-stripe.ts) : « licence » = somme des licences, « entreprise supplémentaire » = entreprises
+// − 1, au prorata, seulement si une quantité diffère. Un écart dure au plus un jour, quel que soit le chemin de l'ajout
+// (écran, import, appel direct).
+const CLE_STRIPE = Deno.env.get("STRIPE_SECRET_KEY");
+const stripe = CLE_STRIPE ? new Stripe(CLE_STRIPE, { httpClient: Stripe.createFetchHttpClient() }) : null;
+
+async function alignerAbonnements(): Promise<Record<string, string>> {
+  if (!stripe) return { stripe: "STRIPE_SECRET_KEY absente : rien aligné" };
+  const bilan: Record<string, string> = {};
+  const { data: groupes, error } = await service.from("groupes").select("id, stripe_abonnement").not("stripe_abonnement", "is", null);
+  if (error) throw error;
+  for (const g of groupes ?? []) {
+    try {
+      const { data: ents, error: e2 } = await service.from("entreprises").select("licences_max").eq("groupe_id", g.id);
+      if (e2) throw e2;
+      const n = Math.max(1, ents?.length ?? 1);
+      const total = (ents ?? []).reduce((a, x) => a + (x.licences_max ?? 0), 0);
+      const sub = await stripe.subscriptions.retrieve(g.stripe_abonnement);
+      if (sub.status === "canceled" || sub.status === "incomplete_expired") { bilan[g.id] = "abonnement terminé"; continue; }
+      const f = sub.items.data[0]?.price.recurring?.interval === "year" ? "annuel" : "mensuel";
+      const ligne = (nom: string) => sub.items.data.find((i) => i.price.lookup_key === `cipl_${nom}_${f}`);
+      const prorata = { proration_behavior: "create_prorations" as const };
+      const faits: string[] = [];
+      const l = ligne("licence");
+      if (l && total > 0 && l.quantity !== total) {
+        await stripe.subscriptionItems.update(l.id, { quantity: total, ...prorata });
+        faits.push(`licences ${l.quantity} → ${total}`);
+      }
+      const suivantes = n - 1, s = ligne("entreprise_suivante");
+      if (s && suivantes > 0 && s.quantity !== suivantes) {
+        await stripe.subscriptionItems.update(s.id, { quantity: suivantes, ...prorata });
+        faits.push(`entreprises supplémentaires ${s.quantity} → ${suivantes}`);
+      } else if (s && suivantes <= 0) {
+        await stripe.subscriptionItems.del(s.id, prorata);
+        faits.push("entreprise supplémentaire retirée");
+      } else if (!s && suivantes > 0) {
+        // Le prix existe dès qu'un groupe en a eu besoin (créé par abonnement-stripe) ; sinon, l'écart attend « ajuster ».
+        const p = (await stripe.prices.list({ lookup_keys: [`cipl_entreprise_suivante_${f}`], active: true, limit: 1 })).data[0];
+        if (p) {
+          await stripe.subscriptionItems.create({ subscription: sub.id, price: p.id, quantity: suivantes, ...prorata });
+          faits.push(`entreprises supplémentaires 0 → ${suivantes}`);
+        } else faits.push("prix « entreprise supplémentaire » absent : rien fait");
+      }
+      bilan[g.id] = faits.length ? faits.join(", ") : "à jour";
+    } catch (e) {
+      console.error("alignement", g.id, e);
+      bilan[g.id] = "échec : " + ((e as Error)?.message ?? String(e));
+    }
+  }
+  return bilan;
+}
 
 const json = (corps: unknown, status = 200) =>
   new Response(JSON.stringify(corps), { status, headers: { "Content-Type": "application/json" } });
@@ -102,6 +159,13 @@ Deno.serve(async (req) => {
   if (!autorise) return json({ erreur: "Refusé." }, 401);
 
   const corps = await req.json().catch(() => ({}));
+  // Revue 17 (D1-01) : la tâche du matin (corps vide) aligne aussi les abonnements Stripe, avant les e-mails.
+  let alignement: Record<string, string> | string = {};
+  if (!corps.groupe) {
+    try { alignement = await alignerAbonnements(); }
+    catch (e) { console.error("alignement", e); alignement = "échec : " + ((e as Error)?.message ?? String(e)); }
+  }
+  if (!corps.groupe) console.log("alignement des abonnements", JSON.stringify(alignement));   // visible dans Logs, chaque matin
   let aEnvoyer: { groupe: string; sorte: string; date: string }[];
   if (corps.groupe) aEnvoyer = [{ groupe: corps.groupe, sorte: corps.sorte, date: corps.date }];
   else {
@@ -109,7 +173,7 @@ Deno.serve(async (req) => {
     if (error) return json({ erreur: error.message }, 500);
     aEnvoyer = data ?? [];
   }
-  if (aEnvoyer.length === 0) return json({ envoyes: 0 });
+  if (aEnvoyer.length === 0) return json({ envoyes: 0, alignement });
 
   // Port 465 (TLS direct) : le 587 est réputé fermé depuis les fonctions Supabase.
   const smtp = new SMTPClient({
@@ -126,5 +190,5 @@ Deno.serve(async (req) => {
   } finally {
     await smtp.close();
   }
-  return json(bilan);
+  return json({ ...bilan, alignement });
 });

@@ -14,7 +14,10 @@ public static class DonneesCloud
     /// le serveur refuse qu'une version plus ancienne réécrive une fiche enregistrée par une plus récente : `JsonUtility` y
     /// effacerait les champs qu'elle ne connaît pas. À MONTER à chaque champ ajouté ou retiré dans Batiment, Locataire,
     /// ReglageData ou ce qu'ils contiennent (le test D2_01 de Revue17Tests le rappelle par une empreinte des champs).
-    public const int Modele = 4;   // 2 : ChargeBatiment.ponctuelle ; 3 : Batiment.lots ; 4 : ReglageData.phraseEscompte (04/11)
+    public const int Modele = 7;   // 2 : ChargeBatiment.ponctuelle ; 3 : Batiment.lots ; 4 : ReglageData.phraseEscompte (04/11) ;
+                                   // 5 : AchatFinancement.fraisNotaireAuto (Revue 17, D7b-02) ;
+                                   // 6 : FactureEtat.provisionsConnues / provision / provisionsListes (Revue 17, D6-07) ;
+                                   // 7 : FactureEtat.periodicite (Revue 17, D4-04)
 
     // ── Découpage et recomposition (sans réseau : testés en EditMode) ──────────
 

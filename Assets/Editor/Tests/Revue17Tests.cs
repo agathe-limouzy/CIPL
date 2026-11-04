@@ -54,7 +54,7 @@ public class Revue17Tests
     public void D2_01_un_champ_ajoute_fait_monter_le_numero_de_modele()
     {
         string e = Empreinte(typeof(Batiment), typeof(Locataire), typeof(ReglageData));
-        Assert.That(DonneesCloud.Modele + ":" + Hash(e), Is.EqualTo("4:67605043b1f4"),
+        Assert.That(DonneesCloud.Modele + ":" + Hash(e), Is.EqualTo("7:1d9bc7661d3e"),
             "Un champ des données a changé : montez DonneesCloud.Modele, puis recopiez ici le nouveau « numéro:empreinte ».");
     }
 
@@ -305,6 +305,321 @@ public class Revue17Tests
         StringAssert.Contains("\"BadgePresence\"", Src("Locataire/LocataireRowUI.cs"), "retour BM7 : sa propre colonne, à côté du loyer");
     }
 
+    // ── Lot 2a (majeurs : l'argent) ──
+
+    [Test]
+    public void D8_04_un_separateur_repete_est_un_separateur_de_milliers()
+    {
+        Assert.That(SaisieNumerique.Parse("2.500.000"), Is.EqualTo(2500000f));
+        Assert.That(SaisieNumerique.Parse("2,500,000"), Is.EqualTo(2500000f));
+        Assert.That(SaisieNumerique.Parse("1.200,50"), Is.EqualTo(1200.5f).Within(0.001f), "deux sortes : le dernier est la virgule");
+        Assert.That(SaisieNumerique.Parse("1,5"), Is.EqualTo(1.5f).Within(0.001f));
+        Assert.That(SaisieNumerique.Parse("2 500 000,25"), Is.EqualTo(2500000.25f).Within(0.01f));
+    }
+
+    [Test]
+    public void D5_03_la_TVA_s_arrondit_comme_dans_le_XML()
+    {
+        Assert.That(Tva.Montant(1234.45f, 10f), Is.EqualTo(123.45f).Within(0.0001f), "123,445 : au plus loin (avant : 123,44 en float)");
+        Assert.That(Tva.Montant(1000f, 20f), Is.EqualTo(200f));
+        Assert.That(Tva.Montant(99.9f, 5.5f), Is.EqualTo(5.49f).Within(0.0001f), "5,4945 : 5,49");
+        Assert.That(Tva.Cents(0.125f), Is.EqualTo(0.13f).Within(0.0001f));
+        Assert.That(Tva.Centimes(123456.78f), Is.EqualTo(123456.78m), "les centimes d'un gros montant restent");
+        StringAssert.Contains("Arrondi(float x) => Tva.Centimes(x)", Src("Facturation/FactureEn16931.cs"));
+        foreach (var p in new[] { "FactureLoyerPanel.cs", "FactureRegulPanel.cs", "FactureDepotPanel.cs" })
+            StringAssert.Contains("Cents(float v) => Tva.Cents(v)", Src("Facturation/" + p), p);
+    }
+
+    [Test]
+    public void D3_05_l_ajout_d_une_entreprise_annonce_aussi_la_licence()
+    {
+        Assert.That(RegleAbonnement.TexteAjoutEntreprise(true, false),
+            Does.Contain("43 € HT par mois (28 € pour l'entreprise, 15 € pour votre licence)"));
+        Assert.That(RegleAbonnement.TexteAjoutEntreprise(true, true), Does.Contain("430 € HT par an (280 € pour l'entreprise, 150 € pour votre licence)"));
+        Assert.That(RegleAbonnement.TexteAjoutEntreprise(false, false), Does.Contain("plus ses licences"));
+    }
+
+    [Test]
+    public void D7a_06_une_date_d_acquisition_avant_1900_n_en_est_pas_une()
+    {
+        var bat = new Batiment { dateAcquisitionISO = "0001-01-01" };
+        bat.historiquesAchat.Add(new AchatFinancement { dateAchat = DateTime.Today.AddYears(-2).ToString("yyyy-MM-dd") });
+        Assert.That(BatimentSummaryView.AcquisitionSaisie(bat, out _), Is.False);
+        Assert.That(BatimentSummaryView.AnneesDepuisAcquisition(bat), Is.EqualTo(2f).Within(0.01f), "le premier achat, pas l'an 1 (× 2 025)");
+        bat.dateAcquisitionISO = "";
+        Assert.That(BatimentSummaryView.AnneesDepuisAcquisition(bat), Is.EqualTo(2f).Within(0.01f));
+        StringAssert.Contains("acquisitionDate.LireDate(out var acq)", Src("Batiment/BatimentPrefab.cs"), "lue et contrôlée à l'enregistrement");
+    }
+
+    [Test]
+    public void D7b_02_la_case_des_frais_de_notaire_est_enregistree_avec_l_achat()
+    {
+        Assert.That(new AchatFinancement().fraisNotaireAuto, Is.False, "achats déjà enregistrés : leurs frais saisis");
+        var a = JsonUtility.FromJson<AchatFinancement>("{\"prixAchat\":100000,\"fraisNotaire\":6500}");
+        Assert.That(a.fraisNotaireAuto, Is.False);
+        StringAssert.Contains("SetIsOnWithoutNotify(d.fraisNotaireAuto)", Src("Achat/AchatFormPanel.cs"));
+        StringAssert.Contains("_data.fraisNotaireAuto = toggleFraisAuto", Src("Achat/AchatFormPanel.cs"));
+    }
+
+    [Test]
+    public void D6_06_le_depot_suit_la_TVA_du_bail()
+    {
+        var loc = new Locataire { loyerAnnuel = 12000f, periodiciteLoyer = Periodicite.mensuel, tvaLoyer = "oui", tauxTvaLoyer = 10f };
+        Assert.That(Tva.PeriodeDepot(loc, true), Is.EqualTo(1100f).Within(0.01f), "au taux du bail (10 %), pas × 1,2");
+        Assert.That(Tva.PeriodeDepot(loc, false), Is.EqualTo(1000f).Within(0.01f));
+        loc.tvaLoyer = "non";
+        Assert.That(Tva.PeriodeDepot(loc, true), Is.EqualTo(1000f).Within(0.01f), "bail exonéré : HT, même case cochée");
+        var d = DepartLocataire.Calculer(0f, new[] { new RetenueSortie { libelle = "peinture", ht = 100f, tva = true } }, null, 10f);
+        Assert.That(d.tva, Is.EqualTo(10f).Within(0.001f));
+        StringAssert.Contains("TVA 10 %", d.lignes[0].Key);
+        d = DepartLocataire.Calculer(0f, new[] { new RetenueSortie { libelle = "peinture", ht = 100f, tva = true } }, null, 0f);
+        Assert.That(d.tva, Is.EqualTo(0f), "bail exonéré : pas de TVA sur les retenues");
+        StringAssert.Contains("Tva.PeriodeDepot(loc, loc.depotSurTTC)", Src("Locataire/LocataireFacturationFields.cs"));
+    }
+
+    [Test]
+    public void D6_07_la_correction_reprend_les_provisions_de_sa_facture()
+    {
+        var ligne = new FactureEtat { key = "loyer-2026-P3", statut = "Paye", provisionsConnues = true, provision = 50f };
+        var f = new FactureInfo { saved = true, provisionMontant = 80f };
+        Assert.That(FactureLoyerPanel.ProvisionProposee(f, 100f, ligne), Is.EqualTo(50f), "celle de CETTE facture");
+        ligne.provisionsConnues = false;
+        Assert.That(FactureLoyerPanel.ProvisionProposee(f, 100f, ligne), Is.EqualTo(80f), "ligne émise avant : la dernière facture");
+        Assert.That(FactureLoyerPanel.ProvisionProposee(f, 100f, null), Is.EqualTo(100f), "hors correction : la fiche");
+        StringAssert.Contains("var memo = memos?.Find(", Src("Facturation/FactureLoyerPanel.cs"), "les listes aussi");
+    }
+
+    [Test]
+    public void D7a_05_un_remplacant_pas_encore_arrive_ne_compte_pas_double()
+    {
+        var ancien = new Locataire { id = "A", Name = "Ancien", lotBatiment = 2, loyerAnnuel = 10000f };
+        ancien.DateDebutBail = DateTime.Today.AddYears(-3); ancien.DateFinBail = DateTime.Today.AddYears(6);
+        ancien.dateSortieISO = DateTime.Today.AddDays(20).ToString("yyyy-MM-dd");
+        var nouveau = new Locataire { id = "N", Name = "Nouveau", lotBatiment = 2, loyerAnnuel = 11000f };
+        nouveau.DateDebutBail = DateTime.Today.AddDays(21); nouveau.DateFinBail = DateTime.Today.AddYears(9);
+        var locs = new List<Locataire> { ancien, nouveau };
+        Assert.That(BatimentPrefab.EnPlace(locs), Is.EqualTo(new[] { ancien }), "un seul loyer, un seul lot, une seule surface");
+        var bat = new Batiment { locataireDuBatiment = locs, lots = new List<LotBatiment> { new LotBatiment { numero = 2, surface = 50f } } };
+        Assert.That(LotsBatiment.Occupants(bat, 2).Count, Is.EqualTo(2), "le lot reste occupé : le remplaçant y arrive");
+        Assert.That(LotsBatiment.Libres(bat), Is.Empty);
+    }
+
+    /// Revue 17 (D1-01) : la tâche du matin aligne les quantités Stripe de chaque groupe abonné sur ses entreprises et licences.
+    [Test]
+    public void D1_01_la_tache_du_matin_aligne_les_abonnements_Stripe()
+    {
+        string ts = File.ReadAllText(Path.Combine("Serveur", "fonctions", "emails-abonnement.ts"));
+        StringAssert.Contains("async function alignerAbonnements()", ts);
+        StringAssert.Contains("if (!corps.groupe) {", ts, "seulement la tâche du matin, pas un e-mail demandé par stripe-webhook");
+        StringAssert.Contains("ligne(\"licence\")", ts);
+        StringAssert.Contains("ligne(\"entreprise_suivante\")", ts);
+        StringAssert.Contains("proration_behavior: \"create_prorations\"", ts, "au prorata, comme « ajuster »");
+        StringAssert.Contains("l.quantity !== total", ts, "seulement si une quantité diffère");
+    }
+
+    [Test]
+    public void D4_03_une_facture_payee_corrigee_a_la_hausse_redevient_due()
+    {
+        var loc = new Locataire { id = "L" };
+        var ligne = new FactureEtat { key = "loyer-2026-P10", type = "Loyer", statut = "Paye", montant = 1000f, pdfPath = "a.pdf",
+                                      numero = "2026/10003", echeanceISO = DateTime.Today.AddDays(10).ToString("yyyy-MM-dd") };
+        loc.facturesEtat = new List<FactureEtat> { ligne };
+        ligne.montant = 1200f;   // la correction (MarquerCorrige) : nouveau montant
+        FacturationSuivi.ApresCorrection(loc, ligne.key, 1000f);
+        Assert.That(ligne.statut, Is.EqualTo("Envoye"), "l'écart redevient dû");
+        FacturationSuivi.Solde(loc, ligne.key, out float total, out float paye);
+        Assert.That(paye, Is.EqualTo(1000f), "ce qui avait été réglé, noté en versement");
+        Assert.That(FacturationSuivi.DuesDe(loc).Sum(x => x.montant), Is.EqualTo(200f).Within(0.01f), "200 € dans les créances");
+
+        var baisse = new FactureEtat { key = "loyer-2026-P11", type = "Loyer", statut = "Paye", montant = 800f, pdfPath = "b.pdf",
+                                       numero = "2026/11003", echeanceISO = DateTime.Today.AddDays(10).ToString("yyyy-MM-dd") };
+        loc.facturesEtat.Add(baisse);
+        FacturationSuivi.ApresCorrection(loc, baisse.key, 1000f);
+        Assert.That(baisse.statut, Is.EqualTo("Envoye"), "à la baisse : le trop-perçu est à rembourser (décision révisée du 04/11, BN17)");
+        Assert.That(FacturationSuivi.ARembourser(loc, baisse.key), Is.EqualTo(200f).Within(0.01f), "le trop-perçu se lit");
+
+        var forme = new FactureEtat { key = "loyer-2026-P12", type = "Loyer", statut = "Paye", montant = 1000f, pdfPath = "c.pdf" };
+        loc.facturesEtat.Add(forme);
+        FacturationSuivi.ApresCorrection(loc, forme.key, 1000f);
+        Assert.That(forme.statut, Is.EqualTo("Paye"));
+        Assert.That(forme.versements, Is.Empty, "correction de forme : rien ne change");
+        foreach (var p in new[] { "FactureLoyerPanel.cs", "FactureRegulPanel.cs", "FactureRefacPanel.cs", "FactureDepotPanel.cs" })
+            StringAssert.Contains("FacturationSuivi.ApresCorrection(_loc, key, totalAvantCorrection);", Src("Facturation/" + p), p);
+    }
+
+    [Test]
+    public void D7a_01_un_depart_repousse_apres_le_dernier_loyer_le_signale_et_bloque_l_annulation()
+    {
+        var loc = new Locataire { id = "D", Name = "Dupont", loyerAnnuel = 36000f, periodiciteLoyer = Periodicite.mensuel };
+        loc.DateDebutBail = new DateTime(2024, 1, 1); loc.DateFinBail = new DateTime(2032, 12, 31);
+        loc.dateSortieISO = "2026-12-15";
+        float prorata = Loyers.MontantPeriode(loc, 2026, 12);
+        Assert.That(prorata, Is.EqualTo(3000f * 15f / 31f).Within(0.02f));
+        var dec = new FactureEtat { key = "loyer-2026-P12", type = "Loyer", statut = "Envoye", montant = prorata * 1.2f, loyerHT = prorata,
+                                    pdfPath = "dec.pdf", numero = "2026/12001", echeanceISO = "2026-12-01" };
+        loc.facturesEtat = new List<FactureEtat> { dec };
+        Assert.That(DepartLocataire.LoyerACorriger(loc, dec), Is.False, "facturé au prorata du départ : juste");
+        loc.dateSortieISO = "2026-12-31";   // Dupont reste jusqu'au 31/12
+        Assert.That(DepartLocataire.LoyerACorriger(loc, dec), Is.True, "la fin de décembre manque : à corriger");
+        Assert.That(DepartLocataire.PeutAnnuler(loc), Does.Contain("a été facturé au prorata du départ"), "annuler le départ : refusé");
+        Assert.That(loc.dateSortieISO, Is.EqualTo("2026-12-31"), "la fiche est rendue telle quelle");
+    }
+
+    /// Revue 17 (D4-04) : après un changement de périodicité, un loyer émis garde son libellé, et la période homonyme de la
+    /// nouvelle périodicité ne le « corrige » pas.
+    [Test]
+    public void D4_04_un_loyer_emis_garde_son_libelle_et_sa_periodicite()
+    {
+        var loc = new Locataire { id = "P", loyerAnnuel = 12000f, periodiciteLoyer = Periodicite.mensuel };
+        loc.DateDebutBail = new DateTime(2025, 1, 1); loc.DateFinBail = new DateTime(2033, 12, 31);
+        loc.facturesEtat = new List<FactureEtat> { new FactureEtat { key = "loyer-2026-P3", type = "Loyer", statut = "Envoye",
+            libelle = "Loyer Mars 2026", numero = "2026/03001", pdfPath = "mars.pdf", echeanceISO = "2026-03-01", montant = 1200f,
+            periodicite = "mensuel" } };
+        loc.periodiciteLoyer = Periodicite.trimestriel;   // passage au trimestriel
+        var p3 = FacturationSuivi.Lignes(loc, 2026).First(x => x.key == "loyer-2026-P3");
+        Assert.That(p3.libelle, Is.EqualTo("Loyer Mars 2026"), "le document imprimé fait foi");
+        Assert.That(FactureEmission.Preparer(loc, "loyer-2026-P3", "2026/09001", "trimestriel").Refus, Does.Contain("ancienne périodicité"),
+            "le 3e trimestre ne corrige pas la facture de mars");
+        Assert.That(FactureEmission.Preparer(loc, "loyer-2026-P3", "2026/03001", "mensuel").Refus, Is.Null, "même périodicité : correction normale");
+    }
+
+    /// Revue 17 (D7a-03) : une période qui commence le jour d'une cession prévue, ou après, est facturée au cessionnaire ; une
+    /// période d'avant une cession faite, au cédant.
+    [Test]
+    public void D7a_03_le_titulaire_d_une_periode_apres_la_cession_prevue_est_le_cessionnaire()
+    {
+        var loc = new Locataire { id = "C", Name = "SARL Ancien", siretNumber = "11111111111111", emailLocataire = "ancien@exemple.fr",
+            periodiciteLoyer = Periodicite.mensuel, loyerAnnuel = 12000f };
+        loc.DateDebutBail = new DateTime(2025, 1, 1); loc.DateFinBail = new DateTime(2033, 12, 31);
+        Cessions.Enregistrer(loc, new DateTime(2026, 12, 1), "SARL Nouveau", "22222222222222", "1 rue Neuve", "nouveau@exemple.fr",
+            new DateTime(2026, 10, 20));
+        Assert.That(Cessions.TitulaireDe(loc, new DateTime(2026, 12, 1))?[0], Is.EqualTo("SARL Nouveau"));
+        Assert.That(Cessions.TitulaireDe(loc, new DateTime(2026, 11, 1)), Is.Null, "novembre : la fiche, donc le cédant");
+        var dec = new FactureEtat { key = "loyer-2026-P12", type = "Loyer", statut = "AttenteEnvoi" };
+        Assert.That(FactureEnvoiAuto.Destinataire(loc, "Loyer", dec), Is.EqualTo("nouveau@exemple.fr"), "l'envoi du 16/11 part au cessionnaire");
+        Assert.That(FactureEnvoiAuto.Destinataire(loc, "Loyer"), Is.EqualTo("ancien@exemple.fr"), "sans ligne : la fiche");
+        Cessions.Effectuer(loc, new DateTime(2026, 12, 1));   // le jour venu, la fiche passe au cessionnaire
+        Assert.That(loc.Name, Is.EqualTo("SARL Nouveau"));
+        Assert.That(Cessions.TitulaireDe(loc, new DateTime(2026, 11, 1))?[0], Is.EqualTo("SARL Ancien"), "novembre corrigé : le cédant");
+        Assert.That(Cessions.TitulaireDe(loc, new DateTime(2026, 12, 1)), Is.Null, "décembre : la fiche, le cessionnaire");
+    }
+
+    /// Retour BN9 (04/11) : D4-03, deux cas oubliés : « Payé » à la main avec un acompte, puis « Partiel » corrigé sous ce qui
+    /// a été versé.
+    [Test]
+    public void BN9_paye_avec_acompte_puis_partiel_corrige_a_la_baisse()
+    {
+        var loc = new Locataire { id = "Q" };
+        var l = new FactureEtat { key = "loyer-2026-P9", type = "Loyer", statut = "Paye", montant = 1000f, pdfPath = "d.pdf",
+            versements = new List<Versement> { new Versement { dateISO = "2026-09-05", montant = 600f } } };
+        loc.facturesEtat = new List<FactureEtat> { l };
+        l.montant = 1120f;   // corrigée à la hausse
+        FacturationSuivi.ApresCorrection(loc, l.key, 1000f);
+        FacturationSuivi.Solde(loc, l.key, out float total, out float paye);
+        Assert.That(total - paye, Is.EqualTo(120f).Within(0.01f), "l'écart seulement (avant : 520, l'acompte seul comptait)");
+        Assert.That(l.statut, Is.EqualTo("Envoye"));
+        l.montant = 880f;    // puis à la baisse, sous ce qui a été versé
+        FacturationSuivi.ApresCorrection(loc, l.key, 1120f);
+        Assert.That(l.statut, Is.EqualTo("Envoye"), "trop-perçu : à rembourser avant « Payé » (BN17)");
+        Assert.That(FacturationSuivi.EtatAffiche(loc, l), Is.EqualTo(FacturationSuivi.Etat.ARembourser), "avant : restait « Partiel »");
+        Assert.That(FacturationSuivi.ARembourser(loc, l.key), Is.EqualTo(120f).Within(0.01f));
+    }
+
+    /// Retour BN2 (04/11) : les champs de montant des formulaires acceptent la virgule.
+    [Test]
+    public void BN2_un_champ_de_montant_accepte_la_virgule()
+    {
+        Assert.That(SaisieNumerique.CaractereMontant("", 0, ','), Is.EqualTo(','));
+        Assert.That(SaisieNumerique.CaractereMontant("12", 2, '.'), Is.EqualTo('.'));
+        Assert.That(SaisieNumerique.CaractereMontant("", 0, '-'), Is.EqualTo('-'));
+        Assert.That(SaisieNumerique.CaractereMontant("1", 1, '-'), Is.EqualTo('\0'), "le signe seulement en tête");
+        Assert.That(SaisieNumerique.CaractereMontant("", 0, 'a'), Is.EqualTo('\0'));
+        Assert.That(SaisieNumerique.Parse("1234,45"), Is.EqualTo(1234.45f).Within(0.001f));
+        foreach (var s in new[] { "Facturation/FactureLoyerPanel.cs", "Facturation/FactureDepotPanel.cs", "Facturation/FactureRegulPanel.cs",
+                                  "Facturation/FactureRefacPanel.cs", "Facturation/ChargePanel.cs", "RevisionLoyer/RevisionPanel.cs",
+                                  "RevisionLoyer/PaliersPanel.cs", "Batiment/LotsPanel.cs" })
+            StringAssert.DoesNotContain("ContentType.DecimalNumber", Src(s), s);
+    }
+
+    /// Retour BN11 (décision du 04/11) : mois facturés cochés d'office, et autant de mois que de périodes.
+    [Test]
+    public void BN11_mois_factures_d_office_et_controles()
+    {
+        CollectionAssert.AreEqual(new[] { 1, 4, 7, 10 }, RevisionPanel.MoisStandard(Periodicite.trimestriel));
+        CollectionAssert.AreEqual(new[] { 1, 7 }, RevisionPanel.MoisStandard(Periodicite.BiAnnuel));
+        CollectionAssert.AreEqual(new[] { 1 }, RevisionPanel.MoisStandard(Periodicite.Annuel));
+        Assert.That(RevisionPanel.MoisStandard(Periodicite.mensuel), Is.Empty);
+        Assert.That(RevisionPanel.RefusMois(Periodicite.trimestriel, 2), Does.Contain("cochez 4 mois"));
+        Assert.That(RevisionPanel.RefusMois(Periodicite.trimestriel, 4), Is.Null);
+        Assert.That(RevisionPanel.RefusMois(Periodicite.BiAnnuel, 1), Does.Contain("cochez 2 mois"));
+        Assert.That(RevisionPanel.RefusMois(Periodicite.mensuel, 0), Is.Null);
+    }
+
+    /// Retour BN12 (04/11) : la cession prévue se voit sur le locataire, et un cessionnaire sans SIRET n'hérite pas de celui du
+    /// cédant.
+    [Test]
+    public void BN12_cession_signalee_et_cessionnaire_sans_siret()
+    {
+        var loc = new Locataire { id = "C2", Name = "SARL Ancien", siretNumber = "00000000200000" };
+        Assert.That(Cessions.Etiquette(loc), Is.Null);
+        Assert.That(Cessions.TexteEntete(loc), Is.Null);
+        Cessions.Enregistrer(loc, new DateTime(2026, 12, 1), "cession", "", "", "nouveau@exemple.fr", new DateTime(2026, 11, 4));
+        Assert.That(Cessions.Etiquette(loc), Is.EqualTo("Cession le 01/12/2026"));
+        Assert.That(Cessions.TexteEntete(loc), Is.EqualTo("Cession le 01/12/2026 → cession"), "la pastille de l'en-tête (BN15)");
+        Assert.That(SocieteLocataire.Siren(FactureElectronique.SiretAcheteur(loc, FactureLoyerPanel.SiretPourPlateforme(true, ""))), Is.Empty,
+            "le cessionnaire sans SIRET n'a pas celui du cédant");
+        Assert.That(FactureElectronique.SiretAcheteur(loc, FactureLoyerPanel.SiretPourPlateforme(false, "")), Is.EqualTo("00000000200000"),
+            "hors cession, un champ vide reprend la fiche, comme avant");
+        StringAssert.DoesNotContain("UndoToast.Instance?.ShowInfo($\"Cession du bail", Src("Facturation/FactureLoyerPanel.cs"),
+            "plus de message du bas : la ligne sous « Destinataire »");
+    }
+
+    /// Retour BN9 (04/11) : « Encaissée » attend quelques minutes après la transmission (Super PDP n'a pas encore lu la facture).
+    [Test]
+    public void BN9_encaissee_attend_que_Super_PDP_ait_lu_la_facture()
+    {
+        var t0 = new DateTime(2026, 11, 4, 10, 0, 0);
+        FactureElectronique.NoterTransmission("test-1778163", t0);
+        Assert.That(FactureElectronique.TransmiseALinstant("test-1778163", t0.AddSeconds(10)), Is.True, "tout de suite : on attend");
+        Assert.That(FactureElectronique.TransmiseALinstant("test-1778163", t0.AddMinutes(6)), Is.False, "après quelques minutes : déclaré");
+        Assert.That(FactureElectronique.TransmiseALinstant("autre", t0), Is.False, "facture transmise une autre fois (lancement précédent)");
+        StringAssert.Contains("&& !TransmiseALinstant(r.plateformeId, DateTime.Now)", Src("Facturation/FactureElectronique.cs"));
+    }
+
+    /// Retour BN17 (décisions du 04/11) : ce que nous devons au locataire (trop-perçu, avoir) est « À rembourser » : jamais
+    /// « Impayé », pas d'« Encaissée », « Payé » une fois le remboursement enregistré.
+    [Test]
+    public void BN17_trop_percu_et_avoir_a_rembourser_puis_payes()
+    {
+        var loc = new Locataire { id = "R" };
+        var echue = DateTime.Today.AddDays(-60).ToString("yyyy-MM-dd");
+        var trop = new FactureEtat { key = "loyer-2026-P7", type = "Loyer", statut = "Envoye", montant = 880f, pdfPath = "t.pdf", echeanceISO = echue,
+            versements = new List<Versement> { new Versement { dateISO = "2026-07-03", montant = 1000f } } };
+        var avoir = new FactureEtat { key = "regul-2025", type = "Regul", statut = "Envoye", montant = -297.6f, pdfPath = "a.pdf", echeanceISO = echue };
+        loc.facturesEtat = new List<FactureEtat> { trop, avoir };
+        Assert.That(FacturationSuivi.EtatDe(trop, loc), Is.EqualTo(FacturationSuivi.Etat.Envoye), "rien à réclamer : jamais « Impayé »");
+        Assert.That(FacturationSuivi.EtatAffiche(loc, trop), Is.EqualTo(FacturationSuivi.Etat.ARembourser));
+        Assert.That(FacturationSuivi.EtatAffiche(loc, avoir), Is.EqualTo(FacturationSuivi.Etat.ARembourser), "un avoir aussi");
+        Assert.That(FacturationSuivi.ARembourser(loc, avoir.key), Is.EqualTo(297.6f).Within(0.01f));
+        Assert.That(FacturationSuivi.EnregistrerRemboursement(loc, trop, 150f, new DateTime(2026, 11, 10)), Does.Contain("dépasse"));
+        Assert.That(FacturationSuivi.EnregistrerRemboursement(loc, trop, 120f, new DateTime(2026, 11, 10)), Is.Null);
+        Assert.That(trop.statut, Is.EqualTo("Paye"), "tout rendu : payée");
+        var enc = FactureElectronique.Encaissement(loc, trop);
+        Assert.That(enc.dateISO, Is.EqualTo("2026-07-03"), "la date du paiement, pas celle du remboursement");
+        Assert.That(enc.montant, Is.EqualTo(880f).Within(0.01f));
+        Assert.That(FacturationSuivi.EnregistrerRemboursement(loc, avoir, 100f, new DateTime(2026, 11, 10)), Is.Null);
+        Assert.That(avoir.statut, Is.EqualTo("Envoye"), "remboursé en partie");
+        Assert.That(FacturationSuivi.ARembourser(loc, avoir.key), Is.EqualTo(197.6f).Within(0.01f));
+        Assert.That(FacturationSuivi.EnregistrerRemboursement(loc, avoir, 197.6f, new DateTime(2026, 11, 12)), Is.Null);
+        Assert.That(avoir.statut, Is.EqualTo("Paye"));
+        var payeMain = new FactureEtat { key = "refac-x", type = "Refac", statut = "Paye", montant = -50f, pdfPath = "p.pdf" };
+        loc.facturesEtat.Add(payeMain);
+        Assert.That(FacturationSuivi.ARembourser(loc, payeMain.key), Is.EqualTo(0f), "un avoir marqué « Payé » à la main est remboursé");
+        Assert.That(FacturationSuivi.StatutApresVersements("Paye", 880f, 1000f, 1000f), Is.EqualTo("Envoye"), "trop-perçu : plus « Payé »");
+        StringAssert.Contains("&& FacturationSuivi.ARembourser(loc, r.key) <= 0.005f)", Src("Facturation/FactureElectronique.cs"),
+            "pas d'« Encaissée » avant le remboursement");
+    }
+
     // ── D6-03 : mentions obligatoires ──
 
     [Test]
@@ -327,8 +642,10 @@ public class Revue17Tests
         Assert.That(FactureElectronique.Professionnel(new Locataire { siretNumber = "55203253400646" }, ""), Is.True);
         Assert.That(FactureElectronique.Professionnel(new Locataire(), ""), Is.False, "particulier : case libre");
         Assert.That(FactureElectronique.Professionnel(new Locataire(), "552 032 534 00646"), Is.True, "SIRET tapé dans le formulaire");
-        foreach (var p in new[] { "FactureLoyerPanel.cs", "FactureRegulPanel.cs", "FactureRefacPanel.cs", "FactureDepotPanel.cs" })
+        foreach (var p in new[] { "FactureRegulPanel.cs", "FactureRefacPanel.cs", "FactureDepotPanel.cs" })
             StringAssert.Contains("FactureElectronique.Professionnel(_loc, _siret.text)", Src("Facturation/" + p), p);
+        // Retour BN12 : le loyer passe par SiretSaisi() (le SIRET du cessionnaire, sans retomber sur celui du cédant).
+        StringAssert.Contains("FactureElectronique.Professionnel(_loc, SiretSaisi())", Src("Facturation/FactureLoyerPanel.cs"));
     }
 
     // ── D8-01 : fermer hors ligne ──

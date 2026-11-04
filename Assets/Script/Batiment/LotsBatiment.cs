@@ -5,10 +5,16 @@ using System.Linq;
 /// par son numéro (Locataire.lotBatiment) et en prend la surface ; la surface du bâtiment est leur somme ; un lot sans
 /// occupant est vide (sa part des charges « Surface » reste au propriétaire, ListesCharges.PartsEffectives). Sans lots
 /// déclarés (bâtiments saisis avant), l'ancienne règle reste : la surface saisie sur le locataire, ou sa part du disponible.
-/// Les occupants sont les locataires enregistrés en place : ni archivés, ni partis (BatimentPrefab.EnPlace).
+/// Les occupants sont les locataires enregistrés ni archivés ni partis, y compris ceux qui arrivent plus tard (Occupes) : le lot
+/// d'un remplaçant n'est pas libre.
 public static class LotsBatiment
 {
     public static bool Definis(Batiment bat) => bat?.lots != null && bat.lots.Count > 0;
+
+    /// Revue 17 (D7a-05) : qui occupe ou va occuper un lot : ni archivé, ni parti (BatimentPrefab.EnPlace écarte en plus ceux
+    /// dont le bail n'a pas commencé).
+    public static IEnumerable<Locataire> Occupes(IEnumerable<Locataire> locs)
+        => (locs ?? Enumerable.Empty<Locataire>()).Where(l => l != null && !l.archive && !l.EstParti);
 
     /// Le lot déclaré au numéro du locataire (null : aucun).
     public static LotBatiment Lot(Batiment bat, Locataire loc)
@@ -25,7 +31,7 @@ public static class LotsBatiment
 
     public static List<Locataire> Occupants(Batiment bat, int numero)
         => numero <= 0 ? new List<Locataire>()
-           : BatimentPrefab.EnPlace(bat?.locataireDuBatiment).Where(l => l.lotBatiment == numero).ToList();
+           : Occupes(bat?.locataireDuBatiment).Where(l => l.lotBatiment == numero).ToList();
 
     /// Les lots sans autre occupant que `pour` (le locataire qu'on rattache), dans l'ordre des numéros.
     public static List<LotBatiment> Libres(Batiment bat, Locataire pour = null)
@@ -36,7 +42,7 @@ public static class LotsBatiment
     /// Les locataires en place qu'aucun lot déclaré ne porte : à rattacher depuis leur fiche.
     public static List<Locataire> SansLot(Batiment bat)
         => !Definis(bat) ? new List<Locataire>()
-           : BatimentPrefab.EnPlace(bat.locataireDuBatiment).Where(l => Lot(bat, l) == null).ToList();
+           : Occupes(bat.locataireDuBatiment).Where(l => Lot(bat, l) == null).ToList();
 
     /// Un locataire occupe un lot : sans lot libre, on ne le crée pas (null : un lot est libre).
     public static string RefusSansLotLibre(Batiment bat)
@@ -60,7 +66,7 @@ public static class LotsBatiment
         }
         var doublon = lots.GroupBy(x => x.numero).FirstOrDefault(g => g.Count() > 1);
         if (doublon != null) return $"Deux lots portent le n° {doublon.Key} : chaque lot a son propre numéro.";
-        foreach (var l in BatimentPrefab.EnPlace(bat?.locataireDuBatiment))
+        foreach (var l in Occupes(bat?.locataireDuBatiment))
             if (Lot(bat, l) != null && !lots.Any(x => x.numero == l.lotBatiment))
                 return $"Le lot {l.lotBatiment} est occupé par « {Nom(l)} » : il ne peut pas disparaître. Changez d'abord son lot, sur sa fiche.";
         return null;

@@ -435,6 +435,14 @@ public class LocataireSuiviInline : MonoBehaviour
 
         Action<string> set = statut =>
         {
+            // Retour BN17 (décisions du 04/11) : « Payé » attend le remboursement de ce que nous devons (trop-perçu, avoir).
+            float aRendre = FacturationSuivi.ARembourser(_loc, ligne.key);
+            if (statut == "Paye" && aRendre > 0f && FacturationSuivi.EtatAffiche(_loc, ligne) == FacturationSuivi.Etat.ARembourser)
+            {
+                Destroy(scrim.gameObject);
+                ConfirmDialog.Erreur($"Il reste {Montant(aRendre)} à rembourser au locataire : enregistrez d'abord le remboursement (« Remboursé… »).");
+                return;
+            }
             // Le bâtiment porte les charges : sans lui, marquer « payé » ne les
             // encaisserait pas.
             FacturationSuivi.SetStatut(_loc, ligne, statut,
@@ -447,6 +455,18 @@ public class LocataireSuiviInline : MonoBehaviour
             _fiche.RafraichirAlertesFacturation();
         };
         MenuItem(vlg.transform, "Payé", () => set("Paye"));
+        // Retour BN17 (décisions du 04/11) : ce que nous devons au locataire (trop-perçu, avoir) se rembourse avant « Payé ».
+        if (FacturationSuivi.EtatAffiche(_loc, ligne) == FacturationSuivi.Etat.ARembourser)
+            MenuItem(vlg.transform, "Remboursé…", () =>
+            {
+                Destroy(scrim.gameObject);
+                VersementsPanel.Rembourser(_fiche, ligne, () =>
+                {
+                    RebuildTable();
+                    _fiche.RefreshParcours();
+                    _fiche.RafraichirAlertesFacturation();
+                });
+            });
         // Paiement partiel (08/10) : les versements d'une facture émise.
         var etatLigne = FacturationSuivi.EtatDe(ligne);
         FacturationSuivi.Solde(_loc, ligne.key, out float total, out float paye);
@@ -517,6 +537,14 @@ public class LocataireSuiviInline : MonoBehaviour
     string MontantLigne(FactureEtat l, FacturationSuivi.Etat etat)
     {
         FacturationSuivi.Solde(_loc, l.key, out float total, out float paye);
+        // Retour BN17 (décisions du 04/11) : ce que nous devons au locataire : le trop-perçu d'une facture payée puis corrigée à
+        // la baisse, ou ce qui reste d'un avoir ; la pastille dit « À rembourser ».
+        bool emise = etat == FacturationSuivi.Etat.Envoye || etat == FacturationSuivi.Etat.Impaye || etat == FacturationSuivi.Etat.Paye;
+        float aRendre = emise ? FacturationSuivi.ARembourser(_loc, l.key) : 0f;
+        if (aRendre > 0f && total > 0f) return $"{Montant(l.montant)}\n<size=80%><color=#854F0B>trop-perçu {Montant(aRendre)}</color></size>";
+        if (aRendre > 0f && Math.Abs(aRendre + total) > 0.005f)
+            return $"reste {Montant(aRendre)}\n<size=80%><color=#888780>sur {Montant(total)}</color></size>";
+        if (aRendre > 0f) return Montant(l.montant);
         if (paye <= 0f || etat == FacturationSuivi.Etat.Paye) return Montant(l.montant);
         return $"reste {Montant(total - paye)}\n<size=80%><color=#888780>sur {Montant(total)}</color></size>";
     }
@@ -531,6 +559,7 @@ public class LocataireSuiviInline : MonoBehaviour
             case FacturationSuivi.Etat.AttenteEnvoi: return Hex("#EDE8F6");
             case FacturationSuivi.Etat.Envoye: return Hex("#E6F1FB");
             case FacturationSuivi.Etat.Impaye: return Hex("#FCEBEB");
+            case FacturationSuivi.Etat.ARembourser:
             case FacturationSuivi.Etat.Partiel: return Hex("#FFE8D6");
             case FacturationSuivi.Etat.Cloture:
             case FacturationSuivi.Etat.Franchise:
@@ -548,6 +577,7 @@ public class LocataireSuiviInline : MonoBehaviour
             case FacturationSuivi.Etat.AttenteEnvoi: return Hex("#6A5AA0");
             case FacturationSuivi.Etat.Envoye: return Hex("#185FA5");
             case FacturationSuivi.Etat.Impaye: return Hex("#A32D2D");
+            case FacturationSuivi.Etat.ARembourser:
             case FacturationSuivi.Etat.Partiel: return Hex("#B4520A");
             case FacturationSuivi.Etat.Cloture:
             case FacturationSuivi.Etat.Franchise:

@@ -102,6 +102,38 @@ public static class Cessions
         }
     }
 
+    /// Revue 17 (D7a-03) : le titulaire du bail au premier jour d'une période, quand ce n'est pas celui de la fiche : le
+    /// cessionnaire d'une cession prévue qui commence au plus tard ce jour-là (le loyer de décembre préparé en novembre lui
+    /// revient), ou le cédant d'une cession faite après ce jour-là (le loyer de novembre corrigé après la cession). {nom,
+    /// siret, adresse, email}, ou null : la fiche.
+    public static string[] TitulaireDe(Locataire loc, DateTime debutPeriode)
+    {
+        var p = Prevue(loc);
+        if (p != null && FacturationSuivi.TryEcheance(p.dateISO, out var dp) && dp.Date <= debutPeriode.Date)
+            return new[] { p.nom, p.siret, p.adresse, p.email };
+        var c = loc?.cessions?.Where(x => x != null && FacturationSuivi.TryEcheance(x.dateISO, out var dc) && debutPeriode.Date < dc.Date)
+            .OrderBy(x => x.dateISO).FirstOrDefault();
+        return c != null ? new[] { c.ancienNom, c.ancienSiret, c.ancienAdresse, c.ancienEmail } : null;
+    }
+
+    /// Le titulaire d'une ligne de loyer (clé « loyer-{année}-P{période} ») ; null : la fiche, ou une ligne d'un autre type.
+    public static string[] TitulaireLigne(Locataire loc, FactureEtat rec)
+    {
+        var parts = (rec?.key ?? "").Split('-');
+        if (loc == null || rec?.type != "Loyer" || parts.Length < 3 || !int.TryParse(parts[1], out int annee)
+            || !int.TryParse(parts[2].TrimStart('P', 'p'), out int periode)) return null;
+        FacturationSuivi.PeriodeBornes(loc, annee, periode, out var debut, out _);
+        return TitulaireDe(loc, debut);
+    }
+
+    /// Retour BN12 (décision du 04/11) : « Cession le 01/12/2026 » pour la liste des locataires, ou null sans cession prévue.
+    public static string Etiquette(Locataire loc)
+        => Prevue(loc) is CessionPrevue p && FacturationSuivi.TryEcheance(p.dateISO, out var d) ? $"Cession le {d:dd/MM/yyyy}" : null;
+
+    /// Retour BN15 (décision du 04/11) : « Cession le 01/12/2026 → SARL Y » pour la pastille de l'en-tête de la fiche, ou null.
+    public static string TexteEntete(Locataire loc)
+        => Prevue(loc) is CessionPrevue p && FacturationSuivi.TryEcheance(p.dateISO, out var d) ? $"Cession le {d:dd/MM/yyyy} → {p.nom}" : null;
+
     /// « cession prévue le 01/11/2026 à SARL Y · cédé par SARL X le 01/06/2026 » (la plus
     /// récente d'abord), ou "".
     public static string Texte(Locataire loc)

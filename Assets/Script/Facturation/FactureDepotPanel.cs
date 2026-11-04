@@ -234,7 +234,7 @@ public class FactureDepotPanel : MonoBehaviour
         _nbPeriodes.contentType = TMP_InputField.ContentType.IntegerNumber;
         _nbPeriodes.onValueChanged.AddListener(_ => RefreshTotaux());
         _ancien = Labeled(g, "Dépôt de garantie déjà versé (€)");
-        _ancien.contentType = TMP_InputField.ContentType.DecimalNumber;
+        SaisieNumerique.Montant(_ancien);   // retour BN2 (04/11) : la virgule aussi
         _ancien.onValueChanged.AddListener(_ => RefreshTotaux());
         _tNouveau    = MontRow(g, "Nouveau dépôt de garantie");
         _tAncien     = MontRow(g, "Dépôt déjà versé");
@@ -279,7 +279,7 @@ public class FactureDepotPanel : MonoBehaviour
         var s = UIFactory.Section(content, "Décompte de sortie", CoDepot, CoDepotL);
         _carteSortie = s.transform.parent.gameObject;
         _depotDetenu = Labeled(s, "Dépôt de garantie détenu (€)");
-        _depotDetenu.contentType = TMP_InputField.ContentType.DecimalNumber;
+        SaisieNumerique.Montant(_depotDetenu);   // retour BN2 (04/11) : la virgule aussi
         _depotDetenu.onValueChanged.AddListener(_ => RefreshTotaux());
 
         UIFactory.Text(s.transform, "Retenues (remise en état, réparations…) — montant HT, TVA si cochée",
@@ -429,7 +429,8 @@ public class FactureDepotPanel : MonoBehaviour
         _refInterne.text = f?.refInterne ?? "";
 
         // Dépôt : base TTC/HT, ancien montant, nb de périodes (dérivé du dépôt actuel).
-        _ttcToggle.isOn = _loc.depotSurTTC;
+        _ttcToggle.isOn = Tva.Soumis(_loc) && _loc.depotSurTTC;   // Revue 17 (D6-06) : base TTC seulement pour un bail soumis
+        _ttcToggle.gameObject.SetActive(Tva.Soumis(_loc));
         _ancien.text = (_initial ? 0f : AncienDepot(_loc)).ToString("0.00", CultureInfo.InvariantCulture);   // D6-08
         float per = CurrentPeriode();
         int nb = per > 0f ? Mathf.Max(1, Mathf.RoundToInt(_loc.depotDeGarantie / per)) : 1;
@@ -443,6 +444,9 @@ public class FactureDepotPanel : MonoBehaviour
 
         MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
         MentionTva.Charger(_mentionTvaS, _texteTvaDebitS, f);
+        // Revue 17 (D6-06) : bail exonéré : pas de mention TVA (comme les trois autres formulaires, ChargerTva).
+        if (_mentionTva != null) UIFactory.MontrerAvecLibelle(_mentionTva.gameObject, Tva.Soumis(_loc));
+        if (_texteTvaDebit != null && !Tva.Soumis(_loc)) _texteTvaDebit.transform.parent.gameObject.SetActive(false);
         _retard.isOn = f?.ajouterRetard ?? true;
         // Revue 17 (D6-03) : pénalités et indemnité de 40 € obligatoires pour un locataire professionnel (SIRET).
         bool obligatoire = FactureElectronique.Professionnel(_loc, _siret.text);
@@ -495,11 +499,12 @@ public class FactureDepotPanel : MonoBehaviour
         UIFactory.LE(lib.gameObject, flexW: 3, minH: 40);
         lib.text = r.libelle ?? "";
         var ht = UIFactory.Input(row.transform, "HT €");
-        ht.contentType = TMP_InputField.ContentType.DecimalNumber;
+        SaisieNumerique.Montant(ht);   // retour BN2 (04/11) : la virgule aussi
         UIFactory.LE(ht.gameObject, flexW: 1, minH: 40);
         ht.text = r.ht != 0f ? r.ht.ToString("0.00", CultureInfo.InvariantCulture) : "";
         ht.onValueChanged.AddListener(_ => RefreshTotaux());
-        var tva = UIFactory.Toggle(row.transform, "TVA", r.tva);
+        var tva = UIFactory.Toggle(row.transform, $"TVA {Tva.Taux(_loc):0.##} %", r.tva && Tva.Soumis(_loc));   // Revue 17 (D6-06) : au taux du bail
+        tva.gameObject.SetActive(Tva.Soumis(_loc));
         tva.onValueChanged.AddListener(_ => RefreshTotaux());
         var moins = UIFactory.Button(row.transform, "−", UITheme.Carte, UITheme.TextePrincipal, 36, UITheme.Role.Action, false);
         UIFactory.Border(moins.gameObject);
@@ -515,7 +520,7 @@ public class FactureDepotPanel : MonoBehaviour
     List<FactureEtat> CreancesCochees() => _creances.Where(c => c.on.isOn).Select(c => c.rec).ToList();
 
     DepartLocataire.Decompte DecompteSaisi()
-        => DepartLocataire.Calculer(ParseF(_depotDetenu.text), RetenuesSaisies(), CreancesCochees());
+        => DepartLocataire.Calculer(ParseF(_depotDetenu.text), RetenuesSaisies(), CreancesCochees(), Tva.Taux(_loc));   // Revue 17 (D6-06)
 
     /// Ce que le document réclame (négatif = remboursement), selon le mode.
     float Solde() => _sortie ? DecompteSaisi().ttc : Nouveau() - ParseF(_ancien.text);
@@ -524,8 +529,7 @@ public class FactureDepotPanel : MonoBehaviour
 
     float CurrentPeriode()
     {
-        float ht = _loc.loyerAnnuel / Mathf.Max(1, LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer));
-        return (_ttcToggle != null && _ttcToggle.isOn) ? Tva.Ttc(ht, Tva.Taux(_loc)) : ht;   // 02/11 : au taux du bail (TTC = HT si exonéré)
+        return Tva.PeriodeDepot(_loc, _ttcToggle != null && _ttcToggle.isOn);   // Revue 17 (D6-06) : la même base que la fiche
     }
 
     float Nouveau()
@@ -567,7 +571,7 @@ public class FactureDepotPanel : MonoBehaviour
     }
 
     /// Arrondi au centime — évite les dérives de `float` sur les montants.
-    static float Cents(float v) => Mathf.Round(v * 100f) / 100f;
+    static float Cents(float v) => Tva.Cents(v);   // Revue 17 (D5-03) : décimal, « au plus loin », comme le XML
 
     // ── Numéro / phrase / aperçu entête ────────────────────────────────────────
 
@@ -665,7 +669,7 @@ public class FactureDepotPanel : MonoBehaviour
             // « Complément à régler » serait faux quand c'est nous qui remboursons.
             labelSolde = FactureEmission.LibelleSolde(complement, _initial ? "Montant à régler" : "Complément à régler"),
             masquerTva = true,
-            tvaDebit = MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
+            tvaDebit = Tva.Soumis(_loc) && MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
             texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
             // Résolue APRÈS PhraseSomme : celle-ci peut substituer sa propre phrase
             // selon le signe du complément, et cette phrase-là doit être résolue aussi.
@@ -710,7 +714,7 @@ public class FactureDepotPanel : MonoBehaviour
             // Un dépôt n'est pas soumis à la TVA : aucune ligne de TVA, un seul « Total »
             // (demande du 02/10 ; avant : « TVA — dépôt de garantie non soumis 0,00 »).
             masquerTva = true,
-            tvaDebit = MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
+            tvaDebit = Tva.Soumis(_loc) && MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
             sommePhrase = FactureVarResolver.Resolve(_sommePhrase.text, _loc, _bat, ctx),
             texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
@@ -931,6 +935,7 @@ public class FactureDepotPanel : MonoBehaviour
                    bool correction, string pdf, bool envoye, string suffixeMessage = "")
     {
         // Le dépôt de la fiche n'est PAS modifié par l'émission.
+        FacturationSuivi.Solde(_loc, key, out float totalAvantCorrection, out _);   // Revue 17 (D4-03) : avant la correction
         string message = FactureEmission.Enregistrer(_loc, key, "Depot", emission,
             d.Sujet, _loc.factureDepot?.dateEcheanceISO, pdf, d.Montant, _ribDD?.SelectedId,
             _loc.factureDepot,
@@ -938,6 +943,7 @@ public class FactureDepotPanel : MonoBehaviour
             _sortie ? "Décompte de sortie enregistré"
             : _initial ? "Facture de dépôt de garantie enregistrée"
                      : "Facture de révision du dépôt enregistrée (le montant du dépôt n'a pas été modifié)");
+        FacturationSuivi.ApresCorrection(_loc, key, totalAvantCorrection);   // Revue 17 (D4-03) : payée, l'écart redevient dû
         // Revue 16c (D6-08) : la révision est facturée : l'ancien dépôt mémorisé par « Réviser » ne sert plus.
         if (!_initial && !_sortie) { _loc.depotPrecedent = 0f; _loc.depotPrecedentRevisionISO = ""; }
 

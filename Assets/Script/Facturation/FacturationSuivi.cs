@@ -12,7 +12,8 @@ public static class FacturationSuivi
     // Cloture / Franchise / HorsBail : statuts transitoires (jamais stockés), lignes
     // grisées et non actionnables — voir EstGrisee.
     // Partiel : affichage seulement (EtatAffiche), une facture due réglée en partie.
-    public enum Etat { AVenir, AFaire, AttenteEnvoi, Envoye, Impaye, Paye, Cloture, Franchise, HorsBail, Partiel }
+    // ARembourser (retour BN17, 04/11) : affichage seulement, nous devons de l'argent au locataire (trop-perçu, avoir).
+    public enum Etat { AVenir, AFaire, AttenteEnvoi, Envoye, Impaye, Paye, Cloture, Franchise, HorsBail, Partiel, ARembourser }
 
     /// Ligne sans facture attendue : période reprise, en franchise ou avant le bail.
     public static bool EstGrisee(Etat e) => e == Etat.Cloture || e == Etat.Franchise || e == Etat.HorsBail;
@@ -200,13 +201,16 @@ public static class FacturationSuivi
             // On garde l'état/envoi stocké et on rafraîchit le libellé (la périodicité
             // a pu changer). Le suffixe « corrigée(X) » est réappliqué depuis le compteur.
             var c = CopieDe(rec);
-            c.libelle = libelle + (rec.corrections > 0 ? $" — corrigée({rec.corrections})" : "");
             // Facture ÉMISE (Envoyé / En attente d'envoi / Impayé / Payé) : on garde SON
             // échéance réelle (celle imprimée sur la facture) → l'état (Impayé à
             // échéance+15) est cohérent avec la colonne « Créances » (qui lit le stocké).
             // Ligne planifiée non émise : on aligne l'échéance sur la période courante.
             bool emise = rec.statut == "Envoye" || rec.statut == "AttenteEnvoi"
                       || rec.statut == "Impaye" || rec.statut == "Paye";
+            // Revue 17 (D4-04) : une facture émise garde SON libellé, le document imprimé fait foi (après un changement de
+            // périodicité, « Loyer Mars 2026 » devenait « Loyer 1er trimestre 2026 ») ; une ligne non émise suit la période.
+            c.libelle = emise && !string.IsNullOrEmpty(rec.libelle) ? rec.libelle
+                      : libelle + (rec.corrections > 0 ? $" — corrigée({rec.corrections})" : "");
             if (!emise || string.IsNullOrEmpty(rec.echeanceISO))
                 c.echeanceISO = ech.ToString("yyyy-MM-dd");
             return c;
@@ -221,6 +225,9 @@ public static class FacturationSuivi
         statut = r.statut, numero = r.numero, pdfPath = r.pdfPath, dateEnvoiISO = r.dateEnvoiISO,
         montant = r.montant, tauxTva = r.tauxTva, loyerHT = r.loyerHT, ribId = r.ribId, ribNom = r.ribNom, corrections = r.corrections,
         dernierRappelISO = r.dernierRappelISO,
+        // Revue 17 (D6-07) : les provisions imprimées (la correction les relit sur la ligne affichée, cette copie).
+        provisionsConnues = r.provisionsConnues, provision = r.provision, periodicite = r.periodicite,
+        provisionsListes = r.provisionsListes != null ? new List<MontantListe>(r.provisionsListes) : new List<MontantListe>(),
         versements = r.versements != null ? new List<Versement>(r.versements) : new List<Versement>(),
         // Revue 16c (D5-03) : sans eux, la pastille de la plateforme (FactureElectronique.Pastille) ne s'affichait jamais.
         plateformeDonnees = r.plateformeDonnees, plateformeId = r.plateformeId, plateformeEtat = r.plateformeEtat,
@@ -274,7 +281,8 @@ public static class FacturationSuivi
             // reste « Envoyé » jusqu'au remboursement, marqué « Payé » à la main.
             // ponytail: ligne par ligne — une régul regroupée aux parts de signes mêlés
             // garderait sa part négative « Envoyé » ; juger sur MemeFacture si ça arrive.
-            if (hasEch && today >= ech.AddDays(ImpayeApres(loc)) && f.montant >= 0f)
+            // Retour BN17 (04/11) : ni une facture réglée au-delà de son montant (trop-perçu à rembourser).
+            if (hasEch && today >= ech.AddDays(ImpayeApres(loc)) && f.montant >= 0f && !RegleeAuDela(f, loc))
                 return Etat.Impaye;
             return Etat.Envoye;
         }
@@ -301,6 +309,7 @@ public static class FacturationSuivi
             case Etat.Franchise: return "Franchise";
             case Etat.HorsBail: return "Hors bail";
             case Etat.Partiel: return "Partiel";
+            case Etat.ARembourser: return "À rembourser";
         }
         return "";
     }
@@ -335,7 +344,10 @@ public static class FacturationSuivi
     public static Etat EtatAffiche(Locataire loc, FactureEtat f)
     {
         var e = EtatDe(f, loc);
-        if (e != Etat.Envoye && e != Etat.Impaye) return e;
+        if (e != Etat.Envoye && e != Etat.Impaye && e != Etat.Paye) return e;
+        // Retour BN17 (décisions du 04/11) : nous devons de l'argent au locataire (trop-perçu, avoir pas encore remboursé).
+        if (ARembourser(loc, f.key) > 0f) return Etat.ARembourser;
+        if (e == Etat.Paye) return e;
         Solde(loc, f.key, out _, out float paye);
         return paye > 0f ? Etat.Partiel : e;
     }
@@ -345,6 +357,8 @@ public static class FacturationSuivi
     /// passée) ; sinon inchangé — un « Payé » mis à la main sans versement reste payé.
     public static string StatutApresVersements(string statut, float total, float payeAvant, float payeApres)
     {
+        // Retour BN17 (04/11) : réglée au-delà de son montant : le trop-perçu est à rembourser avant « Payé ».
+        if (total > 0f && payeApres > total + 0.005f) return statut == "Paye" ? "Envoye" : statut;
         if (total > 0f && payeApres >= total - 0.005f) return "Paye";
         if (statut == "Paye" && payeApres < payeAvant - 0.005f) return "Envoye";
         return statut;
@@ -476,6 +490,78 @@ public static class FacturationSuivi
         // Corriger ne fait rien partir : une ligne sans statut est prête, pas envoyée.
         if (string.IsNullOrEmpty(rec.statut)) rec.statut = "AttenteEnvoi";
         return rec.corrections;
+    }
+
+    /// Revue 17 (D4-03, décision du 04/11) : une facture payée corrigée à un autre montant. À la hausse, l'écart redevient dû
+    /// (« Envoyé », affichée « Partiel » avec ce qui a été réglé : Créances, rappel) ; à la baisse, le trop-perçu est à
+    /// rembourser (« Envoyé », affichée « À rembourser », décision révisée du 04/11, BN17) : « Remboursé… », puis « Payé ».
+    /// Au même montant (correction de forme), rien ne change. Appelée par les
+    /// formulaires une fois TOUTES les lignes de la facture corrigées, avec le total d'avant la correction.
+    public static void ApresCorrection(Locataire loc, string key, float totalAvant)
+    {
+        var porteuse = Porteuse(loc, key);
+        if (porteuse == null || totalAvant <= 0.005f) return;
+        Solde(loc, key, out float total, out float paye);
+        if (total <= 0.005f || Math.Abs(total - totalAvant) <= 0.005f) return;
+        var meme = MemeFacture(loc, key);
+        if (meme.Count == 0) meme.Add(porteuse);
+        if (porteuse.statut == "Paye")
+        {
+            // « Payé » à la main, sans versement ou avec un acompte seulement (retour BN9) : ce qui était dû avant la correction
+            // a été réglé ; le reste est noté en versement pour que le reste dû, ou le trop-perçu, se lise.
+            if (paye < totalAvant - 0.005f)
+            {
+                (porteuse.versements ??= new List<Versement>()).Add(new Versement { dateISO = DateTime.Today.ToString("yyyy-MM-dd"), montant = totalAvant - paye });
+                paye = totalAvant;
+            }
+            // Retour BN17 (décision du 04/11) : un écart dans un sens ou dans l'autre rouvre la facture : à la hausse le reste
+            // est dû, à la baisse le trop-perçu est à rembourser avant qu'elle repasse « Payé ».
+            if (Math.Abs(paye - total) > 0.005f) foreach (var l in meme) l.statut = "Envoye";
+        }
+        // Retour BN9 : réglée en partie (« Partiel »), puis corrigée à ce qui a été versé : elle est payée ; au-dessous, le
+        // trop-perçu est à rembourser (BN17) : « Envoyé », jamais « Impayé ».
+        else if ((porteuse.statut == "Envoye" || porteuse.statut == "Impaye") && paye > 0.005f)
+        {
+            if (Math.Abs(paye - total) <= 0.005f) foreach (var l in meme) l.statut = "Paye";
+            else if (paye > total) foreach (var l in meme) l.statut = "Envoye";
+        }
+    }
+
+    /// Retour BN17 (décisions du 04/11) : ce que nous devons rendre au locataire sur la facture `key` : le trop-perçu d'une
+    /// facture payée puis corrigée à la baisse, ou ce qui reste d'un avoir (facture négative) pas encore remboursé. 0 sinon.
+    /// Un avoir marqué « Payé » à la main est remboursé (comme avant).
+    public static float ARembourser(Locataire loc, string key)
+    {
+        var porteuse = Porteuse(loc, key);
+        if (porteuse == null) return 0f;
+        Solde(loc, key, out float total, out float paye);
+        if (total < 0f && porteuse.statut == "Paye") return 0f;
+        float r = paye - total;
+        return r > 0.005f ? r : 0f;
+    }
+
+    // Retour BN17 : réglée au-delà de son montant (payée, puis corrigée à la baisse) : c'est nous qui devons, rien à réclamer.
+    static bool RegleeAuDela(FactureEtat f, Locataire loc)
+    {
+        if (loc == null) return f.montant > 0f && Paye(f) > f.montant + 0.005f;
+        Solde(loc, f.key, out float total, out float paye);
+        return total > 0f && paye > total + 0.005f;
+    }
+
+    /// Retour BN17 (décisions du 04/11) : « Remboursé… » : un versement négatif, daté, de ce que nous rendons au locataire ;
+    /// tout rendu → la facture passe « Payé » (toutes ses lignes, et les charges qu'elle couvre). Message de refus, ou null.
+    public static string EnregistrerRemboursement(Locataire loc, FactureEtat ligne, float montant, DateTime date, Batiment bat = null)
+    {
+        var rec = Porteuse(loc, ligne?.key);
+        if (rec == null) return "Facture introuvable.";
+        float du = ARembourser(loc, ligne.key);
+        if (montant <= 0f) return "Montant du remboursement : un nombre supérieur à 0.";
+        if (montant > du + 0.005f)
+            return $"Le remboursement dépasse ce qui est à rendre ({du.ToString("#,##0.00", FacturePdfService.FrCulture)} €).";
+        (rec.versements ??= new List<Versement>()).Add(new Versement { dateISO = date.ToString("yyyy-MM-dd"), montant = -montant });
+        rec.versements = rec.versements.OrderBy(x => x.dateISO).ToList();
+        if (ARembourser(loc, ligne.key) <= 0.005f && rec.statut != "Paye") SetStatut(loc, ligne, "Paye", bat);
+        return null;
     }
 
     // Mémorise la date d'un rappel d'échéance envoyé (sur l'enregistrement stocké,
