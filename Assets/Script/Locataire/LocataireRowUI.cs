@@ -78,17 +78,25 @@ public class LocataireRowUI : MonoBehaviour
             ? (int)(loc.MoisDeRevision - DateTime.Now).TotalDays
             : int.MaxValue;
 
-        // Départ : il prime sur la révision (plus rien à réviser après). Parti ou archivé :
-        // ligne grisée, la fiche reste ouvrable.
-        if (loc.archive)
-        {
-            SetEtat(UITheme.Bordure, UITheme.TexteSecondaire, "Archivé", true);
-            Griser();
-        }
+        // Retour BM7 (04/11) : deux colonnes d'étiquettes, alignées d'une ligne à l'autre : la présence (arrivée, départ,
+        // parti, archivé), puis le loyer et la révision. Parti ou archivé : ligne grisée, plus rien à réviser ; la fiche
+        // reste ouvrable.
+        EnsureBadgePresence();
+        Presence(Color.clear, UITheme.TexteSecondaire, "");   // vide : la colonne garde sa place
+        bool horsLieux = false;
+        if (loc.archive) { Presence(UITheme.Bordure, UITheme.TexteSecondaire, "Archivé"); horsLieux = true; }
         else if (DepartLocataire.Sortie(loc, out var sortie))
         {
-            if (loc.EstParti) { SetEtat(UITheme.Bordure, UITheme.TexteSecondaire, $"Parti le {sortie:dd/MM/yyyy}", true); Griser(); }
-            else SetEtat(UITheme.AttentionClair, UITheme.AttentionTexte, $"Départ le {sortie:dd/MM/yyyy}", true);
+            if (loc.EstParti) { Presence(UITheme.Bordure, UITheme.TexteSecondaire, $"Parti le {sortie:dd/MM/yyyy}"); horsLieux = true; }
+            else Presence(UITheme.AttentionClair, UITheme.AttentionTexte, $"Départ le {sortie:dd/MM/yyyy}");
+        }
+        else if (loc.EstAVenir && Loyers.DebutPremierBail(loc, out var arrivee))   // retour BM6 : bail pas encore commencé
+            Presence(UITheme.AttentionClair, UITheme.AttentionTexte, $"Arrive le {arrivee:dd/MM/yyyy}");
+
+        if (horsLieux)
+        {
+            SetEtat(UITheme.Bordure, UITheme.TexteSecondaire, "", false);
+            Griser();
         }
         else if (!loc.LoyerInitialise)
         {
@@ -127,6 +135,27 @@ public class LocataireRowUI : MonoBehaviour
     {
         if (txtNom != null) txtNom.color = UITheme.TexteSecondaire;
         if (txtLoyer != null) txtLoyer.color = UITheme.TexteSecondaire;
+    }
+
+    // Retour BM7 (04/11) : l'étiquette de présence, copie de celle du loyer, juste à sa gauche ; même largeur, donc les
+    // colonnes s'alignent d'une ligne à l'autre.
+    Image _badgePresence;
+    TMP_Text _txtPresence;
+
+    void EnsureBadgePresence()
+    {
+        if (_badgePresence != null || badgeBg == null) return;
+        var go = Instantiate(badgeBg.gameObject, badgeBg.transform.parent);
+        go.name = "BadgePresence";
+        go.transform.SetSiblingIndex(badgeBg.transform.GetSiblingIndex());   // à gauche de l'étiquette du loyer
+        _badgePresence = go.GetComponent<Image>();
+        _txtPresence = go.GetComponentInChildren<TMP_Text>(true);
+    }
+
+    void Presence(Color fond, Color texte, string label)
+    {
+        if (_badgePresence != null) { _badgePresence.gameObject.SetActive(true); _badgePresence.color = fond; }
+        if (_txtPresence != null) { _txtPresence.text = label; _txtPresence.color = texte; }
     }
 
     private void SetEtat(Color fond, Color texte, string label, bool badgeVisible)

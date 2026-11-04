@@ -219,7 +219,7 @@ public static class FacturationSuivi
     {
         key = r.key, type = r.type, libelle = r.libelle, echeanceISO = r.echeanceISO,
         statut = r.statut, numero = r.numero, pdfPath = r.pdfPath, dateEnvoiISO = r.dateEnvoiISO,
-        montant = r.montant, loyerHT = r.loyerHT, ribId = r.ribId, ribNom = r.ribNom, corrections = r.corrections,
+        montant = r.montant, tauxTva = r.tauxTva, loyerHT = r.loyerHT, ribId = r.ribId, ribNom = r.ribNom, corrections = r.corrections,
         dernierRappelISO = r.dernierRappelISO,
         versements = r.versements != null ? new List<Versement>(r.versements) : new List<Versement>(),
         // Revue 16c (D5-03) : sans eux, la pastille de la plateforme (FactureElectronique.Pastille) ne s'affichait jamais.

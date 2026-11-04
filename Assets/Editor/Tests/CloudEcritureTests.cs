@@ -117,7 +117,7 @@ public class CloudEcritureTests
     {
         var op = new EcritureCloud.Op { Type = EcritureCloud.TypeOp.Locataire, Id = "l1", BatimentId = "b1", Ordre = 2, Version = 5, Json = "{\"Name\":\"Volteo\"}" };
         Assert.That(EcritureCloud.CorpsEnregistrer("e1", op, "s1"),
-            Is.EqualTo("{\"p_entreprise\":\"e1\",\"p_id\":\"l1\",\"p_batiment\":\"b1\",\"p_ordre\":2,\"p_version\":5,\"p_data\":{\"Name\":\"Volteo\"},\"p_session\":\"s1\"}"));
+            Is.EqualTo("{\"p_entreprise\":\"e1\",\"p_id\":\"l1\",\"p_batiment\":\"b1\",\"p_ordre\":2,\"p_version\":5,\"p_data\":{\"Name\":\"Volteo\"},\"p_session\":\"s1\",\"p_modele\":" + DonneesCloud.Modele + "}"));
     }
 
     /// 13/10 : recharger l'entreprise pendant que l'accueil est affiché construit les fiches

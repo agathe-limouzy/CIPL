@@ -152,9 +152,6 @@ public class FactureEnvoiAuto : MonoBehaviour
 
     // ── Proposition au lancement ────────────────────────────────────────────────
 
-    /// L'envoi groupé par e-mail n'a de sens qu'en mode e-mail (revue 16c, D4-06).
-    public static bool PropositionPossible(ModeEnvoi? mode) => mode != ModeEnvoi.Pennylane;
-
     /// À appeler une fois les bâtiments chargés. Ne fait rien s'il n'y a rien à
     /// envoyer, si l'email n'est pas configuré, ou si l'envoi a déjà été reporté
     /// aujourd'hui — relancer l'application dix fois ne doit pas poser dix questions.
@@ -163,13 +160,6 @@ public class FactureEnvoiAuto : MonoBehaviour
         if (AbonnementCloud.LectureSeule)   // étape 9c1 : envoyer change le statut des factures
         {
             Debug.Log("[EnvoiAuto] Rien n'est proposé : abonnement expiré, lecture seule.");
-            return;
-        }
-        // Revue 16c (D4-06) : en mode Pennylane, les factures déposées restent « en attente d'envoi » (finalisées dans
-        // Pennylane) : rien ne doit partir par e-mail en plus.
-        if (!PropositionPossible(ReglageService.Current?.modeEnvoi))
-        {
-            Debug.Log("[EnvoiAuto] Rien n'est proposé : mode Pennylane (les factures sont finalisées dans Pennylane).");
             return;
         }
         string manque = EmailService.CeQuiManque();
@@ -543,7 +533,7 @@ public class FactureEnvoiAuto : MonoBehaviour
     {
         // Montant du DOCUMENT : une régularisation regroupée le répartit sur ses lignes.
         float ttc = FacturationSuivi.MemeFacture(loc, rec.key).DefaultIfEmpty(rec).Sum(r => r.montant);
-        float ht = rec.type == "Depot" ? ttc : ttc / 1.2f;   // revue 16c (D4-11) : un dépôt de garantie n'a pas de TVA
+        float ht = rec.type == "Depot" ? ttc : Tva.Ht(ttc, rec.tauxTva);   // revue 16c (D4-11) : un dépôt n'a pas de TVA ; 02/11 : au taux de l'époque (0 = exonéré)
         return new FactureContext
         {
             date = DateTime.Today,

@@ -30,6 +30,7 @@ public static class BatimentExemple
         l.dateDebutPremierBailISO = l.dateDebutBailISO;
         var b = new Batiment { Name = Nom, adressBatiment = "12 rue des Tilleuls, 92190 Meudon", tailleBatiment = 120f, exemple = true };
         b.locataireDuBatiment.Add(l);
+        b.lots.Add(new LotBatiment { numero = 1, surface = 120f, designation = "Boutique" });   // 04/11 : le lot d'abord
         return b;
     }
 
@@ -44,7 +45,7 @@ public static class BatimentExemple
         var deja = Trouver();
         if (deja != null) { bm.menuManager.OnSelect(deja); deja.ShowSummary(); return; }
         bm.RestoreBatiment(JsonUtility.ToJson(Construire(DateTime.Now)));
-        UndoToast.Instance?.ShowInfo("Bâtiment d'exemple créé : essayez tout, rien n'est envoyé ni déposé chez Pennylane.");
+        UndoToast.Instance?.ShowInfo("Bâtiment d'exemple créé : essayez tout, rien n'est envoyé.");
     }
 
     /// Le bandeau orange en tête du résumé (BatimentSummaryView.Refresh).
@@ -63,7 +64,7 @@ public static class BatimentExemple
         bande.childAlignment = TextAnchor.MiddleLeft;
         bande.gameObject.AddComponent<Image>().color = Hex("#FAEEDA");
         bande.transform.SetSiblingIndex(0);
-        var t = UIFactory.Text(bande.transform, "Bâtiment d'exemple : essayez tout, rien n'est envoyé ni déposé chez Pennylane, et il ne compte pas dans vos premiers pas.",
+        var t = UIFactory.Text(bande.transform, "Bâtiment d'exemple : essayez tout, rien n'est envoyé, et il ne compte pas dans vos premiers pas.",
                                UITheme.Role.Donnee, Hex("#633806"));
         UIFactory.LE(t.gameObject, flexW: 1);
         var b = UIFactory.Button(bande.transform, "Supprimer l'exemple", UITheme.Carte, Hex("#854F0B"), 34, UITheme.Role.Action);

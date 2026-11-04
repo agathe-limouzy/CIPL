@@ -1,13 +1,6 @@
 using System;
 using System.Collections.Generic;
 
-/// Mode d'envoi global des factures.
-public enum ModeEnvoi
-{
-    Pennylane,   // e-facture Factur-X via l'API Pennylane
-    Email        // envoi direct du PDF par email au locataire (SMTP)
-}
-
 /// Un RIB (compte émetteur) affiché sur les factures. Référencé par ID depuis
 /// les locataires — modifier un RIB le met à jour partout où il est utilisé.
 [Serializable]
@@ -68,7 +61,6 @@ public class SmtpConfig
 public class ReglageData
 {
     public string entrepriseNom = "";   // nom de l'entreprise (multi-entreprise / sélecteur)
-    public ModeEnvoi modeEnvoi = ModeEnvoi.Email;   // revue 16c (D4-09, décision du 02/11) : une entreprise neuve envoie par e-mail ; Pennylane se choisit dans Réglages › Intégrations
     public SmtpConfig smtp = new SmtpConfig();
 
     // Délais de facturation (01/11) : le calendrier figé du code (15 / 15 / 30) devient un réglage de l'entreprise ;
@@ -102,10 +94,18 @@ public class ReglageData
         "le taux d'intérêt légal seront appliquées + une indemnité forfaitaire de 40 € pour frais de " +
         "recouvrement (Art L 441-6 du C.com).";
 
+    // Demande du 04/11 : la phrase sur l'escompte (obligatoire, art. L441-9 du Code de commerce), au PDF et au XML (note
+    // AAB). Vide : la phrase d'usine (FactureEn16931.Escompte), jamais rien.
+    public string phraseEscompte = FactureEn16931.SansEscompte;
+
     // Phrases de BASE des mentions TVA. Chaque facture peut les remplacer pour
     // elle-même (`FactureInfo.texteTvaDebit`) — voir MentionTva.
     public string mentionTvaDebits = FacturePdfService.TvaDebitDefaut;
     public string mentionTvaEncaissements = FacturePdfService.TvaEncaissementsDefaut;
+    // TVA sur les loyers (02/11) : l'option du bailleur par entreprise, son taux, et la mention d'exonération (Textes fixes). Voir Tva.
+    public bool loyersSoumisTva = true;
+    public float tauxTva = Tva.TauxDefaut;
+    public string mentionTvaExoneration = Tva.ExonerationDefaut;
 
     // Modèles d'e-mail (décision du 31/10 ; Réglages › Facturation › Modèles d'e-mail), voir EmailService.Modele.
     // La facture avec son PDF (les 4 types) ;

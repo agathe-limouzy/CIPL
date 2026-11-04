@@ -81,9 +81,7 @@ public static class RegleInscription
     {
         // Sans logo (retour du 25/10) : pas celui de CIPL sur les factures d'un client.
         var r = new ReglageData { entrepriseNom = (nomEntreprise ?? "").Trim(), sansLogo = true };
-        // Retour du 25/10 : envoi par e-mail (Pennylane ne fait pas encore tout le chemin), et pas le
-        // serveur d'envoi de CIPL : le guide « L'envoi des factures » le fait choisir.
-        r.modeEnvoi = ModeEnvoi.Email;
+        // Retour du 25/10 : pas le serveur d'envoi de CIPL : le guide « L'envoi des factures » le fait régler.
         r.smtp.host = "";
         r.smtp.fromName = r.entrepriseNom;
         r.smtp.fromEmail = (email ?? "").Trim();
@@ -91,7 +89,7 @@ public static class RegleInscription
         {
             string s = new string((siret ?? "").Where(char.IsDigit).ToArray());
             string lisible = RegleAbonnement.SiretLisible(s);
-            r.basDePage = string.Join(" - ", new[] { annuaire?.nom_complet ?? r.entrepriseNom, annuaire?.libelle_nature_juridique, "Siret : " + lisible }
+            r.basDePage = string.Join(" - ", new[] { annuaire?.nom_complet ?? r.entrepriseNom, annuaire?.libelle_nature_juridique, "Siret : " + lisible, TvaPied(s) }
                                              .Where(x => !string.IsNullOrWhiteSpace(x)));
             if (!string.IsNullOrWhiteSpace(annuaire?.siege?.adresse)) r.basDePage += "\nSiège social : " + annuaire.siege.adresse.Trim();
             // ponytail: annuaire injoignable → le lieu par défaut reste (à corriger dans Réglages).
@@ -104,6 +102,22 @@ public static class RegleInscription
             r.basDePage = $"{(qui ?? "").Trim()} - {(adresse ?? "").Trim()}";
             r.lieuEmission = Ville(adresse) ?? r.lieuEmission;
         }
+        return r;
+    }
+
+    /// Revue 17 (D6-03) : le n° de TVA intracommunautaire d'une société, d'après son SIREN (art. 242 nonies A du CGI).
+    static string TvaPied(string siret)
+    {
+        string tva = FactureEn16931.TvaIntra(siret != null && siret.Length >= 9 ? siret.Substring(0, 9) : "");
+        return tva == "" ? null : "TVA intracommunautaire : " + tva;
+    }
+
+    /// Revue 17 (D3-01) : les Réglages de départ d'une entreprise ajoutée au groupe, comme à l'inscription (jamais ceux de
+    /// CIPL). Un particulier n'a pas encore d'adresse : son bas de page est son nom.
+    public static ReglageData ReglagesAjout(bool societe, string nom, string siret, AnnuaireEntreprise annuaire)
+    {
+        var r = Reglages(societe, nom, siret, annuaire, nom, "", "");
+        if (!societe) r.basDePage = (nom ?? "").Trim();
         return r;
     }
 

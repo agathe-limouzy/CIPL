@@ -29,7 +29,7 @@ public static class ReglagesCloud
     /// Paramètres de enregistrer_reglages : les Réglages partent en objet JSON.
     public static string Corps(string entreprise, int version, string jsonReglages, string session) =>
         "{\"p_entreprise\":" + Q(entreprise) + ",\"p_version\":" + version + ",\"p_data\":" + jsonReglages +
-        ",\"p_session\":" + Q(session) + "}";
+        ",\"p_session\":" + Q(session) + ",\"p_modele\":" + DonneesCloud.Modele + "}";   // Revue 17 (D2-01)
 
     /// Pas encore partagés (version 0) : seul un admin met les siens en commun (décision du 19/10).
     public static bool PeutEnvoyer(int version, bool admin) => version > 0 || admin;
@@ -113,6 +113,9 @@ public static class ReglagesCloud
             if (res?.refus == "version")
                 ConfirmDialog.Erreur($"Réglages modifiés entre-temps par {Qui(res.nom)} : vos modifications ne sont pas enregistrées. " +
                                      "Les Réglages sont rechargés.", () => RelireMaintenant(null));
+            else if (res?.refus == "application")   // Revue 17 (D2-01)
+                ConfirmDialog.Erreur("Une version plus récente de CIPL a enregistré les Réglages : mettez CIPL à jour (bandeau en haut, " +
+                                     "ou relancez CIPL) pour les enregistrer. Vos modifications ne sont pas enregistrées.", () => RelireMaintenant(null));
             else if (res?.refus == "reseau")
             {
                 ConfirmDialog.Erreur(HorsLigne.Refus + " Les Réglages ne sont pas enregistrés.");

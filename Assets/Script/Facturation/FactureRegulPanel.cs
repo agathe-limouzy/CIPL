@@ -12,7 +12,7 @@ using UnityEngine.UI;
 /// la compare aux provisions déjà versées (provision × nb de périodes) et facture
 /// la différence (TVA 20 %). L'aperçu réel est rendu à droite (image), et
 /// « Sauvegarder et envoyer » produit le PDF, passe les charges concernées en
-/// « payé » et avance le numéro. AUCUN envoi réel (Pennylane/email) ici.
+/// « payé » et avance le numéro. AUCUN envoi réel ici.
 public class FactureRegulPanel : MonoBehaviour
 {
     // Revue 16c (D6-06) : les montants en écriture française (« 1 234,56 »), comme le PDF et Créances, quelle que
@@ -38,7 +38,7 @@ public class FactureRegulPanel : MonoBehaviour
     TMP_Text _titre, _entetePreview, _modeInfo, _previewHint;
     TMP_Text _tCharges, _tProvisions, _tDeja, _tSolde, _tTVA, _tTTC;
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _provisions, _emailEnvoi;
-    TMP_InputField _texteTvaDebit;
+    TMP_InputField _texteTvaDebit, _tauxTva;
     TMP_InputField _emailObjet, _emailCorps;
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     string _numeroEmis;   // le numéro décidé par FactureEmission.Preparer pendant l'émission (revue 16c, D6-03)
@@ -226,6 +226,8 @@ public class FactureRegulPanel : MonoBehaviour
         // totaux : sa case vit donc ici, pas dans la carte d'envoi où on ne pensait
         // pas à la chercher. Même règle que sur le panneau Loyer.
         _mentionTva = MentionTva.Creer(g.transform, out _texteTvaDebit);
+        _tauxTva = Labeled(g, "Taux de TVA (%)");   // 02/11
+        _tauxTva.onValueChanged.AddListener(_ => RefreshCharges());
 
         // ── 3. Règlement (pied du document) ──
         // L'échéance, la phrase qu'elle alimente et le RIB sont voisins : le lien se
@@ -256,9 +258,6 @@ public class FactureRegulPanel : MonoBehaviour
             "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement.",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
         _emailEnvoi = Labeled(o, "Email d'envoi");
-        UIFactory.Text(o.transform,
-            "Note : l'envoi réel (Pennylane / email) sera activé après validation — rien n'est émis pour l'instant.",
-            UITheme.Role.Aide, UITheme.Alerte);
 
         var gen = UIFactory.Button(left.transform, "Générer facture", UITheme.Primaire, Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(gen.gameObject, minH: 56, flexH: 0);
@@ -350,12 +349,14 @@ public class FactureRegulPanel : MonoBehaviour
         RefreshNumero();
 
         MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
+        ChargerTva(f);   // 02/11
         _retard.isOn = f?.ajouterRetard ?? true;
         // Décision du 02/11 (BI5) : même départ que le loyer. Sur la plateforme, la phrase de retard est obligatoire
         // (note PMD, règle BR-FR-05) : la case reste cochée pour que le PDF dise la même chose.
         bool plateforme = FactureElectronique.Concerne(_loc, 1f, _siret.text);
-        if (plateforme) _retard.isOn = true;
-        _retard.interactable = !plateforme;
+        bool obligatoire = plateforme || FactureElectronique.Professionnel(_loc, _siret.text);   // Revue 17 (D6-03) : professionnel
+        if (obligatoire) _retard.isOn = true;
+        _retard.interactable = !obligatoire;
         _modeInfo.text = FactureElectronique.LibelleEnvoi(_loc, _siret.text);
         _modeInfo.color = FactureElectronique.SansSiret(_loc, _siret.text) ? UITheme.Alerte : UITheme.TexteSecondaire;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
@@ -528,8 +529,8 @@ public class FactureRegulPanel : MonoBehaviour
             if (!ListesCharges.DeLaListe(c, listeId)) continue;
             if (!ListesCharges.Concerne(c, loc) || TryYear(c.dateISO) != year) continue;
             if (!FacturationSuivi.EstDejaEmise(loc, "refac-" + c.id, out var rec)) continue;
-            // Le suivi garde le TTC ; la refacturation est toujours à 20 %.
-            res.Add((c, rec.montant != 0f ? Cents(rec.montant / 1.2f) : ListesCharges.QuotePart(c, loc, bat)));
+            // Le suivi garde le TTC ; le HT se relit au taux de l'époque (02/11).
+            res.Add((c, rec.montant != 0f ? Tva.Ht(rec.montant, rec.tauxTva) : ListesCharges.QuotePart(c, loc, bat)));
         }
         return res;
     }
@@ -601,7 +602,8 @@ public class FactureRegulPanel : MonoBehaviour
         // indépendamment : après arrondi à l'affichage, HT + TVA pouvait ne pas
         // redonner le TTC imprimé (écart d'un centime sur la facture).
         float solde = Cents(totalCharges - provisions);
-        float tva = Cents(solde * .2f);
+        float taux = TauxFacture();   // 02/11 : le taux du bail (0 si exonéré)
+        float tva = Tva.Montant(solde, taux);
         float ttc = solde + tva;
 
         _tCharges.text    = $"{N2(totalCharges + deja)} €";
@@ -609,6 +611,10 @@ public class FactureRegulPanel : MonoBehaviour
         _tSolde.text      = $"{N2(solde)} €";
         _tTVA.text        = $"{N2(tva)} €";
         _tTTC.text        = $"{N2(ttc)} €";
+        // BK (02/11) : sans TVA, le solde est le total et la ligne TVA disparaît ; sinon elle porte le taux de la facture.
+        UIFactory.LigneMontant(_tSolde, true, taux > 0f ? "Solde HT" : "Solde");
+        UIFactory.LigneMontant(_tTVA, taux > 0f, Tva.Libelle(taux));
+        UIFactory.LigneMontant(_tTTC, taux > 0f, "Total TTC");
 
         // Provisions supérieures aux charges : il s'agit d'un trop-perçu, donc
         // d'un AVOIR — pas d'une facture. On le signale au lieu de laisser passer
@@ -688,8 +694,8 @@ public class FactureRegulPanel : MonoBehaviour
             periode = $"charges {year}",
             numero = NumeroDocument(),
             loyerHT = solde,
-            tva = solde * .2f,
-            ttc = solde * 1.2f,
+            tva = Tva.Montant(solde, TauxFacture()),
+            ttc = Tva.Ttc(solde, TauxFacture()),
         };
     }
 
@@ -749,13 +755,14 @@ public class FactureRegulPanel : MonoBehaviour
             provisions = provisions,
             dejaRefacture = deja,
             soldeHT = solde,
-            tva = solde * .2f,
-            ttc = solde * 1.2f,
+            tva = Tva.Montant(solde, TauxFacture()),
+            ttc = Tva.Ttc(solde, TauxFacture()),
             detailTitre = detailTitre,
             locataireNom = _nom.text,
             surfaceImmeuble = _bat != null ? _bat.tailleBatiment : 0f,
             totalARepartir = totalARepartir,
-            tvaDebit = MentionTva.Imprimee(_mentionTva),
+            masquerTva = TauxFacture() <= 0f, tvaLibelle = Tva.Libelle(TauxFacture()),   // 02/11 : exonéré = solde seul
+            tvaDebit = TauxFacture() <= 0f || MentionTva.Imprimee(_mentionTva),
             retard = _retard.isOn,
             // « SOMME À NOUS RÉGLER » devient « SOMME QUI VOUS SERA REMBOURSÉE »
             // quand le solde est négatif. Libellé du total inversé de même.
@@ -763,11 +770,11 @@ public class FactureRegulPanel : MonoBehaviour
             // selon le signe du solde, et cette phrase-là doit être résolue aussi.
             sommePhrase = FactureVarResolver.Resolve(
                 FactureEmission.PhraseSomme(_sommePhrase.text, solde), _loc, _bat, ctx),
-            texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
-            labelSolde = FactureEmission.LibelleSolde(solde, "Solde H.T."),
+            texteTvaDebit = TauxFacture() <= 0f ? Tva.Mention(R) : FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
+            labelSolde = FactureEmission.LibelleSolde(solde, TauxFacture() <= 0f ? "Solde" : "Solde H.T."),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
-            legal = R.phraseRetard,
+            legal = R.phraseRetard, escompte = R.phraseEscompte,
             foot1 = foot.Length > 0 ? foot[0] : "",
             foot2 = foot.Length > 1 ? foot[1] : "",
         };
@@ -842,6 +849,9 @@ public class FactureRegulPanel : MonoBehaviour
         var emission = FactureEmission.Preparer(_loc, key, d.numero);
         d.numero = emission.NumeroFacture;
         bool correction = emission.Correction;
+        // Revue 17 (D5-02) : la correction d'une facture transmise ne part pas en avoir (la plateforme garderait les deux).
+        string refusCorrection = FactureElectronique.RefusCorrection(_loc.facturesEtat?.Find(x => x.key == key), d.ttc, d.subtitle);
+        if (FactureElectronique.Concerne(_loc, d.tva, _siret.text) && refusCorrection != null) { ConfirmDialog.Erreur(refusCorrection); return; }
         // BI8 (02/11) : un avoir cite les factures qu'il corrige (BR-FR-CO-05) : la version précédente, sinon les loyers de l'année.
         if (FactureElectronique.Concerne(_loc, d.tva, _siret.text) && d.ttc < -0.004f
             && FactureElectronique.ReferencesAvoir(_loc, _loc.facturesEtat?.Find(x => x.key == key), year).Count == 0)
@@ -864,14 +874,6 @@ public class FactureRegulPanel : MonoBehaviour
         string png = DossiersDonnees.Apercu("apercu_regul.png");
         if (FacturePdfService.GenerateRegulPreviewPng(d, png, out _, 794, 2246)) ShowPreview(png);
 
-        // Pas d'envoi demandé : on enregistre, rien ne part. Le bouton s'appelant
-        // « Sauvegarder et envoyer », il faut le dire, sinon on attend un mail en vain.
-        if (R.modeEnvoi != ModeEnvoi.Email)
-        {
-            Finaliser(d, year, key, emission, correction, pdf, false,
-                FactureEmission.SansEmail);
-            return;
-        }
 
         // Refus AVANT la confirmation si quelque chose manque.
         string dest = (_emailEnvoi.text ?? "").Trim();
@@ -972,6 +974,7 @@ public class FactureRegulPanel : MonoBehaviour
                     d.numero, pdf, montants[listes[i]], _ribDD?.SelectedId, FactureEmission.RibNom(_ribDD?.SelectedId), envoye);
         }
 
+        foreach (var l in FacturationSuivi.MemeFacture(_loc, key)) l.tauxTva = d.masquerTva ? 0f : TauxFacture();   // 02/11 : taux de l'époque
         // Décision du 02/11 (BI5) : la facture électronique sur la ligne principale, comme le loyer ; un total négatif part en
         // avoir (FactureEn16931). Hors plateforme (sans SIRET, SCI non reliée…) : rien, la copie PDF part par e-mail comme avant.
         FactureElectronique.Preparer(_loc.facturesEtat?.Find(x => x.key == key), avant,
@@ -980,7 +983,8 @@ public class FactureRegulPanel : MonoBehaviour
                 numero = d.numero, dateISO = BuildContext().date.ToString("yyyy-MM-dd"), echeanceISO = _loc.factureRegul?.dateEcheanceISO,
                 acheteurNom = d.clientNom, acheteurSiren = SocieteLocataire.Siren(FactureElectronique.SiretAcheteur(_loc, _siret.text)),
                 acheteurSiret = FactureElectronique.Siret14(FactureElectronique.SiretAcheteur(_loc, _siret.text)), acheteurAdresse = _adresse.text,
-                lignes = FactureEn16931.LignesRegul(d), mention = d.tvaDebit ? d.texteTvaDebit : null, penalites = d.legal,
+                lignes = FactureEn16931.LignesRegul(d), mention = d.tvaDebit ? d.texteTvaDebit : null, penalites = d.legal, escompte = d.escompte,
+                tauxTva = TauxFacture(),
                 references = FactureElectronique.ReferencesAvoir(_loc, avant, year),   // BI8 : la version précédente, sinon les loyers de l'année
             });
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();   // persiste locataire + charges
@@ -1001,20 +1005,20 @@ public class FactureRegulPanel : MonoBehaviour
     /// La première liste porte le reste, pour que la somme redonne exactement le total.
     Dictionary<string, float> MontantsParListe(List<string> listes, int year, float ttcTotal) =>
         MontantsParListe(listes, id => ChargesDeRegul(_bat, _loc, year, id).Sum(QuotePart), id => ListesCharges.Provision(_loc, id),
-                         Loyers.PeriodesFacturees(_loc, year), ttcTotal);
+                         Loyers.PeriodesFacturees(_loc, year), ttcTotal, TauxFacture());
 
     /// La part de chaque liste dans une régularisation regroupée (la première absorbe l'écart : la somme des lignes redonne le
     /// TTC). Revue 16c (D4-08, D6-11) : les provisions déduites comptent les périodes FACTURÉES de l'année (arrivée, départ),
     /// comme le total du formulaire, et plus celles d'une année pleine.
     public static Dictionary<string, float> MontantsParListe(List<string> listes, Func<string, float> chargesDe,
-                                                             Func<string, float> provisionDe, int periodesFacturees, float ttcTotal)
+                                                             Func<string, float> provisionDe, int periodesFacturees, float ttcTotal, float taux = 20f)
     {
         var res = new Dictionary<string, float>();
         float autres = 0f;
         for (int i = 1; i < listes.Count; i++)
         {
             float solde = Cents(chargesDe(listes[i]) - provisionDe(listes[i]) * periodesFacturees);
-            float ttc = solde + Cents(solde * .2f);
+            float ttc = solde + Cents(solde * taux / 100f);
             res[listes[i]] = ttc;
             autres += ttc;
         }
@@ -1058,6 +1062,7 @@ public class FactureRegulPanel : MonoBehaviour
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();
         MentionTva.Enregistrer(_mentionTva, _texteTvaDebit, f);
+        f.tauxTva = TauxAMemoriser();   // 02/11
         f.ajouterRetard = _retard.isOn;
         f.emailDest = _emailEnvoi.text;
         f.emailObjet = EmailService.AGarder(_emailObjet.text, EmailService.ObjetFacture());   // vide : suit le modèle des Réglages
@@ -1141,6 +1146,32 @@ public class FactureRegulPanel : MonoBehaviour
         UIFactory.Border(b.gameObject);
         UIFactory.LE(b.gameObject, prefW: w, flexW: 0, minH: 36);
         b.onClick.AddListener(onClick);
+    }
+
+
+    /// TVA de cette facture (02/11) : 0 si le bail est exonéré ; sinon le taux tapé dans le formulaire, à défaut celui du bail
+    /// ou de l'entreprise (Tva.Taux).
+    float TauxFacture()
+    {
+        if (!Tva.Soumis(_loc)) return 0f;
+        return _tauxTva != null && SaisieNumerique.TryParse(_tauxTva.text, out float t) && t > 0f ? t : Tva.Taux(_loc);
+    }
+
+    /// Le taux tapé n'est mémorisé que s'il diffère de celui du bail ou de l'entreprise (sinon il suivrait un changement de réglage).
+    float TauxAMemoriser() => Tva.Soumis(_loc) && SaisieNumerique.TryParse(_tauxTva.text, out float t) && t > 0f
+                              && Mathf.Abs(t - Tva.Taux(_loc)) > 0.001f ? t : 0f;
+
+    /// Exonéré : le menu « Mention TVA » et le taux disparaissent (la mention d'exonération s'imprime d'office).
+    void ChargerTva(FactureInfo f)
+    {
+        bool soumis = Tva.Soumis(_loc);
+        if (_tauxTva != null)
+        {
+            UIFactory.MontrerAvecLibelle(_tauxTva.gameObject, soumis);   // 02/11 (BK2) : le champ et son libellé, pas la section entière
+            _tauxTva.text = soumis ? Tva.Taux(_loc, f).ToString("0.##", FacturePdfService.FrCulture) : "";
+        }
+        if (_mentionTva != null) UIFactory.MontrerAvecLibelle(_mentionTva.gameObject, soumis);
+        if (_texteTvaDebit != null && !soumis) _texteTvaDebit.transform.parent.gameObject.SetActive(false);
     }
 
     TMP_InputField Labeled(VerticalLayoutGroup body, string label)

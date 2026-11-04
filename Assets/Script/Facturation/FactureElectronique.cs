@@ -81,17 +81,18 @@ public static class FactureElectronique
 
     // ── Étape 18b : les loyers et « Encaissée » ────────────────────────────────
 
-    /// Une facture de loyer part-elle aussi par la plateforme ? Mode e-mail (Pennylane a son propre chemin),
-    /// SCI reliée et vérifiée, locataire assujetti à la TVA et avec son SIREN (sans lui, l'annuaire ne le trouve
-    /// pas : règle BR-FR-12, 30/10 ; voir SansSiret), TVA sur la facture.
+    /// Une facture de loyer part-elle aussi par la plateforme ? (mode Pennylane retiré le 02/11),
+    /// SCI reliée et vérifiée, bail soumis à la TVA (02/11 : la case « Assujetti à la TVA » de la fiche est retirée ;
+    /// une association non assujettie garde son SIRET vide), locataire avec son SIREN (sans lui, l'annuaire ne le
+    /// trouve pas : règle BR-FR-12, 30/10 ; voir SansSiret), TVA sur la facture.
     public static bool Concerne(Locataire loc, float tva, string siretFormulaire = null) =>
-        Active && ReglageService.Current?.modeEnvoi == ModeEnvoi.Email && Locataire.AssujettiTva(loc)
+        Active && Tva.Soumis(loc)
         && SocieteLocataire.Siren(SiretAcheteur(loc, siretFormulaire)).Length == 9 && Math.Abs(tva) > 0.005f;   // BI8 (02/11) : un avoir a une TVA négative
 
-    /// Locataire qui devrait recevoir une facture électronique, mais sans SIRET : sa facture part par e-mail
+    /// Bail soumis à la TVA qui devrait recevoir une facture électronique, mais sans SIRET : sa facture part par e-mail
     /// seulement, et le formulaire le signale (décision du 30/10).
     public static bool SansSiret(Locataire loc, string siretFormulaire = null) =>
-        Active && ReglageService.Current?.modeEnvoi == ModeEnvoi.Email && Locataire.AssujettiTva(loc)
+        Active && Tva.Soumis(loc)
         && SocieteLocataire.Siren(SiretAcheteur(loc, siretFormulaire)).Length != 9;
 
     /// L'acheteur de la facture électronique est celui du PDF : le SIRET saisi dans le formulaire quand il y en a un
@@ -195,11 +196,27 @@ public static class FactureElectronique
     public static string RefusAvoir(string sujet, string conseil) =>
         $"« {sujet} » a un total négatif : c'est un avoir, et {FactureEn16931.AvoirSansReference} {conseil} Rien n'a été émis.";
 
+    /// Revue 17 (D5-02) : la correction d'une facture transmise ne part pas en avoir : un avoir (381) ne remplace rien, la
+    /// plateforme et le locataire garderaient les deux documents. Refus aussi pour la correction d'un avoir transmis.
+    /// La bonne méthode (avoir de la totalité puis nouvelle facture, ou différence seule) est à valider avec l'expert-comptable.
+    public static string RefusCorrection(FactureEtat avant, float ttc, string sujet) =>
+        string.IsNullOrEmpty(avant?.plateformeId) ? null
+        : ttc < -0.004f || (avant.plateformeDonnees ?? "").Contains("\"type_code\":381")
+          ? $"« {sujet} » a été transmise à Super PDP : sa correction ne peut pas partir en avoir (la plateforme garderait " +
+            "les deux documents). Rien n'a été émis. Laissez-la telle quelle et émettez la différence à part (Refacturation, " +
+            "« Avoir sur la facture n° … »)."
+          : null;
+
+    /// Revue 17 (D6-03) : un acheteur professionnel (SIREN connu) : pénalités de retard et indemnité de 40 € obligatoires
+    /// (art. L441-9 du Code de commerce) ; la case « phrase de retard » est cochée et grisée, comme pour la plateforme.
+    public static bool Professionnel(Locataire loc, string siretFormulaire) =>
+        SocieteLocataire.Siren(SiretAcheteur(loc, siretFormulaire)).Length == 9;
+
     /// La ligne « Envoi : … » des formulaires de facture : ce qui va partir, et pourquoi pas la plateforme le cas échéant.
     /// `notification` : après la bascule, le loyer part sans PDF (e-mail de notification) ; régul et refacturation gardent
     /// la copie PDF par e-mail (02/11 : pas encore de mode notification pour elles).
     public static string LibelleEnvoi(Locataire loc, string siretFormulaire, bool notification = false) =>
-        ReglageService.Current?.modeEnvoi == ModeEnvoi.Pennylane ? "Mode global : Pennylane (e-facture Factur-X)."
+        !Tva.Soumis(loc) ? "Envoi : e-mail (bail exonéré de TVA : pas de facture électronique)."   // 02/11
         : Concerne(loc, 1f, siretFormulaire) ? (notification
             ? "Envoi : plateforme agréée (Super PDP), puis un e-mail de notification au locataire. La phrase de retard y est obligatoire."
             : "Envoi : plateforme agréée (Super PDP) + copie PDF par e-mail. La phrase de retard y est obligatoire.")
@@ -511,7 +528,10 @@ public static class FactureElectronique
     public static string Cle(Locataire loc, FactureEtat r)
     {
         string id = (loc?.id ?? "").Replace("-", "");
-        string c = $"{(id.Length > 8 ? id.Substring(0, 8) : id)}-{(string.IsNullOrEmpty(r?.numero) ? r?.key : r.numero)}";
+        // Revue 17 (D5-01) : le numéro que la plateforme reçoit (celui du JSON de la ligne) : une correction (« …-corrigee-1 »)
+        // a sa propre clé ; avec le numéro de base, le serveur répondait « déjà transmise » et la rectificative ne partait jamais.
+        string n = FactureEn16931.NumeroDe(r?.plateformeDonnees) ?? (string.IsNullOrEmpty(r?.numero) ? r?.key : r.numero);
+        string c = $"{(id.Length > 8 ? id.Substring(0, 8) : id)}-{n}";
         return c.Length > 36 ? c.Substring(0, 36) : c;
     }
 

@@ -5,7 +5,7 @@ using UnityEngine;
 
 /// Charge / sauvegarde les réglages globaux (facturation).
 /// - Les réglages "normaux" vont dans <SaveRoot>/reglage.json.
-/// - Les SECRETS (clé API Pennylane, mot de passe SMTP) vont dans un fichier
+/// - Les SECRETS (mot de passe SMTP ; fichier au nom historique) vont dans un fichier
 ///   séparé <SaveRoot>/pennylane_secrets.dat (format clé=valeur), qui n'est PAS
 ///   du JSON → ignoré par les backups (qui ne copient que les *.json) et jamais
 ///   commité dans le repo. Sur le cloud : sur ce PC, hors du dossier (CheminSecrets).
@@ -45,7 +45,7 @@ public static class ReglageService
     // ── Étape 9a : Réglages et secrets reçus du serveur ────────────────────────
 
     /// Les secrets d'une entreprise (partagés par le serveur sur le cloud).
-    public static readonly string[] ClesSecrets = { "pennylane_api_key", "smtp_password" };
+    public static readonly string[] ClesSecrets = { "smtp_password" };   // la clé Pennylane a disparu avec le mode (02/11)
 
     public static string LireSecret(string cle) => ReadSecret(cle);
 
@@ -225,8 +225,6 @@ public static class ReglageService
 
     // ── Secrets (hors JSON / hors backup / hors repo) ──────────────────────────
 
-    public static string GetApiKey() => ReadSecret("pennylane_api_key");
-    public static bool SetApiKey(string v) => EcrireEtPartager("pennylane_api_key", v);
 
     /// Étape 9a : un secret changé par un admin part au serveur (les autres ne le modifient pas).
     /// Inchangé : rien ne part (Réglages › Enregistrer réécrit tous les champs).

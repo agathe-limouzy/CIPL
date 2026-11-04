@@ -35,12 +35,25 @@ public class Batiment : Data
     //Locataire 
     public List<Locataire> locataireDuBatiment = new List<Locataire>();
 
+    // Demande du 04/11 : les lots du bâtiment (numéro, surface, désignation). Un locataire y est rattaché par son numéro
+    // (Locataire.lotBatiment) ; la surface du bâtiment devient leur somme. Vide : l'ancienne règle (LotsBatiment).
+    public List<LotBatiment> lots = new List<LotBatiment>();
+
 
 
 
     // Propriétés calculées
   
 
+}
+
+/// Un lot du bâtiment (demande du 04/11). Son numéro est le lien avec le locataire qui l'occupe (Locataire.lotBatiment).
+[Serializable]
+public class LotBatiment
+{
+    public int numero;
+    public float surface;          // m²
+    public string designation;     // facultatif : « Local RDC », « Parking 12 »…
 }
 
 public enum ParkingState

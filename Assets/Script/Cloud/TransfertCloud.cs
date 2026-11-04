@@ -117,7 +117,7 @@ public static class TransfertCloud
             + ",\"p_locataires\":" + locsJson + ",\"p_seul\":" + (seul != null ? "true" : "false")
             + ",\"p_versions\":{" + string.Join(",", versions) + "},\"p_session\":" + Q(EcritureCloud.SessionId)
             + (regAEnvoyer != null ? ",\"p_reglages\":" + JsonUtility.ToJson(regAEnvoyer) + ",\"p_reglages_version\":" + regVersion : "")
-            + "}";
+            + ",\"p_modele\":" + DonneesCloud.Modele + "}";   // Revue 17 (D2-01)
         var r = await CloudClient.FonctionJson(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "transferer_fiches", corps);
         if (!r.Ok) return "serveur : " + r.Erreur + ".";
         Resultat res = null;
@@ -151,6 +151,7 @@ public static class TransfertCloud
             case "expire": return "l'abonnement du groupe ne permet plus d'écrire.";
             case "verrou": return $"« {r.cible} » : en cours de modification par {RegleVerrou.Prenom(r.nom)}. Réessayez quand la fiche est libre.";
             case "version": return $"« {r.cible} » a été modifié entre-temps : rouvrez la fiche et recommencez.";
+            case "application": return "une version plus récente de CIPL a enregistré ces fiches : mettez CIPL à jour avant de les transférer.";   // Revue 17 (D2-01)
             case "meme": return "c'est la même entreprise.";
             default: return "réponse inattendue du serveur" + (string.IsNullOrEmpty(r?.refus) ? "" : $" ({r.refus})") + ".";
         }

@@ -41,13 +41,8 @@ public class IntegrationsTests
     }
 
     [Test]
-    public void Les_refus_de_Pennylane_et_des_cartes_sont_traduits()
+    public void Les_refus_des_cartes_sont_traduits()
     {
-        StringAssert.StartsWith("Clé refusée", PennylaneClient.Clair(401));
-        StringAssert.Contains("customer_invoices", PennylaneClient.Clair(403));
-        StringAssert.Contains("connexion internet", PennylaneClient.Clair(0));
-        Assert.That(PennylaneClient.Clair(422), Is.Null, "le corps de réponse dit déjà le champ refusé");
-
         // Étape 16b : les cartes de Google, par la fonction serveur « cartes ».
         StringAssert.Contains("connexion internet", TileLoader.Motif(0, null, 0, "Cannot resolve destination host"));
         StringAssert.Contains("GOOGLE_MAPS_KEY", TileLoader.Motif(200, "config", 0, null));

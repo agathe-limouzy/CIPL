@@ -21,6 +21,7 @@ public static class FactureEn16931
         public float tauxTva = 20f;
         public string mention;   // phrase TVA imprimée (« TVA acquittée sur les débits… »), ou vide
         public string penalites; // phrase de retard des Réglages (note PMD), ou vide : la phrase légale d'usine
+        public string escompte;  // phrase d'escompte des Réglages (note AAB, 04/11), ou vide : celle d'usine
         // Correction : la facture transmise qu'elle annule et remplace (voir Remplacee), ou vide.
         public string precedentNumero, precedentDateISO;
         // Avoir : les factures qu'il corrige (numéro tel que la plateforme le connaît, date), règle BR-FR-CO-05 (02/11).
@@ -56,6 +57,19 @@ public static class FactureEn16931
     public const string PenalitesDefaut = "En cas de retard de paiement, des pénalités au taux égal à trois fois le taux d'intérêt légal sont exigibles.";
     public const string IndemniteDefaut = "Indemnité forfaitaire pour frais de recouvrement en cas de retard de paiement : 40 €.";
     public static string MentionsRetard(string saisie) => !string.IsNullOrWhiteSpace(saisie) ? saisie.Trim() : PenalitesDefaut + " " + IndemniteDefaut;
+
+    /// Revue 17 (D6-03) : conditions d'escompte, obligatoires (art. L441-9 du Code de commerce) : le même texte au PDF et au XML.
+    public const string SansEscompte = "Pas d'escompte pour paiement anticipé.";
+
+    /// Demande du 04/11 : la tournure des Réglages (phraseEscompte), sinon la phrase d'usine : jamais absente.
+    public static string Escompte(string saisie) => !string.IsNullOrWhiteSpace(saisie) ? saisie.Trim() : SansEscompte;
+
+    /// Revue 17 (D5-01) : le numéro que la plateforme a reçu, premier champ du JSON écrit par Json (null si aucun).
+    public static string NumeroDe(string json)
+    {
+        var m = Regex.Match(json ?? "", "^\\{\"number\":\"([^\"]*)\"");
+        return m.Success && m.Groups[1].Value != "" ? m.Groups[1].Value : null;
+    }
 
     public static string Json(Entree e)
     {
@@ -112,7 +126,7 @@ public static class FactureEn16931
         j.Append("\"notes\":[");
         j.Append("{\"note\":").Append(Q(pmd)).Append(",\"subject_code\":\"PMD\"},");
         j.Append("{\"note\":").Append(Q(IndemniteDefaut)).Append(",\"subject_code\":\"PMT\"},");
-        j.Append("{\"note\":").Append(Q("Pas d'escompte pour paiement anticipé.")).Append(",\"subject_code\":\"AAB\"}");
+        j.Append("{\"note\":").Append(Q(Escompte(e.escompte))).Append(",\"subject_code\":\"AAB\"}");
         if (!string.IsNullOrWhiteSpace(e.mention)) j.Append(",{\"note\":").Append(Q(e.mention)).Append('}');
         j.Append("],");
         j.Append("\"seller\":").Append(Partie(e.vendeurNom, e.vendeurSiren, null, vendeur: true)).Append(',');

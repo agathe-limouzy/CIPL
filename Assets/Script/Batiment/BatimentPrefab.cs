@@ -104,7 +104,8 @@ public float GetLoyerTotal()
     /// faisait un bâtiment de 2750 m², alors que c'est le lot du premier, hérité par
     /// défaut faute d'avoir pu être saisi, qui devait se réduire d'autant.
     public float TailleLotDisponible(Locataire pour)
-        => TailleLotDisponible(batiment.tailleBatiment, listLocataire, pour);
+        => LotsBatiment.Definis(batiment) ? LotsBatiment.Surface(batiment, pour)   // demande du 04/11 : celle de son lot
+           : TailleLotDisponible(batiment.tailleBatiment, listLocataire, pour);
 
     /// La règle elle-même, sans l'écran : testable, et unique.
     public static float TailleLotDisponible(float tailleBatiment, IList<Locataire> lots, Locataire pour)
@@ -127,11 +128,13 @@ public float GetLoyerTotal()
     /// sinon sa part du disponible. Point de passage unique — tout ce qui affiche ou
     /// calcule une surface de lot doit passer par là.
     public float TailleLotEffective(Locataire loc)
-        => loc == null ? 0f : (loc.tailleLot > 0f ? loc.tailleLot : TailleLotDisponible(loc));
+        => loc == null ? 0f : LotsBatiment.Definis(batiment) ? LotsBatiment.Surface(batiment, loc)   // demande du 04/11
+           : (loc.tailleLot > 0f ? loc.tailleLot : TailleLotDisponible(loc));
 
     /// De combien les lots saisis dépassent la surface du bâtiment (0 si tout rentre).
     /// Ne bloque rien : la saisie est respectée, l'écran avertit.
-    public float TailleLotDepassement() => TailleLotDepassement(batiment.tailleBatiment, listLocataire);
+    public float TailleLotDepassement()   // avec des lots déclarés, la surface du bâtiment est leur somme (04/11)
+        => LotsBatiment.Definis(batiment) ? 0f : TailleLotDepassement(batiment.tailleBatiment, listLocataire);
 
     public static float TailleLotDepassement(float tailleBatiment, IList<Locataire> lots)
     {
@@ -147,9 +150,9 @@ public float GetLoyerTotal()
         if (listLocataire == null) return;
         foreach (var loc in listLocataire)
         {
-            if (loc == null || loc.tailleLot > 0f) continue;   // surface saisie : on n'y touche pas
+            if (loc == null || (loc.tailleLot > 0f && !LotsBatiment.Definis(batiment))) continue;   // surface saisie (sans lots) : on n'y touche pas
             if (dictionnairelocataire.TryGetValue(loc, out var locPrefab) && locPrefab != null)
-                locPrefab.RefreshTailleLot(TailleLotDisponible(loc));
+                locPrefab.RefreshTailleLot(TailleLotEffective(loc));
         }
 
         // Avertissement une fois par dépassement : cette méthode est appelée à chaque
@@ -455,7 +458,8 @@ public float GetLoyerTotal()
                 batiment.charges = new List<ChargeBatiment>();
             rentabiliteGlobale?.Init(this);
             mapController.SetAdress(batiment.adressBatiment);
-            tailleBatimentText.ApplySave ( batiment.tailleBatiment.ToString());
+            tailleBatimentText.ApplySave(LotsBatiment.SurfaceTotale(batiment).ToString());   // avec des lots : leur somme (04/11)
+            CreerBoutonLots();
             tailleTerrainText.ApplySave(batiment.tailleTerrain.ToString());
             ParkingDropdown.value = (int)batiment.parkingEtat;
             ParkingDropdown.interactable = false;
@@ -574,6 +578,9 @@ public float GetLoyerTotal()
         // juste avant (tous bâtiments confondus). À faire AVANT de construire la fiche :
         // le panneau lit ces valeurs à son ouverture.
         HeritageFacture.Appliquer(data, HeritageFacture.TousLesLocataires());
+        // Demande du 04/11 : il prend le premier lot libre du bâtiment (à changer sur sa fiche). Le remplaçant d'un locataire
+        // qui part reprend ensuite le lot de celui-ci (DepartLocataire.PreparerRemplacant).
+        data.lotBatiment = LotsBatiment.Libres(batiment).FirstOrDefault()?.numero ?? 0;
 
         var prefab = SpawnPrefabLocataireInPanel(data, menulocataire.ContentPrefab.transform, needToModify);
         listLocataire.Add(data);
@@ -587,6 +594,62 @@ public float GetLoyerTotal()
         return prefab;
 
 
+    }
+
+    // ── Lots du bâtiment (demande du 04/11) ──────────────────────────────────
+
+    Button _btnLots;
+
+    /// Le bouton « Lots » à côté de la surface du bâtiment, aux couleurs du bouton du PLU : il ouvre la fenêtre des lots.
+    void CreerBoutonLots()
+    {
+        if (_btnLots == null && tailleBatimentText != null)
+        {
+            var rangee = tailleBatimentText.transform.parent;
+            var hlg = rangee.GetComponent<HorizontalLayoutGroup>();
+            if (hlg != null) hlg.childForceExpandWidth = false;   // les deux champs gardent flexW 1 ; le bouton, sa largeur
+            var boite = UIFactory.VBox(rangee, 0, 0, 0, 22, 0, "LotsBox");   // aligné sur la case des champs (56 px)
+            UIFactory.LE(boite.gameObject, minH: 56, prefW: 120, flexW: 0);
+            boite.transform.SetSiblingIndex(tailleBatimentText.transform.GetSiblingIndex() + 1);
+            var img = btnPLU != null ? btnPLU.GetComponent<Image>() : null;
+            var txt = btnPLU != null ? btnPLU.GetComponentInChildren<TMP_Text>(true) : null;
+            _btnLots = UIFactory.Button(boite.transform, "Lots", img != null ? img.color : UITheme.PrimaireClair,
+                                        txt != null ? txt.color : UITheme.Primaire, 34, txt != null ? txt.fontSize : UITheme.Role.Action, false);
+            _btnLots.onClick.AddListener(() => LotsPanel.Ouvrir(this));
+        }
+        MajBoutonLots();
+    }
+
+    void MajBoutonLots()
+    {
+        var t = _btnLots != null ? _btnLots.GetComponentInChildren<TMP_Text>(true) : null;
+        if (t != null) t.text = LotsBatiment.Definis(batiment) ? $"Lots ({batiment.lots.Count})" : "Lots";
+    }
+
+    /// Après l'enregistrement des lots (LotsPanel) : la surface du bâtiment (leur somme), celles des locataires, le bouton,
+    /// puis le bâtiment est enregistré.
+    public void ApresLots()
+    {
+        tailleBatimentText.ApplySave(LotsBatiment.SurfaceTotale(batiment).ToString());
+        RefreshTailleBatiment();
+        MajBoutonLots();
+        RebuildLocataireRows();
+        BatimentManager.Instance.SaveBatiment(batiment);
+        summaryView?.Refresh();
+    }
+
+    /// Demande du 04/11 : un locataire occupe un lot du bâtiment ; sans lot libre, refus au centre, avec le choix (retour BM3) :
+    /// « Retour » (rien ne s'ouvre) ou « Ajouter un lot » (la fenêtre des lots ; enregistrée avec un lot libre, `ajouter` suit :
+    /// la fiche du nouveau locataire s'ouvre).
+    /// Le remplaçant d'un locataire qui part (DepartLocataireUI) reprend son lot : il ne passe pas par là.
+    public bool RefuserAjoutSansLotLibre(Action ajouter = null)
+    {
+        string refus = LotsBatiment.RefusSansLotLibre(batiment);
+        if (refus == null) return false;
+        if (ConfirmDialog.Instance != null)
+            ConfirmDialog.Instance.Show("Aucun lot libre", refus, () => LotsPanel.Ouvrir(this, ajouter), "Ajouter un lot", "Retour");
+        else ConfirmDialog.Erreur(refus);
+        return true;
     }
 
     /// Faux si rien n'a été fait (hors ligne, lecture seule : refus au centre, retour du 01/11).
@@ -672,7 +735,7 @@ public float GetLoyerTotal()
         // Toujours éditable : la surface du bâtiment est SA donnée, pas une somme.
         // Elle était verrouillée dès deux locataires, ce qui interdisait de la corriger
         // alors même que l'app venait de la remplacer par la somme des lots.
-        tailleBatimentText.Modify();
+        if (!LotsBatiment.Definis(batiment)) tailleBatimentText.Modify();   // 04/11 : avec des lots, la surface est leur somme
         tailleTerrainText.Modify();
         cadastralTxt?.Modify();
         acquisitionDate?.ModifyDate();
@@ -731,7 +794,8 @@ public float GetLoyerTotal()
 
         batiment.Name = nouveauNom;
         // La surface saisie fait foi ; les lots non définis se replient dessus.
-        SaveCorrectlyFloat(ref batiment.tailleBatiment, tailleBatimentText.GetNewSave());
+        if (LotsBatiment.Definis(batiment)) tailleBatimentText.ApplySave(LotsBatiment.SurfaceTotale(batiment).ToString());   // 04/11
+        else SaveCorrectlyFloat(ref batiment.tailleBatiment, tailleBatimentText.GetNewSave());
         RefreshTailleBatiment();
         SaveCorrectlyFloat(ref batiment.tailleTerrain, tailleTerrainText.GetNewSave());
         Debug.Log(batiment.tailleBatiment);

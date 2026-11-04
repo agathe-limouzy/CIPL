@@ -33,7 +33,7 @@ public class SectionExport
         // ponytail: le format est celui d'une entreprise CIPL sur le PC, mais l'import d'un export
         // (« Importer un export ») reste à faire : la phrase ne promet donc que la copie.
         Texte($"Une copie complète de {e.nom} sur ce PC : bâtiments, locataires, factures, baux, photos, charges, Réglages " +
-              "(sans les mots de passe ni la clé Pennylane), rangés comme dans CIPL.",
+              "(sans les mots de passe), rangés comme dans CIPL.",
               UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         string dossier = null;

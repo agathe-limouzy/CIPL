@@ -55,6 +55,7 @@ public class FactureInfo
     public bool tvaDebit = true;    // mention TVA imprimée (nom historique : c'était « sur les débits » seulement)
     public bool tvaEncaissements;   // … et laquelle : faux = sur les débits, vrai = sur les encaissements (voir MentionTva)
     public bool ajouterRetard = true; // ajoute la phrase de retard/pénalités
+    public float tauxTva;             // taux de TVA propre à cette facture (0 = celui du bail ou de l'entreprise, voir Tva) — 02/11
     public bool ajouterMensuel = true; // ligne « montant mensuel à régler » (loyer période ÷ nb mois ; hors mensuel)
     // NB : pas de champ « envoyer par email » ici. Le mode d'envoi est un réglage
     // d'ENTREPRISE (Réglages → Connexion & envoi) ; le doubler par facture donnait

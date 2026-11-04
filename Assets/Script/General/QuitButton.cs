@@ -19,10 +19,12 @@ public class QuitButton : MonoBehaviour
         // on le dit explicitement au lieu de laisser croire que tout est enregistré.
         var enEdition = FermetureGuard.NomsEnEdition();
 
-        if (enEdition.Count > 0)
-            ConfirmDialog.Instance.Show("Modifications non enregistrées",
-                FermetureGuard.MessageAvertissement(enEdition),
-                Quitter, "Quitter sans enregistrer");
+        var enAttente = EcritureCloud.NomsEnAttente();   // Revue 17 (D8-01) : fiches enregistrées hors ligne, pas encore envoyées
+        if (enEdition.Count > 0 || enAttente.Count > 0)
+        {
+            var (titre, texte) = FermetureGuard.Avertissement(enEdition, enAttente);
+            ConfirmDialog.Instance.Show(titre, texte, Quitter, enEdition.Count > 0 ? "Quitter sans enregistrer" : "Quitter quand même");
+        }
         else
             ConfirmDialog.Instance.Show("Quitter l'application",
                 "Voulez-vous vraiment quitter ?", Quitter, "Quitter");

@@ -100,32 +100,47 @@ public static class FermetureGuard
     /// confirmation, et on relance la fermeture seulement si l'utilisatrice l'accepte.
     /// (Non appelé dans l'éditeur quand on sort du mode Play — le bouton Quitter de
     /// l'app couvre ce cas en passant par le même contrôle.)
+    /// Revue 17 (D8-01) : ce que fait la fermeture. Prévenir dès qu'une saisie, ou une fiche enregistrée hors ligne qui attend la
+    /// connexion (gardée en mémoire seulement), serait perdue ; attendre une écriture en vol ; sinon quitter.
+    public enum Choix { Quitter, Attendre, Prevenir }
+
+    public static Choix Decision(int enEdition, bool enregistrementEnCours, int enAttente)
+        => enEdition > 0 || enAttente > 0 ? Choix.Prevenir : enregistrementEnCours ? Choix.Attendre : Choix.Quitter;
+
+    /// Titre et texte de l'avertissement : les fiches en saisie, puis celles qui attendent la connexion.
+    public static (string titre, string texte) Avertissement(List<string> enEdition, List<string> enAttente)
+    {
+        var parts = new List<string>();
+        if (enEdition.Count > 0) parts.Add(MessagePerte(enEdition, "Quitter"));
+        if (enAttente.Count > 0)
+            parts.Add("Hors ligne : ces fiches attendent la connexion pour être enregistrées :\n\n" +
+                      $"• {string.Join("\n• ", enAttente)}\n\n" +
+                      "Quitter maintenant les perdrait. Attendez le retour de la connexion (bandeau « Réessayer »).");
+        return (enEdition.Count > 0 ? "Modifications non enregistrées" : "Modifications pas encore envoyées", string.Join("\n\n", parts));
+    }
+
     private static bool AutoriserFermeture()
     {
         if (_quitterConfirme) return true;
 
         var enEdition = NomsEnEdition();
-        if (enEdition.Count == 0)
+        var enAttente = EcritureCloud.NomsEnAttente();   // Revue 17 (D8-01)
+        switch (Decision(enEdition.Count, EcritureCloud.EnregistrementEnCours, enAttente.Count))
         {
-            if (!EcritureCloud.EnregistrementEnCours) return true;
-            QuitterSansGarde();   // revue 16c (D8-03) : la fermeture attend l'écriture en vol
-            return false;
+            case Choix.Quitter: return true;
+            case Choix.Attendre: QuitterSansGarde(); return false;   // revue 16c (D8-03) : la fermeture attend l'écriture en vol
         }
 
         // Sans boîte de dialogue disponible, on ne bloque pas la fermeture : mieux vaut
         // quitter que laisser l'application impossible à fermer.
         if (ConfirmDialog.Instance == null)
         {
-            Debug.LogWarning($"[FermetureGuard] Fermeture avec {enEdition.Count} fiche(s) non enregistrée(s).");
+            Debug.LogWarning($"[FermetureGuard] Fermeture avec {enEdition.Count} fiche(s) non enregistrée(s), {enAttente.Count} en attente de connexion.");
             return true;
         }
 
-        ConfirmDialog.Instance.Show(
-            "Modifications non enregistrées",
-            MessageAvertissement(enEdition),
-            QuitterSansGarde,
-            "Quitter sans enregistrer");
-
+        var (titre, texte) = Avertissement(enEdition, enAttente);
+        ConfirmDialog.Instance.Show(titre, texte, QuitterSansGarde, enEdition.Count > 0 ? "Quitter sans enregistrer" : "Quitter quand même");
         return false;
     }
 }

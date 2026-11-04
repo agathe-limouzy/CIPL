@@ -71,6 +71,11 @@ public static class Loyers
     public static bool DebutPremierBail(Locataire loc, out DateTime d)
         => Date(loc?.dateDebutPremierBailISO, out d) || Date(loc?.dateDebutBailISO, out d);
 
+    /// Revue 17 (retour BL4, 04/11) : dans les lieux ce jour-là, du premier bail au départ, comme FractionPresence (sans
+    /// date de bail : oui).
+    public static bool PresentLe(Locataire loc, DateTime jour)
+        => (!DebutPremierBail(loc, out var debut) || debut.Date <= jour.Date) && jour.Date <= FinFacturation(loc);
+
     // ── Loyer d'une date, montant d'une période ───────────────────────────────
 
     /// Loyer annuel HT en vigueur à cette date : avant un avenant, le loyer de

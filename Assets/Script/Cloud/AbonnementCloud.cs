@@ -19,7 +19,7 @@ public static class AbonnementCloud
     }
 
     [Serializable] class PEntreprise { public string p_entreprise; }
-    [Serializable] class PAjout { public string p_entreprise, p_nom, p_type, p_siret; }
+    [Serializable] class PAjout { public string p_entreprise, p_nom, p_type, p_siret; public ReglageData p_reglages; }   // Revue 17 (D3-01)
     [Serializable] public class Ajout { public bool ok; public string refus, id, nom, erreur; }
 
     /// Null tant qu'il n'est pas lu (ou illisible) : rien n'est alors bloqué ici, le serveur décide.
@@ -70,10 +70,10 @@ public static class AbonnementCloud
     /// Pour les tests : comme avant la lecture.
     public static void Oublier() => Courant = null;
 
-    public static async Task<Ajout> Ajouter(string nom, string type, string siret)
+    public static async Task<Ajout> Ajouter(string nom, string type, string siret, ReglageData reglages)
     {
         var r = await CloudClient.Fonction(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "ajouter_entreprise",
-            new PAjout { p_entreprise = SessionCloud.Entreprise?.id, p_nom = nom, p_type = type, p_siret = siret });
+            new PAjout { p_entreprise = SessionCloud.Entreprise?.id, p_nom = nom, p_type = type, p_siret = siret, p_reglages = reglages });
         if (!r.Ok) return new Ajout { refus = "erreur", erreur = r.Erreur };
         try { return JsonUtility.FromJson<Ajout>(r.Corps) ?? new Ajout { refus = "erreur", erreur = "Réponse illisible." }; }
         catch (Exception ex) { return new Ajout { refus = "erreur", erreur = ex.Message }; }

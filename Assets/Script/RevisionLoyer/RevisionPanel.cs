@@ -82,6 +82,9 @@ public class RevisionPanel : MonoBehaviour
     Toggle _delaisToggle; GameObject _delaisBlockGO;   // délais de facturation propres au locataire (01/11)
     DateInputController _dateRegulCtrl;
     GameObject _jourLabelGO, _moisLabelGO, _moisWrapGO, _regulBlockGO, _repriseBlockGO;
+    // TVA sur le loyer (02/11) : case « soumis » et taux du bail. Le bail garde son propre choix dès qu'on y a touché (BK4) ;
+    // sinon il suit l'entreprise (Réglages).
+    Toggle _tvaToggle; TMP_InputField _tvaTaux; GameObject _tvaLabelGO; bool _tvaTouche;
     UIDropdown _repriseDD;                      // reprise : dernière période déjà facturée
     Button _btnEnregistrer;                    // volet Modalités (clone de Réviser)
     readonly Button[] _moisChips = new Button[12];
@@ -144,6 +147,9 @@ public class RevisionPanel : MonoBehaviour
         EnsureExtraBuilt();
         if (_scroll != null) _scroll.verticalNormalizedPosition = 1f;   // BI2 (02/11) : la fenêtre s'ouvre en haut de son contenu
         _jourDemande.text = loc.jourDemandeLoyer > 0 ? loc.jourDemandeLoyer.ToString() : "";
+        _tvaToggle?.SetIsOnWithoutNotify(Tva.Soumis(loc));   // 02/11
+        if (_tvaTaux != null) _tvaTaux.text = (loc.tauxTvaLoyer > 0f ? loc.tauxTvaLoyer : TauxEntreprise()).ToString("0.##", FacturePdfService.FrCulture);
+        _tvaTouche = false;   // le chargement n'est pas un choix
         if (_delaisToggle != null)
         {
             _delaisToggle.SetIsOnWithoutNotify(!loc.delaisPropres);
@@ -804,6 +810,17 @@ public class RevisionPanel : MonoBehaviour
         _jourDemande.contentType = TMP_InputField.ContentType.IntegerNumber;
         _jourDemande.transform.SetSiblingIndex(idx++);
 
+        // TVA sur le loyer (02/11) : case « soumis » (cochée d'après l'entreprise) et taux du bail, à défaut celui de l'entreprise.
+        _tvaToggle = UIFactory.Toggle(content, "TVA sur le loyer (option du bailleur)", true);
+        _tvaToggle.transform.SetSiblingIndex(idx++);
+        _tvaToggle.onValueChanged.AddListener(_ => { _tvaTouche = true; RefreshTvaVisibility(_volet == Volet.Initialisation); });
+        _tvaLabelGO = UIFactory.Text(content, "Taux de TVA du bail (%)", UITheme.Role.Donnee, UITheme.TexteSecondaire).gameObject;
+        _tvaLabelGO.transform.SetSiblingIndex(idx++);
+        _tvaTaux = UIFactory.Input(content, Tva.TauxDefaut.ToString("0.##", FacturePdfService.FrCulture));
+        _tvaTaux.contentType = TMP_InputField.ContentType.DecimalNumber;
+        _tvaTaux.onValueChanged.AddListener(_ => _tvaTouche = true);
+        _tvaTaux.transform.SetSiblingIndex(idx++);
+
         // Délais de facturation (01/11) : ceux de l'entreprise (Réglages › Facturation › Calendrier des factures), ou les siens.
         _delaisToggle = UIFactory.Toggle(content, "Délais des factures : ceux de l'entreprise (Réglages › Facturation)", true);
         _delaisToggle.transform.SetSiblingIndex(idx++);
@@ -1028,6 +1045,17 @@ public class RevisionPanel : MonoBehaviour
         float y = -ecran.rect.height / 2f;   // centrée : la scène la posait à une hauteur fixe, pensée pour un contenu court
         if (!Mathf.Approximately(_fenetre.anchoredPosition.y, y)) _fenetre.anchoredPosition = new Vector2(_fenetre.anchoredPosition.x, y);
     }
+
+    // TVA (02/11) : visible dans Initialiser ; le taux seulement quand la case est cochée.
+    void RefreshTvaVisibility(bool mod)
+    {
+        if (_tvaToggle == null) return;
+        bool soumis = _tvaToggle.isOn;
+        SetGO(_tvaToggle.gameObject, mod);
+        SetGO(_tvaLabelGO, mod && soumis);
+        if (_tvaTaux != null) _tvaTaux.gameObject.SetActive(mod && soumis);
+    }
+    static float TauxEntreprise() => ReglageService.Current?.tauxTva > 0f ? ReglageService.Current.tauxTva : Tva.TauxDefaut;
 
     // Mois visibles seulement dans le volet Initialiser, hors mensuel ;
     // régularisation visible seulement dans Initialiser et en cas de provision.
@@ -1340,6 +1368,7 @@ public class RevisionPanel : MonoBehaviour
         // Blocs « Initialiser » (masqués dans Indice)
         SetGO(_periodiciteGO, mod);
         SetGO(_jourLabelGO, mod);
+        RefreshTvaVisibility(mod);   // 02/11
         if (_jourDemande != null) SetGO(_jourDemande.gameObject, mod);
         if (_delaisToggle != null) SetGO(_delaisToggle.gameObject, mod);
         RefreshDelaisVisibility();
@@ -1675,6 +1704,12 @@ public class RevisionPanel : MonoBehaviour
         {
             int.TryParse(_jourDemande.text, out int jd);
             _loc.jourDemandeLoyer = Mathf.Clamp(jd, 0, 31);
+        }
+        if (_tvaToggle != null)   // 02/11 (BK4) : dès qu'on a touché à la case ou au taux, le bail garde son propre choix ; sinon il suit l'entreprise
+        {
+            if (_tvaTouche) _loc.tvaLoyer = _tvaToggle.isOn ? "oui" : "non";
+            _loc.tauxTvaLoyer = _tvaToggle.isOn && _tvaTaux != null && SaisieNumerique.TryParse(_tvaTaux.text, out float tx) && tx > 0f
+                                && Mathf.Abs(tx - TauxEntreprise()) > 0.001f ? tx : 0f;
         }
         if (_delaisToggle != null)
         {

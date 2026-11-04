@@ -48,6 +48,8 @@ public class MiseAJour : MonoBehaviour
     GameObject _bandeau, _fenetre;
     TMP_Text _texte;
     Action<string> _afficherFenetre;
+    Func<Canvas> _canvas;          // Revue 17 (D2-01) : version.json relu toutes les heures
+    float _prochaineLecture;
 
     /// La version visée par la dernière mise à jour lancée : relue (puis effacée) au lancement suivant.
     static string FichierEnCours => Path.Combine(Application.persistentDataPath, "cipl_mise_a_jour_en_cours.txt");
@@ -59,6 +61,8 @@ public class MiseAJour : MonoBehaviour
         var go = new GameObject("MiseAJour");
         DontDestroyOnLoad(go);
         _instance = go.AddComponent<MiseAJour>();
+        _instance._canvas = canvas;
+        _instance._prochaineLecture = Time.realtimeSinceStartup + 3600f;
         _instance.StartCoroutine(_instance.Bilan());
         _instance.StartCoroutine(_instance.Lire(canvas));
     }
@@ -102,6 +106,13 @@ public class MiseAJour : MonoBehaviour
 
     void Update()
     {
+        // Revue 17 (D2-01) : CIPL reste ouvert des jours ; une version devenue obligatoire s'affiche sans attendre le lancement suivant.
+        if (_canvas != null && Time.realtimeSinceStartup >= _prochaineLecture)
+        {
+            _prochaineLecture = Time.realtimeSinceStartup + 3600f;
+            if (_fenetre == null) StartCoroutine(Lire(_canvas));
+        }
+
         // La fenêtre obligatoire reste devant tout (connexion, choix de l'entreprise…), sauf un message.
         if (_fenetre != null && !(ConfirmDialog.Instance != null && ConfirmDialog.Instance.gameObject.activeSelf))
             _fenetre.transform.SetAsLastSibling();

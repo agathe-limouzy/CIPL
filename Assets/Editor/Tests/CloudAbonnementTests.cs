@@ -216,11 +216,11 @@ public class CloudAbonnementTests
     }
 
     /// Même piège qu'en 9b (Retirer, 19/10) : un paramètre en trop rend la fonction SQL introuvable.
-    [TestCase("PEntreprise", "abonnement")]
-    [TestCase("PAjout", "ajouter_entreprise")]
-    public void Les_parametres_envoyes_sont_ceux_de_la_fonction_SQL(string classe, string fonction)
+    [TestCase("PEntreprise", "abonnement", "etape9c1_supabase.sql")]
+    [TestCase("PAjout", "ajouter_entreprise", "etape17a_supabase.sql")]   // Revue 17 (D3-01) : p_reglages
+    public void Les_parametres_envoyes_sont_ceux_de_la_fonction_SQL(string classe, string fonction, string fichier)
     {
-        string sql = File.ReadAllText(Path.Combine("Serveur", "etape9c1_supabase.sql"));
+        string sql = File.ReadAllText(Path.Combine("Serveur", fichier));
         var sig = Regex.Match(sql, @"function public\." + fonction + @"\(([^)]*)\)");
         Assert.That(sig.Success, Is.True, fonction + " absente du SQL");
         var attendus = sig.Groups[1].Value.Split(',').Select(p => p.Trim().Split(' ')[0]).OrderBy(x => x);

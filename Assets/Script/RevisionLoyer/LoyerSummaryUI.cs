@@ -19,7 +19,6 @@ public class LoyerSummaryUI : MonoBehaviour
     public Button btnOuvrirRevision;
     public GameObject badgeRevision;      // pastille rouge
 
-    private const float TVA = 1.2f;
 
     private LocatairePrefab _locatairePrefab;
     private Button _btnModalites;          // 2ᵉ bouton (gestion du loyer / facturation)
@@ -99,7 +98,10 @@ public class LoyerSummaryUI : MonoBehaviour
         if (loc == null) return;
 
         float annuel = loc.loyerAnnuel;
-        float taille = loc.tailleLot;
+        float TVA = 1f + Tva.Taux(loc) / 100f;   // 02/11 : le taux du bail (1 si exonéré : le TTC est alors le total sans TVA)
+        // 04/11 : la surface de son lot (déclaré dans le bâtiment, ou la part du disponible), plus seulement une surface saisie.
+        float taille = _locatairePrefab != null && _locatairePrefab.batimentPrefabOrigin != null
+            ? _locatairePrefab.batimentPrefabOrigin.TailleLotEffective(loc) : loc.tailleLot;
         // Total de toutes les listes de charges : c'est ce qui est appelé avec le loyer.
         float provision = ListesCharges.ProvisionTotale(loc);
 

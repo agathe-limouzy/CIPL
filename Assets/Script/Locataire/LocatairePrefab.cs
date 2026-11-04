@@ -153,6 +153,67 @@ public class LocatairePrefab : PrefabBatLoc
     public static float SurfaceAEnregistrer(float avant, float saisie, float proposee)
         => avant <= 0f && Mathf.Abs(saisie - proposee) < 0.01f ? 0f : saisie;
 
+    // ── Demande du 04/11 : le lot se choisit parmi ceux du bâtiment ──────────
+
+    UIDropdown _choixLot;
+
+    /// À la place du numéro de lot : la liste des lots libres du bâtiment (plus le sien) ; la surface suit le lot choisi.
+    void OuvrirChoixLot()
+    {
+        FermerChoixLot();
+        var t = lotBatimentTxt.textSaved.transform;
+        _choixLot = UIDropdown.Create(t.parent, new List<string>(), new List<string>(), 0, _ => MajSurfaceDuLot(), 36);
+        _choixLot.transform.SetSiblingIndex(t.GetSiblingIndex() + 1);
+        lotBatimentTxt.textSaved.gameObject.SetActive(false);
+        lotBatimentTxt.inputModify.gameObject.SetActive(false);
+        MajChoixLot(GetLocataire() ?? _locAffiche);
+    }
+
+    void MajChoixLot(Locataire loc)
+    {
+        if (_choixLot == null) return;
+        var bat = batimentPrefabOrigin.getBatiment();
+        var labels = new List<string>(); var ids = new List<string>();
+        foreach (var lot in LotsBatiment.Libres(bat, loc)) { labels.Add(LotsBatiment.Libelle(bat, lot)); ids.Add(lot.numero.ToString()); }
+        int n = loc?.lotBatiment ?? 0;
+        if (n > 0 && !ids.Contains(n.ToString()))   // son numéro, pris par un autre ou pas déclaré : gardé tant qu'on n'en change pas
+        {
+            var lot = LotsBatiment.Lot(bat, loc);
+            labels.Add(lot != null ? LotsBatiment.Libelle(bat, lot) : $"Lot {n} · pas dans les lots du bâtiment");
+            ids.Add(n.ToString());
+        }
+        labels.Add("Aucun lot"); ids.Add("0");
+        _choixLot.SetOptions(labels, ids, n.ToString());
+        MajSurfaceDuLot();
+    }
+
+    int LotChoisi() => int.TryParse(_choixLot?.SelectedId, out var n) ? n : 0;
+
+    void MajSurfaceDuLot()
+    {
+        var lot = batimentPrefabOrigin.getBatiment().lots?.Find(x => x != null && x.numero == LotChoisi());
+        tailleLotTxt.ApplySave((lot?.surface ?? 0f).ToString());
+    }
+
+    /// Le lot choisi, s'il a changé, doit exister et être libre (null : il l'est, ou rien n'a changé).
+    string RefusLot(Locataire loc)
+    {
+        int n = LotChoisi();
+        var bat = batimentPrefabOrigin.getBatiment();
+        if (n <= 0 || n == loc.lotBatiment || LotsBatiment.Libres(bat, loc).Any(x => x.numero == n)) return null;
+        var occ = LotsBatiment.Occupants(bat, n).Where(o => o.id != loc.id).Select(o => $"« {LotsBatiment.Nom(o)} »").ToList();
+        return occ.Count > 0 ? $"Le lot {n} est déjà occupé par {string.Join(", ", occ)} : choisissez-en un autre."
+                             : $"Le lot {n} n'est pas dans les lots du bâtiment : choisissez-en un dans la liste, ou créez-le dans « Lots ».";
+    }
+
+    void FermerChoixLot()
+    {
+        if (_choixLot == null) return;
+        Destroy(_choixLot.gameObject);
+        _choixLot = null;
+        lotBatimentTxt.ShowSaveElement();
+    }
+
     public void RefreshTailleLot(float value)
     {
         // Revue 16c (D7a-16) : une fiche en saisie garde son champ ouvert (un enregistrement voisin le refermait).
@@ -215,8 +276,6 @@ public class LocatairePrefab : PrefabBatLoc
         if (facturationFields == null) facturationFields = gameObject.AddComponent<LocataireFacturationFields>();
         facturationFields.EnsureBuilt(this);
         BuildSiretRow();
-        BuildAssujettiTva();
-        AfficherAssujettiTva(newLocataire, NeedToModify);
 
         if (_parcours == null) _parcours = gameObject.AddComponent<ParcoursLocataireUI>();
         _parcours.EnsureBuilt(this);
@@ -257,6 +316,7 @@ public class LocatairePrefab : PrefabBatLoc
             emailLocataireTxt.ApplySave(newLocataire.emailLocataire);
             telephoneLocataireTxt.ApplySave(newLocataire.telephoneLocataire);
             mapController.ApplySave(newLocataire.adresseLocataire);
+            FermerChoixLot();   // 04/11 : la liste des lots d'une saisie abandonnée
             lotBatimentTxt.ApplySave(newLocataire.lotBatiment.ToString());
             tailleLotTxt.ApplySave(batimentPrefabOrigin.TailleLotEffective(newLocataire).ToString());
 
@@ -424,6 +484,13 @@ public class LocatairePrefab : PrefabBatLoc
             dateFinBail.ApplyDate(fin);
         }
 
+        // Demande du 04/11 : le lot choisi doit être libre (un collègue a pu y rattacher un autre locataire entre-temps).
+        if (_choixLot != null)
+        {
+            string refusLot = RefusLot(locataire);
+            if (refusLot != null) { MajChoixLot(locataire); ConfirmDialog.Erreur(refusLot); return; }
+        }
+
         // ── Nom : unicité DANS CE BÂTIMENT + dossier déplacé si le nom change ─────
         // Le dossier du locataire vit à l'intérieur de celui de son bâtiment : deux
         // locataires homonymes dans DEUX bâtiments différents ne se gênent donc pas et
@@ -462,18 +529,28 @@ public class LocatairePrefab : PrefabBatLoc
         locataire.telephoneLocataire = telephoneLocataireTxt.GetNewSave();
         locataire.adresseLocataire = mapController.GetNewSave();
 
-        SaveCorrectlyInt(ref locataire.lotBatiment, lotBatimentTxt.GetNewSave());
+        if (_choixLot != null)   // demande du 04/11 : le lot choisi dans la liste ; la surface est la sienne
+        {
+            locataire.lotBatiment = LotChoisi();
+            FermerChoixLot();
+            lotBatimentTxt.ApplySave(locataire.lotBatiment.ToString());
+            tailleLotTxt.ApplySave(batimentPrefabOrigin.TailleLotEffective(locataire).ToString());
+        }
+        else
+        {
+            SaveCorrectlyInt(ref locataire.lotBatiment, lotBatimentTxt.GetNewSave());
 
-        // Surface du lot : toujours saisissable. Si la valeur rendue est encore
-        // celle qui était proposée (le disponible du bâtiment), on la laisse « non
-        // définie » (0) — ainsi elle continue de suivre le bâtiment quand un autre
-        // locataire prend sa part, au lieu de figer un chiffre jamais choisi.
-        float saisie = locataire.tailleLot;
-        SaveCorrectlyFloat(ref saisie, tailleLotTxt.GetNewSave());
-        // Retour du 01/11 : un champ vidé veut dire « la surface suit de nouveau le bâtiment » (avant, le vide gardait
-        // l'ancienne valeur et seul « 0 » marchait).
-        if (string.IsNullOrWhiteSpace(tailleLotTxt.GetNewSave())) saisie = 0f;
-        locataire.tailleLot = SurfaceAEnregistrer(locataire.tailleLot, saisie, batimentPrefabOrigin.TailleLotDisponible(locataire));
+            // Surface du lot : toujours saisissable. Si la valeur rendue est encore
+            // celle qui était proposée (le disponible du bâtiment), on la laisse « non
+            // définie » (0) — ainsi elle continue de suivre le bâtiment quand un autre
+            // locataire prend sa part, au lieu de figer un chiffre jamais choisi.
+            float saisie = locataire.tailleLot;
+            SaveCorrectlyFloat(ref saisie, tailleLotTxt.GetNewSave());
+            // Retour du 01/11 : un champ vidé veut dire « la surface suit de nouveau le bâtiment » (avant, le vide gardait
+            // l'ancienne valeur et seul « 0 » marchait).
+            if (string.IsNullOrWhiteSpace(tailleLotTxt.GetNewSave())) saisie = 0f;
+            locataire.tailleLot = SurfaceAEnregistrer(locataire.tailleLot, saisie, batimentPrefabOrigin.TailleLotDisponible(locataire));
+        }
         batimentPrefabOrigin.RefreshTailleBatiment();
 
         bailFields?.Save(locataire);
@@ -482,11 +559,6 @@ public class LocatairePrefab : PrefabBatLoc
 
         SaveCorrectlyFloat(ref locataire.tauxDeRentabilité, tauxDeRentabilité.GetNewSave());
         locataire.siretNumber = siret.GetNewSave();
-        if (_assujettiTva != null)
-        {
-            if (_assujettiTouche) locataire.assujettiTva = _assujettiTva.isOn ? "oui" : "non";
-            AfficherAssujettiTva(locataire, false);
-        }
         locataire.commentaire = Commentaire.GetNewSave();
         facturationFields?.Save(locataire);
 
@@ -613,11 +685,16 @@ public class LocatairePrefab : PrefabBatLoc
         emailLocataireTxt.Modify();
         telephoneLocataireTxt.Modify();
         mapController.Modify();
-        lotBatimentTxt.Modify();
-        // Toujours saisissable, pré-rempli avec le disponible : le lot du premier
-        // locataire était imposé, donc impossible à réduire quand un second arrivait.
-        tailleLotTxt.ApplyValue(batimentPrefabOrigin.TailleLotEffective(GetLocataire()).ToString());
-        tailleLotTxt.Modify();
+        // Demande du 04/11 : avec des lots déclarés dans le bâtiment, le lot se choisit dans leur liste et la surface est la sienne.
+        if (LotsBatiment.Definis(batimentPrefabOrigin.getBatiment())) OuvrirChoixLot();
+        else
+        {
+            lotBatimentTxt.Modify();
+            // Toujours saisissable, pré-rempli avec le disponible : le lot du premier
+            // locataire était imposé, donc impossible à réduire quand un second arrivait.
+            tailleLotTxt.ApplyValue(batimentPrefabOrigin.TailleLotEffective(GetLocataire()).ToString());
+            tailleLotTxt.Modify();
+        }
         bailFields?.Modify();
         dateDebutBail.ModifyDate();
         dateFinBail.ModifyDate();
@@ -627,7 +704,6 @@ public class LocatairePrefab : PrefabBatLoc
         modifyBatiment.gameObject.SetActive(false);
         Delete.gameObject.SetActive(true);
         siret.Modify();
-        if (_assujettiTva != null) _assujettiTva.interactable = true;
         Commentaire.Modify();
         facturationFields?.Modify();
 
@@ -672,36 +748,6 @@ public class LocatairePrefab : PrefabBatLoc
         prt.anchorMin = new Vector2(1, 0); prt.anchorMax = new Vector2(1, 0); prt.pivot = new Vector2(1, 0);
         prt.sizeDelta = new Vector2(92, 26);
         prt.anchoredPosition = new Vector2(-8, 9);
-    }
-
-    // ── Étape 18b : « Assujetti à la TVA », sous la rangée du SIRET ────────────
-    // Destinataire des factures électroniques. Cochée d'office avec un SIRET, décochée pour un particulier
-    // (décision du 29/10) ; modifiable en « Modifier » (association, profession exonérée…).
-    private Toggle _assujettiTva;
-    private bool _assujettiTouche;
-
-    private void BuildAssujettiTva()
-    {
-        if (_assujettiTva != null || siret == null) return;
-        var rangee = siret.transform.parent;   // « Siret · Code comptable »
-        _assujettiTva = UIFactory.Toggle(rangee.parent,
-            "Assujetti à la TVA : reçoit les factures électroniques (décocher : association, profession exonérée…)", false);
-        _assujettiTva.transform.SetSiblingIndex(rangee.GetSiblingIndex() + 1);
-        _assujettiTva.onValueChanged.AddListener(_ => _assujettiTouche = true);
-        // Sans choix fait, la case suit le SIRET tapé.
-        siret.inputModify.onValueChanged.AddListener(t =>
-        {
-            if (!_assujettiTouche && (GetLocataire()?.assujettiTva ?? "") == "")
-                _assujettiTva.SetIsOnWithoutNotify(PappersResume.SiretExploitable(t));
-        });
-    }
-
-    private void AfficherAssujettiTva(Locataire l, bool modifiable)
-    {
-        if (_assujettiTva == null) return;
-        _assujettiTva.SetIsOnWithoutNotify(Locataire.AssujettiTva(l));
-        _assujettiTva.interactable = modifiable;
-        _assujettiTouche = false;
     }
 
     // ── Pappers ───────────────────────────────────────────────────────────────

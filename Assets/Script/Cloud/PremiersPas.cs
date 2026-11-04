@@ -57,7 +57,7 @@ public static class PremiersPas
     {
         Ligne.Logo => "En haut de chaque facture · 1 min",
         Ligne.Rib => "Imprimés sur les factures · 2 min",
-        Ligne.Envoi => "E-mail ou Pennylane · 3 min",
+        Ligne.Envoi => "E-mail · 3 min",
         Ligne.Batiment => "Nom et adresse · 2 min",
         Ligne.Locataire => "Bail, loyer, e-mail de facturation · 4 min",
         Ligne.Facture => "Aperçu puis émission · 2 min",
@@ -69,8 +69,8 @@ public static class PremiersPas
     {
         Ligne.Logo => "Votre logo s'imprime en haut de chaque facture. Le bas de page et le lieu d'émission sont déjà remplis d'après votre SIRET : vérifiez-les au passage.",
         Ligne.Rib => "Le compte où vos locataires paient : son IBAN et son BIC s'impriment sur chaque facture.",
-        Ligne.Envoi => "Choisissez l'e-mail ou Pennylane : c'est par là que vos factures partiront.",
-        Ligne.Batiment => "Chaque immeuble ou local a sa fiche et son onglet ; ses locataires s'y ajoutent.",
+        Ligne.Envoi => "Réglez l'adresse qui envoie vos factures : c'est par là qu'elles partiront.",
+        Ligne.Batiment => "Chaque immeuble ou local a sa fiche et son onglet ; ses lots, puis ses locataires, s'y ajoutent.",
         Ligne.Locataire => "Son bail et son loyer servent à préparer chaque facture ; son e-mail, à la lui envoyer.",
         Ligne.Facture => "Vérifiez l'aperçu, puis émettez : la facture reçoit son numéro et son PDF. L'envoi se fait ensuite, quand vous le décidez.",
         Ligne.Inviter => "Un collègue travaille avec vous ? Il reçoit un code par e-mail et voit les mêmes bâtiments, en direct.",
@@ -103,8 +103,7 @@ public static class PremiersPas
             admin = e?.EstAdmin == true,
             logo = !string.IsNullOrEmpty(r?.logoPath),
             rib = r?.ribs?.Count > 0,
-            envoi = r?.modeEnvoi == ModeEnvoi.Email ? EmailService.CeQuiManque() == null
-                                                     : !string.IsNullOrEmpty(ReglageService.LireSecret("pennylane_api_key")),
+            envoi = EmailService.CeQuiManque() == null,
             batiments = bats.Count,
             locataires = locs.Count,
             facture = locs.Any(l => l.facturesEtat?.Any(f => !string.IsNullOrEmpty(f.numero)) == true),
@@ -379,9 +378,7 @@ public static class PremiersPas
     {
         string logoAvant = a.logo;
         int ribsAvant = a.ribs;
-        const string Pennylane = "Envoyer via Pennylane (e-facture Factur-X)";
-        Func<bool> pennylane = () => Bulles.Coche(Pennylane, Reglages);
-        Func<bool> sansSmtp = () => pennylane() || Messagerie.Relie(ReglageService.Current?.smtp) || ReglagePanel.Instance?.ZoneRelier != null;
+        Func<bool> sansSmtp = () => Messagerie.Relie(ReglageService.Current?.smtp) || ReglagePanel.Instance?.ZoneRelier != null;
         switch (l)
         {
             case Ligne.Logo: return new List<Bulles.Etape>
@@ -412,18 +409,14 @@ public static class PremiersPas
             };
             case Ligne.Envoi: return new List<Bulles.Etape>
             {
-                E("Comment partent vos factures", "Case cochée : vos factures sont déposées dans Pennylane (il faudra sa clé). Case décochée : elles partent par e-mail, depuis votre messagerie. Regardez si elle est cochée, choisissez, puis « Suivant ».",
-                  () => Bulles.Texte(Pennylane, Reglages)?.parent as RectTransform),
-                E("La clé Pennylane", "Collez la clé d'API de votre société, créée dans Pennylane. Chaque société a la sienne.",
-                  () => Bulles.Champ("Clé API Pennylane", Reglages), sauter: () => !pennylane()),
                 // Retour du 25/10 : ces champs ne se passent plus vides (« Suivant » menait à « Enregistrer »,
                 // qui attendait sans fin) ; « Suivant » apparaît dès qu'ils sont remplis (Saisir).
                 // Étape 16a : l'adresse d'abord ; Gmail, Outlook, Hotmail… se relient, les autres en SMTP.
                 Saisir("L'adresse d'expédition", "L'adresse qui envoie vos factures : vos locataires la voient et peuvent y répondre. Gmail, Outlook ou Hotmail : CIPL proposera de la relier, sans mot de passe.",
-                  () => Saisie("Adresse d'expédition"), sauter: pennylane),
+                  () => Saisie("Adresse d'expédition")),
                 E("Relier votre adresse", "Cliquez sur le bouton vert « Se connecter avec … » : la fenêtre de Google ou de Microsoft s'ouvre dans votre navigateur. Connectez-vous, autorisez CIPL, puis revenez ici.",
                   () => ReglagePanel.Instance?.ZoneRelier, () => Messagerie.Relie(ReglageService.Current?.smtp),
-                  "La suite s'affiche dès que l'adresse est reliée.", sauter: () => pennylane() || ReglagePanel.Instance?.ZoneRelier == null),
+                  "La suite s'affiche dès que l'adresse est reliée.", sauter: () => ReglagePanel.Instance?.ZoneRelier == null),
                 Saisir("Votre serveur d'envoi", "Rempli d'après votre adresse quand CIPL connaît votre messagerie ; sinon, celui de votre messagerie, avec le port 587.",
                   () => Saisie("Serveur SMTP"), sauter: sansSmtp),
                 Saisir("Le mot de passe", "La plupart des messageries demandent un mot de passe d'application, créé dans la sécurité de votre compte, et non votre mot de passe habituel.",
@@ -437,7 +430,7 @@ public static class PremiersPas
                     manque = ManqueEnvoi,
                 },
                 E("Un e-mail de test", "Vérifiez avec « Envoyer un email de test » : il part vers votre adresse d'expédition, jamais vers un locataire.",
-                  () => Bulles.Bouton("Envoyer un email de test", Reglages), sauter: pennylane),
+                  () => Bulles.Bouton("Envoyer un email de test", Reglages)),
             };
             case Ligne.Inviter: return new List<Bulles.Etape>
             {
@@ -477,7 +470,7 @@ public static class PremiersPas
             // sans lesquelles la facturation reste bloquée.
             case Ligne.Locataire: return new List<Bulles.Etape>
             {
-                E("Ajouter le locataire", "Dans « Locataires », cliquez sur « + Ajouter » : la fiche du locataire s'ouvre, prête à remplir.",
+                E("Ajouter le locataire", "Dans « Locataires », cliquez sur « + Ajouter » : la fiche du locataire s'ouvre, prête à remplir. Il occupe un lot du bâtiment : s'il n'y en a pas encore de libre, CIPL vous fait d'abord créer le sien.",
                   () => Rt(Fiche()?.summaryView?.btnAjouterLocataire), () => LocatairesAffiches() > a.locataires,
                   "La suite s'affiche quand la fiche est ouverte."),
                 Saisir("Son nom", "Le nom du locataire, société ou personne. Pour une société, son SIRET juste en dessous, puis « Pappers », remplissent le nom et l'adresse.",
@@ -503,7 +496,7 @@ public static class PremiersPas
                   () => Bulles.Champ("Période facturée", FactureLoyer())),
                 E("L'aperçu", "Cliquez sur « Générer facture » : l'aperçu s'affiche à droite, tel qu'il sera imprimé.",
                   () => Bulles.Bouton("Générer facture", FactureLoyer())),
-                E("Émettre", "Cliquez sur « Émettre (sans envoyer) » : la facture reçoit son numéro et son PDF. Pendant ce guide, rien ne part (ni e-mail ni Pennylane) : elle attend dans le suivi de facturation, d'où vous l'enverrez. Ensuite, ce bouton redevient « Sauvegarder et envoyer ».",
+                E("Émettre", "Cliquez sur « Émettre (sans envoyer) » : la facture reçoit son numéro et son PDF. Pendant ce guide, rien ne part (ni e-mail ni plateforme) : elle attend dans le suivi de facturation, d'où vous l'enverrez. Ensuite, ce bouton redevient « Sauvegarder et envoyer ».",
                   BoutonEmettre, () => FacturesEmises() > a.factures, "La suite s'affiche quand la facture est émise."),
             };
             default: return null;
@@ -515,10 +508,6 @@ public static class PremiersPas
     {
         var r = ReglageService.Current;
         if (r == null) return null;
-        if (r.modeEnvoi != ModeEnvoi.Email)
-            return string.IsNullOrEmpty(ReglageService.LireSecret("pennylane_api_key"))
-                ? "Il manque la clé Pennylane : collez-la plus haut et enregistrez, ou décochez « Envoyer via Pennylane » pour envoyer par e-mail."
-                : null;
         return EmailService.CeQuiManque();
     }
 

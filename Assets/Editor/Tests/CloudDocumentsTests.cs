@@ -233,7 +233,7 @@ public class CloudDocumentsTests
         Assert.That(ReglagesCloud.PeutEnvoyer(0, admin: false), Is.False);
         Assert.That(ReglagesCloud.PeutEnvoyer(4, admin: false), Is.True, "une fois partagés, chacun enregistre (contrôle de version)");
         Assert.That(ReglagesCloud.Corps("e1", 4, "{\"x\":1}", "s\"1"),
-                    Is.EqualTo("{\"p_entreprise\":\"e1\",\"p_version\":4,\"p_data\":{\"x\":1},\"p_session\":\"s\\\"1\"}"));
+                    Is.EqualTo("{\"p_entreprise\":\"e1\",\"p_version\":4,\"p_data\":{\"x\":1},\"p_session\":\"s\\\"1\",\"p_modele\":" + DonneesCloud.Modele + "}"));
     }
 
     [Test]

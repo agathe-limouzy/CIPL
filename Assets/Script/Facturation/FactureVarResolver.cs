@@ -66,7 +66,7 @@ public static class FactureVarResolver
         m["{loc.lot}"]         = loc != null ? loc.lotBatiment.ToString() : "";
         // Surface effective : la saisie, sinon la part du disponible du bâtiment (revue 16c, D6-01 : « 0 m² »).
         m["{loc.taille}"]      = loc == null ? ""
-            : $"{(bat != null ? BatimentPrefab.TailleLotDisponible(bat.tailleBatiment, bat.locataireDuBatiment, loc) : loc.tailleLot):0.##} m²";
+            : $"{(bat != null ? LotsBatiment.Surface(bat, loc) : loc.tailleLot):0.##} m²";   // 04/11 : celle de son lot
         m["{loc.bail}"]        = loc != null ? Locataire.LibelleBail(loc.typeDeBail) : "";   // libellé, pas le nom interne
         m["{loc.debutBail}"]   = D(loc?.dateDebutBailISO);
         m["{loc.finBail}"]     = D(loc?.dateFinBailISO);

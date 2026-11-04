@@ -38,6 +38,12 @@ public class ChargePanel : MonoBehaviour
     string _fPdf;
     TMP_Text _fPdfLabel;
     Button _chipSurface, _chipEgal, _chipManuel;
+    // Revue 17 (retour BL4, 04/11) : période de la charge (sur l'année / ponctuelle) et la date qui décide des présents.
+    Button _chipAnnee, _chipPonctuelle;
+    bool _fPonctuelle;
+    TMP_Text _aidePeriode;
+    TMP_InputField _fDate;
+    TMP_Text _fDetail;   // retour BL8 (04/11) : jours de présence et part du propriétaire, sous les montants
 
     Batiment Bat => _bp != null ? _bp.getBatiment() : null;
 
@@ -84,6 +90,7 @@ public class ChargePanel : MonoBehaviour
         _isNew = existing == null;
         _edit = existing != null ? Clone(existing) : new ChargeBatiment { dateISO = DateTime.Today.ToString("yyyy-MM-dd") };
         _fType = string.IsNullOrEmpty(_edit.typeRatio) ? "Surface" : _edit.typeRatio;
+        _fPonctuelle = _edit.ponctuelle;
         _fPdf = DossiersDonnees.PdfCharge(_bp.getName(), _edit.pdfPath);
         _fLoc.Clear(); _fRatio.Clear();
 
@@ -119,6 +126,8 @@ public class ChargePanel : MonoBehaviour
         fCout.onValueChanged.AddListener(_ => MajMontants());
         var fDate = LabeledInput(body, "Date", "JJ/MM/AAAA",
             DateTime.TryParse(_edit.dateISO, out var de) ? de.ToString("dd/MM/yyyy") : "");
+        _fDate = fDate;   // ponctuelle « Tous » : la date décide de qui la paie
+        fDate.onValueChanged.AddListener(_ => { MajAidePeriode(); if (_fPonctuelle && _fTous.isOn) RebuildRatio(); else MajMontants(); });
 
         // Liste de charges : proposée seulement si des listes spécifiques existent
         // (Réglages). Chaque liste est régularisée à sa propre date.
@@ -137,7 +146,7 @@ public class ChargePanel : MonoBehaviour
         // Locataires concernés
         UIFactory.Text(body, "Locataire(s) concerné(s)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _fTous = UIFactory.Toggle(body, "Tous les locataires", _edit.tousLocataires);
-        _fTous.onValueChanged.AddListener(_ => { RefreshLocBox(); RebuildRatio(); });
+        _fTous.onValueChanged.AddListener(_ => { RefreshLocBox(); RebuildRatio(); MajAidePeriode(); });
 
         var locWrap = UIFactory.VBox(body, 4, 0, 0, 0, 0, "LocBox");
         _locBox = locWrap.transform;
@@ -145,6 +154,14 @@ public class ChargePanel : MonoBehaviour
         // Répartition (ratios)
         var ratioWrap = UIFactory.VBox(body, 6, 0, 0, 0, 0, "RatioBox");
         _ratioBox = ratioWrap.transform;
+
+        // Période (Revue 17, retour BL4, 04/11), visible même pour un seul locataire.
+        UIFactory.Text(body, "Période", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        var periode = UIFactory.HBox(body, 6, false, "PeriodeChips");
+        _chipAnnee = PeriodeChip(periode.transform, "Sur l'année", false);
+        _chipPonctuelle = PeriodeChip(periode.transform, "Ponctuelle", true);
+        _aidePeriode = UIFactory.Text(body, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        MajAidePeriode();
 
         // PDF
         UIFactory.Text(body, "PDF de la facture", UITheme.Role.Libelle, UITheme.TexteSecondaire);
@@ -203,7 +220,10 @@ public class ChargePanel : MonoBehaviour
 
     List<Locataire> Concerned()
     {
-        if (_fTous.isOn) return Attribuables();
+        if (_fTous.isOn)
+            return _fPonctuelle && _fDate != null && TryParseFr(_fDate.text, out var jour)
+                ? Attribuables().Where(l => Loyers.PresentLe(l, jour)).ToList()   // ponctuelle : les présents à sa date
+                : Attribuables();
         return Attribuables().Where(l => _fLoc.TryGetValue(l.id, out var t) && t.isOn).ToList();
     }
 
@@ -222,9 +242,10 @@ public class ChargePanel : MonoBehaviour
     void RebuildRatio()
     {
         foreach (Transform c in _ratioBox) Destroy(c.gameObject);
-        _fRatio.Clear(); _manualEditable.Clear(); _manualLast = null; _fMontant.Clear();
+        _fRatio.Clear(); _manualEditable.Clear(); _manualLast = null; _fMontant.Clear(); _fDetail = null;
         var concerned = Concerned();
-        bool show = concerned.Count > 1;
+        // Retour BL8 (04/11) : un locataire seul aussi, quand il ne paie pas tout (arrivée en cours d'année, locaux vides).
+        bool show = concerned.Count > 1 || (concerned.Count == 1 && DetailDuPartage(Apercu(), concerned, Bat) != "");
         _ratioBox.gameObject.SetActive(show);
         if (!show) return;
 
@@ -275,15 +296,20 @@ public class ChargePanel : MonoBehaviour
             _fMontant.Add((l, montant));
         }
         if (_fType == "Manuel") RecomputeManualLast();
+        _fDetail = UIFactory.Text(_ratioBox, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
         MajMontants();
     }
 
-    /// Parts de répartition : surface du lot (1 si inconnue), 1 chacun (Égalité) ou part saisie (Manuel) ; aucune
-    /// pour un seul locataire, qui paie tout. Les mêmes pour l'enregistrement et pour les montants affichés.
+    /// Parts de répartition : surface du lot (1 si inconnue), 1 chacun (Égalité) ou part saisie (Manuel) ; une part (le
+    /// tout) pour un seul locataire (Revue 17, D6-01). Les mêmes pour l'enregistrement et pour les montants affichés.
     public static List<ChargeRatio> Ratios(string type, List<Locataire> concernes, Func<Locataire, float> surface,
                                            Func<Locataire, float> manuel)
     {
         var res = new List<ChargeRatio>();
+        // Revue 17 (D6-01) : un seul locataire a aussi sa part : sans part, chaque locataire arrivé ensuite payait la charge
+        // en entier. Un arrivant suit la règle des charges partagées (pas de part, rien à payer). Part 1 quel que soit le
+        // type : en « Manuel », le formulaire n'affiche pas de champ pour un seul locataire.
+        if (concernes.Count == 1) { res.Add(new ChargeRatio(concernes[0].id, 1f)); return res; }
         if (concernes.Count > 1)
             foreach (var l in concernes)
             {
@@ -298,19 +324,70 @@ public class ChargePanel : MonoBehaviour
 
     float PartManuelle(Locataire l) => _fRatio.TryGetValue(l.id, out var inp) ? ParseFloat(inp.text) : 0f;
 
-    /// La part de chacun en euros, à côté de sa base (décision du 01/11) : le calcul de la refacturation et de la
-    /// régularisation (ListesCharges.QuotePart) sur ce qui est saisi. Part entière : le prorata de présence se choisit
-    /// à la refacturation.
+    /// La part de chacun en euros, à côté de sa base (décision du 01/11) : ce que la régularisation facturera, et la
+    /// refacturation avec sa case « au prorata » (cochée par défaut). Retour BL8 (04/11) : au prorata de la présence (avant :
+    /// la part entière), avec dessous les jours de chacun et la part du propriétaire (DetailDuPartage).
     void MajMontants()
     {
         if (_fMontant.Count == 0 || _fCout == null) return;
-        var c = new ChargeBatiment
-        {
-            cout = ParseFloat(_fCout.text), ratios = Ratios(_fType, Concerned(), Surface, PartManuelle),
-            listeId = _fListe != null ? ListesCharges.Effective(_fListe.SelectedId) : _edit.listeId,
-        };
+        var c = Apercu();
         foreach (var (l, t) in _fMontant)
-            if (t != null) t.text = Euros(ListesCharges.QuotePart(c, l, Bat));
+            if (t != null) t.text = Euros(ListesCharges.QuotePartAuProrata(c, l, Bat));
+        if (_fDetail == null) return;
+        _fDetail.text = DetailDuPartage(c, _fMontant.Select(x => x.l).ToList(), Bat);
+        _fDetail.gameObject.SetActive(_fDetail.text != "");
+    }
+
+    /// La charge telle que le formulaire la décrit, sans l'enregistrer. Revue 17 (retour BL4, 04/11) : le calcul relit son
+    /// type, ses désignés, sa date et sa période (PartsEffectives) ; sans eux, il comptait « Surface, tous les locataires ».
+    ChargeBatiment Apercu()
+    {
+        var concernes = Concerned();
+        return new ChargeBatiment
+        {
+            cout = ParseFloat(_fCout.text), ratios = Ratios(_fType, concernes, Surface, PartManuelle),
+            listeId = _fListe != null ? ListesCharges.Effective(_fListe.SelectedId) : _edit.listeId,
+            typeRatio = _fType, tousLocataires = _fTous.isOn, ponctuelle = _fPonctuelle,
+            locatairesConcernes = _fTous.isOn ? new List<string>() : concernes.Select(l => l.id).ToList(),
+            dateISO = _fDate != null && TryParseFr(_fDate.text, out var jour) ? jour.ToString("yyyy-MM-dd") : _edit.dateISO,
+        };
+    }
+
+    /// Retour BL8 (04/11) : sous les montants, pourquoi un locataire paie moins que sa part entière (ses jours dans l'année
+    /// de la charge) et la part du propriétaire (locaux vides, ou vides une partie de l'année). Vide s'il n'y a rien à dire.
+    /// « BH4 C arrive le 12/12/2026 : 20 jours sur 365 (part entière 250,00 €). Part du propriétaire (locaux vides) : 236,30 €. »
+    public static string DetailDuPartage(ChargeBatiment c, IList<Locataire> concernes, Batiment bat)
+    {
+        if (c == null || concernes == null) return "";
+        static string Jour(DateTime x) => x.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+        DateTime d = default;
+        bool annee = !c.ponctuelle && FacturationSuivi.TryEcheance(c.dateISO, out d);   // ponctuelle : part entière
+        int joursAn = annee && DateTime.IsLeapYear(d.Year) ? 366 : 365;
+        var phrases = new List<string>();
+        double du = 0;
+        foreach (var l in concernes)
+        {
+            if (l == null) continue;
+            float part = ListesCharges.QuotePart(c, l, bat);
+            double f = annee ? Loyers.FractionPresence(l, d.Year) : 1;
+            du += part * f;
+            if (c.typeRatio == "Surface" && LotsBatiment.Definis(bat) && LotsBatiment.Lot(bat, l) == null)   // lots déclarés (04/11)
+            {
+                phrases.Add($"{LotsBatiment.Nom(l)} n'a pas de lot : il ne paie pas cette charge ; choisissez son lot sur sa fiche.");
+                continue;
+            }
+            if (f >= 0.9999) continue;
+            string nom = string.IsNullOrEmpty(l.Name) ? $"Lot {l.lotBatiment}" : l.Name;
+            if (f <= 0) { phrases.Add($"{nom} : pas dans les lieux en {d.Year}."); continue; }
+            bool arrive = Loyers.DebutPremierBail(l, out var debut) && debut.Year == d.Year;
+            var fin = Loyers.FinFacturation(l);
+            string qui = arrive && fin.Year == d.Year ? $"{nom}, du {Jour(debut)} au {Jour(fin)}"
+                       : arrive ? $"{nom} arrive le {Jour(debut)}" : $"{nom} part le {Jour(fin)}";
+            phrases.Add($"{qui} : {Math.Round(f * joursAn)} jours sur {joursAn} (part entière {Euros(part)}).");
+        }
+        double reste = c.cout - du;
+        if (Math.Abs(reste) >= 0.01) phrases.Add($"Part du propriétaire (locaux vides) : {Euros((float)reste)}.");
+        return string.Join(" ", phrases);
     }
 
     static string Euros(float v) => v.ToString("N2", FacturePdfService.FrCulture) + " €";
@@ -350,6 +427,28 @@ public class ChargePanel : MonoBehaviour
         UIFactory.Border(b.gameObject); UIFactory.LE(b.gameObject, prefW: 120, flexW: 0);
         b.onClick.AddListener(() => { _fType = type; RebuildRatio(); });
         return b;
+    }
+
+    Button PeriodeChip(Transform parent, string libelle, bool ponctuelle)
+    {
+        var b = UIFactory.Button(parent, libelle, UITheme.Carte, UITheme.TextePrincipal, 34, UITheme.Role.Action, false);
+        UIFactory.Border(b.gameObject); UIFactory.LE(b.gameObject, prefW: 140, flexW: 0);
+        b.onClick.AddListener(() => { _fPonctuelle = ponctuelle; MajAidePeriode(); RebuildRatio(); });
+        return b;
+    }
+
+    /// La pastille choisie et sa phrase d'aide (avec la date tapée, pour une charge ponctuelle « Tous »).
+    void MajAidePeriode()
+    {
+        StyleChip(_chipAnnee, !_fPonctuelle);
+        StyleChip(_chipPonctuelle, _fPonctuelle);
+        if (_aidePeriode == null) return;
+        string jour = _fDate != null && TryParseFr(_fDate.text, out var d) ? "le " + d.ToString("dd/MM/yyyy") : "à sa date";
+        _aidePeriode.text = !_fPonctuelle
+            ? "Sur l'année (taxe foncière, entretien…) : les présents de l'année se la partagent ; un locataire arrivé ou parti en cours d'année paie au prorata de sa présence."
+            : _fTous.isOn
+                ? $"Ponctuelle (réparation, intervention…) : seuls les locataires présents {jour} la paient, chacun sa part entière."
+                : "Ponctuelle (réparation, intervention…) : les locataires cochés la paient, chacun sa part entière, sans prorata de présence.";
     }
 
     void StyleChips()
@@ -398,6 +497,7 @@ public class ChargePanel : MonoBehaviour
         var concerned = Concerned();
         _edit.locatairesConcernes = _fTous.isOn ? new List<string>() : concerned.Select(l => l.id).ToList();
         _edit.typeRatio = _fType;
+        _edit.ponctuelle = _fPonctuelle;
         _edit.ratios = Ratios(_fType, concerned, Surface, PartManuelle);
 
         // Copie du PDF dans le dossier de sauvegarde (comme le bail / les photos).
@@ -435,7 +535,7 @@ public class ChargePanel : MonoBehaviour
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
-    Transform MakeScroll(Transform parent)
+    internal static Transform MakeScroll(Transform parent)   // aussi la fenêtre des lots (LotsPanel, 04/11)
     {
         var srGO = UIFactory.Rect("Scroll", parent);
         var sr = srGO.gameObject.AddComponent<ScrollRect>();

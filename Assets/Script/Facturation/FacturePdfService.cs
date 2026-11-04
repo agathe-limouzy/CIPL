@@ -76,7 +76,7 @@ public static class FacturePdfService
         public string texteTvaDebit, texteMensuel;
 
         public string ribTitulaire, ribDomiciliation, ribNum, ribIban, ribBic;
-        public string legal, foot1, foot2;
+        public string legal, escompte, foot1, foot2;   // escompte : la phrase des Réglages (04/11)
     }
 
     public static string BuildHtml(Data d)
@@ -112,7 +112,7 @@ public static class FacturePdfService
             .Replace("{{RIB_NUM}}", H(d.ribNum))
             .Replace("{{RIB_IBAN}}", H(d.ribIban))
             .Replace("{{RIB_BIC}}", H(d.ribBic))
-            .Replace("{{LEGAL}}", d.retard ? H(FactureEn16931.MentionsRetard(d.legal)) : "")   // D5-17 : même repli que le XML
+            .Replace("{{LEGAL}}", H((d.retard ? FactureEn16931.MentionsRetard(d.legal) + " " : "") + FactureEn16931.Escompte(d.escompte)))   // D5-17 ; Revue 17 (D6-03) : l'escompte, toujours
             .Replace("{{FOOT1}}", H(d.foot1))
             .Replace("{{FOOT2}}", H(d.foot2));
     }
@@ -294,7 +294,8 @@ public static class FacturePdfService
         public float dejaRefacture;
         // Libellés des 3 lignes de totaux (défauts = régularisation ; réutilisé pour le dépôt).
         public string labelTotal, labelProvisions, labelSolde;
-        public bool masquerTva;   // true = pas de ligne TVA/TTC (ex. révision du dépôt de garantie)
+        public bool masquerTva;   // true = pas de ligne TVA/TTC (ex. révision du dépôt de garantie, bail exonéré)
+        public string tvaLibelle; // libellé de la ligne TVA ; vide = « TVA 20% » (02/11 : le taux du bail)
         // Formulation de la mention « TVA payée sur les débits ». Vide = texte
         // d'usine (`TvaDebitDefaut`) : un document antérieur sort inchangé.
         public string texteTvaDebit;
@@ -303,7 +304,7 @@ public static class FacturePdfService
         public float surfaceImmeuble, totalARepartir;
         public bool tvaDebit, retard;
         public string ribTitulaire, ribDomiciliation, ribNum, ribIban, ribBic;
-        public string legal, foot1, foot2;
+        public string legal, escompte, foot1, foot2;   // escompte : la phrase des Réglages (04/11)
     }
 
     public static string BuildRegulHtml(RegulData d)
@@ -334,7 +335,7 @@ public static class FacturePdfService
             .Replace("{{RIB_NUM}}", H(d.ribNum))
             .Replace("{{RIB_IBAN}}", H(d.ribIban))
             .Replace("{{RIB_BIC}}", H(d.ribBic))
-            .Replace("{{LEGAL}}", d.retard ? H(FactureEn16931.MentionsRetard(d.legal)) : "")   // D5-17 : même repli que le XML
+            .Replace("{{LEGAL}}", H((d.retard ? FactureEn16931.MentionsRetard(d.legal) + " " : "") + FactureEn16931.Escompte(d.escompte)))   // D5-17 ; Revue 17 (D6-03) : l'escompte, toujours
             .Replace("{{FOOT1}}", H(d.foot1))
             .Replace("{{FOOT2}}", H(d.foot2));
     }
@@ -361,7 +362,7 @@ public static class FacturePdfService
         else
         {
             sb.Append("<tr class=\"solde\"><td>").Append(H(ls)).Append("</td><td class=\"r\">").Append(Euro(d.soldeHT)).Append("</td></tr>")
-              .Append("<tr><td>TVA 20%</td><td class=\"r\">").Append(Euro(d.tva)).Append("</td></tr>")
+              .Append("<tr><td>").Append(H(string.IsNullOrEmpty(d.tvaLibelle) ? "TVA 20%" : d.tvaLibelle)).Append("</td><td class=\"r\">").Append(Euro(d.tva)).Append("</td></tr>")
               .Append("<tr class=\"ttc\"><td>Total T.T.C.</td><td class=\"r\">").Append(Euro(d.ttc)).Append("</td></tr>");
         }
         sb.Append("</table>");

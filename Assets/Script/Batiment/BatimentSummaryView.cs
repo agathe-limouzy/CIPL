@@ -79,10 +79,16 @@ public class BatimentSummaryView : MonoBehaviour
             btnAjouterLocataire.onClick.RemoveAllListeners();
             btnAjouterLocataire.onClick.AddListener(() =>
             {
-                _bp.ShowLocataireView();
-                var prefab = _bp.Addlocataire(true);
-                _bp.menulocataire.CreateTab(prefab);
-                _bp.menulocataire.OnSelect(prefab, true);
+                void Ajouter()
+                {
+                    _bp.ShowLocataireView();
+                    var prefab = _bp.Addlocataire(true);
+                    _bp.menulocataire.CreateTab(prefab);
+                    _bp.menulocataire.OnSelect(prefab, true);
+                }
+                // Demande du 04/11 : un lot libre d'abord ; créé depuis le refus, la fiche s'ouvre ensuite (retour BM3).
+                if (_bp.RefuserAjoutSansLotLibre(Ajouter)) return;
+                Ajouter();
             });
         }
 
@@ -109,7 +115,8 @@ public class BatimentSummaryView : MonoBehaviour
 
         // Pilules
         Set(txtPiluleSurface, $"{bat.tailleBatiment:F0} m²");
-        int nbLots = BatimentPrefab.EnPlace(bat.locataireDuBatiment).Count();   // revue 16c, D7a-02
+        int nbLots = LotsBatiment.Definis(bat) ? bat.lots.Count   // 04/11 : les lots déclarés
+                     : BatimentPrefab.EnPlace(bat.locataireDuBatiment).Count();   // revue 16c, D7a-02
         Set(txtPiluleLots, nbLots > 1 ? $"{nbLots} lots" : $"{nbLots} lot");
         Set(txtPiluleParking, LabelParking(bat.parkingEtat));
 

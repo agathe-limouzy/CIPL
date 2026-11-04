@@ -10,6 +10,12 @@ using UnityEngine;
 /// permettra de verrouiller et d'enregistrer un locataire sans toucher aux autres (étape 4).
 public static class DonneesCloud
 {
+    /// Revue 17 (D2-01) : numéro du modèle des données de cette version de CIPL. Il part avec chaque écriture (`p_modele`) et
+    /// le serveur refuse qu'une version plus ancienne réécrive une fiche enregistrée par une plus récente : `JsonUtility` y
+    /// effacerait les champs qu'elle ne connaît pas. À MONTER à chaque champ ajouté ou retiré dans Batiment, Locataire,
+    /// ReglageData ou ce qu'ils contiennent (le test D2_01 de Revue17Tests le rappelle par une empreinte des champs).
+    public const int Modele = 4;   // 2 : ChargeBatiment.ponctuelle ; 3 : Batiment.lots ; 4 : ReglageData.phraseEscompte (04/11)
+
     // ── Découpage et recomposition (sans réseau : testés en EditMode) ──────────
 
     /// JSON du bâtiment sans locataires + JSON de chaque locataire, dans l'ordre des onglets.

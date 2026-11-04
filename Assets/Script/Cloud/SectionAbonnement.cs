@@ -314,12 +314,14 @@ public class SectionAbonnement
     async void Ajouter(string nom, string type, string siret)
     {
         Action reprendre = () => OuvrirAjout(type, siret, nom);
+        AnnuaireEntreprise annuaire = null;   // Revue 17 (D3-01) : ses Réglages de départ en viennent
         if (type == "societe")
         {
             string motif = RegleAbonnement.VerifierSiret(siret);
             if (motif == null)   // étape 10 : société fermée ou introuvable dans l'annuaire → refus
             {
                 var (data, _, introuvable) = await PapperService.Chercher(new string(siret.Where(char.IsDigit).ToArray()));
+                annuaire = data;
                 motif = PappersResume.Refus(siret, data, introuvable);
                 if (motif == null && nom == "" && data != null) nom = data.nom_complet;
             }
@@ -327,7 +329,7 @@ public class SectionAbonnement
             if (motif != null) { ConfirmDialog.Erreur(motif, reprendre); return; }
         }
         bool abonne = AbonnementCloud.Courant?.abonne == true;
-        var res = await AbonnementCloud.Ajouter(nom, type, siret);
+        var res = await AbonnementCloud.Ajouter(nom, type, siret, RegleInscription.ReglagesAjout(type == "societe", nom, siret, annuaire));
         if (res?.ok != true) { ConfirmDialog.Erreur(AbonnementCloud.Motif(res), reprendre); return; }
         // Étape 9c2 : l'abonnement suit le nombre d'entreprises (ligne « entreprise supplémentaire »).
         string erreur = abonne ? await AbonnementCloud.Ajuster(null, 0) : null;

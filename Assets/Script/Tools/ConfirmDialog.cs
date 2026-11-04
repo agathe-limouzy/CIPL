@@ -17,6 +17,8 @@ public class ConfirmDialog : MonoBehaviour
     private Action _onConfirm;
     private TMP_Text _confirmLabel;
     private string _defaultConfirmLabel;
+    private TMP_Text _annulerLabel;          // retour du 04/11 : « Retour » au lieu d'« Annuler » quand on le demande
+    private string _defaultAnnulerLabel;
 
     private void Awake()
     {
@@ -26,6 +28,8 @@ public class ConfirmDialog : MonoBehaviour
         txtTitre.parseCtrlCharacters = txtMessage.parseCtrlCharacters = false;
         _confirmLabel = btnConfirmer != null ? btnConfirmer.GetComponentInChildren<TMP_Text>(true) : null;
         _defaultConfirmLabel = _confirmLabel != null ? _confirmLabel.text : "Confirmer";
+        _annulerLabel = btnAnnuler != null ? btnAnnuler.GetComponentInChildren<TMP_Text>(true) : null;
+        _defaultAnnulerLabel = _annulerLabel != null ? _annulerLabel.text : "Annuler";
         gameObject.SetActive(false);
     }
 
@@ -60,8 +64,9 @@ public class ConfirmDialog : MonoBehaviour
         MontrerErreur(message, ensuite);
     }
 
-    /// `confirmLabel` : libellé du bouton de validation (par défaut « Supprimer »).
-    public void Show(string titre, string message, Action onConfirm, string confirmLabel = null)
+    /// `confirmLabel` : libellé du bouton de validation (par défaut « Supprimer ») ; `annulerLabel` : celui de l'autre bouton
+    /// (par défaut « Annuler »).
+    public void Show(string titre, string message, Action onConfirm, string confirmLabel = null, string annulerLabel = null)
     {
         if (btnAnnuler != null) btnAnnuler.gameObject.SetActive(true);   // masqué par Erreur
         _onConfirm = onConfirm;
@@ -69,6 +74,8 @@ public class ConfirmDialog : MonoBehaviour
         txtMessage.text = message;
         if (_confirmLabel != null)
             _confirmLabel.text = string.IsNullOrEmpty(confirmLabel) ? _defaultConfirmLabel : confirmLabel;
+        if (_annulerLabel != null)
+            _annulerLabel.text = string.IsNullOrEmpty(annulerLabel) ? _defaultAnnulerLabel : annulerLabel;
         gameObject.SetActive(true);
         transform.SetAsLastSibling();   // au-dessus de tout
 

@@ -12,8 +12,8 @@ using UnityEngine.UI;
 /// Provision (pré-remplis, éditables) · N° de facture · Texte de présentation
 /// (menu déroulant) · cases TVA débit / Retard de paiement · email d'envoi.
 /// Pré-rempli depuis le locataire + Réglages, mémorisé par locataire (loc.factureLoyer).
-/// « Générer la facture » = mémorise + aperçu (le PDF au visuel réel + l'envoi Pennylane/
-/// email viennent ensuite — RIEN n'est émis pour l'instant).
+/// « Générer la facture » = mémorise + aperçu (le PDF au visuel réel + l'envoi par e-mail ou par la
+/// plateforme viennent ensuite — RIEN n'est émis pour l'instant).
 public class FactureLoyerPanel : MonoBehaviour
 {
     // Revue 16c (D6-06) : les montants en écriture française (« 1 234,56 »), comme le PDF et Créances, quelle que
@@ -23,7 +23,7 @@ public class FactureLoyerPanel : MonoBehaviour
     public static FactureLoyerPanel Instance { get; private set; }
 
     /// Étape 13b-3 (retour du 25/10) : pendant le guide « Une première facture », le bouton émet sans
-    /// envoyer — ni e-mail ni Pennylane — et la facture attend dans le suivi. Un e-mail mal réglé ne
+    /// envoyer — ni e-mail ni plateforme — et la facture attend dans le suivi. Un e-mail mal réglé ne
     /// bloque plus le tutoriel, et rien ne part pendant qu'on apprend.
     public static bool SansEnvoi { get; private set; }
 
@@ -52,9 +52,8 @@ public class FactureLoyerPanel : MonoBehaviour
     FactureEtat _ligneCiblee;   // ligne du suivi cliquée : elle désigne la période à ouvrir
 
     TMP_Text _titre, _entetePreview, _modeInfo, _mTotalHT, _mTVA, _mTTC, _numeroPrefixe;
-    TMP_Text _avertPennylane;   // seulement en mode Pennylane (30/10 : elle s'affichait aussi en mode e-mail)
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _annee, _refInterne, _sommePhrase, _loyer, _provision, _emailEnvoi;
-    TMP_InputField _texteTvaDebit, _texteMensuel;
+    TMP_InputField _texteTvaDebit, _texteMensuel, _tauxTva;
     TMP_Text _provisionLabel;                              // provision générale
     Transform _provListesBox;                              // une provision par liste spécifique
     readonly List<(string id, TMP_InputField inp)> _provListes = new List<(string, TMP_InputField)>();
@@ -278,6 +277,8 @@ public class FactureLoyerPanel : MonoBehaviour
         // commandent — impossible de deviner où décocher « Suite à votre demande… ».
         // La case et sa formulation vont ensemble, là où la ligne apparaît.
         _mentionTva = MentionTva.Creer(mo.transform, out _texteTvaDebit);
+        _tauxTva = Labeled(mo, "Taux de TVA (%)");   // 02/11 : celui du bail ou de l'entreprise, modifiable pour cette facture
+        _tauxTva.onValueChanged.AddListener(_ => RefreshMontants());
 
         // Ligne « montant mensuel » : seulement pour un loyer non mensuel.
         _mensuel = UIFactory.Toggle(mo.transform, "Ajouter « le montant mensuel à régler » (loyer de la période ÷ nb de mois)", true);
@@ -323,9 +324,6 @@ public class FactureLoyerPanel : MonoBehaviour
             "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement.",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
         _emailEnvoi = Labeled(o, "Email d'envoi");
-        _avertPennylane = UIFactory.Text(o.transform,
-            "Mode Pennylane : la facture est déposée sur Pennylane SANS être émise — à finaliser et transmettre depuis Pennylane.",
-            UITheme.Role.Aide, UITheme.Alerte);
 
         // Bouton « Générer facture » sous le formulaire (rend l'aperçu à droite).
         var gen = UIFactory.Button(left.transform, "Générer facture", UITheme.Primaire, Color.white, 46, UITheme.Role.Bouton);
@@ -392,7 +390,8 @@ public class FactureLoyerPanel : MonoBehaviour
         var ent = ReglageService.GetEntete(_enteteDD?.SelectedId);
         // Revue 16c (D5-16) : au centime ligne par ligne, et TTC = HT + TVA arrondie : le PDF et le XML du Factur-X disent pareil.
         float loyer = Cents(ParseF(_loyer.text)), prov = Cents(ProvisionSaisie());
-        float totalHT = loyer + prov, tva = Cents(totalHT * .2f), ttc = totalHT + tva;
+        float taux = TauxFacture();
+        float totalHT = loyer + prov, tva = Tva.Montant(totalHT, taux), ttc = totalHT + tva;
         // Montant mensuel = TTC de la période ÷ nombre de mois de la période (hors mensuel).
         int moisParPeriode = Mathf.Max(1, 12 / LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer));
         bool afficheMensuel = _mensuel != null && _mensuel.isOn && _loc.periodiciteLoyer != Periodicite.mensuel;
@@ -412,18 +411,19 @@ public class FactureLoyerPanel : MonoBehaviour
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             ligneLabel = LigneLoyer(loyer),
             totalPeriode = loyer, provision = prov, totalHT = totalHT, tva = tva, ttc = ttc,
+            masquerTva = taux <= 0f, tvaLibelle = Tva.Libelle(taux),   // 02/11 : exonéré = total seul
             lignesProvision = LignesProvision(),
-            tvaDebit = MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
+            tvaDebit = taux <= 0f || MentionTva.Imprimee(_mentionTva), retard = _retard.isOn,
             afficherMensuel = afficheMensuel, montantMensuel = afficheMensuel ? ttc / moisParPeriode : 0f,
             // Les textes libres passent par le même résolveur que l'entête : sans ça,
             // le menu « / » proposerait d'insérer {loc.nom}… qui s'imprimerait tel quel
             // sur un document envoyé au client.
-            texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
+            texteTvaDebit = taux <= 0f ? Tva.Mention(R) : FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
             texteMensuel = FactureVarResolver.Resolve(_texteMensuel.text, _loc, _bat, ctx),
             sommePhrase = FactureVarResolver.Resolve(_sommePhrase.text, _loc, _bat, ctx),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
-            legal = R.phraseRetard,
+            legal = R.phraseRetard, escompte = R.phraseEscompte,
             foot1 = foot.Length > 0 ? foot[0] : "",
             foot2 = foot.Length > 1 ? foot[1] : "",
         };
@@ -445,7 +445,7 @@ public class FactureLoyerPanel : MonoBehaviour
 
     // « Sauvegarder et envoyer » : mémorise + génère le PDF au visuel réel (local),
     // consomme le numéro (séquence +1) et rafraîchit l'aperçu. AUCUN envoi réel n'est
-    // effectué ici (Pennylane / email seront activés après validation).
+    // effectué ici (l'envoi se décide plus bas).
     void SauvegarderEtEnvoyer()
     {
         // L'envoi est asynchrone : sans cette garde, un double clic partirait deux fois.
@@ -501,13 +501,6 @@ public class FactureLoyerPanel : MonoBehaviour
             return;
         }
 
-        // Mode Pennylane : dépôt de notre PDF, NON émis (voir PennylaneClient).
-        if (R.modeEnvoi == ModeEnvoi.Pennylane)
-        {
-            StartCoroutine(DeposerPuisFinaliser(d, key, emission, correction, pdf));
-            return;
-        }
-
         // Étape 18b : dès la bascule (1/9/2027), un loyer qui part par la plateforme n'est plus envoyé en PDF ; le
         // locataire reçoit un e-mail de notification une fois Super PDP d'accord (FactureElectronique.Notifier).
         // Une transmission ne se rappelle pas : elle se confirme, comme un e-mail. Une correction d'une facture
@@ -521,6 +514,9 @@ public class FactureLoyerPanel : MonoBehaviour
             ConfirmDialog.Erreur($"Le total de « {d.subtitle} » est nul : rien à facturer. Corrigez les montants.");
             return;
         }
+        // Revue 17 (D5-02) : la correction d'une facture transmise ne part pas en avoir (la plateforme garderait les deux).
+        string refusCorrection = FactureElectronique.RefusCorrection(_loc.facturesEtat?.Find(x => x.key == key), d.ttc, d.subtitle);
+        if (parPlateforme && refusCorrection != null) { ConfirmDialog.Erreur(refusCorrection); return; }
         // BI8 (02/11) : un avoir cite les factures qu'il corrige (BR-FR-CO-05) : la version précédente, sinon les loyers de l'année
         // (leurs provisions couvrent ce qui est rendu).
         if (parPlateforme && d.ttc < -0.004f
@@ -646,29 +642,6 @@ public class FactureLoyerPanel : MonoBehaviour
         Finaliser(d, key, emission, correction, pdf, true, $" et envoyée à {dest}");
     }
 
-    /// Même ordre que l'email : le suivi n'est écrit (et le numéro consommé) qu'après
-    /// un dépôt réussi. La ligne reste « en attente d'envoi » : rien n'est émis.
-    System.Collections.IEnumerator DeposerPuisFinaliser(
-        FacturePdfService.Data d, string key, FactureEmission.Decision emission, bool correction, string pdf)
-    {
-        _envoiEnCours = true;
-        UndoToast.Instance?.ShowInfo("Dépôt sur Pennylane en cours…");
-
-        var depot = new PennylaneClient.Depot();
-        yield return PennylaneClient.Deposer(_loc.factureLoyer, d, pdf, depot);
-        _envoiEnCours = false;
-
-        if (!depot.Succes)
-        {
-            ConfirmDialog.Erreur(depot.Erreur +" Le PDF est enregistré, rien n'est consommé : tu peux réessayer.");
-            yield break;
-        }
-
-        Finaliser(d, key, emission, correction, pdf, false,
-            $"  Déposée sur Pennylane{(depot.FacturX ? " en Factur-X" : "")}, NON émise : "
-            + "à finaliser et transmettre depuis Pennylane.");
-    }
-
     /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après un
     /// envoi réussi). Correction ou première émission : la règle vit dans
     /// FactureEmission, plus dans chacun des quatre panneaux.
@@ -689,6 +662,7 @@ public class FactureLoyerPanel : MonoBehaviour
         // ainsi une période facturée en entier (DepartLocataire.LoyerACorriger).
         var ligne = _loc.facturesEtat?.Find(x => x.key == key);
         if (ligne != null) ligne.loyerHT = d.totalPeriode;
+        if (ligne != null) ligne.tauxTva = d.masquerTva ? 0f : TauxFacture();   // 02/11 : le taux de l'époque (relecture du HT, e-mails)
 
         // Étape 18b : la facture électronique est gardée sur la ligne ; elle part à la plateforme dès que la
         // ligne est « Envoyé » (tout de suite ci-dessous, ou le jour de l'envoi différé). Hors plateforme, Preparer
@@ -705,7 +679,8 @@ public class FactureLoyerPanel : MonoBehaviour
                 vendeurNom = R.entrepriseNom, vendeurSiren = SocieteLocataire.Siren(SessionCloud.Entreprise?.siret),
                 acheteurNom = d.clientNom, acheteurSiren = SocieteLocataire.Siren(FactureElectronique.SiretAcheteur(_loc, _siret.text)),
                 acheteurSiret = FactureElectronique.Siret14(FactureElectronique.SiretAcheteur(_loc, _siret.text)), acheteurAdresse = _adresse.text,
-                lignes = FactureEn16931.Lignes(d), mention = d.tvaDebit ? d.texteTvaDebit : null, penalites = d.legal,
+                lignes = FactureEn16931.Lignes(d), mention = d.tvaDebit ? d.texteTvaDebit : null, penalites = d.legal, escompte = d.escompte,
+                tauxTva = TauxFacture(),
                 precedentNumero = precedentNumero, precedentDateISO = precedentDate,
                 references = FactureElectronique.ReferencesAvoir(_loc, avant, FactureElectronique.AnneeDeCle(key)),   // BI8 : la version précédente, sinon les loyers de l'année
             }));
@@ -902,12 +877,14 @@ public class FactureLoyerPanel : MonoBehaviour
         RefreshNumero();
 
         MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
+        ChargerTva(f);   // 02/11
         _retard.isOn = f?.ajouterRetard ?? true;
         // Facture qui part sur la plateforme : la phrase de retard y est obligatoire (note PMD, règle BR-FR-05) ;
         // la case reste cochée pour que le PDF dise la même chose (décision du 30/10).
         bool plateforme = FactureElectronique.Concerne(_loc, 1f, _siret.text);
-        if (plateforme) _retard.isOn = true;
-        _retard.interactable = !plateforme;
+        bool obligatoire = plateforme || FactureElectronique.Professionnel(_loc, _siret.text);   // Revue 17 (D6-03) : professionnel
+        if (obligatoire) _retard.isOn = true;
+        _retard.interactable = !obligatoire;
         // Ligne « montant mensuel » : seulement pour un loyer non mensuel (trim / semestre / an).
         _mensuel.isOn = f?.ajouterMensuel ?? true;
         _mensuel.gameObject.SetActive(_loc.periodiciteLoyer != Periodicite.mensuel);
@@ -934,7 +911,6 @@ public class FactureLoyerPanel : MonoBehaviour
             : "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement. Modèle : Réglages › Modèles d'e-mail.";
         _modeInfo.text = FactureElectronique.LibelleEnvoi(_loc, _siret.text, FactureElectronique.NotificationSeule);   // partagé (02/11)
         _modeInfo.color = FactureElectronique.SansSiret(_loc, _siret.text) ? UITheme.Alerte : UITheme.TexteSecondaire;
-        if (_avertPennylane != null) _avertPennylane.gameObject.SetActive(R.modeEnvoi == ModeEnvoi.Pennylane);
 
         RefreshMontants();
         RefreshEntetePreview();
@@ -992,10 +968,15 @@ public class FactureLoyerPanel : MonoBehaviour
     {
         // Revue 16c (D5-16) : au centime ligne par ligne, et TTC = HT + TVA arrondie : le PDF et le XML du Factur-X disent pareil.
         float loyer = Cents(ParseF(_loyer.text)), prov = Cents(ProvisionSaisie());
-        float totalHT = loyer + prov, tva = Cents(totalHT * .2f), ttc = totalHT + tva;
+        float taux = TauxFacture();
+        float totalHT = loyer + prov, tva = Tva.Montant(totalHT, taux), ttc = totalHT + tva;
         _mTotalHT.text = $"{N2(totalHT)} €";
         _mTVA.text     = $"{N2(tva)} €";
         _mTTC.text     = $"{N2(ttc)} €";
+        // BK (02/11) : sans TVA, une seule ligne « Total » ; sinon la ligne TVA porte le taux de la facture.
+        UIFactory.LigneMontant(_mTotalHT, taux > 0f);
+        UIFactory.LigneMontant(_mTVA, taux > 0f, Tva.Libelle(taux));
+        UIFactory.LigneMontant(_mTTC, true, taux > 0f ? "Total TTC" : "Total");
     }
 
     void RefreshEntetePreview()
@@ -1016,8 +997,8 @@ public class FactureLoyerPanel : MonoBehaviour
             periode = PeriodeLibelle(),
             numero = NumeroDocument(),
             loyerHT = totalHT,
-            tva = totalHT * .2f,
-            ttc = totalHT * 1.2f,
+            tva = Tva.Montant(totalHT, TauxFacture()),
+            ttc = Tva.Ttc(totalHT, TauxFacture()),
         };
     }
 
@@ -1231,6 +1212,7 @@ public class FactureLoyerPanel : MonoBehaviour
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();
         MentionTva.Enregistrer(_mentionTva, _texteTvaDebit, f);
+        f.tauxTva = TauxAMemoriser();   // 02/11
         f.ajouterRetard = _retard.isOn;
         f.ajouterMensuel = _mensuel.isOn;
         f.texteMensuel = _texteMensuel.text;
@@ -1269,6 +1251,32 @@ public class FactureLoyerPanel : MonoBehaviour
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
+
+
+    /// TVA de cette facture (02/11) : 0 si le bail est exonéré ; sinon le taux tapé dans le formulaire, à défaut celui du bail
+    /// ou de l'entreprise (Tva.Taux).
+    float TauxFacture()
+    {
+        if (!Tva.Soumis(_loc)) return 0f;
+        return _tauxTva != null && SaisieNumerique.TryParse(_tauxTva.text, out float t) && t > 0f ? t : Tva.Taux(_loc);
+    }
+
+    /// Le taux tapé n'est mémorisé que s'il diffère de celui du bail ou de l'entreprise (sinon il suivrait un changement de réglage).
+    float TauxAMemoriser() => Tva.Soumis(_loc) && SaisieNumerique.TryParse(_tauxTva.text, out float t) && t > 0f
+                              && Mathf.Abs(t - Tva.Taux(_loc)) > 0.001f ? t : 0f;
+
+    /// Exonéré : le menu « Mention TVA » et le taux disparaissent (la mention d'exonération s'imprime d'office).
+    void ChargerTva(FactureInfo f)
+    {
+        bool soumis = Tva.Soumis(_loc);
+        if (_tauxTva != null)
+        {
+            UIFactory.MontrerAvecLibelle(_tauxTva.gameObject, soumis);   // 02/11 (BK2) : le champ et son libellé, pas la section entière
+            _tauxTva.text = soumis ? Tva.Taux(_loc, f).ToString("0.##", FacturePdfService.FrCulture) : "";
+        }
+        if (_mentionTva != null) UIFactory.MontrerAvecLibelle(_mentionTva.gameObject, soumis);
+        if (_texteTvaDebit != null && !soumis) _texteTvaDebit.transform.parent.gameObject.SetActive(false);
+    }
 
     TMP_InputField Labeled(VerticalLayoutGroup body, string label)
     {

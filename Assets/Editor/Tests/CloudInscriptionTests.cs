@@ -79,18 +79,17 @@ public class CloudInscriptionTests
             siege = new AnnuaireSiege { adresse = "12 RUE DE RIVOLI 75004 PARIS", code_postal = "75004", commune = "31490", libelle_commune = "SAINT-MARCEL-PAULEL" },
         };
         var r = RegleInscription.Reglages(true, "SCI Rivoli", "732 829 320 00074", annuaire, "Marie Dupont", "", "marie@b.fr");
-        Assert.That(r.basDePage, Is.EqualTo("SCI RIVOLI - Société civile immobilière - Siret : 732 829 320 00074\nSiège social : 12 RUE DE RIVOLI 75004 PARIS"));
+        Assert.That(r.basDePage, Is.EqualTo("SCI RIVOLI - Société civile immobilière - Siret : 732 829 320 00074 - TVA intracommunautaire : "
+            + FactureEn16931.TvaIntra("732829320") + "\nSiège social : 12 RUE DE RIVOLI 75004 PARIS"));   // Revue 17 (D6-03) : n° de TVA
         Assert.That(r.lieuEmission, Is.EqualTo("Saint-Marcel-Paulel"));
         Assert.That(r.basDePage, Does.Not.Contain("717 220 883"), "plus le bas de page de CIPL");
         Assert.That(r.sansLogo, Is.True, "pas le logo de CIPL (retour du 25/10)");
-        Assert.That(r.modeEnvoi, Is.EqualTo(ModeEnvoi.Email), "envoi par e-mail au départ (retour du 25/10)");
         Assert.That(r.smtp.host, Is.Empty, "pas le serveur d'envoi de CIPL");
-        Assert.That(new ReglageData().modeEnvoi, Is.EqualTo(ModeEnvoi.Email), "revue 16c D4-09 (décision du 02/11) : e-mail par défaut, Pennylane se choisit dans Réglages › Intégrations");
         Assert.That(new AnnuaireSiege { commune = "92048" }.Ville, Is.EqualTo(""), "jamais le code INSEE comme nom de ville");
         Assert.That(new ReglageData().sansLogo, Is.False, "les Réglages déjà enregistrés gardent le logo CIPL");
 
         var sansAnnuaire = RegleInscription.Reglages(true, "SCI Rivoli", "73282932000074", null, "Marie Dupont", "", "marie@b.fr");
-        Assert.That(sansAnnuaire.basDePage, Is.EqualTo("SCI Rivoli - Siret : 732 829 320 00074"));
+        Assert.That(sansAnnuaire.basDePage, Is.EqualTo("SCI Rivoli - Siret : 732 829 320 00074 - TVA intracommunautaire : " + FactureEn16931.TvaIntra("732829320")));
     }
 
     [Test]

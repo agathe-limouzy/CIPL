@@ -26,6 +26,10 @@ public class ChargeBatiment
     public bool tousLocataires = true;                     // « Tous » ou sélection
     public List<string> locatairesConcernes = new List<string>(); // ids si pas « Tous »
     public string typeRatio = "Surface";                   // Surface | Égalité | Manuel
+    // Revue 17 (retour BL4, 04/11) : ponctuelle (réparation…) : avec « Tous », seuls les locataires présents à sa date la
+    // paient, chacun sa part entière. Sinon (par défaut, et pour les charges déjà saisies) : charge de l'année, partagée
+    // entre les présents de l'année, au prorata de leur présence (ListesCharges.Concerne, QuotePartAuProrata).
+    public bool ponctuelle;
     public List<ChargeRatio> ratios = new List<ChargeRatio>(); // poids par locataire (part relative)
 
     // Réglée À LA MAIN (case « Payé » de la fiche charge) : plus proposée à personne.

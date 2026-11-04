@@ -1,4 +1,4 @@
- 02/11 (code et test ; parcours BJ7) | 02/11 (décision : l'écran ; parcours BJ6) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (décision : supprimé ; objet de scène « Savegarde » retiré) | 02/11 (ICC ajouté, série 000008630 ; parcours BJ5) | 02/11 (décision : inchangé ; chantier « TVA par entreprise » noté) | 02/11 (code mort retiré) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (code et test ; seuil 0,5) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (code et test ; parcours BJ4) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (code mort retiré ; PapperService reste un composant inerte du prefab) | 02/11 (code et test) | 02/11 (code et test ; parcours BJ3) | 02/11 (code et test ; parcours BJ2) | 02/11 (code et test) | 02/11 (code et test) | 02/11 (10 SIREN par appel BODACC ; test) | 02/11 (code et test ; parcours BJ1) |# Revue complète du code — étape 16c (31/10/2026)
+# Revue complète du code — étape 16c (31/10/2026)
 
 Décisions du 31/10 : 8 domaines relus chacun à part par un relecteur Fable, en lecture seule (le domaine 7 en deux) ; chaque défaut a une gravité, un endroit, un scénario, une correction et un test ; **tout est corrigé avant le passage en réel (17)**.
 
@@ -129,32 +129,32 @@ Les corrections côté serveur (SQL, fonctions) demandent un script SQL à passe
 | D5-19 | D5 | N° de TVA de l'acheteur calculé, non vérifié |  | 02/11 (code et test) |
 | D6-09 | D6 | Textes libres insérés dans le HTML sans échappement |  | 02/11 (code et test ; parcours BI7) |
 | D6-10 | D6 | Code mort et paramètre inutilisé |  | 02/11 (code) |
-| D7a-10 | D7a | Un refus du nom (doublon, dossier bloqué) repasse le champ nom en lecture seule et perd la saisie |  | |
-| D7a-11 | D7a | BODACC : 100 annonces pour 40 sociétés, une société en procédure peut passer pour « SAINE » |  | |
-| D7a-12 | D7a | SIRET avec espaces : bouton Pappers, tournée cloud et annuaire local ne le lisent pas pareil |  | |
-| D7a-13 | D7a | Dates ISO relues en culture courante, contre la règle §4.2, et `EstParti` lit l'horloge |  | |
-| D7a-14 | D7a | Départ : choisir « Non, pas d'état des lieux » garde le PDF joint, l'affichage se contredit |  | |
-| D7a-15 | D7a | Archiver et Réactiver enregistrent deux fois |  | |
-| D7a-16 | D7a | Un enregistrement voisin repasse en lecture seule le champ surface d'une fiche en saisie |  | |
-| D7a-17 | D7a | Code mort et références d'éditeur ou de tests dans du code de jeu |  | |
-| D7b-08 | D7b | Référence d'indexation enregistrée avec l'indice de repli → première année sur-indexée dans la rentabilité |  | |
-| D7b-09 | D7b | Rentabilité en mode indice : loyer théorique, pas le loyer facturé |  | |
-| D7b-10 | D7b | Saisie de date : l'année sur deux chiffres passe, et la date de révision est enregistrée aussitôt |  | |
-| D7b-11 | D7b | Récurrence mensuelle d'un objectif : le jour glisse (31 → 28 → 28…) |  | |
-| D7b-12 | D7b | Achats et travaux : montants parsés en `float` avant d'être stockés en `double` |  | |
-| D7b-13 | D7b | INSEE : pas de délai d'attente, XML non protégé → « Réviser » bloqué sur « Récupération… » |  | |
-| D7b-14 | D7b | Géocodage : réponse non protégée et meilleur résultat pris sans seuil |  | |
-| D7b-15 | D7b | Carte : les textures Google ne sont jamais détruites |  | |
-| D7b-16 | D7b | PLU : le panneau abandonne à 10 s, la requête dure jusqu'à 15 s |  | |
-| D7b-17 | D7b | Formulaires achat/travaux : écouteurs empilés et durée d'emprunt héritée du formulaire précédent |  | |
-| D7b-18 | D7b | Code mort |  | |
-| D7b-19 | D7b | Carte Loyer : le TTC est toujours HT × 1,20 |  | |
-| D7b-20 | D7b | L'ICC n'est pas proposé |  | |
-| D8-06 | D8 | Code mort : le démarrage local et tout ce qu'il portait |  | |
-| D8-07 | D8 | `MigrateData` copie et ne déplace pas : commentaire faux et copie complète laissée derrière (dont la clé API) |  | |
-| D8-08 | D8 | Transfert : un dossier de destination est supprimé sans sauvegarde quand le bâtiment n'y existe pas |  | |
-| D8-09 | D8 | Accueil : un rappel de facturation ou de révision ouvre la fiche, pas l'écran, alors que la même carte dans la fiche ouvre l'écran |  | |
-| D8-10 | D8 | L'en-tête de l'accueil compte les locataires archivés |  | |
+| D7a-10 | D7a | Un refus du nom (doublon, dossier bloqué) repasse le champ nom en lecture seule et perd la saisie |  | 02/11 (code et test ; parcours BJ1) |
+| D7a-11 | D7a | BODACC : 100 annonces pour 40 sociétés, une société en procédure peut passer pour « SAINE » |  | 02/11 (10 SIREN par appel BODACC ; test) |
+| D7a-12 | D7a | SIRET avec espaces : bouton Pappers, tournée cloud et annuaire local ne le lisent pas pareil |  | 02/11 (code et test) |
+| D7a-13 | D7a | Dates ISO relues en culture courante, contre la règle §4.2, et `EstParti` lit l'horloge |  | 02/11 (code et test) |
+| D7a-14 | D7a | Départ : choisir « Non, pas d'état des lieux » garde le PDF joint, l'affichage se contredit |  | 02/11 (code et test ; parcours BJ2) |
+| D7a-15 | D7a | Archiver et Réactiver enregistrent deux fois |  | 02/11 (code et test ; parcours BJ3) |
+| D7a-16 | D7a | Un enregistrement voisin repasse en lecture seule le champ surface d'une fiche en saisie |  | 02/11 (code et test) |
+| D7a-17 | D7a | Code mort et références d'éditeur ou de tests dans du code de jeu |  | 02/11 (code mort retiré ; PapperService reste un composant inerte du prefab) |
+| D7b-08 | D7b | Référence d'indexation enregistrée avec l'indice de repli → première année sur-indexée dans la rentabilité |  | 02/11 (code et test) |
+| D7b-09 | D7b | Rentabilité en mode indice : loyer théorique, pas le loyer facturé |  | 02/11 (code et test) |
+| D7b-10 | D7b | Saisie de date : l'année sur deux chiffres passe, et la date de révision est enregistrée aussitôt |  | 02/11 (code et test ; parcours BJ4) |
+| D7b-11 | D7b | Récurrence mensuelle d'un objectif : le jour glisse (31 → 28 → 28…) |  | 02/11 (code et test) |
+| D7b-12 | D7b | Achats et travaux : montants parsés en `float` avant d'être stockés en `double` |  | 02/11 (code et test) |
+| D7b-13 | D7b | INSEE : pas de délai d'attente, XML non protégé → « Réviser » bloqué sur « Récupération… » |  | 02/11 (code et test) |
+| D7b-14 | D7b | Géocodage : réponse non protégée et meilleur résultat pris sans seuil |  | 02/11 (code et test ; seuil 0,5) |
+| D7b-15 | D7b | Carte : les textures Google ne sont jamais détruites |  | 02/11 (code et test) |
+| D7b-16 | D7b | PLU : le panneau abandonne à 10 s, la requête dure jusqu'à 15 s |  | 02/11 (code et test) |
+| D7b-17 | D7b | Formulaires achat/travaux : écouteurs empilés et durée d'emprunt héritée du formulaire précédent |  | 02/11 (code et test) |
+| D7b-18 | D7b | Code mort |  | 02/11 (code mort retiré) |
+| D7b-19 | D7b | Carte Loyer : le TTC est toujours HT × 1,20 |  | 02/11 (décision : inchangé ; chantier « TVA par entreprise » noté) |
+| D7b-20 | D7b | L'ICC n'est pas proposé |  | 02/11 (ICC ajouté, série 000008630 ; parcours BJ5) |
+| D8-06 | D8 | Code mort : le démarrage local et tout ce qu'il portait |  | 02/11 (décision : supprimé ; objet de scène « Savegarde » retiré) |
+| D8-07 | D8 | `MigrateData` copie et ne déplace pas : commentaire faux et copie complète laissée derrière (dont la clé API) |  | 02/11 (code et test) |
+| D8-08 | D8 | Transfert : un dossier de destination est supprimé sans sauvegarde quand le bâtiment n'y existe pas |  | 02/11 (code et test) |
+| D8-09 | D8 | Accueil : un rappel de facturation ou de révision ouvre la fiche, pas l'écran, alors que la même carte dans la fiche ouvre l'écran |  | 02/11 (décision : l'écran ; parcours BJ6) |
+| D8-10 | D8 | L'en-tête de l'accueil compte les locataires archivés |  | 02/11 (code et test ; parcours BJ7) |
 
 ## Trouvés pendant le parcours BC (01/11)
 

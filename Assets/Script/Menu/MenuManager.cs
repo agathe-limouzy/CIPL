@@ -169,6 +169,8 @@ public class MenuManager : MonoBehaviour
     {
 
 
+        // Demande du 04/11 : un lot libre d'abord ; créé depuis le refus, l'ajout reprend ensuite (retour BM3).
+        if (batimentPrefabOwned.RefuserAjoutSansLotLibre(OnAddTabLocataire)) return;
         var prefab = batimentPrefabOwned.Addlocataire(true);
         CreateTab(prefab);
         OnSelect(prefab, true);

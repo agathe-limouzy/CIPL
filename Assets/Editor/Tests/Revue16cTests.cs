@@ -149,11 +149,13 @@ public class Revue16cTests
         c.ratios = ChargePanel.Ratios("Surface", bat.locataireDuBatiment, Surface, null);
         Assert.That(ListesCharges.QuotePart(c, a, bat), Is.EqualTo(400f).Within(0.001f));
         Assert.That(ListesCharges.QuotePart(c, b, bat), Is.EqualTo(600f).Within(0.001f), "surface déduite : 1 200 m²");
+        c.typeRatio = "Égalité";   // retour BL4 (04/11) : le type décide du calcul
         c.ratios = ChargePanel.Ratios("Égalité", bat.locataireDuBatiment, Surface, null);
         Assert.That(ListesCharges.QuotePart(c, b, bat), Is.EqualTo(500f).Within(0.001f));
+        c.typeRatio = "Manuel";
         c.ratios = ChargePanel.Ratios("Manuel", bat.locataireDuBatiment, Surface, l => l == a ? 0.3f : 0.7f);
         Assert.That(ListesCharges.QuotePart(c, a, bat), Is.EqualTo(300f).Within(0.001f));
-        Assert.That(ChargePanel.Ratios("Surface", new List<Locataire> { a }, Surface, null), Is.Empty, "un seul locataire : il paie tout");
+        Assert.That(ChargePanel.Ratios("Surface", new List<Locataire> { a }, Surface, null), Has.Count.EqualTo(1), "un seul locataire : une part, le tout (Revue 17, D6-01)");
     }
 
     // ── Lot 2 : serveur, sécurité et argent (01/11) ───────────────────────────
@@ -462,14 +464,6 @@ public class Revue16cTests
     }
 
     [Test]
-    public void D4_06_rien_n_est_propose_en_mode_Pennylane()
-    {
-        Assert.That(FactureEnvoiAuto.PropositionPossible(ModeEnvoi.Pennylane), Is.False);
-        Assert.That(FactureEnvoiAuto.PropositionPossible(ModeEnvoi.Email), Is.True);
-        Assert.That(FactureEnvoiAuto.PropositionPossible(null), Is.True);
-    }
-
-    [Test]
     public void D4_12_une_facture_payee_ne_recoit_plus_de_charge()
     {
         var loc = new Locataire { facturesEtat = new List<FactureEtat> {
@@ -674,10 +668,10 @@ public class Revue16cTests
     public void D7a_05_cession_vide_ce_qui_est_propre_au_cedant()
     {
         var loc = new Locataire { Name = "SARL Ancien", ribLocataireIban = "FR76", ribLocataireTitulaire = "SARL Ancien", ribLocataireBic = "BNP",
-                                  telephoneLocataire = "06", codeCompatable = "411ANC", assujettiTva = "oui" };
+                                  telephoneLocataire = "06", codeCompatable = "411ANC" };
         Cessions.Appliquer(loc, new System.DateTime(2026, 11, 1), "Jean Martin", "", "", "");
         Assert.That(loc.ribLocataireIban + loc.ribLocataireTitulaire + loc.ribLocataireBic + loc.telephoneLocataire
-                    + loc.codeCompatable + loc.assujettiTva, Is.EqualTo(""));
+                    + loc.codeCompatable, Is.EqualTo(""));
         Assert.That(loc.Name, Is.EqualTo("Jean Martin"));
     }
 
@@ -972,8 +966,8 @@ public class Revue16cTests
     [Test]
     public void Mineurs_D4_09_mode_d_envoi_par_defaut_et_message()
     {
-        Assert.That(new ReglageData().modeEnvoi, Is.EqualTo(ModeEnvoi.Email), "une entreprise neuve envoie par e-mail (décision du 02/11)");
-        StringAssert.Contains("Réglages › Intégrations", FactureEmission.SansEmail);
+        // Mode Pennylane retiré le 02/11 : plus de mode d'envoi ni de message « rien n'est parti ».
+        Assert.That(typeof(ReglageData).GetField("modeEnvoi"), Is.Null, "le mode d'envoi a disparu avec Pennylane");
         foreach (var p in new[] { "FactureRegulPanel", "FactureRefacPanel", "FactureDepotPanel" })
             Assert.That(File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", p + ".cs")), Does.Not.Contain("est décochée (Options & envoi)"), p);
     }

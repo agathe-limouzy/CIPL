@@ -137,6 +137,10 @@ public class Locataire : Data
     /// Revue 16c (D7a-13) : la date du jour en paramètre, pour les tests ; les dates ISO se relisent en culture invariante.
     public bool EstPartiLe(DateTime aujourdhui) => FacturationSuivi.TryEcheance(dateSortieISO, out var s) && s.Date < aujourdhui.Date;
 
+    /// Retour BM6 (04/11) : son bail n'a pas encore commencé (un remplaçant, un locataire saisi d'avance).
+    public bool EstAVenir => EstAVenirLe(DateTime.Today);
+    public bool EstAVenirLe(DateTime aujourdhui) => Loyers.DebutPremierBail(this, out var d) && d.Date > aujourdhui.Date;
+
     /// L'indice de départ est connu (révision par indice initialisée).
     public bool IndiceInitialise => !string.IsNullOrEmpty(indiceImmoAuDepart) && indiceImmoAuDepart != "—";
 
@@ -214,12 +218,11 @@ public class Locataire : Data
     // pour qu'un objectif supprimé ne revienne pas à la tournée suivante.
     public List<string> signalementsSociete = new List<string>();
 
-    // Étape 18b : assujetti à la TVA, donc destinataire des factures électroniques. "" = d'après le SIRET
-    // (une société l'est d'office, un particulier non) ; "oui" / "non" = choisi sur la fiche.
-    public string assujettiTva = "";
-
-    public static bool AssujettiTva(Locataire l) =>
-        l != null && (l.assujettiTva == "oui" || (l.assujettiTva != "non" && PappersResume.SiretExploitable(l.siretNumber)));
+    // TVA sur le loyer (02/11) : "" = comme l'entreprise ; "oui" / "non" = la case de Gestion du loyer dès qu'on y a touché (BK4).
+    // Taux propre au bail (0 = celui de l'entreprise ; un bail avec son taux reste soumis). Voir Tva. La facture électronique suit ce choix et le SIRET
+    // (la case « Assujetti à la TVA » de la fiche, étape 18b, est retirée le 02/11).
+    public string tvaLoyer = "";
+    public float tauxTvaLoyer;
 
     // Propriété DateTime pratique (non sérialisée)
     public DateTime DateDebutBail

@@ -16,6 +16,7 @@ public class FactureEtat
     public string pdfPath;      // chemin du PDF généré
     public string dateEnvoiISO; // date de génération / envoi
     public float montant;       // montant TTC
+    public float tauxTva = Tva.TauxDefaut;   // taux appliqué à l'émission (0 = exonéré) ; absent des anciennes lignes = 20 (02/11)
     public float loyerHT;       // loyer HT facturé (Loyer seulement ; 0 = inconnu) — voir DepartLocataire.LoyerACorriger
     public string ribId;        // RIB CIPL (banque) sur lequel la facture est réglée
     public string ribNom;       // libellé du RIB (pour affichage / filtre)

@@ -185,10 +185,11 @@ public class FactureElectroniqueTests
     [Test]
     public void Le_locataire_assujetti_et_les_pastilles_du_suivi()
     {
-        Assert.That(Locataire.AssujettiTva(new Locataire { siretNumber = "55203253400646" }), Is.True, "société : d'office");
-        Assert.That(Locataire.AssujettiTva(new Locataire { siretNumber = "" }), Is.False, "particulier");
-        Assert.That(Locataire.AssujettiTva(new Locataire { siretNumber = "55203253400646", assujettiTva = "non" }), Is.False, "association");
-        Assert.That(Locataire.AssujettiTva(new Locataire { siretNumber = "", assujettiTva = "oui" }), Is.True);
+        // 02/11 : plus de case « Assujetti » sur la fiche ; la plateforme suit le bail (Tva.Soumis) et le SIREN (Concerne, SansSiret).
+        var rg = new ReglageData { loyersSoumisTva = true };
+        Assert.That(Tva.Soumis(new Locataire { siretNumber = "55203253400646" }, rg), Is.True, "bail au réglage de l'entreprise");
+        Assert.That(Tva.Soumis(new Locataire { tvaLoyer = "non" }, rg), Is.False, "bail exonéré : e-mail seul");
+        Assert.That(SocieteLocataire.Siren("55203253400646").Length == 9 && SocieteLocataire.Siren("").Length == 0, "le SIREN décide du reste");
 
         string futur = System.DateTime.Today.AddDays(30).ToString("yyyy-MM-dd");
         var r = new FactureEtat { key = "loyer-2026-P4", numero = "F-4", statut = "AttenteEnvoi", echeanceISO = futur, pdfPath = "x.pdf", plateformeDonnees = "{}" };

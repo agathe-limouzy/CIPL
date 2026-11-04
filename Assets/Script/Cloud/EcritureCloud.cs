@@ -113,11 +113,14 @@ public static class EcritureCloud
         var sb = new StringBuilder("{\"p_entreprise\":").Append(Q(entreprise)).Append(",\"p_id\":").Append(Q(op.Id));
         if (op.Type == TypeOp.Locataire) sb.Append(",\"p_batiment\":").Append(Q(op.BatimentId)).Append(",\"p_ordre\":").Append(op.Ordre);
         return sb.Append(",\"p_version\":").Append(op.Version).Append(",\"p_data\":").Append(op.Json)
-                 .Append(",\"p_session\":").Append(Q(session)).Append('}').ToString();
+                 .Append(",\"p_session\":").Append(Q(session)).Append(",\"p_modele\":").Append(DonneesCloud.Modele).Append('}').ToString();
     }
 
     public static string MotifRefus(Resultat r, string nomFiche) => r.refus == "verrou"
         ? $"« {nomFiche} » : {RegleVerrou.Libelle(r.nom, r.motif, CloudClient.Date(r.pris_le) ?? DateTime.Now)}. Vos modifications ne sont pas enregistrées."
+        : r.refus == "application"   // Revue 17 (D2-01) : une version plus récente a écrit la fiche
+        ? $"Une version plus récente de CIPL a enregistré « {nomFiche} » : mettez CIPL à jour (bandeau en haut, ou relancez CIPL) " +
+          "pour l'enregistrer. Vos modifications ne sont pas enregistrées."
         : r.refus == "supprimee"   // revue 16c, D2-15 : la fiche n'existe plus (le serveur le dit depuis etape16c4)
         ? $"« {nomFiche} » a été supprimé entre-temps par un collègue : vos modifications ne sont pas enregistrées."
         : $"« {nomFiche} » a été modifié entre-temps par {(string.IsNullOrEmpty(r.nom) ? "un collègue" : r.nom)} : " +
@@ -210,6 +213,10 @@ public static class EcritureCloud
         if (b == null || !_enAttente.Add(b)) return;
         UndoToast.Instance?.ShowInfo($"Hors ligne : « {b.Name} » sera enregistré au retour de la connexion.");
     }
+
+    /// Revue 17 (D8-01) : les fiches qui attendent la connexion (en mémoire seulement : fermer CIPL les perdrait).
+    public static List<string> NomsEnAttente() => _enAttente.Where(b => b != null)
+        .Select(b => string.IsNullOrWhiteSpace(b.Name) ? "(sans nom)" : b.Name).Distinct().ToList();
 
     public static void RenvoyerEnAttente()
     {

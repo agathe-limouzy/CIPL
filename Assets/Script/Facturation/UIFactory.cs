@@ -294,4 +294,22 @@ public static class UIFactory
         var body = VBox(card.transform, 10, 14, 14, 12, 14, "SectionBody");
         return body;
     }
+
+    /// Montre ou cache un champ créé juste après son libellé (motif « Labeled » des panneaux : texte puis champ dans le même
+    /// parent). Ne touche pas au parent : masquer `transform.parent` cachait toute la section « Loyer facturé » (vu en BK2, 02/11).
+    public static void MontrerAvecLibelle(GameObject champ, bool visible)
+    {
+        champ.SetActive(visible);
+        int i = champ.transform.GetSiblingIndex();
+        if (i > 0) champ.transform.parent.GetChild(i - 1).gameObject.SetActive(visible);
+    }
+
+    /// Ligne « libellé … valeur » des totaux (motif MontRow des panneaux : une rangée avec le libellé puis la valeur) : la montre
+    /// ou la cache, et change son libellé si on en donne un (« TVA 5,5% » au taux de la facture, « Total » seul sans TVA ; BK, 02/11).
+    public static void LigneMontant(TMP_Text valeur, bool visible, string libelle = null)
+    {
+        var rangee = valeur.transform.parent;
+        rangee.gameObject.SetActive(visible);
+        if (libelle != null) rangee.GetChild(0).GetComponent<TMP_Text>().text = libelle;
+    }
 }

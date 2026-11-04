@@ -444,12 +444,14 @@ public class FactureDepotPanel : MonoBehaviour
         MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
         MentionTva.Charger(_mentionTvaS, _texteTvaDebitS, f);
         _retard.isOn = f?.ajouterRetard ?? true;
+        // Revue 17 (D6-03) : pénalités et indemnité de 40 € obligatoires pour un locataire professionnel (SIRET).
+        bool obligatoire = FactureElectronique.Professionnel(_loc, _siret.text);
+        if (obligatoire) _retard.isOn = true;
+        _retard.interactable = !obligatoire;
         _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
         _emailObjet.text = EmailService.ObjetFacture(f?.emailObjet);
         _emailCorps.text = EmailService.CorpsFacture(f?.emailCorps);
-        _modeInfo.text = R.modeEnvoi == ModeEnvoi.Pennylane
-            ? "Mode global : Pennylane (e-facture Factur-X)."
-            : "Mode global : Email direct (SMTP).";
+        _modeInfo.text = "Envoi : e-mail (le dépôt de garantie, sans TVA, ne passe pas par la plateforme).";   // mode Pennylane retiré (02/11)
 
         RefreshTotaux();
         RefreshEntetePreview();
@@ -523,7 +525,7 @@ public class FactureDepotPanel : MonoBehaviour
     float CurrentPeriode()
     {
         float ht = _loc.loyerAnnuel / Mathf.Max(1, LoyerSummaryUI.NbPeriodes(_loc.periodiciteLoyer));
-        return (_ttcToggle != null && _ttcToggle.isOn) ? ht * 1.2f : ht;
+        return (_ttcToggle != null && _ttcToggle.isOn) ? Tva.Ttc(ht, Tva.Taux(_loc)) : ht;   // 02/11 : au taux du bail (TTC = HT si exonéré)
     }
 
     float Nouveau()
@@ -671,7 +673,7 @@ public class FactureDepotPanel : MonoBehaviour
                 FactureEmission.PhraseSomme(_sommePhrase.text, complement), _loc, _bat, ctx),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
-            legal = R.phraseRetard,
+            legal = R.phraseRetard, escompte = R.phraseEscompte,
             foot1 = foot.Length > 0 ? foot[0] : "",
             foot2 = foot.Length > 1 ? foot[1] : "",
         };
@@ -713,7 +715,7 @@ public class FactureDepotPanel : MonoBehaviour
             texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTva, _texteTvaDebit), _loc, _bat, ctx),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
-            legal = R.phraseRetard,
+            legal = R.phraseRetard, escompte = R.phraseEscompte,
             foot1 = foot.Length > 0 ? foot[0] : "",
             foot2 = foot.Length > 1 ? foot[1] : "",
         };
@@ -747,14 +749,14 @@ public class FactureDepotPanel : MonoBehaviour
             totalPeriode = -depot, lignesProvision = d.lignes,
             totalHT = d.totalHT, tva = d.tva, ttc = d.ttc,
             // Aucune retenue soumise : aucune information de TVA (demande du 02/10).
-            tvaLibelle = "TVA 20 % (retenues soumises)", masquerTva = d.tva <= 0f,
+            tvaLibelle = Tva.Libelle(Tva.Taux(_loc)) + " (retenues soumises)", masquerTva = d.tva <= 0f,   // 02/11 : au taux du bail
             // Aucune retenue soumise : aucune information de TVA, mention comprise (02/10).
             tvaDebit = d.tva > 0f && MentionTva.Imprimee(_mentionTvaS), retard = _retard.isOn,
             sommePhrase = FactureVarResolver.Resolve(FactureEmission.PhraseSomme(_sommePhrase.text, d.ttc), _loc, _bat, ctx),
             texteTvaDebit = FactureVarResolver.Resolve(MentionTva.Phrase(_mentionTvaS, _texteTvaDebitS), _loc, _bat, ctx),
             ribTitulaire = rib?.titulaire, ribDomiciliation = rib?.domiciliation,
             ribNum = rib?.rib, ribIban = rib?.iban, ribBic = rib?.bic,
-            legal = R.phraseRetard,
+            legal = R.phraseRetard, escompte = R.phraseEscompte,
             foot1 = foot.Length > 0 ? foot[0] : "",
             foot2 = foot.Length > 1 ? foot[1] : "",
         };
@@ -866,14 +868,6 @@ public class FactureDepotPanel : MonoBehaviour
         string png = DossiersDonnees.Apercu("apercu_depot.png");
         if (d.Apercu(png) == null) ShowPreview(png);
 
-        // Pas d'envoi demandé : on enregistre, rien ne part. Le bouton s'appelant
-        // « Sauvegarder et envoyer », il faut le dire, sinon on attend un mail en vain.
-        if (R.modeEnvoi != ModeEnvoi.Email)
-        {
-            Finaliser(d, key, emission, correction, pdf, false,
-                FactureEmission.SansEmail);
-            return;
-        }
 
         // Refus AVANT la confirmation si quelque chose manque.
         string dest = (_emailEnvoi.text ?? "").Trim();

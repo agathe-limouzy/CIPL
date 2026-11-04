@@ -45,7 +45,7 @@ Le code se lit en cinq couches. La règle qui les relie est simple : **l'interfa
 ├──────────────────────────────────┬────────────────────────────────────────┤
 │ SERVICES EXTERNES                │ PERSISTANCE                            │
 │  InseeIndiceService (INSEE)      │  BatimentManager (charge / sauve)      │
-│  PennylaneClient (Pennylane)     │  AtomicFile · BackupService            │
+│  mode Pennylane retiré 02/11     │  AtomicFile · BackupService            │
 │  EmailService (SMTP)             │  SaveLocationService · DossiersDonnees │
 │  FacturePdfService (Edge)        │  ReglageService (+ secrets)            │
 │  PapperService (annuaire État)   │  EntrepriseService · MigrationDossiers │
@@ -142,7 +142,7 @@ Chacune de ces règles a coûté un défaut réel (voir `REVUE_CODE_CIPL.md`).
 ```
 <racine>/CIPL_Saves/                      ← une racine par entreprise
 ├─ reglage.json                           ← ReglageData (aucun secret)
-├─ pennylane_secrets.dat                  ← clé API Pennylane, mot de passe SMTP (clé=valeur)
+├─ pennylane_secrets.dat                  ← mot de passe SMTP (clé=valeur ; nom de fichier historique)
 ├─ batiments/
 │   └─ batiment_<id>.json                 ← un bâtiment et tous ses locataires
 ├─ Batiment/                              ← documents, rangés par NOM (lisible dans l'explorateur)
@@ -173,7 +173,7 @@ Chacune de ces règles a coûté un défaut réel (voir `REVUE_CODE_CIPL.md`).
   - `SauvegardeDeFermeture` réécrit l'état en mémoire en quittant, et refuse si la racine a changé entre-temps.
 - **`BackupService`** : copie datée au démarrage (JSON + `reglage.json`, **jamais les secrets**), purge après 30 jours.
 - **`ReglageService`** : `Current` est chargé à la demande. Si `reglage.json` est illisible, l'écriture est **refusée** pour ne pas écraser l'original. Les secrets vivent dans deux fichiers `clé=valeur`, hors JSON, hors sauvegardes et hors dépôt Git :
-  - `<racine>/pennylane_secrets.dat` pour ceux de l'entreprise (clé Pennylane, mot de passe SMTP) ;
+  - `<racine>/pennylane_secrets.dat` pour ceux de l'entreprise (mot de passe SMTP ; nom de fichier historique) ;
   - `persistentDataPath/cipl_app_secrets.dat` pour ceux de l'application (adresse et clé du cloud), communs à toutes les entreprises. Le jeton Mapbox n'y est plus lu depuis l'étape 16b. Revue 16c (01/11) : le projet de CIPL est **compilé** (`Cloud/CloudDefaut.cs`, D3-01) et ce fichier n'est plus qu'une surcharge (projet de test) ; sur le cloud, les secrets de l'entreprise sont dans `persistentDataPath/cipl_secrets_<entreprise>.dat`, **chiffrés** (DPAPI sur Windows, trousseau sur Mac : `ReglageService.LireTexte`/`EcrireTexte`, D1-09).
 - **`EntrepriseService`** : registre global des entreprises dans `PlayerPrefs` (`cipl_entreprises`). Changer d'entreprise, c'est changer de racine, puis `ReglageService.Load()` et `BatimentManager.ReloadFromDisk()` **à chaud**.
 - **`MigrationDossiers`** : passage des dossiers nommés par GUID à des dossiers nommés par nom. Le plan est validé en entier avant tout déplacement, une sauvegarde est faite d'abord, et le marqueur n'est écrit qu'en cas de réussite complète.
@@ -290,7 +290,7 @@ Le chemin d'une facture :
  Envoi selon ReglageData.modeEnvoi :
    ├─ EmailService (SMTP, confirmation obligatoire, rien sans destinataire explicite ; texte : celui de la
    │    facture, sinon le modèle de Réglages › Modèles d'e-mail, EmailService.Modele, 31/10)
-   └─ PennylaneClient.Deposer (facture INCOMPLÈTE + Factur-X ; ni finalisation ni send_to_pa)
+   └─ (dépôt Pennylane retiré le 02/11 : la plateforme agréée prend le relais, `FactureElectronique`)
    ▼
  FactureEmission.Enregistrer             ← APRÈS un PDF réussi : FacturationSuivi.MarquerEnvoye / MarquerCorrige
 ```
@@ -340,7 +340,7 @@ Sur le cloud (étape 16b), la tournée du jour (`DemarrageCloud.TourneeAnnuaire`
 | Service | Usage | Code | Authentification |
 |---|---|---|---|
 | INSEE — `bdm.insee.fr` (SDMX) | Séries d'indices ILC / IRL / ILAT | `InseeIndiceService` | aucune |
-| Pennylane — `app.pennylane.com/api/external/v2` | Dépôt des factures (incomplètes, Factur-X), clients par SIREN | `PennylaneClient` | clé API (secrets de l'entreprise) |
+| Pennylane | **Retiré le 02/11** (décision : CIPL passe par Super PDP) ; `PennylaneClient` supprimé | — | — |
 | SMTP (OVH, Orange, Free, iCloud…) | Envoi des factures par email quand l'adresse n'est pas reliée | `EmailService` (`System.Net.Mail`, STARTTLS) | mot de passe (secrets de l'entreprise) |
 | API Gmail — `gmail.googleapis.com` / Microsoft Graph — `graph.microsoft.com` (étape 16a) | Envoi depuis une adresse Gmail, Google Workspace, Outlook, Hotmail, Microsoft 365 reliée par « Se connecter avec … » | `Messagerie` (message MIME pour Gmail, `sendMail` pour Graph) | jeton d'une heure donné par la fonction serveur `messagerie`, qui garde l'autorisation (table `messageries`) |
 | DNS de Google — `dns.google` | Serveurs de courrier (MX) d'un domaine propre, pour proposer le bon bouton ou le bon serveur SMTP | `Messagerie.DevinerEnLigne` | aucune |
@@ -397,7 +397,7 @@ Tous les appels réseau passent par `UnityWebRequest` dans des coroutines, sauf 
 | Sujet | Situation |
 |---|---|
 | **Numérotation des factures (H1)** | Deux locataires peuvent obtenir le même numéro le même mois. En attente de l'expert-comptable (conformité art. 242 nonies A du CGI). Point unique à modifier : `FactureNumerotation.Prefixe` + `factureSeq`. |
-| **Pennylane** | Dépôt seulement. Finalisation et `send_to_pa` **volontairement non écrites** (en attente de Pennylane). Dépôt depuis Régul / Refac / Dépôt à faire. |
+| **Pennylane** | Mode retiré le 02/11 ; plus rien à faire. |
 | **Dépendance à Windows / Edge** | La génération PDF cherche `msedge.exe` aux emplacements standards. |
 | **Grosses classes UI** | `RevisionPanel` (≈ 1 300 lignes), `FactureLoyerPanel` (≈ 1 200), `FactureRegulPanel` (≈ 1 050), `LocataireFacturationFields` (≈ 900). À découper si elles continuent de grossir ; la logique métier en est déjà sortie. |
 | **Une seule assembly** | Pas d'`.asmdef` : toute modification recompile tout. Acceptable à cette taille. |
@@ -445,5 +445,5 @@ Tous les appels réseau passent par `UnityWebRequest` dans des coroutines, sauf 
 - `FactureRegulPanel.MontantsParListe(listes, chargesDe, provisionDe, periodesFacturees, ttcTotal)` (statique, testée) ; `SaveFromUI()` sans paramètre. `FactureEmission.SansEmail` (message commun des trois panneaux) ; `ReglageData.modeEnvoi` = Email par défaut.
 - `FactureEn16931` : `PenalitesDefaut`, `IndemniteDefaut`, `MentionsRetard(saisie)` ; ligne négative = quantité −1 et prix positif ; total négatif = avoir (381) aux montants positifs, lignes inversées (BI5, 02/11) ; `LignesRegul` (régul : charges, déjà refacturé, provisions) ; `Partie(…, vendeur: true)` seul porte `vat_identifier`. `FacturePdfService` : `{{LEGAL}}` = `MentionsRetard`, mention TVA échappée.
 - `FactureLoyerPanel` : `Cents`, `BuildData` au centime, refus d'un total ≤ 0 pour la plateforme ; `ShowApercu`/`Modal` retirés.
-- `FactureVarResolver.Resolve(texte, loc, bat, ctx, valeur)` : chaque valeur passe par `valeur` (échappement) ; `ExplicationDepot.Phrase` l'utilise avec `H`. `FactureElectronique.Phrase(Reponse)` : la phrase du résumé. Lot 7 (02/11) : `Locataire.EstPartiLe(date)` ; `IndiceImmo.ICC` (série 000008630) ; `LoyerHistoryService.HistoriqueCouvre` ; `Objectifs.Suivante(…, jourOrigine)` ; `SaisieNumerique.TryParse(out double)` et `ParseOuAvertirD` ; `MapThumbnailService.EstEnCache` ; `PLUService.FetchZone` public ; `SaveLocationService.AncienneRacineDeplacee` ; `TransfertEntreprise.CopierFichiers(…, racineDest)` ; mode local d'avant le cloud supprimé (`BackupService`, `MigrationDossiers`, `SaveLocationMenu`, `EntreprisePanel`, `EntrepriseService.Activer/Creer/Ouvrir`).
+- `FactureVarResolver.Resolve(texte, loc, bat, ctx, valeur)` : chaque valeur passe par `valeur` (échappement) ; `ExplicationDepot.Phrase` l'utilise avec `H`. `FactureElectronique.Phrase(Reponse)` : la phrase du résumé. Lot 7 (02/11) : `Locataire.EstPartiLe(date)` ; `IndiceImmo.ICC` (série 000008630) ; `LoyerHistoryService.HistoriqueCouvre` ; `Objectifs.Suivante(…, jourOrigine)` ; `SaisieNumerique.TryParse(out double)` et `ParseOuAvertirD` ; `MapThumbnailService.EstEnCache` ; `PLUService.FetchZone` public ; `SaveLocationService.AncienneRacineDeplacee` ; `TransfertEntreprise.CopierFichiers(…, racineDest)` ; TVA (02/11) : `Tva` (règle entreprise › bail › facture), `ReglageData.loyersSoumisTva/tauxTva/mentionTvaExoneration`, `Locataire.tvaLoyer/tauxTvaLoyer`, `FactureInfo.tauxTva`, `FactureEtat.tauxTva`, `TauxFacture()` dans les trois panneaux ; `Locataire.assujettiTva` retiré le 02/11 (`FactureElectronique.Concerne`/`SansSiret` = `Tva.Soumis` + SIREN) ; `UIFactory.MontrerAvecLibelle`, `LigneMontant` ; Revue 17 lot 1 (03/11) : `DonneesCloud.Modele` envoyé en `p_modele` (Serveur/etape17a_supabase.sql, colonne `modele`), `FactureEn16931.NumeroDe` / `SansEscompte`, `FactureElectronique.RefusCorrection` / `Professionnel`, `RegleInscription.ReglagesAjout`, `ListesCharges.PayeursSansPart` / `PartsEffectives` (retour BL4), `ChargeBatiment.ponctuelle` et `Loyers.PresentLe` (période d'une charge, 04/11, modèle des données 2), `ListesCharges.LocauxVides` et `ChargePanel.DetailDuPartage` (locaux vides au propriétaire, montants au prorata, retour BL8), `LotsBatiment` et `LotsPanel` (lots déclarés dans le bâtiment, 04/11, modèle des données 3), `ReglageData.phraseEscompte` et `FactureEn16931.Escompte` (phrase d'escompte réglable, 04/11, modèle 4), `FermetureGuard.Decision` / `Avertissement`, `EcritureCloud.NomsEnAttente` ; mode local d'avant le cloud supprimé (`BackupService`, `MigrationDossiers`, `SaveLocationMenu`, `EntreprisePanel`, `EntrepriseService.Activer/Creer/Ouvrir`).
 - Serveur : `facture-electronique-retour.ts` n'écrit plus `plateformes.societe` (colonne gardée).

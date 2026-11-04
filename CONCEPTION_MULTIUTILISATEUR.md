@@ -1,5 +1,7 @@
 # Conception — mode multi-utilisateur de CIPL
 
+> Mise à jour du 02/11/2026 : le mode Pennylane est retiré (CIPL passe par la plateforme agréée Super PDP) ; les mentions de Pennylane ci-dessous sont historiques.
+
 > Document de conception (09/10/2026). **Rien n'est codé.** Toutes les décisions ci-dessous ont été validées avec l'utilisatrice pendant la session du 09/10.
 > À lire avec `ARCHITECTURE_CIPL.md` (§5 Persistance, §6 Cycle de vie).
 
@@ -449,7 +451,7 @@ Ordre proposé : chaque étape ne dépend que des précédentes. Taille : S (une
 - **Décisions du 29/10** :
   - **Super PDP**, d'abord en **bac à sable** (factures fictives, clé de test gratuite) ; toute la plateforme passe par les fonctions serveur `facture-electronique` : en changer plus tard ne toucherait qu'elles. Les réponses de Pennylane, B2Brouter et Iopole peuvent encore arriver.
   - **Périmètre** : émission des **factures de loyer** aux **locataires assujettis à la TVA**, la facture officielle par Super PDP et le **PDF par e-mail en plus**, comme aujourd'hui ; statut **« Encaissée »** (CIPL dit à la plateforme qu'un loyer est payé, date et montant ; la plateforme le transmet à l'administration, la TVA des loyers étant due à l'encaissement) envoyé **tout seul** quand la facture est marquée payée. Régularisations, refacturations, avoirs, réception des factures fournisseurs : plus tard.
-  - **Case « Assujetti à la TVA »** sur le locataire, sous le SIRET : cochée d'office pour une société (SIRET), décochée pour un particulier, modifiable (association, profession exonérée…). Non assujetti : e-mail comme avant ; la déclaration de ces loyers à l'État (e-reporting, dès le 1/9/2027) sera une étape à part.
+  - **Case « Assujetti à la TVA »** sur le locataire, sous le SIRET : cochée d'office pour une société (SIRET), décochée pour un particulier, modifiable (association, profession exonérée…). Non assujetti : e-mail comme avant ; la déclaration de ces loyers à l'État (e-reporting, dès le 1/9/2027) sera une étape à part. **Retirée le 02/11** (chantier TVA) : la plateforme suit le bail (case « TVA sur le loyer » dans Gestion du loyer) et le SIRET ; une association non assujettie garde son SIRET vide.
   - **Qui ouvre** : le gérant de chaque SCI, une fois, depuis Réglages › Intégrations › Facture électronique : la fenêtre de Super PDP s'ouvre pré-remplie (e-mail, SIREN), il confirme et vérifie son identité (≈ 5 minutes). CIPL ne peut pas le faire à sa place : l'arrêté du 27/07/2026 demande la signature du représentant légal, et chez Super PDP la création par API est réservée aux experts-comptables.
   - **Qui paie** : CIPL, pour tous ses clients (abonnement direct de CIPL, les SCI rattachées en abonnement indirect, chacune gardant son accès et son historique) ; inclus dans l'abonnement CIPL. À confirmer par écrit avec Super PDP.
 - **Découpage** : 18a (relier la SCI, voir son état) faite le 29/10, validée le 30/10 ; 18b (case du locataire, envoi des loyers, « Encaissée ») faite et validée le 30/10 au bac à sable (parcours AZ).
@@ -651,3 +653,12 @@ Partie serveur (02/11) :
 - **Deux admins qui invitent en même temps** (D3-08) : les entreprises visées sont verrouillées le temps de la transaction.
 - **Le contact Stripe suit l'admin** (D3-11) : l'adresse du client Stripe est celle de l'admin qui ouvre le portail ou ajuste.
 - **Hygiène de la session** (D3-13) : « Se déconnecter » ferme aussi la session côté serveur ; un jeton refusé efface les copies hors ligne ; la copie hors ligne ne s'ouvre qu'avec le jeton de son propriétaire.
+
+## 18. Revue 17, lot 1 (03/11) : ce qui change sur le cloud
+
+- **Numéro de modèle des données** (D2-01) : `DonneesCloud.Modele` part avec chaque écriture (`p_modele`) ; le serveur garde le plus grand (colonne `modele` des bâtiments, des locataires et des Réglages) et refuse qu'une version plus ancienne de CIPL réécrive ou transfère une fiche enregistrée par une plus récente : « Une version plus récente de CIPL a enregistré … : mettez CIPL à jour ». À monter à chaque champ ajouté ou retiré dans les données (le test `D2_01_un_champ_ajoute_…` de `Revue17Tests` garde l'empreinte des champs). La version publiée est relue toutes les heures (`MiseAJour`). Script `Serveur/etape17a_supabase.sql`, à passer AVANT de lancer la nouvelle version (sans lui, ses écritures seraient refusées).
+- **Modèle 2** (04/11) : premier champ ajouté sous ce garde-fou (`ChargeBatiment.ponctuelle`, période d'une charge) : `DonneesCloud.Modele` vaut 2 et l'empreinte du test est recopiée. Une version 1 de CIPL ne peut plus réécrire une fiche enregistrée par la version 2 (elle perdrait la période de ses charges). Rien à passer sur le serveur.
+- **Modèle 3** (04/11) : `Batiment.lots`, les lots du bâtiment (numéro, surface, désignation). Ils appartiennent à la fiche du bâtiment (verrou du bâtiment, fenêtre « Lots ») ; le locataire n'écrit que son numéro de lot (verrou du locataire) : aucune écriture croisée. Rien à passer sur le serveur.
+- **Modèle 4** (04/11) : `ReglageData.phraseEscompte`, la tournure de la phrase sur l'escompte (Réglages › Facturation). Rien à passer sur le serveur.
+- **Entreprise ajoutée au groupe** (D3-01) : `ajouter_entreprise` reçoit ses Réglages de départ (`RegleInscription.ReglagesAjout` : nom, SIRET, n° de TVA, siège, ville, sans logo), comme l'inscription ; plus jamais ceux de CIPL.
+- **Fermeture hors ligne** (D8-01) : la garde de fermeture et la croix « Quitter » listent les fiches enregistrées hors ligne qui attendent la connexion (`EcritureCloud.NomsEnAttente`, `FermetureGuard.Decision`) : « Quitter maintenant les perdrait », avec « Quitter quand même ».

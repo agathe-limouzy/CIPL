@@ -8,7 +8,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// Écran Réglage (facturation), construit 100 % par code.
-/// Sections : Connexion Pennylane + mode d'envoi (Pennylane / Email + SMTP),
+/// Sections : envoi des factures (e-mail + SMTP), facture électronique (Super PDP),
 /// RIB (ajout/modif/suppr), Entêtes (modèles de texte), textes fixes, sauvegarde.
 public class ReglagePanel : MonoBehaviour
 {
@@ -22,20 +22,20 @@ public class ReglagePanel : MonoBehaviour
     static readonly Color CoPetrole = Hex("#16697A"), CoPetroleL = Hex("#D7E9EC");
 
     // Références UI
-    TMP_InputField _apiKey, _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd, _smtpUser,
+    TMP_InputField _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd, _smtpUser,
                    _dEnvoiAvant, _dImpayeApres, _dEcheanceAutres;   // délais de facturation (01/11)
-    TMP_InputField _phraseRetard, _basDePage, _entrepriseNom, _lieuEmission;
+    TMP_InputField _phraseRetard, _phraseEscompte, _basDePage, _entrepriseNom, _lieuEmission;
     TMP_InputField _tvaDebits, _tvaEncaissements;
     // Modèles d'e-mail (31/10) : facture avec le PDF, sa « copie » (par la plateforme, jusqu'au 31/8/2027),
     // notification (dès le 1/9/2027), rappel, invitation.
     TMP_InputField _factureObjet, _factureCorps, _copieObjet, _copieCorps, _notifObjet, _notifCorps,
                    _rappelObjet, _rappelCorps, _invitObjet, _invitCorps;
     readonly List<Button> _essais = new List<Button>();
-    Toggle _modePennylane;
     TMP_Text _reglePar;   // étape 9a : « Réglé par l'administrateur », à la place des champs d'admin
+    Toggle _tvaSoumis; TMP_InputField _tvaTauxEntreprise, _mentionExoneration;   // TVA sur les loyers (02/11)
     readonly List<GameObject> _reserveAdmin = new List<GameObject>();
 
-    /// Admin, ou hors cloud : Pennylane, mode d'envoi et SMTP se modifient ici (étape 9a).
+    /// Admin, ou hors cloud : SMTP et plateforme se modifient ici (étape 9a).
     static bool Admin => !SessionCloud.Active || SessionCloud.Entreprise == null || SessionCloud.Entreprise.EstAdmin;
 
     /// Réglages relus sur le serveur pendant que la fenêtre est ouverte (refus d'enregistrement).
@@ -191,6 +191,7 @@ public class ReglagePanel : MonoBehaviour
 
         var facturation = Page(content, OFacturation);
         BuildCalendrier(facturation);   // 01/11 : les délais, dans Facturation (demande du parcours BE11)
+        BuildTva(facturation);          // 02/11 : l'option du bailleur et son taux
         BuildLogo(facturation);
         BuildEntetes(facturation);
         BuildListesCharges(facturation);
@@ -320,22 +321,12 @@ public class ReglagePanel : MonoBehaviour
         var envoi = UIFactory.Section(parent, "Envoi des factures", CoVert, CoVertL);
         _reglePar = UIFactory.Text(envoi.transform, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
         _reglePar.gameObject.SetActive(false);
-        _modePennylane = UIFactory.Toggle(envoi.transform, "Envoyer via Pennylane (e-facture Factur-X)", true);
-        _reserveAdmin.Add(_modePennylane.gameObject);
-        // Cette case ne gouverne QUE l'envoi des factures. Les réglages SMTP restent
-        // visibles dans les deux modes : les relances d'impayé partent par email même
-        // en Pennylane, donc les masquer les rendait inconfigurables.
+        // Retrait du mode Pennylane (02/11) : les factures partent par e-mail (PDF) et, pour les locataires assujettis, par
+        // la plateforme agréée (section « Facture électronique »). Les relances d'impayé passent aussi par e-mail.
         _reserveAdmin.Add(UIFactory.Text(envoi.transform,
-            "Cette case choisit comment partent les FACTURES. Les relances d'impayé passent "
-            + "par email dans tous les cas : les réglages SMTP ci-dessous servent donc toujours. "
-            + "(Pennylane : loyers seulement pour l'instant, déposés sans être émis.)",
+            "Les factures partent par e-mail (réglages ci-dessous) et, pour les locataires assujettis à la TVA, par la "
+            + "plateforme agréée Super PDP (section « Facture électronique »). Les relances d'impayé passent par e-mail.",
             UITheme.Role.Aide, UITheme.TexteSecondaire).gameObject);
-
-        var pennylane = UIFactory.Section(parent, "Pennylane", CoBleu, CoBleuL);
-        _reserveAdmin.Add(pennylane.transform.parent.gameObject);
-        UIFactory.Text(pennylane.transform, "Clé API Pennylane", UITheme.Role.Libelle, UITheme.TexteSecondaire);
-        _apiKey = ChampTeste(pennylane.transform, "Collez votre clé API…", "Tester la clé", PennylaneClient.Tester,
-                             "Le test lit le nom de la société de la clé et vérifie ses droits, sans rien créer dans Pennylane.");
 
         BuildFactureElectronique(parent);
         BuildSmtp(parent);
@@ -424,28 +415,6 @@ public class ReglagePanel : MonoBehaviour
             UndoToast.Instance?.ShowInfo("Facture électronique coupée pour cette SCI.");
             ChargerFE();
         }, "Se déconnecter");
-
-    /// Étape 16 : un champ secret, son bouton « Tester » à droite et le résultat dessous.
-    /// Le test porte sur ce qui est tapé, sans enregistrer (décision du 26/10).
-    TMP_InputField ChampTeste(Transform parent, string exemple, string bouton,
-                              Func<string, Action<bool, string>, IEnumerator> test, string aide)
-    {
-        var ligne = UIFactory.HBox(parent, 8, false, "ChampTeste");
-        var champ = UIFactory.Input(ligne.transform, exemple);
-        champ.contentType = TMP_InputField.ContentType.Password;
-        UIFactory.LE(champ.gameObject, flexW: 1);
-        var b = UIFactory.Button(ligne.transform, bouton, UITheme.Carte, UITheme.TextePrincipal, 40, UITheme.Role.Bouton);
-        UIFactory.Border(b.gameObject);
-        UIFactory.LargeurDuTexte(b);
-        var res = UIFactory.Text(parent, aide, UITheme.Role.Aide, UITheme.TexteSecondaire);
-        b.onClick.AddListener(() =>
-        {
-            res.color = UITheme.TexteSecondaire;
-            res.text = "Test en cours…";
-            StartCoroutine(test(champ.text.Trim(), (ok, message) => Resultat(res, ok, message)));
-        });
-        return champ;
-    }
 
     /// En vert ou en rouge sous le bouton ; un échec aussi au centre.
     static void Resultat(TMP_Text t, bool ok, string message)
@@ -1097,6 +1066,19 @@ public class ReglagePanel : MonoBehaviour
 
     // ── Section Textes fixes ───────────────────────────────────────────────────
 
+    // ── TVA sur les loyers (02/11) : l'option du bailleur, par entreprise ; chaque bail peut déroger (Gestion du loyer) ──
+    void BuildTva(Transform parent)
+    {
+        var body = UIFactory.Section(parent, "TVA sur les loyers", CoVert, CoVertL);
+        _tvaSoumis = UIFactory.Toggle(body.transform, "Loyers soumis à TVA par défaut (option du bailleur ; chaque bail peut en décider autrement dans Gestion du loyer)", true);
+        UIFactory.Text(body.transform, "Taux de TVA (%)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _tvaTauxEntreprise = UIFactory.Input(body.transform, "20");
+        UIFactory.Text(body.transform,
+            "Chaque bail peut déroger dans Gestion du loyer (comme l'entreprise, oui, non) avec son propre taux, et chaque facture peut "
+            + "changer le taux. Un bail exonéré est facturé sans TVA, avec la mention des Textes fixes, et ne part pas par la plateforme.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
+    }
+
     void BuildTextes(Transform parent)
     {
         var body = UIFactory.Section(parent, "Textes fixes", CoTaupe, CoTaupeL);
@@ -1105,6 +1087,11 @@ public class ReglagePanel : MonoBehaviour
         _lieuEmission = UIFactory.Input(body.transform, FacturePdfService.LieuDefaut);
         UIFactory.Text(body.transform, "Phrase de retard / pénalités", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _phraseRetard = UIFactory.Input(body.transform, "En cas de retard…", 90, true);
+        // Demande du 04/11 : la tournure de la phrase sur l'escompte, obligatoire (vide : la phrase d'usine revient).
+        UIFactory.Text(body.transform, "Phrase sur l'escompte (obligatoire : vide, la phrase d'usine revient)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _phraseEscompte = UIFactory.Input(body.transform, FactureEn16931.SansEscompte, 46, true);
+        UIFactory.Text(body.transform, "Mention d'exonération de TVA (baux exonérés)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _mentionExoneration = UIFactory.Input(body.transform, Tva.ExonerationDefaut, 46, true);
         UIFactory.Text(body.transform, "Bas de page (mentions société)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _basDePage = UIFactory.Input(body.transform, "SAS au capital…", 90, true);
 
@@ -1374,20 +1361,15 @@ public class ReglagePanel : MonoBehaviour
         foreach (var go in _reserveAdmin) if (go != null) go.SetActive(admin);
         _entrepriseNom.interactable = admin;   // étape 9c1 : onglet Entreprise en lecture pour un utilisateur
         _reglePar.gameObject.SetActive(!admin);
-        _reglePar.text = "Envoi des factures : " + (R.modeEnvoi == ModeEnvoi.Pennylane ? "via Pennylane"
-                         : $"par e-mail ({(string.IsNullOrEmpty(R.smtp.fromEmail) ? "adresse non réglée" : R.smtp.fromEmail)})")
+        _reglePar.text = $"Envoi des factures : par e-mail ({(string.IsNullOrEmpty(R.smtp.fromEmail) ? "adresse non réglée" : R.smtp.fromEmail)})"
                          + ". Réglé par l'administrateur.";
         _entrepriseNom.text = R.entrepriseNom ?? "";
         RefreshSiret();
-        _apiKey.text = ReglageService.GetApiKey();
-        _modePennylane.isOn = R.modeEnvoi == ModeEnvoi.Pennylane;
         _dEnvoiAvant.text = R.envoiAvantJours.ToString();
         _dImpayeApres.text = R.impayeApresJours.ToString();
         _dEcheanceAutres.text = R.echeanceAutresJours.ToString();
         foreach (var f in new[] { _dEnvoiAvant, _dImpayeApres, _dEcheanceAutres }) f.interactable = admin;
         _calendrierInfo.gameObject.SetActive(!admin);
-        // La carte SMTP reste visible quel que soit le mode : les relances d'impayé
-        // partent par email même quand les factures passent par Pennylane.
         _smtpHost.text = R.smtp.host;
         _smtpPort.text = R.smtp.port.ToString();
         _smtpFromEmail.text = R.smtp.fromEmail;
@@ -1404,6 +1386,10 @@ public class ReglagePanel : MonoBehaviour
         ChargerFE();  // étape 18a : la SCI est-elle reliée à Super PDP
         _lieuEmission.text = FacturePdfService.Texte(R.lieuEmission, FacturePdfService.LieuDefaut);
         _phraseRetard.text = R.phraseRetard;
+        _phraseEscompte.text = FactureEn16931.Escompte(R.phraseEscompte);
+        _tvaSoumis.isOn = R.loyersSoumisTva;   // 02/11
+        _tvaTauxEntreprise.text = (R.tauxTva > 0f ? R.tauxTva : Tva.TauxDefaut).ToString("0.##", FacturePdfService.FrCulture);
+        _mentionExoneration.text = FacturePdfService.Texte(R.mentionTvaExoneration, Tva.ExonerationDefaut);
         _basDePage.text = R.basDePage;
         _tvaDebits.text = MentionTva.Base(R, MentionTva.Debits);
         _tvaEncaissements.text = MentionTva.Base(R, MentionTva.Encaissements);
@@ -1436,8 +1422,6 @@ public class ReglagePanel : MonoBehaviour
         EntrepriseService.Register(R.entrepriseNom, SaveLocationService.GetSaveRoot());
         if (Admin)   // étape 9a : envoi et secrets réglés par l'admin seulement
         {
-            ReglageService.SetApiKey(_apiKey.text.Trim());
-            R.modeEnvoi = _modePennylane.isOn ? ModeEnvoi.Pennylane : ModeEnvoi.Email;
             R.smtp = SmtpSaisi();
             R.envoiAvantJours     = FacturationSuivi.Jours(_dEnvoiAvant.text, 15);
             R.impayeApresJours    = FacturationSuivi.Jours(_dImpayeApres.text, 15);
@@ -1446,6 +1430,10 @@ public class ReglagePanel : MonoBehaviour
         }
         R.lieuEmission = _lieuEmission.text.Trim();
         R.phraseRetard = _phraseRetard.text;
+        R.phraseEscompte = FactureEn16931.Escompte(_phraseEscompte.text);
+        R.loyersSoumisTva = _tvaSoumis.isOn;   // 02/11
+        R.tauxTva = SaisieNumerique.TryParse(_tvaTauxEntreprise.text, out float tauxTva) && tauxTva > 0f ? tauxTva : Tva.TauxDefaut;
+        R.mentionTvaExoneration = _mentionExoneration.text;
         R.basDePage = _basDePage.text;
         R.mentionTvaDebits = _tvaDebits.text;
         R.mentionTvaEncaissements = _tvaEncaissements.text;
