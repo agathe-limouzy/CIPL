@@ -35,6 +35,7 @@ public class FactureDepotPanel : MonoBehaviour
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
 
     TMP_Text _titre, _entetePreview, _modeInfo, _previewHint, _tNouveau, _tAncien, _tComplement, _perLine;
+    Button _btnSauver;   // décision du 11/11 : « Corriger et envoyer » pendant une correction
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _nbPeriodes, _ancien, _emailEnvoi;
     TMP_InputField _depotRappel, _depotDu, _depotRembourse, _depotEquilibre;
     TMP_InputField _texteTvaDebit;
@@ -42,8 +43,10 @@ public class FactureDepotPanel : MonoBehaviour
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     string _numeroEmis;   // le numéro décidé par FactureEmission.Preparer pendant l'émission (revue 16c, D6-03)
     string NumeroDocument() => _numeroEmis ?? ComposedNumero();
+    string _idGarde;      // Revue 17 (2c, décision du 06/11) : l'ID tapé, mis de côté pendant qu'un numéro repris occupe la ligne
     string _autoEcheance; // échéance proposée, suivie tant qu'elle n'est pas saisie à la main (revue 16c, D6-02)
     FactureEtat _ligneCiblee;   // la ligne du suivi cliquée, qui donne la clé de la révision (revue 16c, D4-05)
+    bool _acheteurAutre;        // Revue 17 (D4-01, lot 6) : correction d'une facture d'un autre titulaire (cédant) : son acheteur, pas le réglage du type
 
     void SuivreEcheance()
     {
@@ -55,6 +58,25 @@ public class FactureDepotPanel : MonoBehaviour
     /// L'ancien dépôt : celui d'avant « Réviser » si la fiche a été révisée avant la facture (revue 16c, D6-08), sinon
     /// le dépôt en place.
     public static float AncienDepot(Locataire loc) => loc.depotPrecedent > 0f ? loc.depotPrecedent : loc.depotDeGarantie;
+
+    /// Revue 17 (D6-18) : l'ancien dépôt proposé. Sur la correction d'une facture de révision (la ligne du suivi porte déjà sa
+    /// facture), celui que cette facture avait imprimé (`f.provisionMontant`, écrit par SaveFromUI) : « Réviser » puis Finaliser ont
+    /// effacé `depotPrecedent`, et le dépôt en place est déjà le nouveau (la rectificative sortait à 0 €, « aucun ajustement »).
+    /// Sinon AncienDepot. Limite : `f` est partagé avec le dépôt initial et le décompte : la règle vaut pour la dernière révision
+    /// facturée.
+    public static float AncienPropose(Locataire loc, FactureInfo f, bool dejaFacturee)
+        => dejaFacturee && f != null && f.saved && f.moisPeriode > 0 ? f.provisionMontant : AncienDepot(loc);
+
+    /// Revue 17 (D6-18, décision du 09/11) : sans ligne du suivi, le bouton de la fiche vise la prochaine révision ; quand rien n'est à
+    /// réviser (pas de « Réviser » fait, prochaine révision à venir), il refuse plutôt que de proposer un document à 0 € qui, envoyé,
+    /// éteindrait l'alerte de l'an prochain. Null = ouverture permise (ligne du suivi, départ saisi, révision faite ou échue).
+    public static string RefusOuverture(Locataire loc, FactureEtat ligne, DateTime aujourdhui)
+    {
+        if (loc == null || ligne != null || !string.IsNullOrEmpty(loc.dateSortieISO) || loc.depotPrecedent > 0f) return null;
+        if (!FacturationSuivi.TryEcheance(loc.dateRevisionDepotISO, out var d) || aujourdhui.Date >= d.Date) return null;
+        return $"Aucune révision du dépôt n'est en attente (prochaine révision le {d:dd/MM/yyyy}).\n"
+             + "Pour réviser maintenant : carte Dépôt, « Réviser ».\nPour refaire la facture déjà émise : suivi, « Corriger » (« Refaire » si elle n'est pas partie).";   // D4-10
+    }
 
     /// La ligne du suivi sous laquelle ranger le document. Révision : la ligne cliquée si c'en est une (D4-05 : la clé
     /// ne dépend plus d'une date qui bouge), sinon l'année de la révision appliquée dans la fiche avant la facture
@@ -69,7 +91,7 @@ public class FactureDepotPanel : MonoBehaviour
         int revYear = DateTime.TryParse(dateRev, out var rv) ? rv.Year : (TryDate(_date.text, out var dtr) ? dtr.Year : DateTime.Today.Year);
         return $"depot-{revYear}";
     }
-    TMP_Text _numeroPrefixe;
+    TMP_Text _numeroPrefixe, _numeroAide;
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD;
     Toggle _ttcToggle, _retard;
     UIDropdown _mentionTva;
@@ -96,6 +118,7 @@ public class FactureDepotPanel : MonoBehaviour
     public static void OpenDepot(LocatairePrefab fiche, FactureEtat ligne = null)
     {
         if (fiche == null) return;
+        if (RefusOuverture(fiche.GetLocataire(), ligne, DateTime.Today) is string refus) { ConfirmDialog.Erreur(refus); return; }   // Revue 17 (D6-18)
         if (Instance == null)
         {
             var canvas = FindObjectOfType<Canvas>();
@@ -104,8 +127,11 @@ public class FactureDepotPanel : MonoBehaviour
             go.transform.SetParent(canvas.rootCanvas.transform, false);
             go.AddComponent<FactureDepotPanel>();
         }
-        var p = Instance;   // sur le cloud : le locataire est réservé tant que le panneau est ouvert (étape 4b)
-        EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, false), "dépôt", () =>
+        // Sur le cloud : le locataire est réservé tant que le panneau est ouvert (étape 4b). Revue 17 (D4-11, coutures) : son bâtiment
+        // aussi, comme la régularisation et la refacturation : le décompte de sortie passe « Payé » les créances reprises, donc leurs
+        // charges (bâtiment). Avant : si un collègue tenait le bâtiment, l'enregistrement était refusé APRÈS le départ de l'e-mail.
+        var p = Instance;
+        EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, true), "dépôt", () =>
         {
             p._ligneCiblee = ligne;
             p._initial = ligne?.key == FacturationSuivi.CleDepotInitial;
@@ -114,7 +140,7 @@ public class FactureDepotPanel : MonoBehaviour
             p._sortie = ligne != null ? ligne.key == DepartLocataire.CleDecompte
                                       : !string.IsNullOrEmpty(fiche.GetLocataire()?.dateSortieISO);
             p.OpenFor(fiche);
-        }, () => p != null && p.gameObject.activeSelf && p._fiche == fiche, () => { if (p != null) p.Close(); });
+        }, () => p != null && p.gameObject.activeSelf && p._fiche == fiche, () => { if (p != null) p.FermerDeForce(); });
     }
 
     // Dépôt initial (demandé à l'initialisation du dépôt) : on facture tout le dépôt,
@@ -157,7 +183,11 @@ public class FactureDepotPanel : MonoBehaviour
 
     public void Close() => gameObject.SetActive(false);
     void Retour() { if (!FactureEmission.RefuseFermeture(_envoiEnCours)) Close(); }   // revue 16c, D4-02
-    void OnDisable() => _envoiEnCours = false;   // fermé de force pendant un envoi : pas bloqué ensuite
+    // Revue 17 (D4-07, coutures) : fermeture venue du cloud (fiche libérée par un admin, reprise après une coupure, rechargement) : pendant
+    // l'envoi, elle attend sa fin (EnvoyerPuisFinaliser). Avant : Close() arrêtait l'envoi entre l'e-mail et l'enregistrement.
+    bool _fermerApresEnvoi;
+    void FermerDeForce() { if (FactureEmission.RefuseFermeture(_envoiEnCours)) _fermerApresEnvoi = true; else Close(); }   // même message que « Retour »
+    void OnDisable() { FactureEmission.NoterEnvoi(ref _envoiEnCours, false); _fermerApresEnvoi = false; }   // fermé pendant un envoi : pas bloqué ensuite
     void OnDestroy() { if (_previewTex != null) Destroy(_previewTex); }
 
     // ── Construction ───────────────────────────────────────────────────────────
@@ -253,25 +283,26 @@ public class FactureDepotPanel : MonoBehaviour
         int debutExplication = g.transform.childCount;
         UIFactory.Text(g.transform,
             "Explication imprimée sur le document — variables : {depot.termes} · {depot.nb} · "
-            + "{depot.base} · {depot.montant}, plus les {loc.*} et {bat.*}. « / » ouvre la liste. "
+            + "{depot.base} · {depot.montant}, plus les {loc.*}, {bat.*} et celles de la facture ({numero}, {echeance}…). « / » ouvre la liste. "
             + "HTML simple accepté (<b>gras</b>).",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         UIFactory.Text(g.transform, "Rappel du montant requis", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        // Revue 17 (D6-08) : les {depot.*} ne sont proposés que dans ces quatre phrases, les seules qui les remplacent.
         _depotRappel = UIFactory.Input(g.transform, "Je vous rappelle qu'il doit correspondre à…", 70, true);
-        SlashAutocomplete.Attach(_depotRappel);
+        SlashAutocomplete.Attach(_depotRappel, "Explication dépôt");
 
         UIFactory.Text(g.transform, "Le locataire nous doit un complément", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _depotDu = UIFactory.Input(g.transform, "…vous nous devez…", 70, true);
-        SlashAutocomplete.Attach(_depotDu);
+        SlashAutocomplete.Attach(_depotDu, "Explication dépôt");
 
         UIFactory.Text(g.transform, "Nous devons un remboursement au locataire", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _depotRembourse = UIFactory.Input(g.transform, "…nous vous devons…", 70, true);
-        SlashAutocomplete.Attach(_depotRembourse);
+        SlashAutocomplete.Attach(_depotRembourse, "Explication dépôt");
 
         UIFactory.Text(g.transform, "Dépôt déjà au bon montant (rien à régler)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _depotEquilibre = UIFactory.Input(g.transform, "…aucun ajustement n'est nécessaire.", 70, true);
-        SlashAutocomplete.Attach(_depotEquilibre);
+        SlashAutocomplete.Attach(_depotEquilibre, "Explication dépôt");
         for (int i = debutExplication; i < g.transform.childCount; i++) _explication.Add(g.transform.GetChild(i).gameObject);
         _carteDepot = g.transform.parent.gameObject;
 
@@ -307,7 +338,7 @@ public class FactureDepotPanel : MonoBehaviour
         // libellé de l'échéance — elle ne servait qu'à compenser l'éloignement.
         var p = UIFactory.Section(content, "Règlement", CoReglement, CoReglementL);
         _echeance = Labeled(p, "Date d'échéance");
-        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
+        _echeance.onValueChanged.AddListener(_ => { RefreshSommeDefault(); RefreshEntetePreview(); });   // coutures (10/11) : l'aperçu de l'entête suit l'échéance ({echeance})
         _sommePhrase = Labeled(p, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
         SlashAutocomplete.Attach(_sommePhrase);
         UIFactory.Text(p.transform, "RIB CIPL", UITheme.Role.Donnee, UITheme.TexteSecondaire);
@@ -374,6 +405,7 @@ public class FactureDepotPanel : MonoBehaviour
 
         var save = UIFactory.Button(right.transform, "Sauvegarder et envoyer", Hex("#854F0B"), Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(save.gameObject, minH: 56, flexH: 0);
+        _btnSauver = save;
         save.onClick.AddListener(SauvegarderEtEnvoyer);
     }
 
@@ -384,7 +416,7 @@ public class FactureDepotPanel : MonoBehaviour
         if (_loc == null) return;
         var f = _loc.factureDepot;
 
-        _titre.text = $"{(_sortie ? "Décompte de sortie" : _initial ? "Dépôt de garantie" : "Révision du dépôt")} · {(_loc.Name ?? "")}";
+        // (le titre, avec le nom du locataire, est posé par RefreshNumero, plus bas : Revue 17, D4-10)
         foreach (var go in _explication) go.SetActive(!_initial);
         _carteDepot.SetActive(!_sortie);
         _carteSortie.SetActive(_sortie);
@@ -393,6 +425,11 @@ public class FactureDepotPanel : MonoBehaviour
         _nom.text     = !string.IsNullOrEmpty(f?.destNom)     ? f.destNom     : (_loc.Name ?? "");
         _adresse.text = !string.IsNullOrEmpty(f?.destAdresse) ? f.destAdresse : (_loc.adresseLocataire ?? "");
         _siret.text   = !string.IsNullOrEmpty(f?.destSiret)   ? f.destSiret   : (_loc.siretNumber ?? "");
+        // Revue 17 (D4-01, lot 6) : la correction d'une facture d'un autre titulaire (un cédant) reprend son acheteur et son adresse
+        // d'envoi, gardés sur la ligne et sa cession ; le réglage du type et la fiche sont passés au cessionnaire.
+        var acheteur = Cessions.AcheteurDe(_loc, _ligneCiblee);
+        _acheteurAutre = acheteur != null;
+        if (_acheteurAutre) { _nom.text = acheteur[0] ?? ""; _siret.text = acheteur[1] ?? ""; _adresse.text = acheteur[2] ?? ""; }
 
         _ribDD.SetOptions(
             R.ribs.Select(r => string.IsNullOrWhiteSpace(r.name) ? "(RIB)" : r.name).ToList(),
@@ -414,7 +451,8 @@ public class FactureDepotPanel : MonoBehaviour
             && !FacturationSuivi.EstDejaEmise(_loc, DepartLocataire.CleDecompte, out _))
             _echeance.text = er.ToString("dd/MM/yyyy");
         _autoSomme = DefaultSomme();
-        _sommePhrase.text = !string.IsNullOrEmpty(f?.sommePhrase) ? f.sommePhrase : _autoSomme;
+        // Revue 17 (06/11) : une phrase d'usine mémorisée (ancienne date) cède la place à celle de cette facture.
+        _sommePhrase.text = string.IsNullOrEmpty(f?.sommePhrase) || FactureEmission.EstPhraseUsine(f.sommePhrase) ? _autoSomme : f.sommePhrase;
 
         // Pré-remplies avec le texte d'usine quand la facture n'a rien : l'utilisatrice
         // doit voir la phrase réellement imprimée et la retoucher sur place, pas
@@ -431,7 +469,7 @@ public class FactureDepotPanel : MonoBehaviour
         // Dépôt : base TTC/HT, ancien montant, nb de périodes (dérivé du dépôt actuel).
         _ttcToggle.isOn = Tva.Soumis(_loc) && _loc.depotSurTTC;   // Revue 17 (D6-06) : base TTC seulement pour un bail soumis
         _ttcToggle.gameObject.SetActive(Tva.Soumis(_loc));
-        _ancien.text = (_initial ? 0f : AncienDepot(_loc)).ToString("0.00", CultureInfo.InvariantCulture);   // D6-08
+        _ancien.text = (_initial ? 0f : AncienPropose(_loc, f, FacturationSuivi.AFacture(_loc, CleSuivi(), out _))).ToString("0.00", CultureInfo.InvariantCulture);   // D6-08, D6-18
         float per = CurrentPeriode();
         int nb = per > 0f ? Mathf.Max(1, Mathf.RoundToInt(_loc.depotDeGarantie / per)) : 1;
         // Le nombre mémorisé est celui de la dernière facture de révision. Le dépôt
@@ -439,11 +477,16 @@ public class FactureDepotPanel : MonoBehaviour
         if (!_initial && f != null && f.moisPeriode > 0) nb = f.moisPeriode;
         _nbPeriodes.text = nb.ToString();
 
+        _idGarde = null;   // Revue 17 (2c) : rien de mis de côté d'une ouverture précédente
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
         RefreshNumero();
 
-        MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
-        MentionTva.Charger(_mentionTvaS, _texteTvaDebitS, f);
+        // Revue 17 (D6-23, coutures ; décision du 09/11) : le dépôt (initial, révision) n'a pas de TVA : « Aucune mention » d'office tant que
+        // rien n'est mémorisé pour ce type ; il ne suit pas le réglage d'entreprise « Mention TVA par défaut ». Avant : « débits » d'office.
+        MentionTva.Charger(_mentionTva, _texteTvaDebit, f, MentionTva.Aucune);
+        // Le décompte de sortie, lui, peut porter de la TVA (retenues soumises) : un décompte neuf propose la mention de l'entreprise,
+        // pas le « Aucune mention » gardé par le dépôt (même FactureInfo) ; la correction d'un décompte émis relit la sienne.
+        MentionTva.Charger(_mentionTvaS, _texteTvaDebitS, _sortie && FacturationSuivi.EstDejaEmise(_loc, DepartLocataire.CleDecompte, out _) ? f : null);
         // Revue 17 (D6-06) : bail exonéré : pas de mention TVA (comme les trois autres formulaires, ChargerTva).
         if (_mentionTva != null) UIFactory.MontrerAvecLibelle(_mentionTva.gameObject, Tva.Soumis(_loc));
         if (_texteTvaDebit != null && !Tva.Soumis(_loc)) _texteTvaDebit.transform.parent.gameObject.SetActive(false);
@@ -452,10 +495,10 @@ public class FactureDepotPanel : MonoBehaviour
         bool obligatoire = FactureElectronique.Professionnel(_loc, _siret.text);
         if (obligatoire) _retard.isOn = true;
         _retard.interactable = !obligatoire;
-        _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
+        _emailEnvoi.text = _acheteurAutre ? (acheteur[3] ?? "") : !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");   // lot 6
         _emailObjet.text = EmailService.ObjetFacture(f?.emailObjet);
         _emailCorps.text = EmailService.CorpsFacture(f?.emailCorps);
-        _modeInfo.text = "Envoi : e-mail (le dépôt de garantie, sans TVA, ne passe pas par la plateforme).";   // mode Pennylane retiré (02/11)
+        _modeInfo.text = LibelleEnvoi(0f);   // mode Pennylane retiré (02/11) ; le décompte de sortie le précise dans RefreshTotaux (D5-18)
 
         RefreshTotaux();
         RefreshEntetePreview();
@@ -545,6 +588,7 @@ public class FactureDepotPanel : MonoBehaviour
             var d = DecompteSaisi();
             _tRetenues.text   = $"{N2(d.retenuesHT)} €" + (d.tva > 0f ? $" HT  (+ TVA {N2(d.tva)} €)" : "");
             _blocMentionS.SetActive(d.tva > 0f);
+            if (_modeInfo != null) _modeInfo.text = LibelleEnvoi(d.tva);   // Revue 17 (D5-18, coutures) : avec une retenue soumise, plus « sans TVA »
             _tCreances.text   = $"{N2(d.creances)} €";
             _tDepotRendu.text = $"{N2(-ParseF(_depotDetenu.text))} €";
             _tSolde.text = d.ttc < -0.005f ? $"{N2(d.ttc)} €  — à rembourser au locataire (avoir)"
@@ -570,6 +614,13 @@ public class FactureDepotPanel : MonoBehaviour
         RefreshEntetePreview();
     }
 
+    /// Revue 17 (D5-18, coutures) : la ligne « Envoi » du formulaire. Un dépôt, une révision ou un décompte sans retenue soumise n'ont
+    /// pas de TVA. Un décompte de sortie dont une retenue est soumise (`tvaDecompte` > 0) en porte : il part quand même par e-mail
+    /// seul (le décompte n'a pas de facture électronique : décision à prendre), et la ligne ne dit plus « sans TVA ».
+    public static string LibelleEnvoi(float tvaDecompte) => tvaDecompte > 0.005f
+        ? "Envoi : e-mail seulement (ce décompte porte de la TVA sur ses retenues, mais un décompte de sortie ne part pas en facture électronique)."
+        : "Envoi : e-mail (le dépôt de garantie, sans TVA, ne passe pas par la plateforme).";
+
     /// Arrondi au centime — évite les dérives de `float` sur les montants.
     static float Cents(float v) => Tva.Cents(v);   // Revue 17 (D5-03) : décimal, « au plus loin », comme le XML
 
@@ -594,14 +645,25 @@ public class FactureDepotPanel : MonoBehaviour
         _autoSomme = def;
     }
 
+    // Revue 17 (2c, décision du 06/11) : ce document a déjà son numéro (CleSuivi, comme à l'émission) : la ligne montre, grisé,
+    // celui que l'émission imprimera (le même, ou « … corrigée(X) » s'il est parti), et l'ID n'est plus modifiable.
+    // Un numéro décidé par une émission finie ou abandonnée ne vaut plus : l'aperçu et l'entête suivent la ligne.
     void RefreshNumero()
     {
         if (_loc == null) return;
+        _numeroEmis = null;
         DateTime d = TryDate(_date != null ? _date.text : "", out var dd) ? dd : DateTime.Today;
         string fmt = _numeroFormatDD != null ? _numeroFormatDD.SelectedId : "AMN";
-        if (_numeroPrefixe != null) _numeroPrefixe.text = NumeroPrefixe(fmt, d);
-        if (_numeroId != null && string.IsNullOrWhiteSpace(_numeroId.text))
-            _numeroId.text = Mathf.Max(1, _loc.factureSeq).ToString("D3");
+        string repris = FactureEmission.NumeroRepris(_loc, CleSuivi());
+        if (_numeroPrefixe != null && _numeroId != null)
+            FactureEmission.AfficherNumero(_numeroAide, _numeroPrefixe, _numeroId, repris, NumeroPrefixe(fmt, d), _loc.factureSeq,
+                                           "N° de facture — repris : cette facture a déjà ce numéro", ref _idGarde);
+        // Revue 17 (D4-10, coutures) : le titre annonce la correction, comme le loyer (la règle de l'émission : SeraUneCorrection).
+        // Avant : rien ne disait qu'une « corrigée(X) » allait partir.
+        if (_titre != null)
+            _titre.text = $"{(_sortie ? "Décompte de sortie" : _initial ? "Dépôt de garantie" : "Révision du dépôt")}"
+                        + $"{(FactureEmission.SeraUneCorrection(_loc, CleSuivi()) ? " (correction)" : "")} · {_loc.Name ?? ""}";
+        FactureEmission.NommerBouton(_btnSauver, FactureEmission.SeraUneCorrection(_loc, CleSuivi()));   // décision du 11/11
         RefreshEntetePreview();
     }
 
@@ -625,13 +687,17 @@ public class FactureDepotPanel : MonoBehaviour
     FactureContext BuildContext()
     {
         float c = Solde();
+        // Revue 17 (D4-08, coutures) : la TVA des retenues soumises d'un décompte de sortie (avant : 0 € dans l'e-mail) ; un dépôt n'en a pas.
+        float tva = _sortie ? DecompteSaisi().tva : 0f;
         DateTime d = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
         return new FactureContext
         {
             date = d,
             periode = _sortie ? "décompte de sortie" : "dépôt de garantie",
             numero = NumeroDocument(),
-            loyerHT = c, tva = 0f, ttc = c,
+            loyerHT = c - tva, tva = tva, ttc = c,
+            // Revue 17 (D6-08) : {echeance} remplie, comme à l'envoi au lancement (avant : vide dans l'e-mail et le PDF).
+            echeance = TryDate(_echeance != null ? _echeance.text : "", out var e) ? e.ToString("dd/MM/yyyy") : "",
         };
     }
 
@@ -658,9 +724,10 @@ public class FactureDepotPanel : MonoBehaviour
             subtitle = _initial ? "Dépôt de garantie" : "Révision du dépôt de garantie",
             bodyHtml = FacturePdfService.BodyHtml(entResolved),
             // Explication du calcul : indice de référence → nouvel indice → nouveau
-            // loyer, puis la règle des N termes qui donne le dépôt.
+            // loyer, puis la règle des N termes qui donne le dépôt. Revue 17 (D6-08) : ses phrases reçoivent
+            // le contexte de cette facture ({numero}, {date}, {echeance} : avant, vides).
             explicationHtml = ExplicationDepot.Html(_loc, Mathf.Max(1, nbTermes), complement, ctx.date, _bat, _loc.factureDepot,
-                                                    _ttcToggle != null && _ttcToggle.isOn),   // D6-05 : la base de la case
+                                                    _ttcToggle != null && _ttcToggle.isOn, ctx),   // D6-05 : la base de la case
             charges = new List<FacturePdfService.RegulLigne>(),   // pas de page 2
             totalCharges = nouveau, provisions = ancien, soldeHT = complement,
             tva = 0f, ttc = complement,
@@ -773,8 +840,7 @@ public class FactureDepotPanel : MonoBehaviour
     {
         public string Sujet;
         public float Montant;
-        public Func<string> LireNumero;
-        public Action<string> PoserNumero;
+        public float Taux;   // Revue 17 (D4-08, coutures) : le taux de TVA du document (0 : sans TVA), gardé sur la ligne du suivi
         public Func<string, string> Pdf, Apercu;   // chemin → erreur, ou null si réussi
     }
 
@@ -785,8 +851,7 @@ public class FactureDepotPanel : MonoBehaviour
             var d = _sortie ? BuildDataSortie() : BuildDataInitial();
             return new Document
             {
-                Sujet = d.subtitle, Montant = d.ttc,
-                LireNumero = () => d.numero, PoserNumero = n => d.numero = n,
+                Sujet = d.subtitle, Montant = d.ttc, Taux = d.masquerTva ? 0f : Tva.Taux(_loc),   // un décompte aux retenues soumises : le taux du bail
                 Pdf = p => FacturePdfService.GeneratePdf(d, p, out var e) ? null : e,
                 Apercu = p => FacturePdfService.GeneratePreviewPng(d, p, out var e) ? null : e,
             };
@@ -795,7 +860,6 @@ public class FactureDepotPanel : MonoBehaviour
         return new Document
         {
             Sujet = r.subtitle, Montant = r.soldeHT,
-            LireNumero = () => r.numero, PoserNumero = n => r.numero = n,
             Pdf = p => FacturePdfService.GenerateRegulPdf(r, p, out var e) ? null : e,
             Apercu = p => FacturePdfService.GenerateRegulPreviewPng(r, p, out var e) ? null : e,
         };
@@ -803,6 +867,9 @@ public class FactureDepotPanel : MonoBehaviour
 
     void GenererApercu()
     {
+        // Revue 17 (D6-05) : une date vide ou illisible est refusée au centre, le formulaire reste ouvert avec la saisie. Avant,
+        // SaveFromUI l'enregistrait vide : document daté du jour (et son année dans la clé « depot-AAAA »), échéance du jour.
+        if (SaisieDate.RefusFacture(_date.text, _echeance.text) is string refusDate) { ConfirmDialog.Erreur(refusDate); return; }
         SaveFromUI();
         string png = DossiersDonnees.Apercu("apercu_depot.png");
         string err = DocumentAEmettre().Apercu(png);
@@ -812,12 +879,18 @@ public class FactureDepotPanel : MonoBehaviour
 
     void SauvegarderEtEnvoyer()
     {
+        if (SaisieDate.RefusFacture(_date.text, _echeance.text) is string refusDate) { ConfirmDialog.Erreur(refusDate); return; }   // Revue 17 (D6-05)
         SaveFromUI();
         // Revue 16c (D6-03) : le numéro décidé AVANT de construire le document (entête, phrase de règlement, e-mail : {numero}).
-        var emission = FactureEmission.Preparer(_loc, CleSuivi(), ComposedNumero());
+        // Déjà émise → version « corrigée(X) » : même numéro, aucune nouvelle séquence consommée, PDF d'origine conservé.
+        string key = CleSuivi();
+        var emission = FactureEmission.Preparer(_loc, key, ComposedNumero());
         if (emission.Refus != null) { ConfirmDialog.Erreur(emission.Refus); return; }   // D4-04 : numéro déjà pris
         _numeroEmis = emission.NumeroFacture;
         var d = DocumentAEmettre();
+        // Revue 17 (D6-15, coutures) : sans RIB, le relevé d'identité bancaire serait vide : refusé avant le PDF. Pas de refus du total nul
+        // ici (décision du 09/11) : un dépôt « à l'équilibre » est voulu.
+        if (FactureEmission.RefusSansRib(ReglageService.GetRib(_ribDD?.SelectedId)) is string refusRib) { ConfirmDialog.Erreur(refusRib); return; }
 
         // Complément négatif = le nouveau dépôt est inférieur à l'ancien, donc c'est
         // NOUS qui devons. Le document est émis quand même (comptablement, c'est un
@@ -831,31 +904,24 @@ public class FactureDepotPanel : MonoBehaviour
                 + (-d.Montant).ToString("N2", FacturePdfService.FrCulture)
                 + " € dus AU locataire, et non réclamés. "
                 + "Il consommera un numéro comme une facture.",
-                () => Emettre(d), "Émettre");
+                () => Emettre(d, key, emission), "Émettre");
             return;
         }
 
-        Emettre(d);
+        Emettre(d, key, emission);
     }
 
     /// Génère le PDF et met le suivi à jour. Séparé de `SauvegarderEtEnvoyer` pour
     /// pouvoir être repris après une confirmation (voir le cas du remboursement).
-    void Emettre(Document d)
+    /// Revue 17 (D4-09, coutures) : la clé et la décision de SauvegarderEtEnvoyer suivent jusqu'ici, comme pour le loyer et la
+    /// refacturation. Avant : un second Preparer, dont le refus n'était pas lu.
+    void Emettre(Document d, string key, FactureEmission.Decision emission)
     {
         // L'envoi est asynchrone : sans cette garde, un double clic partirait deux fois.
         if (_envoiEnCours) { UndoToast.Instance?.ShowInfo("Un envoi est déjà en cours."); return; }
 
         string dir = FactureDir();
         int year = (TryDate(_date.text, out var dt) ? dt : DateTime.Today).Year;
-
-        // Clé de suivi calculée AVANT la génération du PDF : sans elle, un second
-        // clic consommait une nouvelle séquence et écrasait le PDF déjà émis.
-        string key = CleSuivi();
-
-        // Déjà émise → version « corrigée(X) » : même numéro, aucune nouvelle
-        // séquence consommée, et le PDF d'origine est conservé.
-        var emission = FactureEmission.Preparer(_loc, key, d.LireNumero());
-        d.PoserNumero(emission.NumeroFacture);
         bool correction = emission.Correction;
 
         // Le numéro dans le nom : deux révisions préparées la même année avaient le même PDF (D4-01).
@@ -912,27 +978,31 @@ public class FactureDepotPanel : MonoBehaviour
         Document d, string key, FactureEmission.Decision emission,
         bool correction, string pdf, string dest, string objet, string corps)
     {
-        _envoiEnCours = true;
+        FactureEmission.NoterEnvoi(ref _envoiEnCours, true);   // Revue 17 (D4-07) : compté : rechargement et fermeture de CIPL attendent la fin
         UndoToast.Instance?.ShowInfo($"Envoi en cours vers {dest}…");
 
         var envoi = EmailService.Envoyer(dest, objet, corps, new[] { pdf });
         while (!envoi.Termine) yield return null;
 
-        _envoiEnCours = false;
+        FactureEmission.NoterEnvoi(ref _envoiEnCours, false);
 
         if (!envoi.Succes)
         {
             ConfirmDialog.Erreur("Envoi échoué — " + envoi.Erreur
                 + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : tu peux réessayer.");
+            if (_fermerApresEnvoi) Close();   // D4-07 : la fermeture demandée pendant l'envoi
             yield break;
         }
 
-        Finaliser(d, key, emission, correction, pdf, true, $" et envoyée à {dest}");
+        if (FactureEmission.FichePerdue(_bat, dest)) { Close(); yield break; }   // Revue 17 (D4-07, coutures) : fiche vidée pendant l'envoi : dit au centre, rien n'est écrit
+        Finaliser(d, key, emission, correction, pdf, true, $" et envoyée à {dest}", dest);
+        if (_fermerApresEnvoi) Close();   // Revue 17 (D4-07, coutures) : la fermeture demandée pendant l'envoi, une fois la facture enregistrée
     }
 
     /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après succès).
+    /// `dest` (Revue 17, D4-01, lot 6) : l'adresse à laquelle l'e-mail est réellement parti ; sinon celle du formulaire.
     void Finaliser(Document d, string key, FactureEmission.Decision emission,
-                   bool correction, string pdf, bool envoye, string suffixeMessage = "")
+                   bool correction, string pdf, bool envoye, string suffixeMessage = "", string dest = null)
     {
         // Le dépôt de la fiche n'est PAS modifié par l'émission.
         FacturationSuivi.Solde(_loc, key, out float totalAvantCorrection, out _);   // Revue 17 (D4-03) : avant la correction
@@ -944,6 +1014,13 @@ public class FactureDepotPanel : MonoBehaviour
             : _initial ? "Facture de dépôt de garantie enregistrée"
                      : "Facture de révision du dépôt enregistrée (le montant du dépôt n'a pas été modifié)");
         FacturationSuivi.ApresCorrection(_loc, key, totalAvantCorrection);   // Revue 17 (D4-03) : payée, l'écart redevient dû
+        // Revue 17 (D4-08, coutures) : le taux de TVA du document sur sa ligne, comme les trois autres formulaires : 0 pour un dépôt ou une
+        // révision (sans TVA), celui des retenues soumises pour un décompte (FactureEnvoiAuto.Contexte le relit). Avant : 20 % d'office.
+        var ligne = _loc.facturesEtat?.Find(x => x.key == key);
+        if (ligne != null) ligne.tauxTva = d.Taux;
+        // Revue 17 (D4-01, lot 6) : pour qui la facture est préparée (la fiche, ou le cédant d'une facture corrigée) et l'adresse réellement
+        // envoyée, sinon celle du formulaire ; lus par le rappel.
+        FacturationSuivi.PoserAcheteur(_loc, key, _acheteurAutre ? _ligneCiblee?.acheteur : null, dest ?? _emailEnvoi.text);
         // Revue 16c (D6-08) : la révision est facturée : l'ancien dépôt mémorisé par « Réviser » ne sert plus.
         if (!_initial && !_sortie) { _loc.depotPrecedent = 0f; _loc.depotPrecedentRevisionISO = ""; }
 
@@ -958,13 +1035,15 @@ public class FactureDepotPanel : MonoBehaviour
         }
 
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+        // Revue 17 (D4-14, coutures) : une créance reprise déjà transmise à Super PDP vient de passer « Payé » : son « Encaissée » part
+        // maintenant, comme depuis les trois autres formulaires (avant : au prochain geste sur ce locataire, ou au lancement suivant).
+        FactureElectronique.Rattraper(_fiche.batimentPrefabOrigin, _loc);
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
 
-        if (!correction)
-        {
-            if (_numeroId != null) _numeroId.text = "";
-            RefreshNumero();
-        }
+        // Revue 17 (2c, décision du 06/11) : la ligne « N° de facture » reprend le numéro du document, correction comprise (le
+        // suivant sera « corrigée(2) »), et l'aperçu avec elle (avant : il gardait le numéro émis).
+        if (!correction && _numeroId != null) _numeroId.text = "";
+        RefreshNumero();
 
         UndoToast.Instance?.ShowInfo(message + suffixeMessage);
     }
@@ -993,21 +1072,20 @@ public class FactureDepotPanel : MonoBehaviour
     {
         if (_loc == null) return;
         var f = _loc.factureDepot ?? new FactureInfo();
-        f.destNom = _nom.text;
-        f.destAdresse = _adresse.text;
-        f.destSiret = _siret.text;
+        // Revue 17 (D4-01, lot 6) : l'acheteur d'une facture d'un autre titulaire (cédant) ne devient pas celui du type.
+        if (!_acheteurAutre) { f.destNom = _nom.text; f.destAdresse = _adresse.text; f.destSiret = _siret.text; }
         f.ribId = _ribDD?.SelectedId;
         f.enteteId = _enteteDD?.SelectedId;
         f.dateISO = TryDate(_date.text, out var dt) ? dt.ToString("yyyy-MM-dd") : "";
         f.dateEcheanceISO = TryDate(_echeance.text, out var de) ? de.ToString("yyyy-MM-dd") : "";
-        f.sommePhrase = _sommePhrase.text;
+        f.sommePhrase = FactureEmission.PhraseAMemoriser(_sommePhrase.text);   // Revue 17 (06/11) : la phrase d'usine suit l'échéance
         f.numeroFormat = _numeroFormatDD?.SelectedId ?? "AMN";
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();
         if (_sortie) MentionTva.Enregistrer(_mentionTvaS, _texteTvaDebitS, f);
         else MentionTva.Enregistrer(_mentionTva, _texteTvaDebit, f);
         f.ajouterRetard = _retard.isOn;
-        f.emailDest = _emailEnvoi.text;
+        if (!_acheteurAutre) f.emailDest = _emailEnvoi.text;   // lot 6
         f.emailObjet = EmailService.AGarder(_emailObjet.text, EmailService.ObjetFacture());   // vide : suit le modèle des Réglages
         f.emailCorps = EmailService.AGarder(_emailCorps.text, EmailService.CorpsFacture());
         f.refInterne = _refInterne.text;
@@ -1056,7 +1134,7 @@ public class FactureDepotPanel : MonoBehaviour
 
     void BuildNumeroRow(VerticalLayoutGroup body)
     {
-        UIFactory.Text(body.transform, "N° de facture  =  format  +  ID locataire", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        _numeroAide = UIFactory.Text(body.transform, "N° de facture  =  format  +  ID locataire", UITheme.Role.Aide, UITheme.TexteSecondaire);
         var row = UIFactory.HBox(body.transform, 8, false, "NumRow");
         UIFactory.LE(row.gameObject, minH: 46);
 
@@ -1072,7 +1150,8 @@ public class FactureDepotPanel : MonoBehaviour
 
         _numeroId = UIFactory.Input(row.transform, "ID locataire (ex. 001)");
         UIFactory.LE(_numeroId.gameObject, minH: 46, flexW: 1);
-        _numeroId.onValueChanged.AddListener(_ => RefreshEntetePreview());
+        // Revue 17 (2c, décision du 06/11) : un ID retapé après une émission abandonnée : l'entête et l'aperçu le suivent.
+        _numeroId.onValueChanged.AddListener(_ => { _numeroEmis = null; RefreshEntetePreview(); });
     }
 
     Transform MakeScroll(Transform parent)

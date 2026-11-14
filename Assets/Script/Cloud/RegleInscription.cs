@@ -81,6 +81,9 @@ public static class RegleInscription
     {
         // Sans logo (retour du 25/10) : pas celui de CIPL sur les factures d'un client.
         var r = new ReglageData { entrepriseNom = (nomEntreprise ?? "").Trim(), sansLogo = true };
+        // Revue 17 (D3-17) : un particulier (location nue, exonérée art. 261 D) démarre sans TVA sur les loyers, une société avec ;
+        // le premier pas « Votre logo » fait vérifier l'option dans Réglages › Facturation.
+        r.loyersSoumisTva = societe;
         // Retour du 25/10 : pas le serveur d'envoi de CIPL : le guide « L'envoi des factures » le fait régler.
         r.smtp.host = "";
         r.smtp.fromName = r.entrepriseNom;
@@ -92,15 +95,14 @@ public static class RegleInscription
             r.basDePage = string.Join(" - ", new[] { annuaire?.nom_complet ?? r.entrepriseNom, annuaire?.libelle_nature_juridique, "Siret : " + lisible, TvaPied(s) }
                                              .Where(x => !string.IsNullOrWhiteSpace(x)));
             if (!string.IsNullOrWhiteSpace(annuaire?.siege?.adresse)) r.basDePage += "\nSiège social : " + annuaire.siege.adresse.Trim();
-            // ponytail: annuaire injoignable → le lieu par défaut reste (à corriger dans Réglages).
+            // Revue 17 (D3-01 reste) : annuaire injoignable → sans ville (la date seule sur les documents), jamais celle de CIPL.
             string ville = annuaire?.siege?.Ville;
-            if (!string.IsNullOrWhiteSpace(ville))
-                r.lieuEmission = CultureInfo.GetCultureInfo("fr-FR").TextInfo.ToTitleCase(ville.ToLowerInvariant());
+            r.lieuEmission = string.IsNullOrWhiteSpace(ville) ? "" : CultureInfo.GetCultureInfo("fr-FR").TextInfo.ToTitleCase(ville.ToLowerInvariant());
         }
         else
         {
             r.basDePage = $"{(qui ?? "").Trim()} - {(adresse ?? "").Trim()}";
-            r.lieuEmission = Ville(adresse) ?? r.lieuEmission;
+            r.lieuEmission = Ville(adresse) ?? "";   // Revue 17 (D3-01 reste) : un particulier ajouté n'a pas d'adresse : sans ville
         }
         return r;
     }

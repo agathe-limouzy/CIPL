@@ -194,9 +194,21 @@ public class ChargePanel : MonoBehaviour
         UIFactory.LE(ok.gameObject, flexW: 1);
         ok.onClick.AddListener(() =>
         {
+            if (Refus(fNom.text, fCout.text, fDate.text) is string refus) { ConfirmDialog.Erreur(refus); return; }   // la fenêtre reste ouverte, avec la saisie
             SaveForm(fNom.text, fCout.text, fDate.text, fPaye.isOn);
             Destroy(scrim.gameObject);
         });
+    }
+
+    /// Revue 17 (D6-05, D10-06) : le refus d'« Enregistrer », ou null : nom vide, coût illisible (« - » ou une virgule seule),
+    /// date vide ou illisible. Avant, la fenêtre se fermait sans contrôle : coût à 0, ancienne date gardée (celle du jour pour une
+    /// nouvelle charge), une charge rangée dans une autre année. Comme avant, un coût vide vaut 0 €, et une charge sans locataire
+    /// coché reste permise (charge du propriétaire, comptée dans le rendement net).
+    public static string Refus(string nom, string cout, string date)
+    {
+        if (string.IsNullOrWhiteSpace(nom)) return "Nom de la charge : obligatoire.";
+        if (!SaisieNumerique.TryParse(cout, out float _)) return $"Coût « {cout.Trim()} » illisible : tapez un montant en euros (négatif pour un avoir).";
+        return SaisieDate.Refus(date, "Date de la charge");
     }
 
     // Cases à cocher par locataire (visibles seulement si « Tous » décoché).
@@ -577,8 +589,7 @@ public class ChargePanel : MonoBehaviour
     static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
     // Parse une date saisie au format français JJ/MM/AAAA (sans ambiguïté mois/jour).
-    static bool TryParseFr(string s, out DateTime d) =>
-        DateTime.TryParseExact((s ?? "").Trim(),
-            new[] { "dd/MM/yyyy", "d/M/yyyy", "dd/MM/yy", "d/M/yy" },
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out d);
+    // Revue 17 (D6-05) : la lecture commune des formulaires (SaisieDate : « 31.12.2026 », « 31-12-2026 » aussi), comme le refus
+    // d'« Enregistrer » ; cette copie ne lisait que les barres obliques.
+    static bool TryParseFr(string s, out DateTime d) => SaisieDate.TryParse(s, out d);
 }

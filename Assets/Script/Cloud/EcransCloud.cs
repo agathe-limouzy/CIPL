@@ -220,6 +220,9 @@ public static class EcransCloud
             try
             {
                 // Déjà connecté (code refusé au premier essai) : on ne recrée pas le compte.
+                // Revue 17 (D3-08) : sauf si l'adresse a été corrigée depuis : le serveur compare le code à l'adresse du compte ouvert.
+                if (SessionCloud.Active && !string.Equals(SessionCloud.Session.user?.email, email.text.Trim(), StringComparison.OrdinalIgnoreCase))
+                    SessionCloud.Oublier();
                 string refus = SessionCloud.Active ? null : await SessionCloud.Rejoindre(email.text, mdp.text);
                 if (refus != null) { Refuser(zones, refus, null); return; }
                 var res = await UtilisateursCloud.Accepter(code.text);
@@ -715,6 +718,34 @@ public static class EcransCloud
         return fin.Task;
     }
 
+    /// Revue 17 (D2-12, lot D) : mode « Sur chaque PC », le dossier retenu sur cet ordinateur manque (disque externe, lecteur réseau).
+    /// Vrai : « Réessayer » ; faux : « Utiliser Documents\CIPL » (l'appelant ne retient le nouveau dossier que sur ce choix).
+    /// `dernierEssai` (retour de BW18, 14/11) : l'heure du dernier « Réessayer » : la fenêtre revenait identique, on ne voyait pas
+    /// que le clic avait été pris.
+    public static Task<bool> DossierLocalIntrouvable(Canvas canvas, string nomEntreprise, string chemin, DateTime? dernierEssai = null)
+    {
+        var fin = new TaskCompletionSource<bool>();
+        var (voile, carte) = Fenetre(canvas, $"Documents de {nomEntreprise}", 520, false);
+        var corps = UIFactory.VBox(carte.transform, 8, 18, 18, 14, 6, "Corps");
+        UIFactory.Text(corps.transform, $"Le dossier des documents ({chemin}) est introuvable.", UITheme.Role.Donnee, UITheme.TextePrincipal);
+        if (TexteToujoursIntrouvable(dernierEssai) is string essai)
+            UIFactory.Text(corps.transform, essai, UITheme.Role.Donnee, UITheme.Alerte);
+        UIFactory.Text(corps.transform, "S'il est sur un disque externe ou un lecteur réseau, rebranchez-le, puis « Réessayer ». " +
+                       "« Utiliser Documents\\CIPL » : les documents sont téléchargés de nouveau depuis le cloud dans Documents\\CIPL, " +
+                       "et l'ancien dossier n'est plus utilisé.", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        var pied = Pied(carte.transform);
+        var utiliser = Bouton(pied.transform, "Utiliser Documents\\CIPL", false);
+        var reessayer = Bouton(pied.transform, "Réessayer", true);
+        void Repondre(bool r) { UnityEngine.Object.Destroy(voile.gameObject); fin.TrySetResult(r); }
+        utiliser.onClick.AddListener(() => Repondre(false));
+        reessayer.onClick.AddListener(() => Repondre(true));
+        return fin.Task;
+    }
+
+    /// La ligne rouge après un « Réessayer » sans effet, ou null au premier affichage. Pur : testé (LotDDemarrageTests).
+    public static string TexteToujoursIntrouvable(DateTime? dernierEssai)
+        => dernierEssai.HasValue ? $"Toujours introuvable (essai à {dernierEssai.Value:HH:mm:ss})." : null;
+
     // ── « Toujours là ? » (étape 4b, maquette 3 du 09/10) ──────────────────────
 
     /// Modale ambre ; le gardien des verrous réécrit le texte chaque seconde (compte à rebours).
@@ -798,14 +829,18 @@ public static class EcransCloud
 
     /// Fenêtre bloquante : « Quitter CIPL » ou « Mettre à jour ». `afficher` montre l'avancement du
     /// téléchargement dans la fenêtre ; null la remet comme au début (après un échec).
-    public static (GameObject voile, Action<string> afficher) MiseAJourObligatoire(Canvas canvas, string actuelle, string derniere, Action mettreAJour)
+    /// Revue 17 (D8-17, lot D) : `prete` : l'installeur est déjà téléchargé (fermeture refusée par la garde, puis version devenue
+    /// obligatoire) : la fenêtre le dit, et « Mettre à jour », qui ne ferait rien, est grisé ; « Quitter CIPL » installe.
+    public static (GameObject voile, Action<string> afficher) MiseAJourObligatoire(Canvas canvas, string actuelle, string derniere, Action mettreAJour,
+                                                                                   bool prete = false)
     {
         var (voile, carte) = Fenetre(canvas, "Mise à jour nécessaire", 480, false);
         var corps = UIFactory.VBox(carte.transform, 10, 18, 18, 14, 6, "Corps");
-        var texte = UIFactory.Text(corps.transform, RegleVersion.TexteObligatoire(actuelle, derniere), UITheme.Role.Donnee, UITheme.TextePrincipal);
+        var texte = UIFactory.Text(corps.transform, RegleVersion.TexteFenetre(prete, actuelle, derniere), UITheme.Role.Donnee, UITheme.TextePrincipal);
         var pied = Pied(carte.transform);
         var quitter = Bouton(pied.transform, "Quitter CIPL", false);
         var maj = Bouton(pied.transform, "Mettre à jour", true);
+        maj.interactable = !prete;
         quitter.onClick.AddListener(Application.Quit);
         // « Quitter CIPL » reste toujours possible (sur Mac, c'est la suite après le lien de téléchargement).
         maj.onClick.AddListener(() => { maj.interactable = false; mettreAJour(); });

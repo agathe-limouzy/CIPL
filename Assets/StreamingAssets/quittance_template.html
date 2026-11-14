@@ -30,13 +30,13 @@ u{text-underline-offset:2px;}
 <body>
 <div class="page">
   <div class="head">
-    <div class="lcol"><img class="logo" src="{{LOGO_SRC}}" alt="GROUPE CIPL"></div>
+    <div class="lcol"><img class="logo" src="{{LOGO_SRC}}" alt=""></div>
     <div class="rcol">
       <div class="client">
         {{CLIENT_NOM}}<br>
         {{CLIENT_ADRESSE}}
       </div>
-      <div class="date">{{LIEU}}, le&nbsp;&nbsp;&nbsp;&nbsp;{{DATE}}</div>
+      <div class="date">{{LIEU_LE}}&nbsp;&nbsp;&nbsp;&nbsp;{{DATE}}</div>
     </div>
   </div>
 
@@ -46,7 +46,7 @@ u{text-underline-offset:2px;}
   {{DESIGNATION}}
 
   <div class="body">
-    <p>Je soussign&eacute;, GROUPE CIPL, bailleur, d&eacute;clare avoir re&ccedil;u de
+    <p>Je soussign&eacute;, {{SOCIETE}}, bailleur, d&eacute;clare avoir re&ccedil;u de
     {{CLIENT_NOM}}, locataire, la somme de <b>{{MONTANT}}</b> au titre du loyer et des
     charges de la p&eacute;riode susmentionn&eacute;e, et lui en donne quittance,
     sous r&eacute;serve de tous mes droits.</p>
@@ -64,7 +64,7 @@ u{text-underline-offset:2px;}
 
   <div class="sign">
     <div class="role">Le bailleur,</div>
-    <div>GROUPE CIPL</div>
+    <div>{{SOCIETE}}</div>
   </div>
 
   <div class="foot">

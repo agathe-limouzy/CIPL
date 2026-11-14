@@ -76,6 +76,20 @@ public static class SaisieNumerique
     public static char CaractereMontant(string texte, int position, char c)
         => char.IsDigit(c) || c == '.' || c == ',' || c == ' ' || (c == '-' && position == 0) ? c : '\0';
 
+    /// Revue 17 (D7b-08, lot D) : conversion silencieuse en double, NaN si la saisie n'est pas un nombre. Pour les résumés
+    /// recalculés à chaque frappe : ils affichent « — », sans message au milieu de la saisie.
+    public static double OuNaN(string saisie) => TryParse(saisie, out double v) ? v : double.NaN;
+
+    /// Revue 17 (D7b-08, lot D) : le refus du premier champ illisible, dans l'ordre donné (null si tous se lisent). Un
+    /// formulaire le demande AVANT d'écrire quoi que ce soit : au refus, il reste ouvert avec la saisie.
+    public static string RefusIllisible(params (string nom, string saisie)[] champs)
+    {
+        foreach (var (nom, saisie) in champs)
+            if (!TryParse(saisie, out double _))
+                return $"« {nom} » : « {saisie} » n'est pas un nombre valide. Corrigez la saisie, puis enregistrez.";
+        return null;
+    }
+
     /// Variante « formulaire » en double (achats, travaux : le modèle est en double).
     public static double ParseOuAvertirD(string saisie, string contexte)
     {

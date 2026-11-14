@@ -153,6 +153,20 @@ public class LocatairePrefab : PrefabBatLoc
     public static float SurfaceAEnregistrer(float avant, float saisie, float proposee)
         => avant <= 0f && Mathf.Abs(saisie - proposee) < 0.01f ? 0f : saisie;
 
+    /// Revue 17 (D7a-15, lot D, décision du 11/11) : le refus au centre pour un SIRET ou un IBAN faux, seulement quand le champ vient
+    /// d'être modifié (différent de la valeur enregistrée) et n'est pas vide : une fiche ancienne au SIRET faux, non touché,
+    /// s'enregistre toujours. Une faute dans le SIREN faisait suivre une autre société (Pappers, BODACC, facture électronique).
+    public static string RefusSiretIban(string siretAvant, string siretSaisi, string ibanAvant, string ibanSaisi)
+    {
+        if (Modifie(siretAvant, siretSaisi) && RegleAbonnement.VerifierSiret(siretSaisi) != null)
+            return "Ce SIRET n'est pas valide (clé de contrôle). Corrigez-le ou videz le champ.";
+        if (Modifie(ibanAvant, ibanSaisi) && !RegleRib.IbanValide(ibanSaisi))
+            return "Cet IBAN n'est pas valide (clé de contrôle). Corrigez-le ou videz le champ.";
+        return null;
+    }
+
+    static bool Modifie(string avant, string saisi) => !string.IsNullOrWhiteSpace(saisi) && saisi.Trim() != (avant ?? "").Trim();
+
     // ── Demande du 04/11 : le lot se choisit parmi ceux du bâtiment ──────────
 
     UIDropdown _choixLot;
@@ -377,6 +391,7 @@ public class LocatairePrefab : PrefabBatLoc
         {
             var loc = batimentPrefabOrigin.listLocataire.Find(b => b.id == id);
             string nom = string.IsNullOrEmpty(loc?.Name) ? "ce locataire" : loc.Name;
+            if (DepartLocataire.RefusSuppression(loc) is string refus) { ConfirmDialog.Erreur(refus); return; }   // Revue 17 (D7a-09)
 
             ConfirmDialog.Instance.Show(
                 "Supprimer le locataire",
@@ -385,10 +400,22 @@ public class LocatairePrefab : PrefabBatLoc
                 {
                     string backup = JsonUtility.ToJson(loc);
                     var bp = batimentPrefabOrigin;
+                    string idBat = bp.getID();
                     if (!bp.DeleteLocataire(id)) return;   // refus (hors ligne, lecture seule) : rien à annuler
 
-                    UndoToast.Instance.Show($"« {nom} » supprimé",
-                        () => bp.RestoreLocataire(backup));
+                    // Revue 17 (D8-09, lot D) : la fiche du bâtiment est retrouvée par son identifiant au moment du clic. Relue
+                    // entre-temps (changement d'un collègue, rechargement), l'ancienne était détruite : « Annuler » ne restaurait rien.
+                    UndoToast.Instance.Show($"« {nom} » supprimé", () =>
+                    {
+                        var bpNow = BatimentManager.Instance != null
+                            ? BatimentManager.Instance.BatimentPrefab.Find(p => p != null && p.getID() == idBat) : null;
+                        if (bpNow == null)
+                        {
+                            ConfirmDialog.Erreur($"Restauration de « {nom} » impossible : la fiche du bâtiment a été rechargée entre-temps.");
+                            return;
+                        }
+                        bpNow.RestoreLocataire(backup);
+                    });
                 });
         });
         TransfertEntrepriseUI.AjouterBouton(Delete, () => TransfertEntrepriseUI.OuvrirLocataire(this));
@@ -509,6 +536,19 @@ public class LocatairePrefab : PrefabBatLoc
             if (refusLot != null) { MajChoixLot(locataire); ConfirmDialog.Erreur(refusLot); return; }
         }
 
+        // Revue 17 (D7a-14, lot D) : un nombre illisible (lot « 2B », surface « 120 m2 », taux) est refusé avant toute écriture et avant
+        // le renommage du dossier ; la fiche reste en saisie. Avant, il était enregistré 0 sans un mot.
+        string refusNombre = (_choixLot == null
+                                 ? RefusNombre(lotBatimentTxt.GetValue(), "numéro du lot", entier: true) ?? RefusNombre(tailleLotTxt.GetValue(), "surface du lot")
+                                 : null)
+                             ?? RefusNombre(tauxDeRentabilité.GetValue(), "taux de rentabilité");
+        if (refusNombre != null) { ConfirmDialog.Erreur(refusNombre); return; }
+
+        // Revue 17 (D7a-15, lot D, décision du 11/11) : SIRET et IBAN contrôlés quand ils viennent d'être modifiés.
+        string refusIdentifiant = RefusSiretIban(locataire.siretNumber, siret.GetValue(), locataire.ribLocataireIban,
+                                                 facturationFields != null ? facturationFields.IbanSaisi : null);
+        if (refusIdentifiant != null) { ConfirmDialog.Erreur(refusIdentifiant); return; }
+
         // ── Nom : unicité DANS CE BÂTIMENT + dossier déplacé si le nom change ─────
         // Le dossier du locataire vit à l'intérieur de celui de son bâtiment : deux
         // locataires homonymes dans DEUX bâtiments différents ne se gênent donc pas et
@@ -572,10 +612,14 @@ public class LocatairePrefab : PrefabBatLoc
         batimentPrefabOrigin.RefreshTailleBatiment();
 
         bailFields?.Save(locataire);
-        locataire.DateDebutBail = dateDebutBail.saveThedate();
+        // Revue 17 (D7a-19, suite du 12/11) : début corrigé avant toute facture partie : le premier bail suit, la facturation aussi.
+        var debutSaisi = dateDebutBail.saveThedate();
+        locataire.dateDebutPremierBailISO = DepartLocataire.PremierBailApres(locataire, debutSaisi);
+        locataire.DateDebutBail = debutSaisi;
         locataire.DateFinBail = dateFinBail.saveThedate();
 
         SaveCorrectlyFloat(ref locataire.tauxDeRentabilité, tauxDeRentabilité.GetNewSave());
+        string siretAvant = locataire.siretNumber;   // Revue 17 (D7a-24, lot D) : voir PappersSync.SiretChange plus bas
         locataire.siretNumber = siret.GetNewSave();
         locataire.commentaire = Commentaire.GetNewSave();
         facturationFields?.Save(locataire);
@@ -602,7 +646,8 @@ public class LocatairePrefab : PrefabBatLoc
         // Le SIRET vient peut-être d'être saisi ou corrigé : on rafraîchit le résumé
         // d'entreprise tout de suite, plutôt que d'attendre le prochain lancement.
         // Même chemin que la mise à jour du démarrage, donc même règle.
-        StartCoroutine(PappersSync.Un(batimentPrefabOrigin, locataire));
+        // Revue 17 (D7a-24, lot D) : seulement si le SIREN a changé ; avant, chaque « Sauvegarder » appelait le BODACC et le serveur.
+        if (PappersSync.SiretChange(siretAvant, locataire.siretNumber)) StartCoroutine(PappersSync.Un(batimentPrefabOrigin, locataire));
         locataireScrollContent?.SetDirty();
 
         // Création : Général et Bail sont faits, l'écran du loyer s'ouvre (étape 3).
@@ -772,13 +817,15 @@ public class LocatairePrefab : PrefabBatLoc
 
     private void OnPappersClick()
     {
-        var s = siret.GetValue().Trim();
-        if (s.Length < 9)
+        // Revue 17 (D7a-11, lot D) : le SIREN lu comme partout ailleurs (SocieteLocataire.Siren) ; avec des espaces
+        // (« 123 456 789 00012 », le format affiché par CIPL), l'adresse ouverte était fausse.
+        string siren = SocieteLocataire.Siren(siret.GetValue());
+        if (siren.Length != 9)
         {
-            ConfirmDialog.Erreur("Siret incomplet — 9 chiffres minimum pour ouvrir Pappers.");
+            ConfirmDialog.Erreur("SIRET incomplet : saisissez les 14 chiffres du SIRET pour ouvrir Pappers.");
             return;
         }
-        Application.OpenURL($"https://www.pappers.fr/entreprise/{s.Substring(0, 9)}");
+        Application.OpenURL($"https://www.pappers.fr/entreprise/{siren}");
     }
 
     // Remplace le bloc Pappers du commentaire, en gardant ce qui l'entoure.

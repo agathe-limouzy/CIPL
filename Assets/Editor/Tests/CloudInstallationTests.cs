@@ -54,6 +54,24 @@ public class CloudInstallationTests
         StringAssert.Contains("version 1.0.1 n'a pas pu s'installer : votre version 1.0.0 fonctionne toujours", RegleVersion.TexteEchec("1.0.1", "1.0.0"));
     }
 
+    /// Revue 17 (D8-17, lot D) : installeur déjà téléchargé (fermeture refusée par la garde), puis version devenue obligatoire à la
+    /// relecture horaire : la fenêtre dit qu'il est prêt, « Mettre à jour » (qui ne ferait rien) est grisé.
+    [Test]
+    public void Une_mise_a_jour_deja_prete_le_reste_quand_elle_devient_obligatoire()
+    {
+        Assert.That(RegleVersion.TexteFenetre(true, "1.0.0", "1.0.7"), Is.EqualTo(RegleVersion.TextePret));
+        Assert.That(RegleVersion.TexteFenetre(false, "1.0.0", "1.0.7"), Is.EqualTo(RegleVersion.TexteObligatoire("1.0.0", "1.0.7")));
+        StringAssert.Contains("elle s'installe dès que CIPL se ferme", RegleVersion.TextePret);
+
+        string ecran = File.ReadAllText(Path.Combine(UnityEngine.Application.dataPath, "Script", "Cloud", "EcransCloud.cs"));
+        ecran = ecran.Substring(ecran.IndexOf("MiseAJourObligatoire(Canvas canvas", StringComparison.Ordinal));
+        StringAssert.Contains("RegleVersion.TexteFenetre(prete, actuelle, derniere)", ecran);
+        StringAssert.Contains("maj.interactable = !prete;", ecran);
+        string maj = File.ReadAllText(Path.Combine(UnityEngine.Application.dataPath, "Script", "Cloud", "MiseAJour.cs"));
+        StringAssert.Contains("() => StartCoroutine(Telecharger(_afficherFenetre)), _enCours);", maj, "la fenêtre sait qu'un téléchargement est fait ou en cours");
+        StringAssert.Contains("if (_enCours) _afficher = _afficherFenetre;", maj, "et reçoit la suite d'un téléchargement en cours (échec : le bouton revient)");
+    }
+
     /// Dépôt privé jusqu'à la sortie (26/10) : les essais lisent un dossier du PC à la place de GitHub.
     [Test]
     public void Le_fichier_d_essai_donne_un_dossier_ou_une_adresse()

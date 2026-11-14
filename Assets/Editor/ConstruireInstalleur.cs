@@ -50,11 +50,6 @@ public static class ConstruireInstalleur
         }
         foreach (var d in Directory.GetDirectories(appli, "*_DoNotShip")) Directory.Delete(d, true);   // débogage de Burst, à ne pas livrer
 
-        File.WriteAllText(Path.Combine(Sortie, "version.json"), RegleVersion.Ecrire(new RegleVersion.Fichier
-        {
-            version = version, minimale = VersionMinimale, windows = MiseAJour.Publiee + MiseAJour.Installeur, mac = "",
-        }));
-
         var p = Process.Start(new ProcessStartInfo(Iscc(), $"/Q \"/DVersion={version}\" \"/DSource={appli}\" \"/O{Sortie}\" \"{Script}\"")
         {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -68,6 +63,14 @@ public static class ConstruireInstalleur
             return;
         }
         string exe = Path.Combine(Sortie, MiseAJour.Installeur);
+        // Revue 17 (D8-11, lot D) : version.json s'écrit après l'installeur et porte son empreinte : CIPL la compare à celle du fichier
+        // téléchargé avant de le lancer. Un installeur refait ou signé APRÈS coup change d'empreinte : relancer ce menu avant de publier.
+        string sha256;
+        using (var f = File.OpenRead(exe)) sha256 = RegleVersion.Empreinte(f);
+        File.WriteAllText(Path.Combine(Sortie, "version.json"), RegleVersion.Ecrire(new RegleVersion.Fichier
+        {
+            version = version, minimale = VersionMinimale, windows = MiseAJour.Publiee + MiseAJour.Installeur, mac = "", sha256 = sha256,
+        }));
         Debug.Log($"[Installeur] CIPL {version} prêt : {exe} ({new FileInfo(exe).Length / 1048576} Mo) et version.json");
         EditorUtility.RevealInFinder(exe);
     }

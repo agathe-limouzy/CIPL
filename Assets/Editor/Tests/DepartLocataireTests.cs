@@ -7,7 +7,7 @@ using UnityEngine;
 /// Départ d'un locataire (décisions du 01/10) : décompte de sortie, délai de
 /// restitution, régul au prorata de présence, loyer à corriger, archivage, alertes.
 /// Règles dans `DepartLocataire`, `ListesCharges.QuotePartAuProrata`,
-/// `Loyers.PeriodesFacturees` et `FacturationAlertes` ; ces tests les verrouillent.
+/// `Loyers.PeriodeFacturable` et `FacturationAlertes` ; ces tests les verrouillent.
 public class DepartLocataireTests
 {
     static string Iso(DateTime d) => d.ToString("yyyy-MM-dd");
@@ -289,11 +289,18 @@ public class DepartLocataireTests
     [Test]
     public void La_regul_deduit_une_provision_par_periode_facturee()
     {
-        Assert.That(Loyers.PeriodesFacturees(Bail(), 2026), Is.EqualTo(4));
-        Assert.That(Loyers.PeriodesFacturees(Bail("2026-05-15"), 2026), Is.EqualTo(2), "T1 et T2 (partiel)");
-        Assert.That(Loyers.PeriodesFacturees(Bail("2026-05-15"), 2027), Is.EqualTo(0));
+        // Coutures (ménage) : Loyers.PeriodesFacturees est retirée (le code ne la lisait plus) : les périodes du plan qui reçoivent
+        // une facture (Loyers.PeriodeFacturable), celles dont Loyers.ProvisionsAppelees additionne les provisions.
+        int Facturees(Locataire loc, int annee)
+            => Enumerable.Range(1, FacturationSuivi.Plan(loc, annee).Count).Count(p => Loyers.PeriodeFacturable(loc, annee, p));
+        Assert.That(Facturees(Bail(), 2026), Is.EqualTo(4));
+        Assert.That(Facturees(Bail("2026-05-15"), 2026), Is.EqualTo(2), "T1 et T2 (partiel)");
+        Assert.That(Facturees(Bail("2026-05-15"), 2027), Is.EqualTo(0));
         var arrive = Bail(); arrive.dateDebutBailISO = "2026-09-01";
-        Assert.That(Loyers.PeriodesFacturees(arrive, 2026), Is.EqualTo(2), "T3 (partiel) et T4");
+        Assert.That(Facturees(arrive, 2026), Is.EqualTo(2), "T3 (partiel) et T4");
+        // La règle qui la remplace : une provision ENTIÈRE par période facturée, même partielle (100 € par trimestre).
+        var parti = Bail("2026-05-15"); parti.provisionPourCharges = true; parti.provisionPourChargeValue = 100f;
+        Assert.That(Loyers.ProvisionsAppelees(parti, 2026, ""), Is.EqualTo(200f), "départ le 15/05 : deux provisions, pas quatre");
     }
 
     // ── Dernière facture ───────────────────────────────────────────────────────

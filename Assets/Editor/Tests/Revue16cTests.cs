@@ -121,7 +121,8 @@ public class Revue16cTests
         {
             string cs = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", p + ".cs"));
             StringAssert.Contains("back.onClick.AddListener(Retour);", cs, p);
-            StringAssert.Contains("void OnDisable() => _envoiEnCours = false;", cs, p);
+            // Revue 17 (D4-07, coutures) : le drapeau retombe avec le compteur des envois en cours (FactureEmission.NoterEnvoi).
+            StringAssert.Contains("void OnDisable() { FactureEmission.NoterEnvoi(ref _envoiEnCours, false);", cs, p);
         }
     }
 
@@ -213,7 +214,7 @@ public class Revue16cTests
         // Retours du 02/11 : la pastille sur toutes les lignes d'une régul regroupée ; un loyer de 0 € refusé, plateforme ou non.
         StringAssert.Contains("MemeFacture(_loc, l.key).Select(FactureElectronique.Pastille)", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", "LocataireSuiviInline.cs")));
         string loyer = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Facturation", "FactureLoyerPanel.cs"));
-        StringAssert.Contains("if (Math.Abs(d.ttc) <= 0.004f)", loyer);
+        StringAssert.Contains("if (FactureEmission.RefusTotalNul(d.ttc, d.subtitle) is string refusNul)", loyer);   // coutures (D6-19) : la règle partagée, sans condition de plateforme
         StringAssert.DoesNotContain("parPlateforme && Math.Abs(d.ttc)", loyer);
     }
 
@@ -924,7 +925,8 @@ public class Revue16cTests
     {
         string webhook = Serveur("fonctions", "stripe-webhook.ts");
         StringAssert.Contains("avant !== sub.id", webhook, "D1-11");
-        StringAssert.Contains("evt.type === \"customer.subscription.created\" && !avant", webhook, "D1-11 : répartition une seule fois");
+        StringAssert.Contains("if (r && avant !== sub.id && sub.status !== \"canceled\") await repartir(sub);", webhook,
+            "D1-11, puis D3-02 (Revue 17) : la répartition une fois par abonnement nouveau");
         Assert.That(webhook, Does.Not.Contain("licences_max: licence"), "D3-15 : groupes.licences_max n'est plus écrit");
         string retour = Serveur("fonctions", "facture-electronique-retour.ts");
         StringAssert.Contains(".delete().eq(\"etat\", etat).select()", retour, "D1-14");

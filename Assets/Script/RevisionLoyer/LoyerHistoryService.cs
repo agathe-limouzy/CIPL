@@ -112,7 +112,9 @@ public static class LoyerHistoryService
         if (loc.typeRevision != TypeRevision.Indice || HistoriqueCouvre(loc, annee))
         {
             float somme = 0f;
-            int np = LoyerSummaryUI.NbPeriodes(loc.periodiciteLoyer);
+            // Revue 17 (avenant de périodicité, lot 14) : les périodes du plan de l'année (deux périodicités l'année d'un changement
+            // daté ; la période coupée est au prorata des mois : l'année fait exactement le loyer annuel).
+            int np = FacturationSuivi.Plan(loc, annee).Count;
             for (int p = 1; p <= np; p++) somme += Loyers.MontantPeriode(loc, annee, p);
             return somme;
         }
@@ -161,9 +163,20 @@ public static class LoyerHistoryService
     public static bool HistoriqueCouvre(Locataire loc, int annee)
     {
         if (loc?.historiqueLoyers == null || loc.historiqueLoyers.Count == 0) return false;
-        var debut = loc.historiqueLoyers.Min(h => FacturationSuivi.TryEcheance(h?.debutISO, out var d) ? d : DateTime.MaxValue);
+        // Revue 17 (D7b-04, lot D) : un début vide (première révision d'un bail jamais renégocié : « depuis toujours ») vaut le début
+        // du premier bail (sans bail connu : toujours). Avant, il comptait pour « jamais » jusqu'à la deuxième révision.
+        var debut = loc.historiqueLoyers.Min(h => h == null ? DateTime.MaxValue
+            : FacturationSuivi.TryEcheance(h.debutISO, out var d) ? d
+            : Loyers.DebutPremierBail(loc, out var b) ? b : DateTime.MinValue);
         return debut != DateTime.MaxValue && annee >= debut.Year;
     }
+
+    /// Revue 17 (D7b-07, lot D) : les types demandés sans aucune observation (INSEE injoignable) : leurs années que l'historique ne
+    /// couvre pas prennent le loyer actuel à plat. Sert aussi à savoir s'il faut télécharger (D7b-16).
+    public static List<IndiceImmo> Manquants(IEnumerable<IndiceImmo> types,
+        Dictionary<IndiceImmo, List<(string periode, float valeur)>> obs)
+        => (types ?? Enumerable.Empty<IndiceImmo>()).Distinct()
+           .Where(t => obs == null || !obs.TryGetValue(t, out var o) || o == null || o.Count == 0).ToList();
 
     private static float LoyerSegmentPourAnnee(Locataire loc, RevisionReference seg, int annee,
         Dictionary<IndiceImmo, List<(string periode, float valeur)>> obsParType)

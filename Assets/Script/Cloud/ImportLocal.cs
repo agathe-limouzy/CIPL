@@ -17,6 +17,9 @@ public static class ImportLocal
     {
         public string id, nom, projet;   // projet : adresse du projet cloud (test ou réel)
         public bool complet;             // faux tant que l'import n'est pas allé au bout
+        // Revue 17 (D2-19, lot D) : vrai pour le repère que CIPL dépose dans le dossier local d'un PC (mode « Dans CIPL ») : il dit à
+        // quelle entreprise est le dossier, mais ce n'est pas le dossier partagé : la recherche du Drive l'ignore (DossierEntreprise).
+        public bool local;
     }
 
     public class Source

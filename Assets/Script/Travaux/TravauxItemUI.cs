@@ -19,8 +19,8 @@ public class TravauxItemUI : MonoBehaviour
         txtMensualite.text = data.emprunt
             ? $"{RentabiliteCalculator.Mensualite(data.montantEmprunte, data.tauxInteretAnnuel, data.dureeMois):N0} € / mois"
             : "Comptant";
-        string dateT = string.IsNullOrEmpty(data.dateDebutTravaux) ? "—" : data.dateDebutTravaux;
-        txtDate.text = $"{dateT} · {(data.emprunt ? "emprunt" : "comptant")}";
+        // Revue 17 (D7b-18, lot D) : date en jj/mm/aaaa, comme la liste des achats.
+        txtDate.text = $"{AchatItemUI.DateLisible(data.dateDebutTravaux)} · {(data.emprunt ? "emprunt" : "comptant")}";
 
         btnEdit.onClick.RemoveAllListeners();
         btnEdit.onClick.AddListener(() => onEdit());

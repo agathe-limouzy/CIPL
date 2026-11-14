@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 /// Une charge saisie au niveau du BÂTIMENT (onglet « Charges », à côté d'Achat /
 /// Travaux). Sert de base à la refacturation et à la régularisation.
@@ -69,6 +70,23 @@ public class ChargeBatiment
 
     /// Facturée à au moins un locataire.
     public bool EstFacturee => facturations != null && facturations.Count > 0;
+
+    /// Revue 17 (D6-09, comme un RIB ou un entête utilisé, règle du 01/11) : portée sur une facture d'un locataire du bâtiment
+    /// (archivés compris), elle ne se supprime pas : sa refacturation ne se corrigerait plus, sa régularisation corrigée la
+    /// perdrait. Null si rien ne la retient : jamais facturée, ou facturée à un locataire supprimé depuis.
+    public static string RefusSuppression(ChargeBatiment c, IEnumerable<Locataire> locataires)
+    {
+        var qui = (locataires ?? Enumerable.Empty<Locataire>())
+            .Where(l => l != null && c != null && c.EstFactureePour(l.id)).Select(l => l.Name).Distinct().ToList();
+        if (qui.Count == 0) return null;
+        string nom = string.IsNullOrWhiteSpace(c.nom) ? "Cette charge" : $"« {c.nom} »";
+        return $"{nom} ne peut pas être supprimée : elle est sur des factures de {string.Join(", ", qui)} ; sans elle, ces "
+             + "factures ne pourraient plus être refaites correctement. Si elle est fausse, mettez son coût à 0, puis refaites "
+             + "ces factures depuis le suivi (« Corriger », ou « Refaire » si elles ne sont pas parties ; dans une refacturation, mettez aussi son montant HT à 0). "   // D4-10 : le bouton d'une facture partie
+             // Revue 17 (D6-19, coutures ; décision du 09/11) : un total nul est refusé, correction comprise : le conseil ci-dessus finissait
+             // sur ce refus pour une refacturation de cette seule charge. Même conseil que les autres refus : l'avoir qui cite la facture.
+             + "Une facture qui tomberait à 0 € ne se refait pas : annulez-la par un avoir (Refacturation, « Avoir sur la facture n° … »).";
+    }
 
     /// Réglée à la main, ou payée par tous ceux à qui elle a été facturée.
     public bool EstPayee => paye || (EstFacturee && facturations.TrueForAll(f => f.paye));

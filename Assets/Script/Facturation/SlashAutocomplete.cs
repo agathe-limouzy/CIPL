@@ -15,13 +15,16 @@ public class SlashAutocomplete : MonoBehaviour
     readonly List<Button> items = new();
     List<FactureVariable> filtered = new();
     int slashIndex = -1, caretIndex = -1, highlight = 0;
+    string[] groupesEnPlus;
 
-    public static SlashAutocomplete Attach(TMP_InputField field)
+    /// `groupesEnPlus` (revue 17, D6-08) : les groupes à portée limitée que ce champ remplace (FactureVariables.GroupesLimites).
+    public static SlashAutocomplete Attach(TMP_InputField field, params string[] groupesEnPlus)
     {
         var go = new GameObject("SlashAutocomplete", typeof(RectTransform));
         go.transform.SetParent(field.transform, false);
         var sa = go.AddComponent<SlashAutocomplete>();
         sa.input = field;
+        sa.groupesEnPlus = groupesEnPlus;
         sa.BuildPopup();
         field.onValueChanged.AddListener(sa.OnChanged);
         return sa;
@@ -54,18 +57,22 @@ public class SlashAutocomplete : MonoBehaviour
         img.gameObject.SetActive(false);
     }
 
+    // Revue 17 (D6-26, coutures) : sous le champ, ou au-dessus s'il manque de place en bas (UIFactory.PlacePopup, comme les
+    // menus déroulants) ; avant, toujours dessous : pour un champ en bas de l'écran, la liste sortait de la fenêtre.
     void Position()
     {
-        var corners = new Vector3[4];
-        inputRT.GetWorldCorners(corners); // 0 = bas-gauche
         popup.sizeDelta = new Vector2(inputRT.rect.width, popup.sizeDelta.y);
-        popup.position = corners[0];
+        UIFactory.PlacePopup(popup, inputRT);
     }
 
     void OnDestroy()
     {
         if (popup != null) Destroy(popup.gameObject);
     }
+
+    // Revue 17 (D6-14) : le menu vit sous le canevas racine, hors du formulaire ; fermer le formulaire le masque aussi
+    // (avant, il restait affiché sur la fiche, et un clic modifiait un champ caché).
+    void OnDisable() => Hide();
 
     void OnChanged(string text)
     {
@@ -84,17 +91,28 @@ public class SlashAutocomplete : MonoBehaviour
         ShowFiltered(text.Substring(slash + 1, caret - slash - 1));
     }
 
+    /// Revue 17 (D6-08) : les variables que le menu propose pour `query` (libellé ou jeton) dans un champ qui nomme
+    /// `groupesEnPlus` : celles d'un groupe à portée limitée que le champ ne nomme pas n'y sont pas remplacées, elles n'y
+    /// sont donc pas proposées (avant : tout le catalogue partout, {depot.montant} partait tel quel dans un e-mail).
+    public static List<FactureVariable> Proposees(string query, params string[] groupesEnPlus)
+    {
+        string q = (query ?? "").ToLowerInvariant();
+        var r = new List<FactureVariable>();
+        foreach (var v in FactureVariables.All)
+            if ((System.Array.IndexOf(FactureVariables.GroupesLimites, v.groupe) < 0
+                 || (groupesEnPlus != null && System.Array.IndexOf(groupesEnPlus, v.groupe) >= 0))
+                && (q.Length == 0 || v.label.ToLowerInvariant().Contains(q) || v.token.ToLowerInvariant().Contains(q)))
+                r.Add(v);
+        return r;
+    }
+
     void ShowFiltered(string query)
     {
-        string q = query.ToLowerInvariant();
-        filtered = new List<FactureVariable>();
-        foreach (var v in FactureVariables.All)
-            if (q.Length == 0 || v.label.ToLowerInvariant().Contains(q) || v.token.ToLowerInvariant().Contains(q))
-                filtered.Add(v);
-
+        filtered = Proposees(query, groupesEnPlus);
         if (filtered.Count == 0) { Hide(); return; }
 
-        foreach (Transform c in box) Destroy(c.gameObject);
+        // D6-26 : masquées avant d'être détruites (en fin d'image) : PlacePopup mesure la liste tout de suite, sans les anciennes lignes.
+        foreach (Transform c in box) { c.gameObject.SetActive(false); Destroy(c.gameObject); }
         items.Clear();
 
         int max = Mathf.Min(filtered.Count, 8);

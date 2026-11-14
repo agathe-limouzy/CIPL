@@ -142,6 +142,8 @@ public class AchatFormPanel : MonoBehaviour
         LayoutRebuilder.ForceRebuildLayoutImmediate(transform as RectTransform);
     }
 
+    // Revue 17 (D7b-08, lot D) : recalculé à chaque frappe, donc en silence (le message s'ouvrait au milieu de la
+    // saisie) : « — » tant qu'un nombre est illisible ; le refus vient à « Sauvegarder ».
     private void RefreshCalculs()
     {
         double prix = Parse(txtPrixAchat.GetValue());
@@ -152,7 +154,7 @@ public class AchatFormPanel : MonoBehaviour
         int duree = GetDuree();
 
         if (toggleFraisAuto != null && toggleFraisAuto.isOn)
-            txtFraisNotaire.ApplyValue($"{fraisNot:F0}");
+            txtFraisNotaire.ApplyValue(double.IsNaN(fraisNot) ? "" : $"{fraisNot:F0}");
 
         double invest = prix + fraisNot + fraisAg;
         double apport = invest - montant;
@@ -160,14 +162,32 @@ public class AchatFormPanel : MonoBehaviour
             ? RentabiliteCalculator.Mensualite(montant, taux, duree) : 0d;
         double coutCreditTotal = mens * duree;
 
-        if (txtApport != null) txtApport.text = $"{System.Math.Max(0d, apport):N0} €";
-        if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? $"{mens:N0} € / mois" : "Comptant";
-        if (txtCoutTotal != null) txtCoutTotal.text = DropdownComptant.value == 1
+        if (txtApport != null) txtApport.text = double.IsNaN(apport) ? "—" : $"{System.Math.Max(0d, apport):N0} €";
+        if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? (double.IsNaN(mens) ? "—" : $"{mens:N0} € / mois") : "Comptant";
+        if (txtCoutTotal != null) txtCoutTotal.text = DropdownComptant.value == 1 && !double.IsNaN(coutCreditTotal)
             ? $"{coutCreditTotal:N0} €" : "—";
     }
 
     private void Save()
     {
+        // Revue 17 (D7b-08, lot D) : un nombre illisible partait à 0 après le message et le formulaire se fermait ; un
+        // refus de date laissait les autres champs déjà repassés en lecture (GetNewSave). Tout est lu et contrôlé AVANT
+        // d'écrire : au refus, le formulaire reste ouvert avec la saisie.
+        bool fraisAuto = toggleFraisAuto != null && toggleFraisAuto.isOn;
+        bool emprunt = DropdownComptant.value == 1;   // en « Comptant », les champs d'emprunt sont cachés : pas de refus sur eux
+        string refus = SaisieNumerique.RefusIllisible(("Prix d'achat", txtPrixAchat.GetValue()),
+                                                      ("Frais de notaire", fraisAuto ? "" : txtFraisNotaire.GetValue()),
+                                                      ("Frais d'agence", txtFraisAgence.GetValue()),
+                                                      ("Montant emprunté", emprunt ? txtMontantEmprunte.GetValue() : ""),
+                                                      ("Taux d'intérêt", emprunt ? txtTaux.GetValue() : ""));
+        if (refus != null) { ConfirmDialog.Erreur(refus); return; }
+        // Revue 16c (D7b-07) : la date est lue telle qu'affichée et doit être complète.
+        if (datePicker != null)
+        {
+            if (!datePicker.LireDate(out var dateSaisie)) { ConfirmDialog.Erreur("Saisissez une date d'achat complète (jour, mois, année)."); return; }
+            datePicker.ApplyDate(dateSaisie);
+        }
+
         double prix = Parse(txtPrixAchat.GetNewSave());
         double fraisNot = GetFraisNotaire(prix);
         double fraisAg = Parse(txtFraisAgence.GetNewSave());
@@ -178,22 +198,17 @@ public class AchatFormPanel : MonoBehaviour
         _data.fraisNotaireAuto = toggleFraisAuto != null && toggleFraisAuto.isOn;   // Revue 17 (D7b-02)
         _data.fraisAgence = fraisAg;
         _data.emprunt = DropdownComptant.value == 1;
-        _data.montantEmprunte = Parse(txtMontantEmprunte.GetNewSave());
-        _data.tauxInteretAnnuel = Parse(txtTaux.GetNewSave());
+        // Revue 17 (D7b-08, lot D) : un champ caché illisible (« Comptant ») garde l'ancienne valeur, jamais NaN au modèle.
+        double montantLu = Parse(txtMontantEmprunte.GetNewSave()), tauxLu = Parse(txtTaux.GetNewSave());
+        if (!double.IsNaN(montantLu)) _data.montantEmprunte = montantLu;
+        if (!double.IsNaN(tauxLu)) _data.tauxInteretAnnuel = tauxLu;
         _data.dureeMois = GetDuree();
         _data.mensualiteCalculee = _data.emprunt
             ? RentabiliteCalculator.Mensualite(_data.montantEmprunte, _data.tauxInteretAnnuel, _data.dureeMois)
             : 0f;
         _data.apportPersonnel = prix + fraisNot + fraisAg - _data.montantEmprunte;
-       
 
-        // Save() — convertir DateTime? → string
-        // Revue 16c (D7b-07) : la date est lue telle qu'affichée et doit être complète.
-        if (datePicker != null)
-        {
-            if (!datePicker.LireDate(out var dateSaisie)) { ConfirmDialog.Erreur("Saisissez une date d'achat complète (jour, mois, année)."); return; }
-            datePicker.ApplyDate(dateSaisie);
-        }
+        // Save() — convertir DateTime? → string (date contrôlée plus haut)
         _data.dateAchat = datePicker?.saveThedate().ToString("yyyy-MM-dd") ?? "";
 
         _onSave?.Invoke(_data);
@@ -206,9 +221,9 @@ public class AchatFormPanel : MonoBehaviour
             ? prix * TAUX_FRAIS_AUTO
             : Parse(txtFraisNotaire.GetValue());
 
-    // Voir SaisieNumerique : tolère la saisie française et signale une valeur
-    // non numérique au lieu de la convertir silencieusement en 0.
-    private double Parse(string s) => SaisieNumerique.ParseOuAvertirD(s, "AchatFormPanel");   // revue 16c (D7b-12) : en double, comme le modèle
+    // Voir SaisieNumerique : tolère la saisie française. Revue 17 (D7b-08, lot D) : silencieuse (NaN si illisible) ;
+    // Save refuse avant d'écrire (RefusIllisible), RefreshCalculs affiche « — ».
+    private double Parse(string s) => SaisieNumerique.OuNaN(s);   // revue 16c (D7b-12) : en double, comme le modèle
 
     private int GetDuree() => dropdownDuree.value < Durees.Length ? Durees[dropdownDuree.value] : 120;
     private void SetDuree(int m)

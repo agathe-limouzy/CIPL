@@ -104,8 +104,28 @@ public class CloudPremiersPasTests
         Assert.That(c2, Is.EqualTo(new[] { RegleRib.ChampIban }));
         Assert.That(RegleRib.Refus("SCI", "", iban, "AGRI", out var c3), Does.StartWith("Le BIC compte 8 ou 11"));
         Assert.That(c3, Is.EqualTo(new[] { RegleRib.ChampBic }));
-        Assert.That(RegleRib.Refus("SCI", "30004 00747 00021009833 38", iban, "", out var c4), Does.StartWith("Le n° de RIB ne correspond pas"));
+        Assert.That(RegleRib.Refus("SCI", "12345 67890 00012345678 12", iban, "", out var c4), Does.StartWith("Le n° de RIB ne correspond pas"));   // Revue 17 (D6-21) : RIB fictif
         Assert.That(c4, Is.EqualTo(new[] { RegleRib.ChampRib, RegleRib.ChampIban }));
+    }
+
+    /// Revue 17 (D3-10) : un groupe expiré n'est pas à son « dernier jour » d'essai.
+    [Test]
+    public void Un_groupe_expire_ne_dit_pas_dernier_jour()
+    {
+        Assert.That(PremiersPas.Lignes(new PremiersPas.Etat { admin = true, joursEssai = 0 }).Last().sous, Is.EqualTo("Essai : dernier jour"));
+        var expire = PremiersPas.Lignes(new PremiersPas.Etat { admin = true, joursEssai = 0, expire = true });
+        Assert.That(expire.Last().sous, Is.EqualTo("Essai terminé"));
+        Assert.That(expire.Last().fait, Is.False, "l'abonnement reste à choisir");
+    }
+
+    /// Revue 17 (D3-17) : l'option TVA part du type d'entreprise ; le premier pas « Votre logo » la fait vérifier.
+    [Test]
+    public void Le_premier_pas_fait_verifier_l_option_TVA()
+    {
+        Assert.That(PremiersPas.Phrase(L.Logo), Does.Contain("TVA sur les loyers"));
+        StringAssert.Contains("Bulles.Section(\"TVA sur les loyers\", Reglages)",
+                              System.IO.File.ReadAllText(System.IO.Path.Combine(Application.dataPath, "Script", "Cloud", "PremiersPas.cs")),
+                              "le guide du logo passe par la section TVA");
     }
 
     [Test]

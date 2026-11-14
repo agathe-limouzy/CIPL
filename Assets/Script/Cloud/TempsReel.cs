@@ -15,6 +15,7 @@ public class TempsReel : IDisposable
 {
     public const string Sujet = "realtime:cipl";
     static readonly TimeSpan Battement = TimeSpan.FromSeconds(25);   // le serveur coupe après ~60 s sans signe de vie
+    static readonly TimeSpan DelaiConnexion = TimeSpan.FromSeconds(10);   // Revue 17 (D2-22, lot D) : voir Demarrer
 
     public readonly ConcurrentQueue<string> Recus = new ConcurrentQueue<string>();
     public volatile string Etat = "arrêté";
@@ -34,10 +35,24 @@ public class TempsReel : IDisposable
         Arreter();
         _cts = new CancellationTokenSource();
         _ws = new ClientWebSocket();
-        Etat = "connexion…";
-        await _ws.ConnectAsync(new Uri(UrlWebSocket(projetUrl, cle)), _cts.Token);
-
         var ws = _ws; var ct = _cts.Token;
+        Etat = "connexion…";
+        try
+        {
+            // Revue 17 (D2-22, lot D) : délai de connexion. Un proxy qui accepte la connexion sans finir la poignée de
+            // main laissait le canal en « connexion… » pour toute la session : personne ne le relançait.
+            var connexion = ws.ConnectAsync(new Uri(UrlWebSocket(projetUrl, cle)), ct);
+            if (await Task.WhenAny(connexion, Task.Delay(DelaiConnexion)) != connexion)
+                throw new TimeoutException($"pas de réponse en {DelaiConnexion.TotalSeconds:0} s");
+            await connexion;   // rend l'erreur de connexion, s'il y en a une
+        }
+        catch (Exception)
+        {
+            // Socket fermée et état « coupé » (sauf si un autre Demarrer a déjà pris la suite) : le propriétaire relance.
+            if (ReferenceEquals(ws, _ws)) { Arreter(); Etat = "coupé : connexion impossible"; }
+            throw;
+        }
+
         _ = Task.Run(() => Boucle(ws, ct));
         RefAbonnement = Prochain();
         await Envoyer(join(RefAbonnement));
@@ -91,6 +106,9 @@ public class TempsReel : IDisposable
                 message.SetLength(0);
                 Etat = "connecté";
             }
+            // Revue 17 (D2-22, lot D) : boucle finie sans erreur (socket plus ouverte) : « fermé », que l'entretien du
+            // canal relance. Pas après un arrêt voulu ni un nouveau Demarrer (la socket n'est plus la mienne).
+            if (ReferenceEquals(ws, _ws)) Etat = "fermé";
         }
         catch (OperationCanceledException) { Etat = "arrêté"; }
         catch (Exception e) { Etat = "coupé : " + e.Message; }

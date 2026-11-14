@@ -47,6 +47,9 @@ public static class ReglagesCloud
     {
         _version = 0; _aRelire = false; _auteur = null; _file = Task.CompletedTask;
         var lu = await Lire(e);
+        // Revue 17 (D2-21, lot D) : la copie de ce PC est effacée à la déconnexion ; une lecture en échec (HTTP 500, 4xx : pas « hors ligne »)
+        // laissait la session sur des Réglages vides ou périmés (RIB, entête, SMTP) sans nouvel essai. Tic réessaie toutes les 10 s.
+        if (lu == null) ARelire(null);
         if (lu == false && e.EstAdmin) await MettreEnCommun(e);
     }
 
@@ -121,10 +124,32 @@ public static class ReglagesCloud
                 ConfirmDialog.Erreur(HorsLigne.Refus + " Les Réglages ne sont pas enregistrés.");
                 ARelire(null);   // la copie de ce PC reprendra celle du serveur au retour
             }
-            else ConfirmDialog.Erreur("Réglages non enregistrés sur le serveur : " + (res?.motif ?? res?.refus));
+            // Revue 17 (D1-13) : « admin » (un champ réservé à l'administrateur diffère de celui du serveur) en clair, et la
+            // copie de ce PC reprend celle du serveur ; avant, le mot brut, sans relecture, et le même refus à chaque essai.
+            else if (res?.refus == "admin")
+                ConfirmDialog.Erreur("Ces Réglages comportent des éléments réservés à l'administrateur (RIB, logo, listes de charges) " +
+                                     "qui diffèrent de ceux du serveur : vos modifications ne sont pas enregistrées. Les Réglages sont rechargés.",
+                                     () => RelireMaintenant(null));
+            // Revue 17 (D2-13, lot D) : tout autre refus (erreur du serveur, réponse illisible) rend aussi la copie du serveur à ce PC,
+            // comme « reseau » ; avant, la modification refusée restait ici et s'imprimait sur les factures de ce poste (RIB, entête).
+            else
+            {
+                ConfirmDialog.Erreur(TexteNonEnregistres(Motif(res?.refus, res?.motif)));
+                ARelire(null);
+            }
         }
-        catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Réglages non enregistrés sur le serveur : " + ex.Message); }
+        catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur(TexteNonEnregistres(ex.Message)); ARelire(null); }
     }
+
+    /// Revue 17 (D2-13, lot D) : le motif d'un refus, lisible : « admin » en clair, jamais le mot brut ni un texte vide.
+    public static string Motif(string refus, string motif) =>
+        refus == "admin" ? "réservé à un administrateur"
+      : !string.IsNullOrWhiteSpace(motif) ? motif : !string.IsNullOrWhiteSpace(refus) ? refus : "réponse illisible du serveur";
+
+    /// Le message d'un refus sans texte propre : il dit aussi ce que devient la modification (ARelire : relue dès que la fenêtre est fermée).
+    public static string TexteNonEnregistres(string motif) =>
+        "Réglages non enregistrés sur le serveur : " + (motif ?? "").Trim().TrimEnd('.') +
+        ". Vos modifications ne sont pas gardées : les Réglages du serveur sont repris dès que la fenêtre Réglages est fermée.";
 
     static async Task<EcritureCloud.Resultat> EnvoyerMaintenant(EntrepriseCloud e, int version)
     {
@@ -144,7 +169,8 @@ public static class ReglagesCloud
         try
         {
             var res = await DefinirSecretMaintenant(e, cle, valeur);
-            if (res?.ok != true) ConfirmDialog.Erreur("Secret non enregistré sur le serveur : " + (res?.motif ?? res?.refus));
+            // Revue 17 (D2-13, lot D) : le motif en clair, et le secret du serveur revient sur ce PC (comme les Réglages refusés).
+            if (res?.ok != true) { ConfirmDialog.Erreur("Secret non enregistré sur le serveur : " + Motif(res?.refus, res?.motif)); ARelire(null); }
         }
         catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Secret non enregistré sur le serveur : " + ex.Message); }
     }

@@ -308,7 +308,7 @@ public class PaliersPanel
 
         // Ajout : le loyer du dernier palier, ou le loyer de départ pour le premier.
         float loyer = !ajout ? p.loyer : _liste.Count > 0 ? _liste[_liste.Count - 1].loyer : _loc.loyerDepart;
-        _formLoyer.text = loyer > 0f ? loyer.ToString("0.##", CultureInfo.InvariantCulture) : "";
+        _formLoyer.text = RevisionPanel.Nombre(loyer);   // Revue 17 (D7b-10, lot D) : en double (« 0.## » sur un float : 7 chiffres sous Mono)
         if (_formDu != null) _formDu.ApplyDate(du); else _formDuTexte.text = du.ToString("dd/MM/yyyy");
         var fin = ajout ? _finBail.Date : D(p.finISO);
         // Premier palier : il part du début du bail (ou de l'avenant) et contient la franchise.

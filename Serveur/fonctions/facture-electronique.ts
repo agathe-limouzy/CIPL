@@ -50,8 +50,8 @@ async function refus(r: Response | null) {
 type Ligne = Record<string, any>;
 
 // Ventilation TTC par taux de TVA d'une facture transmise (GET en16931 : `vat_break_down`), pour « Encaissée ».
-async function ventilation(auth: Record<string, string>, id: unknown) {
-  const r = await fetch(`${API}/v1.beta/invoices/${id}?format=en16931`, { headers: auth }).catch(() => null);
+async function ventilation(auth: Record<string, string>, id: string) {
+  const r = await fetch(`${API}/v1.beta/invoices/${encodeURIComponent(id)}?format=en16931`, { headers: auth }).catch(() => null);
   if (!r?.ok) return null;
   const f: Ligne | null = await r.json().catch(() => null);
   // La réponse est l'enveloppe de la facture (id, direction, events…) : le modèle EN 16931 est dans `en_invoice`.
@@ -92,6 +92,8 @@ async function jeton(lien: Ligne): Promise<{ jeton?: string; refus?: string; err
 }
 
 Deno.serve(async (req) => {
+  // Revue 17 (D1-11) : la réservation plateformes_envois prise par « envoyer », rendue par le catch général si une exception suit.
+  let liberer: (() => PromiseLike<unknown>) | null = null;
   try {
     const { action, entreprise, cle, facture, pdf, id, montant, date } = await req.json();
     const utilisateur = createClient(URL_PROJET, Deno.env.get("SUPABASE_ANON_KEY")!,
@@ -170,11 +172,17 @@ Deno.serve(async (req) => {
     // Étape 18b : un loyer (notre PDF + la facture au modèle EN 16931 → Factur-X → envoi), puis « Encaissée ».
     // Diagnostic (01/11) : les événements de cycle de vie d'une facture transmise, tels que Super PDP les tient
     // (la déclaration « Encaissée » est mise en file et traitée après coup : on peut vérifier ici ce qu'il en est).
+    // Revue 17 (D5-24) : l'identifiant de facture reçu de CIPL part dans l'adresse appelée chez Super PDP : chiffres
+    // seulement (« 1/../oauth2_sessions/me » ferait appeler une autre route avec le jeton de la SCI), puis encodé.
+    const idFacture = String(id ?? "");
+    if ((action === "evenements" || action === "encaisser") && !/^\d+$/.test(idFacture))
+      return json({ ok: false, refus: "refusee", erreur: "identifiant de facture invalide" });
+
     if (action === "evenements") {
       if (!lien) return json({ ok: false, refus: "non_relie" });
       const j = await jeton(lien);
       if (!j.jeton) return json({ ok: false, refus: j.refus, erreur: j.erreur });
-      const r = await fetch(`${API}/v1.beta/invoices/${Number(id) || id}?expand[]=events`,
+      const r = await fetch(`${API}/v1.beta/invoices/${encodeURIComponent(idFacture)}?expand[]=events`,
         { headers: { Authorization: `Bearer ${j.jeton}` } }).catch(() => null);
       if (!r?.ok) return await refus(r);
       const f = await r.json().catch(() => null);
@@ -191,13 +199,13 @@ Deno.serve(async (req) => {
         // fr:212 avec le montant encaissé (MEN) et sa date (revue 16c, D5-07 : pour la TVA sur les encaissements, la date
         // fixe la période déclarée) ; un montant négatif annule un encaissement déclaré (D5-12, cas d'usage officiel
         // « annulation d'encaissement »). Sans montant : le total de la facture, à la date de l'événement (comme avant).
-        const corps: Record<string, unknown> = { invoice_id: Number(id) || id, status_code: "fr:212" };
+        const corps: Record<string, unknown> = { invoice_id: Number(idFacture), status_code: "fr:212" };
         if (montant) {
           // Validé au bac à sable le 01/11 (OpenAPI 1.38.0, règle BR-FR-CDV-14) : `details` est une LISTE de détails, et
           // chaque bloc MEN de `reported_data` porte le montant TTC encaissé POUR UN TAUX de TVA (MDT-215) et ce taux
           // (MDT-224, `value_percent`). La ventilation vient de la facture telle que Super PDP la connaît ; le montant
           // reçu (partiel, ou négatif pour une annulation) est réparti au prorata des taux, au centime près.
-          const v = await ventilation(auth, Number(id) || id);
+          const v = await ventilation(auth, idFacture);
           if (!v) return json({ ok: false, refus: "indisponible", erreur: "Super PDP n'a pas rendu la facture (GET en16931)" });
           if (!v.length) return json({ ok: false, refus: "refusee", erreur: "facture sans ventilation TVA chez Super PDP (en_invoice.vat_break_down)" });
           const m = Number(montant), total = v.reduce((s, b) => s + b.ttc, 0);
@@ -230,7 +238,7 @@ Deno.serve(async (req) => {
           return json({ ok: false, refus: "indisponible", erreur: "transmission déjà en cours sur un autre poste" });
         await service.from("plateformes_envois").update({ cree_le: new Date().toISOString() }).eq("entreprise_id", entreprise).eq("cle", k);
       }
-      const liberer = () => service.from("plateformes_envois").delete().eq("entreprise_id", entreprise).eq("cle", k).is("facture_id", null);
+      liberer = () => service.from("plateformes_envois").delete().eq("entreprise_id", entreprise).eq("cle", k).is("facture_id", null);
 
       const fe = JSON.parse(String(facture ?? "{}"));
       if (BAC_A_SABLE) {
@@ -292,6 +300,9 @@ Deno.serve(async (req) => {
 
     return json({ ok: false, refus: "action" }, 400);
   } catch (e) {
+    // Revue 17 (D1-11) : JSON illisible, PDF pas en base64, acheteur absent… après la réservation : sans la rendre,
+    // tout réessai recevait 10 min « transmission déjà en cours sur un autre poste ».
+    if (liberer) await liberer();
     return json({ ok: false, refus: "erreur", erreur: String((e as Error)?.message ?? e) }, 500);
   }
 });

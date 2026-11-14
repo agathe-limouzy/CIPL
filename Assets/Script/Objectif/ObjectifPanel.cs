@@ -13,11 +13,48 @@ public static class ObjectifPanel
     static readonly Color Ardoise = Hex("#2C3E5E");
 
     /// `obj` null = création (ajouté en tête de `liste`). `apres` : enregistrer et rafraîchir.
+    /// Revue 17 (D7b-09, lot D) : sur le cloud, la fiche qui porte la liste (le locataire, sinon le bâtiment) est réservée
+    /// le temps de la fenêtre, comme pour les achats (InvestissementListPanel.ReserverBatiment). Prise par un collègue :
+    /// refus au centre dès l'ouverture, au lieu d'un refus du serveur après la saisie (objectif perdu, documents copiés).
     public static void Ouvrir(Transform depuis, List<Objective> liste, Objective obj,
-        string nomBat, string nomLoc, Action apres, Action<Objective> supprimer)
+        BatimentPrefab bp, Locataire loc, Action apres, Action<Objective> supprimer)
     {
+        if (depuis == null || depuis.GetComponentInParent<Canvas>() == null || liste == null) return;
+        GameObject fenetre = null;
+        EcritureCloud.Reserver(new[] { Cible(bp, loc) }, "objectifs",
+            () => fenetre = Construire(depuis, liste, obj, bp, loc, apres, supprimer),
+            () => fenetre != null,
+            () => { if (fenetre != null) UnityEngine.Object.Destroy(fenetre); });
+    }
+
+    /// Revue 17 (D7b-09, lot D) : la fiche enregistrée quand la liste change (locataire, sinon bâtiment).
+    public static (string type, string id, string nom) Cible(BatimentPrefab bp, Locataire loc)
+        => loc != null ? ("locataire", loc.id, loc.Name)
+                       : ("batiment", bp != null ? bp.getID() : null, bp != null ? bp.getName() : null);
+
+    /// Revue 17 (D7b-09, lot D) : le refus d'une action en un clic sur une fiche qu'un collègue modifie (null si libre).
+    public static string Refus(string detenteur, string nomFiche)
+        => string.IsNullOrEmpty(detenteur) ? null
+         : $"« {nomFiche} » est en cours de modification par {detenteur} : rien n'est changé, réessayez quand la fiche sera libérée.";
+
+    /// Revue 17 (D7b-09, lot D) : avancer, déplacer ou supprimer un objectif écrit tout de suite ; si un collègue tient la
+    /// fiche (dernier relevé des verrous), refus au centre AVANT d'écrire. Vrai si l'action est refusée.
+    public static bool PriseParUnAutre(BatimentPrefab bp, Locataire loc)
+    {
+        var c = Cible(bp, loc);
+        string refus = Refus(EcritureCloud.Detenteur(c.type == "batiment", c.id), c.nom);
+        if (refus == null) return false;
+        ConfirmDialog.Erreur(refus);
+        return true;
+    }
+
+    static GameObject Construire(Transform depuis, List<Objective> liste, Objective obj,
+        BatimentPrefab bp, Locataire loc, Action apres, Action<Objective> supprimer)
+    {
+        // La réservation a pu durer un aller-retour : la fiche a pu être reconstruite entre-temps.
         var canvas = depuis != null ? depuis.GetComponentInParent<Canvas>() : null;
-        if (canvas == null || liste == null) return;
+        if (canvas == null) return null;
+        string nomBat = bp != null ? bp.getName() : null, nomLoc = loc?.Name;
         bool creation = obj == null;
         var documents = new List<string>(obj?.documents ?? new List<string>());
 
@@ -137,7 +174,7 @@ public static class ObjectifPanel
                 UIFactory.LE(t.gameObject, flexW: 1, minW: 0);
                 var ouvrirOcc = PetitBouton(ligne.transform, "Ouvrir");
                 var cible = p;
-                ouvrirOcc.onClick.AddListener(() => Ouvrir(depuis, liste, cible, nomBat, nomLoc, apres, supprimer));
+                ouvrirOcc.onClick.AddListener(() => Ouvrir(depuis, liste, cible, bp, loc, apres, supprimer));
             }
         }
 
@@ -194,6 +231,7 @@ public static class ObjectifPanel
         });
 
         texte.ActivateInputField();
+        return scrim.gameObject;
     }
 
     /// Clic sur un objectif dans « À traiter » (accueil ou résumé du bâtiment) — retour du
@@ -221,7 +259,7 @@ public static class ObjectifPanel
             EnregistrerFiche(bp, a.locataire);
             if (bp.summaryView != null) bp.summaryView.Refresh();
         };
-        Ouvrir(depuis, liste, a.objectif, bp.getName(), a.locataire?.Name, enregistrer, o =>
+        Ouvrir(depuis, liste, a.objectif, bp, a.locataire, enregistrer, o =>
         {
             var annuler = Objectifs.Supprimer(liste, o);
             enregistrer();

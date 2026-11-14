@@ -9,6 +9,9 @@ public class SaisieDateTests
     [TestCase("1/3/2026", 2026, 3, 1)]
     [TestCase("01/03/26", 2026, 3, 1)]
     [TestCase("  15/06/2026  ", 2026, 6, 15)]
+    [TestCase("01-12-2026", 2026, 12, 1)]   // Revue 17 (D6-05) : tirets et points aussi
+    [TestCase("1.12.2026", 2026, 12, 1)]
+    [TestCase("15/01/30", 2030, 1, 15)]     // Revue 17 (D8-08) : pas 1930
     public void Les_formats_saisis_dans_les_formulaires_sont_lus(string saisie, int an, int mois, int jour)
     {
         Assert.That(SaisieDate.TryParse(saisie, out var d), Is.True);
@@ -20,6 +23,8 @@ public class SaisieDateTests
     [TestCase("pas une date")]
     [TestCase("2026-12-31")]   // format ISO : c'est du stockage, pas de la saisie
     [TestCase("31/13/2026")]   // mois inexistant
+    [TestCase("31.13.2026")]   // de même avec des points (Revue 17, D6-05)
+    [TestCase("1er décembre 2026")]
     public void Une_saisie_illisible_est_refusee(string saisie)
     {
         // Refuser plutôt que retomber en silence sur une date fausse : c'est ce

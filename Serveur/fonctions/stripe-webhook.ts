@@ -16,7 +16,8 @@ const signature = Stripe.createSubtleCryptoProvider();
 
 // Supabase n'affiche que du texte brut sur son adresse par défaut (pas de page HTML).
 const RETOURS: Record<string, string> = {
-  paye: "Paiement enregistré. Vous pouvez fermer cette page et revenir dans CIPL : l'abonnement s'y met à jour tout seul.",
+  // Revue 17 (D3-10) : « Moyen de paiement » : en essai, rien n'est prélevé avant la fin de l'essai.
+  paye: "Moyen de paiement enregistré. Vous pouvez fermer cette page et revenir dans CIPL : l'abonnement s'y met à jour tout seul.",
   annule: "Paiement annulé : rien n'a été prélevé. Vous pouvez fermer cette page et revenir dans CIPL.",
   portail: "Vous pouvez fermer cette page et revenir dans CIPL.",
 };
@@ -38,7 +39,9 @@ async function appliquer(sub: Stripe.Subscription, avant: string | null): Promis
   // Revue 16c (D1-11) : un événement d'un ANCIEN abonnement (relivré par Stripe après la création du nouveau) ne touche
   // pas au groupe, sauf si l'abonnement gardé est lui-même terminé chez Stripe.
   if (avant && avant !== sub.id) {
-    const garde = await stripe.subscriptions.retrieve(avant).catch(() => null);
+    // Revue 17 (D1-07) : seule l'ABSENCE de l'abonnement gardé vaut « terminé » ; une panne passagère de Stripe remonte
+    // (réponse 500, Stripe relivre l'événement) au lieu d'appliquer l'événement de l'ancien abonnement.
+    const garde = await stripe.subscriptions.retrieve(avant).catch((e) => { if (e?.code === "resource_missing") return null; throw e; });
     if (garde && garde.status !== "canceled") { console.log("événement ignoré : abonnement", sub.id, "≠", avant); return null; }
   }
   const st = statut(sub.status);
@@ -47,7 +50,10 @@ async function appliquer(sub: Stripe.Subscription, avant: string | null): Promis
   const echeance = jourIso((sub as any).current_period_end ?? (sub.items.data[0] as any)?.current_period_end);
   const { error } = await service.from("groupes").update({
     statut: st,
-    stripe_abonnement: st === "expire" ? null : sub.id,
+    // Revue 17 (D3-07, D3-18) : l'abonnement reste connu tant qu'il vit chez Stripe, impayé compris : l'écran garde « Paiement et
+    // factures » pour régler, et son retour en « active » n'est pas pris pour un abonnement nouveau (avant === sub.id : la
+    // répartition du paiement n'est pas rejouée). Effacé seulement quand Stripe l'a terminé.
+    stripe_abonnement: sub.status === "canceled" || sub.status === "incomplete_expired" ? null : sub.id,
     formule: sub.items.data[0]?.price.recurring?.interval === "year" ? "annuel" : "mensuel",
     echeance,
     resilie: sub.cancel_at_period_end,
@@ -75,13 +81,15 @@ async function prevenir(groupe: string, sorte: string, date: string | null) {
 }
 
 /** Licences par entreprise (décision du 23/10) : la répartition choisie avant le paiement
- *  (métadonnée « licences » posée par abonnement-stripe) s'applique à la création de
+ *  (métadonnées « l_<entreprise> » posées par abonnement-stripe) s'applique à la création de
  *  l'abonnement, une seule fois ; ensuite, « + » / « - » dans CIPL (action ajuster). */
 async function repartir(sub: Stripe.Subscription) {
-  const g = sub.metadata?.groupe_id, r = sub.metadata?.licences;
-  if (!g || !r) return;
-  for (const [id, l] of Object.entries(JSON.parse(r) as Record<string, number>)) {
-    const { error } = await service.from("entreprises").update({ licences_max: l }).eq("id", id).eq("groupe_id", g);
+  const g = sub.metadata?.groupe_id;
+  if (!g) return;
+  // Revue 17 (D3-14) : une clé par entreprise (une seule valeur « licences » tenait 500 caractères, soit 12 entreprises).
+  for (const [cle, l] of Object.entries(sub.metadata ?? {})) {
+    if (!cle.startsWith("l_")) continue;
+    const { error } = await service.from("entreprises").update({ licences_max: Number(l) }).eq("id", cle.slice(2)).eq("groupe_id", g);
     if (error) throw error;
   }
 }
@@ -107,9 +115,11 @@ Deno.serve(async (req) => {
     const sub = await stripe.subscriptions.retrieve((evt.data.object as Stripe.Subscription).id);
     const gid = sub.metadata?.groupe_id;
     const avant = gid ? (await service.from("groupes").select("stripe_abonnement").eq("id", gid).maybeSingle()).data?.stripe_abonnement ?? null : null;
-    // Revue 16c (D1-11) : la répartition initiale ne s'applique qu'au PREMIER « created » (un événement rejoué ne la refait pas).
-    if (evt.type === "customer.subscription.created" && !avant) await repartir(sub);
     const r = await appliquer(sub, avant);
+    // Revue 17 (D3-02) : la répartition choisie au paiement s'applique une fois par abonnement NOUVEAU, quel que soit l'événement
+    // traité le premier (« updated » peut finir avant « created ») ; un événement rejoué a avant === sub.id, un ancien abonnement
+    // est déjà ignoré par appliquer (r nul). Avant (16c, D1-11), seul un « created » sans abonnement connu la faisait.
+    if (r && avant !== sub.id && sub.status !== "canceled") await repartir(sub);
     // Sur l'état relu, pas sur le type d'événement : un « updated » arrivé après la fin ne
     // redonne pas « résiliation enregistrée ». Fin : le jour réel (paiements refusés : avant l'échéance).
     if (r && sub.status === "canceled") await prevenir(r.groupe, "abonnement_fin", jourIso(sub.ended_at) ?? r.echeance);

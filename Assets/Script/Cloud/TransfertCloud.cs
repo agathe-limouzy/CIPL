@@ -11,7 +11,7 @@ using UnityEngine;
 public static class TransfertCloud
 {
     [Serializable] public class Resultat { public bool ok; public string refus, nom, cible, batiment; public int locataires; }
-    [Serializable] class LigneDoc { public string chemin, empreinte; public long taille; }
+    [Serializable] class LigneDoc { public string chemin, empreinte, supprime_le; public long taille; }
     [Serializable] class LignesDoc { public LigneDoc[] items; }
 
     public class Apercu
@@ -38,7 +38,16 @@ public static class TransfertCloud
         return null;
     }
 
-    /// Les documents vivants du bâtiment (ou du seul locataire), tels que le serveur les connaît.
+    /// Revue 17 (D2-14, lot D) : un document est-il dans ce dossier ? Sans tenir compte de la casse, comme Windows et comme
+    /// DossiersDonnees.MemeDossier : après « RIVOLI » → « Rivoli », le dossier (et les chemins du serveur) gardent l'ancienne
+    /// casse ; la comparaison exacte ne trouvait aucun document, et le transfert partait « avec 0 document(s) ».
+    public static bool DuDossier(string chemin, string prefixe) =>
+        chemin != null && prefixe != null && chemin.StartsWith(prefixe, StringComparison.OrdinalIgnoreCase);
+
+    const string ListeIllisible = "la liste des documents n'a pas pu être lue : réessayez";
+
+    /// Les documents vivants du bâtiment (ou du seul locataire), tels que le serveur les connaît ; null si la liste n'a pas
+    /// pu être lue (Revue 17, D2-06, lot D : une liste vide faisait partir les fiches sans leurs documents).
     public static async Task<List<(string chemin, string empreinte)>> Documents(Batiment bat, Locataire seul)
     {
         var res = new List<(string chemin, string empreinte)>();
@@ -46,12 +55,19 @@ public static class TransfertCloud
         if (e == null || bat == null) return res;
         string prefixe = "Batiment/" + DossiersDonnees.NomDossier(bat.Name) + "/"
                          + (seul != null ? DossiersDonnees.NomDossier(seul.Name) + "/" : "");
-        var r = await CloudClient.Table("GET", SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "documents",
-                                        $"entreprise_id=eq.{e.id}&supprime_le=is.null&select=chemin,empreinte,taille");
-        if (!r.Ok) return res;
+        // Revue 17 (D2-06, lot D) : toute la table, page après page, dans l'ordre de sa clé (entreprise_id, chemin). Les lignes
+        // supprimées sont lues aussi, puis écartées ici : filtrées au serveur, une suppression faite pendant la lecture
+        // décalerait les pages et ferait sauter un document vivant.
+        var r = await CloudClient.TableTout(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "documents",
+                                            $"entreprise_id=eq.{e.id}&select=chemin,empreinte,taille,supprime_le&order=chemin.asc");
+        if (!r.Ok) { Debug.LogWarning("[Transfert] Liste des documents : " + r.Erreur); return null; }
         var lignes = JsonUtility.FromJson<LignesDoc>("{\"items\":" + r.Corps + "}")?.items ?? new LigneDoc[0];
         foreach (var l in lignes)
-            if (l?.chemin != null && l.chemin.StartsWith(prefixe, StringComparison.Ordinal)) res.Add((l.chemin, l.empreinte));
+            // Revue 17 (D2-15, lot D) : CheminSur, comme le passage des documents (D1-01 de la 16c) : une ligne mal formée
+            // (« .. », chemin complet) ferait lire un fichier du PC hors du dossier de l'entreprise, puis le copier ailleurs.
+            if (l != null && string.IsNullOrEmpty(l.supprime_le) && SyncDocuments.CheminSur(l.chemin) && DuDossier(l.chemin, prefixe)
+                && !res.Exists(x => x.chemin == l.chemin))
+                res.Add((l.chemin, l.empreinte));
         return res;
     }
 
@@ -70,7 +86,9 @@ public static class TransfertCloud
                 a.locatairesRemplaces++;
             else a.locatairesAjoutes++;
         }
-        a.documents = (await Documents(bat, seul)).Count;
+        var docs = await Documents(bat, seul);
+        if (docs == null) { a.erreur = ListeIllisible + "."; return a; }
+        a.documents = docs.Count;
         return a;
     }
 
@@ -97,6 +115,7 @@ public static class TransfertCloud
 
         // 3. Les documents d'abord.
         var docs = await Documents(bat, seul);
+        if (docs == null) return ListeIllisible + ".";
         int i = 0;
         foreach (var d in docs)
         {
@@ -112,17 +131,25 @@ public static class TransfertCloud
         var versions = new List<string>();
         if (seul == null) versions.Add("\"b:" + bat.id + "\":" + EcritureCloud.Version(true, bat.id));
         versions.AddRange(locs.Select(l => "\"l:" + l.id + "\":" + EcritureCloud.Version(false, l.id)));
-        string locsJson = "[" + string.Join(",", locs.Select((l, k) => "{\"id\":" + Q(l.id) + ",\"ordre\":" + k + ",\"data\":" + JsonUtility.ToJson(l) + "}")) + "]";
-        string corps = "{\"p_de\":" + Q(origine.id) + ",\"p_vers\":" + Q(dest.id) + ",\"p_batiment\":" + JsonUtility.ToJson(copie)
+        // Revue 17 (D1-16, lot D) : CloudClient.Q (échappe aussi les caractères de contrôle) à la place d'une copie privée.
+        string locsJson = "[" + string.Join(",", locs.Select((l, k) => "{\"id\":" + CloudClient.Q(l.id) + ",\"ordre\":" + k + ",\"data\":" + JsonUtility.ToJson(l) + "}")) + "]";
+        string corps = "{\"p_de\":" + CloudClient.Q(origine.id) + ",\"p_vers\":" + CloudClient.Q(dest.id) + ",\"p_batiment\":" + JsonUtility.ToJson(copie)
             + ",\"p_locataires\":" + locsJson + ",\"p_seul\":" + (seul != null ? "true" : "false")
-            + ",\"p_versions\":{" + string.Join(",", versions) + "},\"p_session\":" + Q(EcritureCloud.SessionId)
+            + ",\"p_versions\":{" + string.Join(",", versions) + "},\"p_session\":" + CloudClient.Q(EcritureCloud.SessionId)
             + (regAEnvoyer != null ? ",\"p_reglages\":" + JsonUtility.ToJson(regAEnvoyer) + ",\"p_reglages_version\":" + regVersion : "")
             + ",\"p_modele\":" + DonneesCloud.Modele + "}";   // Revue 17 (D2-01)
+        // Revue 17 (D2-23, lot D) : transferer_fiches supprime ces lignes dans l'entreprise d'origine ; leurs événements DELETE
+        // arrivent pendant l'étape 5 et passaient pour la suppression d'un collègue (« supprimé par un collègue » juste avant
+        // « transféré vers… »). Notées avant l'appel : l'écho peut arriver avant la réponse.
+        var notes = (seul == null ? new[] { bat.id } : new string[0]).Concat(locs.Select(l => l.id)).ToList();
+        EcritureCloud.NoterSuppression(notes);
         var r = await CloudClient.FonctionJson(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "transferer_fiches", corps);
-        if (!r.Ok) return "serveur : " + r.Erreur + ".";
+        // Revue 17 (D2-23, lot D ; reprise) : échec ou refus : les fiches restent à l'origine, la note est retirée (comme la file).
+        // Sinon la suppression de l'une d'elles par un collègue ne se voyait plus sur ce poste jusqu'au rechargement.
+        if (!r.Ok) { EcritureCloud.RetirerSuppression(notes); return "serveur : " + r.Erreur + "."; }
         Resultat res = null;
         try { res = JsonUtility.FromJson<Resultat>(r.Corps); } catch (Exception) { /* réponse illisible */ }
-        if (res == null || !res.ok) return Motif(res, dest);
+        if (res == null || !res.ok) { EcritureCloud.RetirerSuppression(notes); return Motif(res, dest); }
 
         // 5. L'origine ne les a plus : ses documents sont marqués supprimés (chaque poste range sa copie en corbeille).
         progression?.Invoke("Transfert : origine…");
@@ -156,6 +183,4 @@ public static class TransfertCloud
             default: return "réponse inattendue du serveur" + (string.IsNullOrEmpty(r?.refus) ? "" : $" ({r.refus})") + ".";
         }
     }
-
-    static string Q(string s) => "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 }

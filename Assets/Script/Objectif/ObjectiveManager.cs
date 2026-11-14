@@ -102,7 +102,7 @@ public class ObjectivesManager : MonoBehaviour
     private void Ouvrir(Objective obj)
     {
         Fiche(out var bp, out var loc);
-        ObjectifPanel.Ouvrir(transform, Items, obj, bp != null ? bp.getName() : null, loc?.Name, Enregistrer, OnDeleted);
+        ObjectifPanel.Ouvrir(transform, Items, obj, bp, loc, Enregistrer, OnDeleted);
     }
 
     private void Enregistrer()
@@ -334,6 +334,9 @@ public class ObjectivesManager : MonoBehaviour
     private void Deplacer(Objective o, Objective.Avancement cible)
     {
         if (o.avancement == cible) return;
+        // Revue 17 (D7b-09, lot D) : « › » ou glisser écrit tout de suite : refus au centre si un collègue tient la fiche.
+        Fiche(out var bp, out var loc);
+        if (ObjectifPanel.PriseParUnAutre(bp, loc)) { RefreshList(); return; }
         var s = Objectifs.Deplacer(Items, o, cible, DateTime.Today);
         Enregistrer();
         if (s != null)

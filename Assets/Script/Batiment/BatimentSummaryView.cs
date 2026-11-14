@@ -623,7 +623,18 @@ public class BatimentSummaryView : MonoBehaviour
         {
             vignetteCarte.texture = mapImg.texture;
             vignetteCarte.color = Color.white;
+            return;
         }
+        // Retour de BW6 (13/11) : la carte de la fiche ne se charge qu'une fois la fiche complète ouverte (MapController.Update
+        // attend qu'elle soit active) : en attendant, la vignette de l'accueil (même adresse, une requête par session, en cache).
+        MapThumbnailService.Charge(this, _bp.getBatiment()?.adressBatiment, tex =>
+        {
+            if (vignetteCarte == null || tex == null) return;
+            var carte = _bp != null && _bp.mapController != null ? _bp.mapController.mapImage : null;
+            if (carte != null && carte.texture != null) return;   // la carte de la fiche est arrivée entre-temps : elle reste
+            vignetteCarte.texture = tex;
+            vignetteCarte.color = Color.white;
+        });
     }
 
     // ── Calculs ───────────────────────────────────────────────────────────────

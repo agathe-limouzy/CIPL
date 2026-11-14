@@ -42,8 +42,9 @@ public static class ExplicationDepot
     /// `bat` et `depot` sont optionnels : le premier ne sert qu'à résoudre les variables
     /// {bat.*}, le second porte les phrases propres à cette facture. Les appels
     /// antérieurs continuent donc de fonctionner sans eux.
+    /// `ctx` (revue 17, D6-08) : le contexte de la facture, pour {numero}, {date}, {echeance}… ; sans lui, elles sortent vides.
     public static string Html(Locataire loc, int nbTermes, float complement, DateTime dateEffet,
-                             Batiment bat = null, FactureInfo depot = null, bool? surTTC = null)
+                             Batiment bat = null, FactureInfo depot = null, bool? surTTC = null, FactureContext ctx = default)
     {
         if (loc == null) return "";
 
@@ -86,14 +87,14 @@ public static class ExplicationDepot
         // dépend du signe de la dette — c'est de la logique de document, pas de la
         // rédaction. La mise en page (`<p class="expl-p">`) reste ici aussi.
         sb.Append("<div class=\"expl-titre\"><u>&#10148; Dépôt de garantie :</u></div>");
-        sb.Append($"<p class=\"expl-p\">{Phrase(Ou(depot?.depotRappel, RappelDefaut), loc, bat, nbTermes, complement, baseCalcul)}</p>");
+        sb.Append($"<p class=\"expl-p\">{Phrase(Ou(depot?.depotRappel, RappelDefaut), loc, bat, ctx, nbTermes, complement, baseCalcul)}</p>");
 
         // Le sens de la dette suit le signe du complément. Seuil au demi-centime :
         // sans lui, un arrondi flottant ferait réclamer « 0,00 € ».
         string dette = complement > 0.005f  ? Ou(depot?.depotDu, DuDefaut)
                      : complement < -0.005f ? Ou(depot?.depotRembourse, RembourseDefaut)
                                             : Ou(depot?.depotEquilibre, EquilibreDefaut);
-        sb.Append($"<p class=\"expl-p\">{Phrase(dette, loc, bat, nbTermes, complement, baseCalcul)}</p>");
+        sb.Append($"<p class=\"expl-p\">{Phrase(dette, loc, bat, ctx, nbTermes, complement, baseCalcul)}</p>");
 
         return sb.ToString();
     }
@@ -104,12 +105,13 @@ public static class ExplicationDepot
     /// La phrase est insérée TELLE QUELLE dans le HTML — c'est ce qui permet d'y
     /// mettre du `<b>`, comme le fait le texte par défaut sur le montant. Ce sont
     /// donc les VALEURS substituées qui sont échappées, pas le modèle.
-    static string Phrase(string modele, Locataire loc, Batiment bat,
+    static string Phrase(string modele, Locataire loc, Batiment bat, FactureContext ctx,
                          int nbTermes, float complement, string baseCalcul)
     {
         if (string.IsNullOrWhiteSpace(modele)) return "";
 
-        string texte = FactureVarResolver.Resolve(modele, loc, bat, default, H);   // revue 16c (D6-09) : valeurs échappées, comme promis
+        // revue 16c (D6-09) : valeurs échappées, comme promis ; revue 17 (D6-08) : avec le contexte de la facture (avant : vide)
+        string texte = FactureVarResolver.Resolve(modele, loc, bat, ctx, H);
 
         return texte
             .Replace("{depot.termes}",  H($"{EnLettres(nbTermes)} terme{(nbTermes > 1 ? "s" : "")}"))

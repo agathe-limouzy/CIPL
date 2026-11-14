@@ -38,11 +38,17 @@ public static class FacturePdfService
     public const string MensuelDefaut =
         "Suite à votre demande, le montant mensuel à régler est de: {montant}";
 
-    /// Lieu d'émission (« {lieu}, le {date} »). Réglage d'entreprise, sans remplacement
-    /// par facture ; vide = cette valeur d'usine.
+    /// Lieu d'émission (« {lieu}, le {date} »). Réglage d'entreprise, sans remplacement par facture. La valeur d'usine est
+    /// celle des Réglages d'avant le multi-entreprise (la ville de CIPL) ; une entreprise inscrite ou ajoutée part sans ville
+    /// quand elle est inconnue (RegleInscription), et un lieu vide imprime la date seule (Revue 17, D3-01 reste, 09/11).
     public const string LieuDefaut = "St Marcel Paulel";
 
-    static string Lieu() => H(Texte(ReglageService.Current?.lieuEmission, LieuDefaut));
+    /// « Toulouse, le » devant la date, ou « Le » sans ville : jamais la ville de CIPL sur le document d'un client.
+    static string LieuLe()
+    {
+        string lieu = (ReglageService.Current?.lieuEmission ?? "").Trim();
+        return lieu == "" ? "Le" : H(lieu) + ", le";
+    }
 
     /// Texte retenu : celui de la facture s'il est renseigné, sinon celui d'usine.
     /// Même règle que `ExplicationDepot.Ou`, pour les lignes du corps de facture.
@@ -89,7 +95,7 @@ public static class FacturePdfService
             .Replace("{{CLIENT_SIRET}}", H(d.clientSiret))
             .Replace("{{REF_INTERNE}}", string.IsNullOrWhiteSpace(d.refInterne)
                 ? "" : $"<div class=\"refint\">{H(d.refInterne)}</div>")
-            .Replace("{{LIEU}}", Lieu())
+            .Replace("{{LIEU_LE}}", LieuLe())
             .Replace("{{DATE}}", H(d.dateStr))
             .Replace("{{NUMERO}}", H(d.numero))
             // Total négatif = c'est nous qui remboursons : un avoir, pas une facture.
@@ -104,7 +110,9 @@ public static class FacturePdfService
             .Replace("{{TVA_DEBIT}}", d.tvaDebit
                 ? $"<div class=\"tva\">&nbsp;{H(Texte(d.texteTvaDebit, TvaDebitDefaut))}</div>" : "")
             .Replace("{{MENSUEL_ROW}}", d.afficherMensuel && d.montantMensuel > 0f
-                ? $"<div class=\"mensuel\">{Texte(d.texteMensuel, MensuelDefaut).Replace("{montant}", $"<b>{Euro(d.montantMensuel)}</b>")}</div>"
+                // Revue 17 (D6-12, coutures) : la phrase est échappée comme la mention TVA (elle reçoit le nom du locataire :
+                // « Dupont & Fils <SARL> » perdait « <SARL> ») ; le montant en gras est posé après.
+                ? $"<div class=\"mensuel\">{H(Texte(d.texteMensuel, MensuelDefaut)).Replace("{montant}", $"<b>{Euro(d.montantMensuel)}</b>")}</div>"
                 : "")
             .Replace("{{SOMME_PHRASE}}", H(d.sommePhrase))
             .Replace("{{RIB_TITULAIRE}}", H(d.ribTitulaire))
@@ -125,10 +133,11 @@ public static class FacturePdfService
             + $"<tr><td>{H(string.IsNullOrEmpty(d.tvaLibelle) ? "TVA 20%" : d.tvaLibelle)}</td><td class=\"r\">{Euro(d.tva)}</td></tr>"
             + $"<tr class=\"ttc\"><td>Total T.T.C.</td><td class=\"r\">{Euro(d.ttc)}</td></tr>";
 
-    /// « Avoir sur la facture n° … » sous le titre — seulement sur un avoir.
+    /// « Avoir sur la facture n° … » sous le titre — seulement sur un avoir. Revue 17 (D5-15, coutures) : plusieurs numéros
+    /// (« A, B » : les loyers de l'année cités par un avoir qui part par la plateforme) : « Avoir sur les factures n° A, B ».
     static string Origine(bool avoir, string numero)
         => !avoir || string.IsNullOrWhiteSpace(numero) ? ""
-         : $"<div class=\"origine\">Avoir sur la facture n° {H(numero)}</div>";
+         : $"<div class=\"origine\">Avoir sur {(numero.Contains(", ") ? "les factures" : "la facture")} n° {H(numero)}</div>";
 
     /// Lignes additionnelles du tableau : une par liste de charges (provisions du loyer)
     /// ou par charge refacturée. Montant nul omis ; un montant négatif (avoir) s'imprime,
@@ -147,7 +156,15 @@ public static class FacturePdfService
     public static bool GeneratePdf(Data d, string pdfPath, out string error)
     {
         if (!File.Exists(TemplatePath)) { error = "Template introuvable : " + TemplatePath; return false; }
-        return RunEdge(BuildHtml(d), new[] { "--print-to-pdf=" + pdfPath }, pdfPath, out error);
+        return PdfEcrit(RunEdge(BuildHtml(d), new[] { "--print-to-pdf=" + pdfPath }, pdfPath, out error));
+    }
+
+    /// Revue 17 (D2-03, lot D) : un PDF vient d'être écrit : il part au cloud dans 2 s, sans attendre le passage des 20 s
+    /// (fermer CIPL juste après une facture laissait son PDF sur ce seul PC). Pas les aperçus PNG (fichiers de travail).
+    static bool PdfEcrit(bool ok)
+    {
+        if (ok) DocumentsCloud.Bientot();
+        return ok;
     }
 
     // ── Quittance de loyer (bail non commercial, loyer payé) ────────────────────
@@ -158,6 +175,7 @@ public static class FacturePdfService
     public class QuittanceData
     {
         public string clientNom, clientAdresseHtml, dateStr, periode, designation, montantStr, foot1, foot2;
+        public string societe;   // Revue 17 (D6-17) : le bailleur, l'entreprise ouverte (le gabarit portait « GROUPE CIPL » en dur)
     }
 
     public static string BuildQuittanceHtml(QuittanceData d)
@@ -167,9 +185,10 @@ public static class FacturePdfService
             .Replace("{{LOGO_SRC}}", LogoDataUri())
             .Replace("{{CLIENT_NOM}}", H(d.clientNom))
             .Replace("{{CLIENT_ADRESSE}}", d.clientAdresseHtml ?? "")
-            .Replace("{{LIEU}}", Lieu())
+            .Replace("{{LIEU_LE}}", LieuLe())
             .Replace("{{DATE}}", H(d.dateStr))
             .Replace("{{PERIODE}}", H(d.periode))
+            .Replace("{{SOCIETE}}", H(d.societe))
             .Replace("{{DESIGNATION}}", string.IsNullOrWhiteSpace(d.designation)
                 ? "" : $"<div class=\"desig\">Bien lou&eacute; : {H(d.designation)}</div>")
             .Replace("{{MONTANT}}", H(d.montantStr))
@@ -181,7 +200,7 @@ public static class FacturePdfService
     {
         if (!File.Exists(QuittanceTemplatePath))
         { error = "Template quittance introuvable : " + QuittanceTemplatePath; return false; }
-        return RunEdge(BuildQuittanceHtml(d), new[] { "--print-to-pdf=" + pdfPath }, pdfPath, out error);
+        return PdfEcrit(RunEdge(BuildQuittanceHtml(d), new[] { "--print-to-pdf=" + pdfPath }, pdfPath, out error));
     }
 
     // Arguments Edge pour une capture d'écran (aperçu image). Un argument par entrée :
@@ -284,6 +303,7 @@ public static class FacturePdfService
     {
         public string clientNom, clientAdresseHtml, clientSiret, refInterne;
         public string dateStr, numero, subtitle, bodyHtml, sommePhrase;
+        public string factureOrigine;   // Revue 17 (D5-15) : avoir par la plateforme : les factures que son XML cite (vide = rien d'imprimé)
         /// Bloc explicatif inséré sous le titre (révision du dépôt : tableau
         /// d'indexation du loyer + règle des N termes). Vide = rien d'imprimé.
         public string explicationHtml;
@@ -317,13 +337,14 @@ public static class FacturePdfService
             .Replace("{{CLIENT_SIRET}}", H(d.clientSiret))
             .Replace("{{REF_INTERNE}}", string.IsNullOrWhiteSpace(d.refInterne)
                 ? "" : $"<div class=\"refint\">{H(d.refInterne)}</div>")
-            .Replace("{{LIEU}}", Lieu())
+            .Replace("{{LIEU_LE}}", LieuLe())
             .Replace("{{DATE}}", H(d.dateStr))
             .Replace("{{NUMERO}}", H(d.numero))
             // Solde négatif (régul ou dépôt qui rembourse) : un avoir, pas une facture.
             .Replace("{{TITRE}}", d.soldeHT < -0.005f ? "AVOIR" : "FACTURE")
-            // Pas de « Avoir sur la facture n° » sur une régul (retiré le 05/10).
-            .Replace("{{ORIGINE}}", "")
+            // Pas de « Avoir sur la facture n° » sur une régul (retiré le 05/10), sauf pour l'avoir qui part par la plateforme : il
+            // nomme les factures que son XML cite (Revue 17, D5-15, coutures ; `factureOrigine` vide = rien d'imprimé, comme avant).
+            .Replace("{{ORIGINE}}", Origine(d.soldeHT < -0.005f, d.factureOrigine))
             .Replace("{{BODY}}", d.bodyHtml ?? "")
             .Replace("{{SUBTITLE}}", H(d.subtitle))
             .Replace("{{EXPLICATION}}", d.explicationHtml ?? "")
@@ -409,7 +430,7 @@ public static class FacturePdfService
     public static bool GenerateRegulPdf(RegulData d, string pdfPath, out string error)
     {
         if (!File.Exists(RegulTemplatePath)) { error = "Template régul. introuvable : " + RegulTemplatePath; return false; }
-        return RunEdge(BuildRegulHtml(d), new[] { "--print-to-pdf=" + pdfPath }, pdfPath, out error);
+        return PdfEcrit(RunEdge(BuildRegulHtml(d), new[] { "--print-to-pdf=" + pdfPath }, pdfPath, out error));
     }
 
     public static bool GenerateRegulPreviewPng(RegulData d, string pngPath, out string error,

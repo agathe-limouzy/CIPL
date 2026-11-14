@@ -21,7 +21,8 @@ public class CloudTests
         Assert.That(s.access_token, Is.EqualTo("eyJhbGciOiJIUzI1NiJ9.e30.sig"));
         Assert.That(s.refresh_token, Is.EqualTo("r3fr3sh"));
         Assert.That(s.user.email, Is.EqualTo("marie@test.fr"));
-        Assert.That(s.ExpireLe, Is.EqualTo(DateTimeOffset.FromUnixTimeSeconds(1791800000).LocalDateTime));
+        // Revue 17 (D1-10) : l'expiration vient d'expires_in et de l'horloge de ce PC, plus d'expires_at (horloge du serveur).
+        Assert.That(s.ExpireLe, Is.InRange(DateTime.Now.AddSeconds(3590), DateTime.Now.AddSeconds(3600)));
     }
 
     [Test]
@@ -57,17 +58,6 @@ public class CloudTests
         var pris = CloudClient.Date(v.pris_le).Value.ToUniversalTime();
         Assert.That((pris.Hour, pris.Minute, pris.Second), Is.EqualTo((12, 32, 5)));
         Assert.That(CloudClient.Date("pas une date"), Is.Null);
-    }
-
-    [Test]
-    public void Les_lignes_d_une_table_sont_lues_meme_vides()
-    {
-        var f = CloudClient.LireFiches("[{\"id\":\"volteo\",\"loyer\":24600,\"maj_par\":\"Paul\",\"version\":2,\"maj_le\":\"2026-10-12T12:00:00+00:00\"}]");
-        Assert.That(f.Length, Is.EqualTo(1));
-        Assert.That(f[0].loyer, Is.EqualTo(24600));
-        Assert.That(f[0].version, Is.EqualTo(2));
-
-        Assert.That(CloudClient.LireFiches("[]"), Is.Empty, "version périmée : aucune ligne modifiée");
     }
 
     [Test]

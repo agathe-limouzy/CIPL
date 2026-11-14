@@ -155,9 +155,9 @@ public static class SessionCloud
         var s = r.Ok ? CloudClient.LireSession(r.Corps) : null;
         if (s == null)
         {
-            // Jeton refusé par le serveur (4xx) : il ne vaut plus rien. Réseau qui ne répond pas
-            // (code 0, 5xx) : on le garde pour la prochaine fois (retour du 14/10).
-            if (r.Ok || (r.Code >= 400 && r.Code < 500)) { EffacerFichier(); CopieLocale.Effacer(); }   // D3-13 : plus de jeton, plus de copie hors ligne
+            // Jeton refusé par le serveur (4xx, sauf 429 : trop d'appels, revue 17 D1-03) : il ne vaut plus rien. Réseau qui
+            // ne répond pas (code 0, 5xx) : on le garde pour la prochaine fois (retour du 14/10).
+            if (r.Ok || RefusDefinitif(r.Code)) { EffacerFichier(); CopieLocale.Effacer(); }   // D3-13 : plus de jeton, plus de copie hors ligne
             Debug.LogWarning("[Cloud] Reprise de la connexion impossible : " + (r.Ok ? "réponse illisible" : r.Erreur));
             return false;
         }
@@ -176,24 +176,45 @@ public static class SessionCloud
         if (PlayerPrefs.GetString(CleUtilisateur, "") != u.id) return false;   // revue 16c, D3-13 : la copie d'un autre compte ne s'ouvre pas avec ce jeton
         string garde = JetonGarde();
         if (string.IsNullOrEmpty(garde)) return false;
-        Session = new CloudClient.Session { access_token = "", refresh_token = garde, expires_at = 0, user = u };
+        Session = new CloudClient.Session { access_token = "", refresh_token = garde, user = u };
         _memoriser = true;
         return true;
     }
 
-    /// Jeton valable pour un appel : renouvelé s'il expire dans moins de 5 minutes.
+    /// Jeton valable pour un appel : renouvelé s'il expire dans moins de 5 minutes. Null sans session.
     public static async Task<string> Jeton()
     {
         if (Session == null) return null;
         if (Session.ExpireLe - DateTime.Now > TimeSpan.FromMinutes(5)) return Session.access_token;
-        var r = await CloudClient.Renouveler(Url, Cle, Session.refresh_token);
+        var avant = Session;
+        var r = await CloudClient.Renouveler(Url, Cle, avant.refresh_token);
         var s = r.Ok ? CloudClient.LireSession(r.Corps) : null;
         if (s != null)
         {
             Session = s;
             if (_memoriser) Memoriser();
         }
-        return Session.access_token;
+        // Revue 17 (D1-03) : renouvellement refusé pour de bon (session fermée ailleurs, mot de passe changé, révoquée) :
+        // la session est close ici et dit une fois au centre, au lieu d'un jeton périmé rendu à chaque appel (« HTTP 401 »
+        // en chaîne, sans jamais inviter à se reconnecter). `Session == avant` : un appel parallèle ne l'a pas déjà
+        // renouvelée (ou fermée) pendant l'attente.
+        else if (Session == avant && RefusDefinitif(r.Code)) { Perdue(); return null; }
+        return Session?.access_token;
+    }
+
+    /// Le serveur refuse le jeton de renouvellement pour de bon : tout 4xx sauf 429 (trop d'appels). Code 0, 5xx ou 429 :
+    /// le jeton vaut peut-être encore, on le garde.
+    public static bool RefusDefinitif(long code) => code >= 400 && code < 500 && code != 429;
+
+    public const string Fermee = "Votre connexion a été fermée sur le serveur : reconnectez-vous.";
+
+    /// La session ne vaut plus rien : oubliée ici, jeton gardé effacé ; au « OK », l'écran de connexion (SeDeconnecter
+    /// arrête le direct, ferme les écrans et efface les copies hors ligne).
+    static void Perdue()
+    {
+        Session = null;
+        EffacerFichier();
+        ConfirmDialog.Erreur(Fermee, DemarrageCloud.SeDeconnecter);
     }
 
     // ── Étape 12 : mot de passe ────────────────────────────────────────────────

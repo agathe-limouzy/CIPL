@@ -18,6 +18,10 @@ public static class FacturationAlertes
         public Niveau niveau;
         public string message;
         public AlerteType type;
+        /// Revue 17 (D6-04, décision du 05/11) : la ligne du suivi dont parle une alerte de loyer (« loyer-{année}-P{période} »),
+        /// pour que son clic ouvre CETTE période (RappelsAuto.Ouvrir) ; aussi le loyer à retirer d'une alerte de départ (son clic
+        /// montre le suivi, relecture du 07/11) ; null pour les autres. Non enregistrée.
+        public string cle;
     }
 
     // Le calendrier du loyer vit dans FacturationSuivi : le redéclarer ici a déjà
@@ -42,18 +46,22 @@ public static class FacturationAlertes
 
         // ── Loyer ──
         var e = ProchaineEcheanceLoyer(loc, today);
-        int pe = e.HasValue ? FacturationSuivi.PeriodeIndex(loc, e.Value.Month) : 0;
+        // Revue 17 (avenant de périodicité, lot 14) : le rang de la période dans le PLAN de l'année de l'échéance. Avant, le numéro
+        // dans la périodicité actuelle : après un passage du mensuel au trimestriel, l'échéance d'octobre donnait « P4 », avril
+        // déjà envoyé, et l'alerte se taisait. Sans historique : le même numéro qu'avant.
+        int pe = e.HasValue ? FacturationSuivi.PeriodeIndex(loc, e.Value.Year, e.Value.Month) : 0;
+        string cle = e.HasValue ? $"loyer-{e.Value.Year}-P{pe}" : null;   // Revue 17 (D6-04) : la période dont parle l'alerte
         // Période avant le bail, après le départ, ou en franchise sans provisions à
         // appeler : aucune facture attendue, aucune alerte.
         if (e.HasValue && !AvantReprise(loc, e.Value) && Loyers.PeriodeFacturable(loc, e.Value.Year, pe)
-            && !FacturationSuivi.DejaTraite(loc, $"loyer-{e.Value.Year}-P{pe}"))
+            && !FacturationSuivi.DejaTraite(loc, cle))
         {
             DateTime E = e.Value, envoi = E.AddDays(-FacturationSuivi.EnvoiAvant(loc));
             if (today >= envoi)
-                res.Add(new Alerte { niveau = Niveau.Urgent, type = AlerteType.Loyer,
+                res.Add(new Alerte { niveau = Niveau.Urgent, type = AlerteType.Loyer, cle = cle,
                     message = $"URGENT — Loyer : échéance le {E:dd/MM}, à envoyer avant le {envoi:dd/MM}." });
             else if (today >= envoi.AddDays(-LoyerAttentionLead))
-                res.Add(new Alerte { niveau = Niveau.Attention, type = AlerteType.Loyer,
+                res.Add(new Alerte { niveau = Niveau.Attention, type = AlerteType.Loyer, cle = cle,
                     message = $"Loyer à préparer : envoi attendu avant le {envoi:dd/MM} (échéance {E:dd/MM})." });
         }
 
@@ -125,8 +133,12 @@ public static class FacturationAlertes
         if (avecSortie)
             foreach (var l in FacturationSuivi.Lignes(loc, sortie.Year))
                 if (DepartLocataire.LoyerACorriger(loc, l))
-                    res.Add(new Alerte { niveau = Niveau.Attention, type = AlerteType.Loyer,
-                        message = $"{l.libelle} : montant à corriger (départ le {sortie:dd/MM/yyyy})." });
+                    // Revue 17 (2c, relecture du 07/11) : un loyer d'une période après le départ ne se corrige pas (le formulaire refuse
+                    // 0 €) : il se retire du suivi. L'alerte le dit, et son clic montre le suivi (RappelsAuto.Ouvrir).
+                    res.Add(DepartLocataire.PeriodeApresDepart(loc, l)
+                        ? new Alerte { niveau = Niveau.Attention, type = AlerteType.Depart, cle = l.key, message = $"{DepartLocataire.ARetirer(l)}." }
+                        : new Alerte { niveau = Niveau.Attention, type = AlerteType.Loyer, cle = l.key,   // Revue 17 (D6-04)
+                            message = $"{l.libelle} : montant à corriger (départ le {sortie:dd/MM/yyyy})." });
 
         if (DepartLocataire.PretAArchiver(loc))
             res.Add(new Alerte { niveau = Niveau.Attention, type = AlerteType.Archiver,
@@ -147,12 +159,13 @@ public static class FacturationAlertes
     ///   rappel pour les accompagner ;
     /// • les mois de facturation cochés étaient suivis ici et ignorés là-bas, ce qui
     ///   donnait deux dates différentes pour un même loyer trimestriel.
+    /// Revue 17 (avenant de périodicité, lot 14) : parmi les périodes du PLAN de chaque année (FacturationSuivi.Plan), et non plus
+    /// les n numéros de la périodicité actuelle : l'année d'un changement daté compte ses mois puis ses trimestres.
     static DateTime? ProchaineEcheanceLoyer(Locataire loc, DateTime today)
     {
-        int n = FacturationSuivi.NbPeriodes(loc.periodiciteLoyer);
         DateTime best = DateTime.MaxValue;
         for (int y = today.Year; y <= today.Year + 1; y++)
-            for (int p = 1; p <= n; p++)
+            for (int p = 1, n = FacturationSuivi.Plan(loc, y).Count; p <= n; p++)
             {
                 var dt = FacturationSuivi.EcheanceLoyer(loc, y, p);
                 if (dt >= today && dt < best) best = dt;

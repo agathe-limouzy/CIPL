@@ -87,16 +87,22 @@ public static class PappersSync
             yield return Appliquer(loc, procs, r => change = r, refus =>
             {
                 Debug.LogWarning($"[PappersSync] {loc.Name} : {refus}");
-                if (refus.StartsWith("quota")) UndoToast.Instance?.ShowInfo(QuotaAtteint);
+                Dire(refus);   // Revue 17 (D7a-07, lot D) : limite, crédits, clé : dit une fois
             });
         }
         else yield return Interroger(loc, r => change = r, _ => { });
         if (!change) yield break;
 
+        // Revue 17 (D7a-24, lot D) : écriture de fond, silencieuse comme la tournée (revue 16c, D2-04) : un refus (fiche prise entre-temps
+        // par un collègue) n'affiche plus « vos modifications ne sont pas enregistrées » pour une écriture jamais demandée.
         if (bp != null && BatimentManager.Instance != null)
-            BatimentManager.Instance.SaveBatiment(bp.getBatiment());
+            BatimentManager.Instance.SaveBatiment(bp.getBatiment(), silencieux: true);
         RafraichirFichesOuvertes();
     }
+
+    /// Revue 17 (D7a-24, lot D) : le SIREN a changé (seuls ses chiffres comptent : « 552 032 534 00012 » = « 55203253400012 »).
+    /// SaveLocataire ne relance Pappers et le BODACC que dans ce cas.
+    public static bool SiretChange(string avant, string apres) => SocieteLocataire.Siren(avant) != SocieteLocataire.Siren(apres);
 
     /// L'appel lui-même : interroge l'annuaire et réécrit le bloc de résumé du
     /// locataire s'il a changé. Le SEUL endroit qui touche au commentaire — le
@@ -127,12 +133,42 @@ public static class PappersSync
 
     // ── Étape 16b (décisions du 28/10) : sur le cloud, Pappers par le serveur et le BODACC ─────
 
-    // Refus qui vaudront pour tous les locataires : inutile d'interroger les suivants.
-    static readonly HashSet<string> Bloquants = new HashSet<string> { "config", "cle", "jetons", "abonnement", "acces", "quota" };
+    /// Revue 17 (D7a-07, lot D) : seuls « acces » et « abonnement » valent pour toute l'entreprise et arrêtent la tournée. « quota »,
+    /// « jetons », « cle » et « config » n'empêchent ni le serveur de servir une fiche lue depuis moins d'un mois, ni le BODACC de
+    /// s'appliquer sans fiche. Avant, le premier refus arrêtait tout : les procédures publiées pour les locataires suivants
+    /// n'étaient plus signalées, et le délai de déclaration de la créance courait.
+    public static bool ArreteLaTournee(string refus) { string c = CodeRefus(refus); return c == "acces" || c == "abonnement"; }
 
-    /// Revue 16c (D1-15, décision du 01/11) : 50 sociétés nouvelles par jour et par entreprise chez Pappers (lecture payante).
-    const string QuotaAtteint = "Pappers : limite du jour atteinte pour cette entreprise (50 sociétés nouvelles). "
-                              + "Les sociétés déjà connues restent consultées ; réessayez demain pour les autres.";
+    static string CodeRefus(string refus) => (refus ?? "").Split(' ')[0];
+
+    /// Revue 16c (D1-15) : 50 lectures payantes par jour et par entreprise chez Pappers, relectures mensuelles comprises (pappers.ts).
+    /// Revue 17 (D7a-07, lot D) : message corrigé (il parlait de « sociétés nouvelles » et promettait que les autres restaient lues).
+    const string QuotaAtteint = "Pappers : limite du jour atteinte pour cette entreprise (50 fiches société lues par jour). "
+                              + "Les fiches lues depuis moins d'un mois restent à jour et les procédures du BODACC restent signalées ; "
+                              + "les autres fiches seront relues demain.";
+
+    /// Revue 17 (D7a-07, lot D) : le message du bas pour un refus qui touche toute l'entreprise, ou null (refus d'un seul locataire).
+    public static string MessageRefus(string refus)
+    {
+        switch (CodeRefus(refus))
+        {
+            case "quota": return QuotaAtteint;
+            case "jetons": return "Pappers : crédits épuisés. Les fiches société déjà lues restent affichées et les procédures du BODACC "
+                                  + "restent signalées. Prévenez le support de CIPL.";
+            case "cle":
+            case "config": return "Pappers n'est pas configuré sur le serveur : les fiches société ne sont pas mises à jour. "
+                                  + "Les procédures du BODACC restent signalées. Prévenez le support de CIPL.";
+            default: return null;
+        }
+    }
+
+    // Une fois par session et par sorte de refus : la tournée et chaque enregistrement le rediraient sinon.
+    static readonly HashSet<string> _refusDits = new HashSet<string>();
+    static void Dire(string refus)
+    {
+        string m = MessageRefus(refus);
+        if (m != null && _refusDits.Add(CodeRefus(refus))) UndoToast.Instance?.ShowInfo(m);
+    }
 
     /// La tournée du cloud : le BODACC d'abord (gratuit, 10 sociétés par appel), puis la fiche Pappers de chaque
     /// locataire (relue par le serveur une fois par mois au plus). BODACC injoignable : rien n'est écrit
@@ -164,7 +200,8 @@ public static class PappersSync
                 if (refus == null) continue;
                 echecs++;
                 Debug.LogWarning($"[PappersSync] {loc.Name} : {refus}");
-                if (Bloquants.Contains(refus.Split(' ')[0])) { arret = refus; break; }
+                if (ArreteLaTournee(refus)) { arret = refus; break; }   // Revue 17 (D7a-07, lot D)
+                Dire(refus);
             }
             if (bp == null) yield break;
             if (touche && BatimentManager.Instance != null) BatimentManager.Instance.SaveBatiment(bp.getBatiment(), silencieux: true);
@@ -172,7 +209,6 @@ public static class PappersSync
         }
         Debug.Log($"[PappersSync] Pappers et BODACC : {majs} locataire(s) mis à jour, {echecs} en échec"
                   + (arret != null ? $", tournée arrêtée ({arret})." : "."));
-        if (arret != null && arret.StartsWith("quota")) UndoToast.Instance?.ShowInfo(QuotaAtteint);
         if (majs > 0) RafraichirFichesOuvertes();
     }
 
@@ -184,15 +220,22 @@ public static class PappersSync
         var t = FicheServeur(siren);
         yield return new WaitUntil(() => t.IsCompleted);
         var r = t.Result;
-        if (r == null || !r.ok || r.fiche == null) { onRefus?.Invoke($"{r?.refus ?? "serveur"} {r?.erreur}".Trim()); yield break; }
+        // Revue 17 (D7a-07, lot D) : sans fiche Pappers (limite du jour, crédits, clé), la partie BODACC s'applique quand même : une
+        // procédure ouverte devient l'objectif « Déclarer la créance » (la fiche y est facultative). Avant, le locataire était sauté.
+        string refus = r == null || !r.ok || r.fiche == null ? $"{r?.refus ?? "serveur"} {r?.erreur}".Trim() : null;
+        if (refus != null && ArreteLaTournee(refus)) { onRefus?.Invoke(refus); yield break; }
+        var fiche = refus == null ? r.fiche : null;
 
         var procs = procsTous.Where(p => p.siren == siren).ToList();
         bool change = false;
-        string nouveau = PappersResume.Fusionner(loc.commentaire, SocieteLocataire.Construire(r.fiche, procs, r.lu_le));
-        if (nouveau != loc.commentaire) { loc.commentaire = nouveau; change = true; }
+        if (fiche != null)
+        {
+            string nouveau = PappersResume.Fusionner(loc.commentaire, SocieteLocataire.Construire(fiche, procs, r.lu_le));
+            if (nouveau != loc.commentaire) { loc.commentaire = nouveau; change = true; }
+        }
 
         if (loc.signalementsSociete == null) loc.signalementsSociete = new List<string>();
-        foreach (var (cle, objectif) in SocieteLocataire.Signaler(loc.signalementsSociete, r.fiche, procs, System.DateTime.Today))
+        foreach (var (cle, objectif) in SocieteLocataire.Signaler(loc.signalementsSociete, fiche, procs, System.DateTime.Today))
         {
             if (loc.objectifs == null) loc.objectifs = new ObjectiveList();
             if (loc.objectifs.items == null) loc.objectifs.items = new List<Objective>();
@@ -201,6 +244,7 @@ public static class PappersSync
             change = true;
         }
         onChange?.Invoke(change);
+        if (refus != null) onRefus?.Invoke(refus);
     }
 
     /// Les procédures collectives des sociétés au BODACC ; null s'il n'a pas répondu.

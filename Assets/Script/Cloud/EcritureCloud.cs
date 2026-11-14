@@ -9,15 +9,25 @@ using UnityEngine.UI;
 
 /// Étape 4a : écrire dans le cloud. SaveBatiment ne change pas pour les ~20 écrans qui
 /// l'appellent : on compare le bâtiment au dernier état connu du serveur et on n'envoie
-/// que les fiches changées (bâtiment et/ou locataires), une par une, dans une file d'attente.
+/// que les fiches changées (bâtiment et/ou locataires), dans une file d'attente.
 /// Le SERVEUR refuse si la version a changé ou si la fiche est verrouillée par une autre
 /// session : le verrou tient donc aussi pour les actions en un clic.
+/// Revue 17 (D2-18, lot D) : les fiches changées d'un enregistrement partent en UN appel (enregistrer_fiches) :
+/// tout est écrit ou rien ne l'est. Avant, une fiche après l'autre : un refus sur la seconde laissait la première écrite.
 public static class EcritureCloud
 {
     public class Etat { public string Json; public int Version; public string BatimentId; public int Ordre; }
     public enum TypeOp { Batiment, Locataire, SupprimerLocataire }
     public class Op { public TypeOp Type; public string Id, BatimentId, Json; public int Version, Ordre; }
-    [Serializable] public class Resultat { public bool ok; public int version; public string refus, nom, motif, pris_le; }
+    /// Revue 17 (D2-18, D2-10, lot D) : `type` et `id` nomment la fiche refusée par enregistrer_fiches ; `version` et
+    /// `maj_session` accompagnent un refus « version » (version de la ligne au serveur, session de sa dernière écriture) ;
+    /// `versions` : une entrée par fiche écrite, dans l'ordre de l'envoi.
+    [Serializable] public class VersionFiche { public string type, id; public int version; }
+    [Serializable] public class Resultat
+    {
+        public bool ok; public int version; public string refus, nom, motif, pris_le, type, id, maj_session;
+        public VersionFiche[] versions;
+    }
 
     /// Une session = cette fenêtre CIPL (deux PC avec le même compte = deux sessions).
     public static readonly string SessionId = Guid.NewGuid().ToString("N");
@@ -31,20 +41,31 @@ public static class EcritureCloud
     public static int Version(bool batiment, string id) => _cache.TryGetValue(Cle(batiment, id), out var e) ? e.Version : 0;
 
     /// Retient l'état du serveur d'un bâtiment et de ses locataires (JSON de CIPL + versions).
-    public static void Memoriser(IDictionary<string, Etat> cache, Batiment b, int versionBat, IDictionary<string, int> versionsLoc)
+    /// Revue 17 (D2-05, lot D) : `ordres` = l'ordre RÉEL de chaque locataire au serveur (trous et doublons compris) ;
+    /// sans lui (ou pour un locataire qui n'y est pas), la suite du précédent : 0, 1, 2… comme avant.
+    public static void Memoriser(IDictionary<string, Etat> cache, Batiment b, int versionBat, IDictionary<string, int> versionsLoc,
+                                 IDictionary<string, int> ordres = null)
     {
         DonneesCloud.Decouper(b, out var jb, out var jl);
         cache[Cle(true, b.id)] = new Etat { Json = jb, Version = versionBat };
         var locs = (b.locataireDuBatiment ?? new List<Locataire>()).Where(l => l != null).ToList();
+        int ordre = -1;
         for (int i = 0; i < locs.Count; i++)
+        {
+            ordre = ordres != null && ordres.TryGetValue(locs[i].id, out int o) ? o : ordre + 1;
             cache[Cle(false, locs[i].id)] = new Etat
             {
-                Json = jl[i], BatimentId = b.id, Ordre = i,
+                Json = jl[i], BatimentId = b.id, Ordre = ordre,
                 Version = versionsLoc != null && versionsLoc.TryGetValue(locs[i].id, out int v) ? v : 0,
             };
+        }
     }
 
     /// Ce qui a changé depuis le dernier état connu : bâtiment d'abord (les locataires en dépendent).
+    /// Revue 17 (D2-05, lot D) : l'ordre n'est plus renuméroté. Un locataire connu dont l'ordre connu dépasse celui du
+    /// précédent le garde (rien ne part si son contenu n'a pas changé) ; sinon (nouveau, ou déplacé) il prend l'ordre du
+    /// précédent + 1 et part. Les trous sont permis : le serveur trie par ordre, sans contrainte d'unicité (etape2).
+    /// Avant, supprimer le 2e de 8 locataires réécrivait les 6 suivants : un seul tenu par un collègue faisait tout refuser.
     public static List<Op> Differences(Batiment b, IDictionary<string, Etat> cache)
     {
         var ops = new List<Op>();
@@ -54,11 +75,14 @@ public static class EcritureCloud
             ops.Add(new Op { Type = TypeOp.Batiment, Id = b.id, Json = jb, Version = eb?.Version ?? 0 });
 
         var locs = (b.locataireDuBatiment ?? new List<Locataire>()).Where(l => l != null).ToList();
+        int ordre = -1;
         for (int i = 0; i < locs.Count; i++)
         {
             cache.TryGetValue(Cle(false, locs[i].id), out var el);
-            if (el == null || el.Json != jl[i] || el.Ordre != i || el.BatimentId != b.id)
-                ops.Add(new Op { Type = TypeOp.Locataire, Id = locs[i].id, BatimentId = b.id, Json = jl[i], Ordre = i, Version = el?.Version ?? 0 });
+            bool garde = el != null && el.BatimentId == b.id && el.Ordre > ordre;
+            ordre = garde ? el.Ordre : ordre + 1;
+            if (!garde || el.Json != jl[i])
+                ops.Add(new Op { Type = TypeOp.Locataire, Id = locs[i].id, BatimentId = b.id, Json = jl[i], Ordre = ordre, Version = el?.Version ?? 0 });
         }
 
         var presents = new HashSet<string>(locs.Select(l => l.id));
@@ -76,13 +100,87 @@ public static class EcritureCloud
         foreach (var b in bats.Where(b => b != null))
         {
             int vb = cache.TryGetValue(Cle(true, b.id), out var eb) ? eb.Version : 0;
-            var vl = cache.Where(kv => kv.Key.StartsWith("l:") && kv.Value.BatimentId == b.id)
-                          .ToDictionary(kv => kv.Key.Substring(2), kv => kv.Value.Version);
-            Memoriser(cache, b, vb, vl);
+            var siens = cache.Where(kv => kv.Key.StartsWith("l:") && kv.Value.BatimentId == b.id).ToList();
+            // Revue 17 (D2-05, lot D) : l'ordre connu du serveur reste, comme les versions (seul le contenu se recale).
+            Memoriser(cache, b, vb, siens.ToDictionary(kv => kv.Key.Substring(2), kv => kv.Value.Version),
+                      siens.ToDictionary(kv => kv.Key.Substring(2), kv => kv.Value.Ordre));
         }
     }
 
     public static void Recaler(IEnumerable<Batiment> bats) { Recaler(_cache, bats); _copieAEcrire = true; }
+
+    // ── Revue 17 (lot D) : règles de l'envoi groupé (sans réseau, testées en EditMode) ──
+
+    static string NomType(TypeOp t) => t == TypeOp.Batiment ? "batiment" : t == TypeOp.Locataire ? "locataire" : "supprimer_locataire";
+
+    /// Revue 17 (D2-18, lot D) : paramètres de enregistrer_fiches. Toutes les fiches d'un enregistrement dans un seul
+    /// corps, dans l'ordre d'application (le bâtiment d'abord) ; le JSON de CIPL part en objet. « batiment » et « ordre »
+    /// seulement pour un locataire ; ni « version » ni « data » pour une suppression.
+    public static string CorpsEnregistrerTous(string entreprise, IList<Op> ops, string session)
+    {
+        var sb = new StringBuilder("{\"p_entreprise\":").Append(Q(entreprise)).Append(",\"p_ops\":[");
+        for (int i = 0; i < ops.Count; i++)
+        {
+            var op = ops[i];
+            sb.Append(i > 0 ? "," : "").Append("{\"type\":").Append(Q(NomType(op.Type))).Append(",\"id\":").Append(Q(op.Id));
+            if (op.Type == TypeOp.Locataire) sb.Append(",\"batiment\":").Append(Q(op.BatimentId)).Append(",\"ordre\":").Append(op.Ordre);
+            if (op.Type != TypeOp.SupprimerLocataire) sb.Append(",\"version\":").Append(op.Version).Append(",\"data\":").Append(op.Json);
+            sb.Append('}');
+        }
+        return sb.Append("],\"p_session\":").Append(Q(session)).Append(",\"p_modele\":").Append(DonneesCloud.Modele).Append('}').ToString();
+    }
+
+    /// Réponse d'une fonction d'enregistrement ; null si elle est illisible.
+    public static Resultat LireResultat(string corps)
+    {
+        try { return JsonUtility.FromJson<Resultat>(corps); }
+        catch (Exception) { return null; }
+    }
+
+    /// Revue 17 (D2-18, lot D) : l'état connu avance d'un coup, et seulement sur l'accord du serveur : `ok`, et une
+    /// version par fiche, dans l'ordre de l'envoi. Sinon rien ne bouge (faux) : pas d'état connu à moitié avancé.
+    public static bool Avancer(IDictionary<string, Etat> cache, IList<Op> ops, Resultat res)
+    {
+        var v = res?.versions;
+        if (res == null || !res.ok || v == null || v.Length != ops.Count) return false;
+        for (int i = 0; i < ops.Count; i++)
+            if (v[i] == null || v[i].id != ops[i].Id || (ops[i].Type != TypeOp.SupprimerLocataire && v[i].version <= 0)) return false;
+        for (int i = 0; i < ops.Count; i++)
+        {
+            if (ops[i].Type == TypeOp.SupprimerLocataire) cache.Remove(Cle(false, ops[i].Id));
+            else cache[Cle(ops[i].Type == TypeOp.Batiment, ops[i].Id)] =
+                new Etat { Json = ops[i].Json, Version = v[i].version, BatimentId = ops[i].BatimentId, Ordre = ops[i].Ordre };
+        }
+        return true;
+    }
+
+    /// La fiche que le serveur a refusée (son type et son id sont dans le refus) ; null s'il ne la nomme pas.
+    public static Op OpRefusee(IList<Op> ops, Resultat res) =>
+        string.IsNullOrEmpty(res?.id) ? null
+        : ops.FirstOrDefault(o => o.Id == res.id && NomType(o.Type) == res.type) ?? ops.FirstOrDefault(o => o.Id == res.id);
+
+    /// Revue 17 (D2-10, lot D) : refus « version » alors que la dernière écriture de la ligne vient de MA session : mon
+    /// écriture précédente était passée et sa réponse s'est perdue. Personne n'a écrit depuis : on reprend la version
+    /// rendue et on réessaie (une fois, voir Envoyer).
+    public static bool Reessayer(Resultat res, string session) =>
+        res != null && res.refus == "version" && res.version > 0 && !string.IsNullOrEmpty(session) && res.maj_session == session;
+
+    /// Revue 17 (D2-05, lot D) : une fiche refusée à une écriture de fond ne repart pas telle quelle avec la saisie
+    /// suivante (son refus emportait cette saisie). `refuses` : clé de fiche → JSON refusé. Dès que la fiche est modifiée,
+    /// son JSON diffère : elle repart, et son refus s'affiche normalement. Une suppression ou une création (version 0,
+    /// par exemple après « Annuler » d'une suppression) n'est jamais retenue : c'est toujours un geste.
+    public static List<Op> SansRefuses(List<Op> ops, IDictionary<string, string> refuses) =>
+        refuses == null || refuses.Count == 0 ? ops
+        : ops.Where(o => o.Type == TypeOp.SupprimerLocataire || o.Version == 0
+                         || !refuses.TryGetValue(Cle(o.Type == TypeOp.Batiment, o.Id), out var j) || j != o.Json).ToList();
+
+    /// Revue 17 (D2-16, lot D) : qui tient ce bâtiment ou l'un de ses locataires (d'après l'état connu), selon le dernier
+    /// relevé des verrous des autres (`detenteurs` : clé de fiche → prénom). null : personne.
+    public static string TenuParAutre(string batimentId, IDictionary<string, Etat> cache, IDictionary<string, string> detenteurs) =>
+        RegleVerrou.Detenteurs(
+            detenteurs.Select(kv => (kv.Key.StartsWith("b:") ? "batiment" : "locataire", kv.Key.Substring(2), kv.Value)),
+            batimentId,
+            new HashSet<string>(cache.Where(kv => kv.Key.StartsWith("l:") && kv.Value.BatimentId == batimentId).Select(kv => kv.Key.Substring(2))));
 
     // ── Étape 8b : copie locale de l'état connu du serveur ─────────────────────
 
@@ -104,6 +202,7 @@ public static class EcritureCloud
     public static void ReprendreCopie(IDictionary<string, Etat> etats)
     {
         _cache.Clear();
+        _refusDeFond.Clear(); _saisieEchouee.Clear();
         foreach (var kv in etats) _cache[kv.Key] = kv.Value;
     }
 
@@ -140,12 +239,19 @@ public static class EcritureCloud
         var bats = JsonUtility.FromJson<LignesB>("{\"items\":" + jsonBats + "}")?.items ?? new LigneB[0];
         var locs = JsonUtility.FromJson<LignesL>("{\"items\":" + jsonLocs + "}")?.items ?? new LigneL[0];
         var res = new List<Batiment>();
+        // Revue 17 (contrat C1, lot D) : une lecture en plusieurs pages (CloudClient.TableTout) peut rendre deux fois la même
+        // ligne si un collègue insère entre deux pages : une fiche n'est gardée qu'une fois (sinon deux onglets du même id).
+        var vus = new HashSet<string>();
         foreach (var lb in bats)
         {
-            if (lb?.data == null) continue;
-            var siens = locs.Where(l => l?.data != null && l.batiment_id == lb.id).OrderBy(l => l.ordre).ToList();
+            if (lb?.data == null || !vus.Add(lb.id)) continue;
+            var siens = locs.Where(l => l?.data != null && l.batiment_id == lb.id)
+                            .GroupBy(l => l.data.id).Select(g => g.First()).OrderBy(l => l.ordre).ToList();
             lb.data.locataireDuBatiment = siens.Select(l => l.data).ToList();
-            Memoriser(cache, lb.data, lb.version, siens.GroupBy(l => l.data.id).ToDictionary(g => g.Key, g => g.First().version));
+            // Revue 17 (D2-05, lot D) : l'état connu garde l'ordre lu au serveur (avant : l'indice, d'où la renumérotation).
+            var parId = siens.GroupBy(l => l.data.id).ToList();
+            Memoriser(cache, lb.data, lb.version, parId.ToDictionary(g => g.Key, g => g.First().version),
+                      parId.ToDictionary(g => g.Key, g => g.First().ordre));
             res.Add(lb.data);
         }
         return res;
@@ -166,14 +272,31 @@ public static class EcritureCloud
     static async Task<(List<Batiment> batiments, string erreur)> Charger(string entrepriseId, IDictionary<string, Etat> cache)
     {
         string jeton = await SessionCloud.Jeton();
-        var rb = await CloudClient.Table("GET", Url, CleApi, jeton, "batiments", $"entreprise_id=eq.{entrepriseId}&select=id,version,data");
+        // Revue 17 (D2-06, lot D) : lecture page après page (CloudClient.TableTout) : au-delà du plafond de lignes du
+        // serveur, une lecture en une fois rendait une liste coupée, sans erreur. L'ordre est total (clé unique), pour
+        // qu'aucune ligne ne soit sautée ni lue deux fois d'une page à l'autre.
+        var rb = await CloudClient.TableTout(Url, CleApi, jeton, "batiments", $"entreprise_id=eq.{entrepriseId}&select=id,version,data&order=id.asc");
         if (!rb.Ok) return (null, rb.Erreur);
-        var rl = await CloudClient.Table("GET", Url, CleApi, jeton, "locataires",
-                                         $"entreprise_id=eq.{entrepriseId}&select=id,batiment_id,ordre,version,data&order=ordre.asc");
+        var rl = await CloudClient.TableTout(Url, CleApi, jeton, "locataires",
+                                             $"entreprise_id=eq.{entrepriseId}&select=id,batiment_id,ordre,version,data&order=ordre.asc,id.asc");
         if (!rl.Ok) return (null, rl.Erreur);
-        try { var bats = Lire(rb.Corps, rl.Corps, cache); if (ReferenceEquals(cache, _cache)) _copieAEcrire = true; return (bats, null); }
+        try
+        {
+            var bats = Lire(rb.Corps, rl.Corps, cache);
+            if (ReferenceEquals(cache, _cache)) { _copieAEcrire = true; _refusDeFond.Clear(); _saisieEchouee.Clear(); }   // D2-05 : tout est relu
+            return (bats, null);
+        }
         catch (Exception e) { return (null, "Données illisibles : " + e.Message); }
     }
+
+    /// Revue 17 (D2-20, lot D) : l'entreprise change : l'état connu du serveur est vidé AVANT de poser la nouvelle.
+    /// Sinon le gardien pouvait écrire la copie locale de la nouvelle entreprise avec les fiches de l'ancienne.
+    public static void Oublier() { _cache.Clear(); _copieAEcrire = false; _refusDeFond.Clear(); _saisieEchouee.Clear(); }
+
+    /// Revue 17 (lot D) : la fiche n'est pas périmée et le serveur connaît tout son contenu (aucune différence avec
+    /// l'état connu). À lire APRÈS « await Attendre() » : un refus ou une coupure laissent une différence. Hors cloud : vrai.
+    public static bool AJour(Batiment b) =>
+        b != null && (!SessionCloud.Active || SessionCloud.Entreprise == null || (!Perime(b) && Differences(b, _cache).Count == 0));
 
     // ── Étape 5 : fiches relues pendant qu'un écran était ouvert dessus ─────────
 
@@ -188,6 +311,22 @@ public static class EcritureCloud
     static readonly HashSet<string> _supprimesParMoi = new HashSet<string>();
     public static bool SupprimeParMoi(string id) => id != null && _supprimesParMoi.Contains(id);
 
+    /// Revue 17 (D2-23, lot D) : ces fiches vont être supprimées par moi hors de la file (transfert : le serveur supprime
+    /// les lignes d'origine). À appeler AVANT l'appel : leur écho passait pour « supprimé par un collègue ».
+    public static void NoterSuppression(IEnumerable<string> ids)
+    {
+        if (ids == null) return;
+        foreach (var id in ids) if (id != null) _supprimesParMoi.Add(id);
+    }
+
+    /// Revue 17 (D2-23, lot D ; reprise) : l'appel a échoué ou a été refusé, les fiches restent : on retire la note (comme la
+    /// file sur un échec). Sinon la suppression de l'une d'elles par un collègue ne se voyait plus sur ce poste.
+    public static void RetirerSuppression(IEnumerable<string> ids)
+    {
+        if (ids == null) return;
+        foreach (var id in ids) if (id != null) _supprimesParMoi.Remove(id);
+    }
+
     public static string BatimentDuLocataire(string locataireId) =>
         locataireId != null && _cache.TryGetValue(Cle(false, locataireId), out var e) ? e.BatimentId : null;
 
@@ -195,6 +334,7 @@ public static class EcritureCloud
     /// en attente de la connexion) : sa relecture attend.
     public static bool Occupe(string batimentId) =>
         !_file.IsCompleted
+        || FactureEmission.EnvoisEnCours > 0   // Revue 17 (D4-07, coutures) : un formulaire envoie sa facture, même sa réservation perdue : il l'enregistrera sur cette fiche
         || _enAttente.Any(b => b.id == batimentId)
         || _refusOuverts.Contains(batimentId)
         || _tenus.Any(t => (t.Type == "batiment" && t.Id == batimentId) || (t.Type == "locataire" && BatimentDuLocataire(t.Id) == batimentId));
@@ -214,8 +354,9 @@ public static class EcritureCloud
         UndoToast.Instance?.ShowInfo($"Hors ligne : « {b.Name} » sera enregistré au retour de la connexion.");
     }
 
-    /// Revue 17 (D8-01) : les fiches qui attendent la connexion (en mémoire seulement : fermer CIPL les perdrait).
-    public static List<string> NomsEnAttente() => _enAttente.Where(b => b != null)
+    /// Revue 17 (D8-01) : les fiches qui attendent la connexion (en mémoire seulement : fermer CIPL, se déconnecter ou changer
+    /// d'entreprise les perdrait, D8-14). Une fiche périmée (entreprise vidée depuis) est déjà perdue : elle n'est plus citée.
+    public static List<string> NomsEnAttente() => _enAttente.Where(b => b != null && !Perime(b))
         .Select(b => string.IsNullOrWhiteSpace(b.Name) ? "(sans nom)" : b.Name).Distinct().ToList();
 
     public static void RenvoyerEnAttente()
@@ -240,7 +381,7 @@ public static class EcritureCloud
         var rb = await CloudClient.Table("GET", Url, CleApi, jeton, "batiments", $"entreprise_id=eq.{entrepriseId}&id=eq.{id}&select=id,version,data");
         if (!rb.Ok) return (null, null, rb.Erreur);
         var rl = await CloudClient.Table("GET", Url, CleApi, jeton, "locataires",
-                                         $"entreprise_id=eq.{entrepriseId}&batiment_id=eq.{id}&select=id,batiment_id,ordre,version,data&order=ordre.asc");
+                                         $"entreprise_id=eq.{entrepriseId}&batiment_id=eq.{id}&select=id,batiment_id,ordre,version,data&order=ordre.asc,id.asc");   // D2-05 (lot D) : ordre total, comme Charger
         if (!rl.Ok) return (null, null, rl.Erreur);
         var etat = new Dictionary<string, Etat>();
         try { return (Lire(rb.Corps, rl.Corps, etat).FirstOrDefault(), etat, null); }
@@ -253,6 +394,7 @@ public static class EcritureCloud
     {
         Adopter(_cache, batimentId, etat, b);
         _copieAEcrire = true;
+        if (batimentId != null) { _refusDeFond.Remove(batimentId); _saisieEchouee.Remove(batimentId); }   // Revue 17 (D2-05, lot D) : fiche relue, ses refus de fond sont oubliés
     }
 
     public static void Adopter(IDictionary<string, Etat> cache, string batimentId, IDictionary<string, Etat> etat, Batiment b)
@@ -266,8 +408,8 @@ public static class EcritureCloud
     static Task _file = Task.CompletedTask;   // un enregistrement à la fois, dans l'ordre
 
     /// `silencieux` (revue 16c, D2-04) : une écriture de fond (tournée de l'annuaire, plateforme) ; un refus est
-    /// journalisé et abandonné, sans message ni rechargement : les saisies en cours de l'utilisateur restent, et la
-    /// relecture en direct remettra la fiche à jour.
+    /// journalisé et abandonné, sans message : les saisies en cours de l'utilisateur restent, et la fiche refusée est
+    /// relue en silence quand personne n'y travaille (Revue 17, D2-05 : voir Envoyer).
     public static void Enregistrer(Batiment b, bool silencieux = false)
     {
         // Étape 8 : hors ligne, une saisie commencée avant la coupure attend la connexion ; une
@@ -281,83 +423,222 @@ public static class EcritureCloud
         // Étape 9c1 : abonnement expiré, lecture seule ; la fiche est relue (la modification n'est
         // faite qu'en mémoire).
         if (AbonnementCloud.LectureSeule) { if (!silencieux) ConfirmDialog.Erreur(AbonnementCloud.Refus, DemarrageCloud.Recharger); return; }
+        if (!silencieux) _saisiesEnFile++;   // Revue 17 (D2-05, lot D) : rendu à la fin d'Envoyer
         var avant = _file; _file = Envoyer(avant, b, silencieux, SessionCloud.Entreprise);   // D2-09 : l'entreprise de la mise en file
     }
 
+    /// Revue 17 (D2-05, lot D) : saisies (enregistrements non silencieux) en file ou en vol. Tant qu'il y en a, un refus
+    /// de fond n'est pas retenu : la fiche refusée peut porter une saisie déjà faite en mémoire, qui doit avoir son message.
+    static int _saisiesEnFile;
+
+    /// Revue 17 (D2-05, lot D) : par bâtiment, les fiches qu'une écriture de fond s'est vu refuser (clé de fiche → JSON
+    /// refusé). Elles ne repartent pas telles quelles (SansRefuses) ; oubliées dès que le bâtiment est relu (Adopter,
+    /// Charger) ou l'état vidé (Oublier).
+    static readonly Dictionary<string, Dictionary<string, string>> _refusDeFond = new Dictionary<string, Dictionary<string, string>>();
+
+    /// Revue 17 (D2-05, lot D ; reprise) : bâtiments dont une saisie a échoué sans panne (HTTP 400, 500, exception) : elle
+    /// reste en mémoire, retentée au prochain enregistrement. Un refus de fond sur l'un d'eux n'est pas retenu ni relu.
+    /// Oubliés à l'accord du serveur, à la relecture (Adopter, Charger) et quand l'état est vidé.
+    static readonly HashSet<string> _saisieEchouee = new HashSet<string>();
+
+    /// Revue 17 (D2-05, lot D ; reprise) : retenir (et faire relire) une fiche refusée à une écriture de fond, seulement si
+    /// elle ne peut porter aucune saisie : ni suppression ni création (toujours un geste), ni `saisie` en cours sur elle.
+    public static bool RetenirRefusDeFond(Op refusee, bool saisie) =>
+        refusee != null && refusee.Type != TypeOp.SupprimerLocataire && refusee.Version != 0 && !saisie;
+
+    /// Revue 17 (D2-18, lot D ; décision du 11/11) : tant que Serveur/etape17c_supabase.sql n'est pas passé sur le serveur,
+    /// enregistrer_fiches n'existe pas (HTTP 404) : CIPL se replie sur l'ancienne façon, une fiche après l'autre, et le dit
+    /// UNE fois au journal. Un 404 est une réponse du serveur : ni hors ligne (HorsLigne.Panne), ni message d'erreur.
+    static bool _sansEnregistrerFiches;
+
     static async Task Envoyer(Task avant, Batiment b, bool silencieux, EntrepriseCloud e = null)
     {
-        try { await avant; } catch (Exception) { /* l'échec précédent a déjà été signalé */ }
-        if (e == null) e = SessionCloud.Entreprise;
-        if (e == null || b == null) return;
-        // Revue 16c (D2-09) : l'entreprise a changé pendant l'attente : la fiche de A ne part pas vers B.
-        if (e != SessionCloud.Entreprise) { Debug.LogWarning($"[Cloud] « {b.Name} » : entreprise changée pendant l'attente, enregistrement abandonné."); return; }
-        // Revue 16c (D2-07) : vérifié au DÉPART réel, pas seulement à la mise en file : une fiche périmée par un
-        // rechargement pendant l'attente repartirait avec les versions neuves et écraserait l'écriture d'un collègue.
-        if (Perime(b)) { Debug.LogWarning($"[Cloud] « {b.Name} » : fiche périmée pendant l'attente, enregistrement abandonné."); return; }
         try
         {
-            foreach (var op in Differences(b, _cache))
+            try { await avant; } catch (Exception) { /* l'échec précédent a déjà été signalé */ }
+            if (e == null) e = SessionCloud.Entreprise;
+            if (e == null || b == null) return;
+            var repris = new HashSet<string>();   // D2-10 : une reprise par fiche, jamais en boucle
+            // ponytail: 30 tours au plus. Plusieurs tours : une écriture de fond (un par fiche refusée) ou une reprise D2-10
+            // (une par fiche) ; au-delà, le reste part avec l'enregistrement suivant (message après la boucle).
+            for (int tour = 0; tour < 30; tour++)
             {
-                string jeton = await SessionCloud.Jeton();
-                // Revue 16c (D2-10) : noté AVANT l'appel : l'écho temps réel de ma suppression peut arriver avant la réponse,
-                // il passait pour la suppression d'un collègue (fiche relue, « mis à jour par un collègue »).
-                if (op.Type == TypeOp.SupprimerLocataire) _supprimesParMoi.Add(op.Id);
-                var r = op.Type == TypeOp.SupprimerLocataire
-                    ? await CloudClient.FonctionJson(Url, CleApi, jeton, "supprimer_fiche",
-                        $"{{\"p_entreprise\":{Q(e.id)},\"p_type\":\"locataire\",\"p_id\":{Q(op.Id)},\"p_session\":{Q(SessionId)}}}")
-                    : await CloudClient.FonctionJson(Url, CleApi, jeton,
-                        op.Type == TypeOp.Batiment ? "enregistrer_batiment" : "enregistrer_locataire", CorpsEnregistrer(e.id, op, SessionId));
+                // Les deux gardes sont revérifiées à chaque tour (un tour = un aller-retour au serveur).
+                // Revue 16c (D2-09) : l'entreprise a changé pendant l'attente : la fiche de A ne part pas vers B.
+                if (e != SessionCloud.Entreprise) { Debug.LogWarning($"[Cloud] « {b.Name} » : entreprise changée pendant l'attente, enregistrement abandonné."); return; }
+                // Revue 16c (D2-07) : vérifié au DÉPART réel, pas seulement à la mise en file : une fiche périmée par un
+                // rechargement pendant l'attente repartirait avec les versions neuves et écraserait l'écriture d'un collègue.
+                if (Perime(b)) { Debug.LogWarning($"[Cloud] « {b.Name} » : fiche périmée pendant l'attente, enregistrement abandonné."); return; }
 
-                // Réseau en panne : le cache n'est pas avancé ; la fiche repart au retour de la
+                _refusDeFond.TryGetValue(b.id, out var refuses);
+                var ops = SansRefuses(Differences(b, _cache), refuses);
+                if (ops.Count == 0) return;
+
+                var (echec, refus, refusee) = await Transmettre(e, b.id, ops);
+                if (echec == null && refus == null) { _saisieEchouee.Remove(b.id); return; }   // tout est écrit, l'état connu a avancé
+
+                // Réseau en panne : l'état connu n'est pas avancé ; la fiche repart au retour de la
                 // connexion (étape 8). Autre échec : retenté au prochain enregistrement.
-                if (!r.Ok)
+                if (echec != null)
                 {
-                    if (op.Type == TypeOp.SupprimerLocataire) _supprimesParMoi.Remove(op.Id);
-                    if (HorsLigne.Panne(r.Ok, r.Code)) MettreEnAttente(b);
-                    else if (silencieux) Debug.LogWarning($"[Cloud] « {b.Name} » : écriture de fond impossible ({r.Erreur}), reprise plus tard.");
-                    else ConfirmDialog.Erreur($"Enregistrement de « {b.Name} » impossible : {r.Erreur}");
+                    if (HorsLigne.Panne(echec.Ok, echec.Code)) MettreEnAttente(b);
+                    else if (silencieux) Debug.LogWarning($"[Cloud] « {b.Name} » : écriture de fond impossible ({echec.Erreur}), reprise plus tard.");
+                    else { _saisieEchouee.Add(b.id); ConfirmDialog.Erreur($"Enregistrement de « {b.Name} » impossible : {echec.Erreur}"); }
                     return;
                 }
 
-                var res = JsonUtility.FromJson<Resultat>(r.Corps);
-                if (res == null || !res.ok)
+                string nom = refusee == null || refusee.Type == TypeOp.Batiment ? b.Name
+                    : b.locataireDuBatiment?.FirstOrDefault(l => l?.id == refusee.Id)?.Name ?? b.Name;
+                string cle = refusee == null ? null : Cle(refusee.Type == TypeOp.Batiment, refusee.Id);
+
+                // Revue 17 (D2-10, lot D) : refus « version » sur MA dernière écriture (sa réponse s'était perdue) : la version
+                // rendue par le serveur est reprise pour cette fiche (le contenu connu ne change pas : la fiche repart).
+                if (refusee != null && refusee.Type != TypeOp.SupprimerLocataire && Reessayer(refus, SessionId) && repris.Add(cle))
                 {
-                    if (op.Type == TypeOp.SupprimerLocataire) _supprimesParMoi.Remove(op.Id);
-                    string nom = op.Type == TypeOp.Batiment ? b.Name
-                        : b.locataireDuBatiment?.FirstOrDefault(l => l?.id == op.Id)?.Name ?? b.Name;
-                    // Les saisies refusées restent à l'écran derrière le message ; la fiche se recharge
-                    // au clic sur « OK » (décision du 09/10, reprise après une coupure). D'ici là, la
-                    // relecture en direct attend (retour du 16/10 : elle remplaçait les saisies avant le OK).
-                    string id = b.id;
-                    if (silencieux)
+                    _cache.TryGetValue(cle, out var connu);
+                    _cache[cle] = new Etat { Json = connu?.Json, Version = refus.version,
+                                             BatimentId = connu?.BatimentId ?? refusee.BatimentId, Ordre = connu?.Ordre ?? refusee.Ordre };
+                    Debug.Log($"[Cloud] « {nom} » : ma dernière écriture était passée (réponse perdue) : version {refus.version} reprise, nouvel essai.");
+                    continue;
+                }
+
+                // Les saisies refusées restent à l'écran derrière le message ; la fiche se recharge
+                // au clic sur « OK » (décision du 09/10, reprise après une coupure). D'ici là, la
+                // relecture en direct attend (retour du 16/10 : elle remplaçait les saisies avant le OK).
+                string id = b.id;
+                if (silencieux)
+                {
+                    // Revue 17 (D2-05, lot D ; reprise) : la fiche peut porter une saisie (en file, en attente de la connexion,
+                    // échouée et gardée en mémoire, formulaire en plein envoi, écran ouvert dessus) : arrêt comme avant, SANS
+                    // relecture (elle remplacerait la saisie sans un mot) : la fiche repartira, son refus s'affichera.
+                    bool saisie = _saisiesEnFile > 0 || FactureEmission.EnvoisEnCours > 0 || _enAttente.Contains(b) || _saisieEchouee.Contains(id)
+                                  || (refusee != null && Tient(refusee.Type == TypeOp.Batiment ? "batiment" : "locataire", refusee.Id));
+                    if (!RetenirRefusDeFond(refusee, saisie))
                     {
-                        Debug.LogWarning($"[Cloud] « {nom} » : {MotifRefus(res ?? new Resultat { refus = "version" }, nom)} "
-                                         + "— écriture de fond abandonnée, reprise à la prochaine occasion.");
+                        Debug.LogWarning($"[Cloud] « {nom} » : {MotifRefus(refus, nom)} — écriture de fond abandonnée, reprise à la prochaine occasion.");
                         return;
                     }
-                    // BH8 (02/11) : une trace par refus (deux essais ont été perdus à deviner ce qui s'était passé), et au OK la seule
-                    // fiche concernée se relit, pas toute l'entreprise.
-                    Debug.LogWarning($"[Cloud] « {nom} » : enregistrement refusé ({res?.refus ?? "réponse illisible"}{(string.IsNullOrEmpty(res?.nom) ? "" : ", " + res.nom)}).");
-                    _refusOuverts.Add(id);
-                    ConfirmDialog.Erreur(MotifRefus(res ?? new Resultat { refus = "version" }, nom),
-                                         () => { _refusOuverts.Remove(id); DirectCloud.ARelire(id); });
-                    return;
+                    // Sinon la fiche est relue (en silence, quand personne n'y travaille), et son JSON refusé est retenu : il
+                    // ne repartira pas avec la saisie suivante. Les autres fiches de cette écriture de fond repartent au tour suivant.
+                    Debug.LogWarning($"[Cloud] « {nom} » : {MotifRefus(refus, nom)} — écriture de fond abandonnée pour cette fiche, relecture demandée.");
+                    DirectCloud.ARelire(id);
+                    if (refuses == null) _refusDeFond[id] = refuses = new Dictionary<string, string>();
+                    refuses[cle] = refusee.Json;
+                    continue;
                 }
-                if (op.Type == TypeOp.SupprimerLocataire)
-                {
-                    _cache.Remove(Cle(false, op.Id)); _supprimesParMoi.Add(op.Id);
-                    if (_apresSuppressionLocataire.TryGetValue(op.Id, out var apres)) { _apresSuppressionLocataire.Remove(op.Id); apres?.Invoke(); }
-                }
-                else _cache[Cle(op.Type == TypeOp.Batiment, op.Id)] =
-                    new Etat { Json = op.Json, Version = res.version, BatimentId = op.BatimentId, Ordre = op.Ordre };
-                _copieAEcrire = true;
+                // BH8 (02/11) : une trace par refus (deux essais ont été perdus à deviner ce qui s'était passé), et au OK la seule
+                // fiche concernée se relit, pas toute l'entreprise.
+                Debug.LogWarning($"[Cloud] « {nom} » : enregistrement refusé ({(string.IsNullOrEmpty(refus.refus) ? "réponse illisible" : refus.refus)}{(string.IsNullOrEmpty(refus.nom) ? "" : ", " + refus.nom)}).");
+                _refusOuverts.Add(id);
+                ConfirmDialog.Erreur(MotifRefus(refus, nom), () => { _refusOuverts.Remove(id); DirectCloud.ARelire(id); });
+                return;
             }
+            // Revue 17 (D2-10, lot D ; reprise) : les 30 tours sont passés sans tout écrire (réponse perdue sur plus de 30 fiches,
+            // une reprise par tour) : une saisie le dit au lieu de s'arrêter sans un mot. Ce qui reste repart au prochain enregistrement.
+            Debug.LogWarning($"[Cloud] « {b.Name} » : enregistrement incomplet après 30 tours.");
+            if (!silencieux) { _saisieEchouee.Add(b.id); ConfirmDialog.Erreur($"Enregistrement de « {b.Name} » incomplet : enregistrez à nouveau."); }
         }
-        catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Enregistrement impossible : " + ex.Message); }
+        catch (Exception ex)
+        {
+            if (!silencieux && b != null) _saisieEchouee.Add(b.id);   // D2-05 (reprise) : la saisie reste en mémoire, pas de relecture de fond
+            Debug.LogException(ex); ConfirmDialog.Erreur("Enregistrement impossible : " + ex.Message);
+        }
+        finally { if (!silencieux) _saisiesEnFile--; }
+    }
+
+    /// Revue 17 (D2-18, lot D) : envoie les fiches en UN appel (enregistrer_fiches : tout ou rien) et avance l'état connu
+    /// d'un coup, sur l'accord du serveur. Rend (null, null, null) si tout est écrit ; sinon l'appel en échec, ou le
+    /// refus et la fiche refusée (null si le serveur ne la nomme pas). Dans les deux cas, RIEN n'est écrit.
+    static async Task<(CloudClient.Reponse echec, Resultat refus, Op refusee)> Transmettre(EntrepriseCloud e, string batimentId, List<Op> ops)
+    {
+        if (_sansEnregistrerFiches) return await TransmettreUneParUne(e, ops);
+        // Revue 16c (D2-10) : noté AVANT l'appel : l'écho temps réel de ma suppression peut arriver avant la réponse,
+        // il passait pour la suppression d'un collègue (fiche relue, « mis à jour par un collègue »).
+        var supprimes = ops.Where(o => o.Type == TypeOp.SupprimerLocataire).Select(o => o.Id).ToList();
+        string jeton = await SessionCloud.Jeton();
+        foreach (var id in supprimes) _supprimesParMoi.Add(id);
+        var r = await CloudClient.FonctionJson(Url, CleApi, jeton, "enregistrer_fiches", CorpsEnregistrerTous(e.id, ops, SessionId));
+        var res = r.Ok ? LireResultat(r.Corps) : null;
+        if (res != null && res.ok)
+        {
+            // Accord sans les versions attendues (ne devrait pas arriver) : tout est écrit au serveur, mais l'état connu
+            // ne peut pas avancer : la fiche est relue (sinon l'enregistrement suivant serait refusé « version »).
+            if (!Avancer(_cache, ops, res))
+            {
+                Debug.LogWarning("[Cloud] enregistrer_fiches : accord sans les versions attendues, fiche relue.");
+                DirectCloud.ARelire(batimentId);
+            }
+            Accord(ops);
+            return (null, null, null);
+        }
+        foreach (var id in supprimes) _supprimesParMoi.Remove(id);
+        if (r.Code == 404)
+        {
+            _sansEnregistrerFiches = true;
+            Debug.LogWarning("[Cloud] enregistrer_fiches absente : passez Serveur/etape17c_supabase.sql");
+            return await TransmettreUneParUne(e, ops);
+        }
+        if (!r.Ok) return (r, null, null);
+        return (null, res ?? new Resultat(), OpRefusee(ops, res));
+    }
+
+    /// L'ancienne façon, gardée en repli tant que le serveur n'a pas enregistrer_fiches : une fiche après l'autre, l'état
+    /// connu avancé fiche par fiche. Sans transaction : un refus laisse écrites les fiches d'avant (D2-18 n'est corrigé
+    /// qu'une fois le SQL passé).
+    static async Task<(CloudClient.Reponse echec, Resultat refus, Op refusee)> TransmettreUneParUne(EntrepriseCloud e, List<Op> ops)
+    {
+        foreach (var op in ops)
+        {
+            string jeton = await SessionCloud.Jeton();
+            if (op.Type == TypeOp.SupprimerLocataire) _supprimesParMoi.Add(op.Id);   // Revue 16c (D2-10) : avant l'appel
+            var r = op.Type == TypeOp.SupprimerLocataire
+                ? await CloudClient.FonctionJson(Url, CleApi, jeton, "supprimer_fiche",
+                    $"{{\"p_entreprise\":{Q(e.id)},\"p_type\":\"locataire\",\"p_id\":{Q(op.Id)},\"p_session\":{Q(SessionId)}}}")
+                : await CloudClient.FonctionJson(Url, CleApi, jeton,
+                    op.Type == TypeOp.Batiment ? "enregistrer_batiment" : "enregistrer_locataire", CorpsEnregistrer(e.id, op, SessionId));
+            var res = r.Ok ? LireResultat(r.Corps) : null;
+            if (res == null || !res.ok)
+            {
+                if (op.Type == TypeOp.SupprimerLocataire) _supprimesParMoi.Remove(op.Id);
+                if (!r.Ok) return (r, null, null);
+                return (null, res ?? new Resultat(), op);
+            }
+            if (op.Type == TypeOp.SupprimerLocataire) _cache.Remove(Cle(false, op.Id));
+            else _cache[Cle(op.Type == TypeOp.Batiment, op.Id)] =
+                new Etat { Json = op.Json, Version = res.version, BatimentId = op.BatimentId, Ordre = op.Ordre };
+            Accord(new[] { op });
+        }
+        return (null, null, null);
+    }
+
+    /// Après l'accord du serveur : ce qui attendait la suppression d'un locataire (son dossier en corbeille, D7a-09 de la
+    /// 16c), et la copie locale à réécrire.
+    static void Accord(IEnumerable<Op> ops)
+    {
+        foreach (var op in ops.Where(o => o.Type == TypeOp.SupprimerLocataire).ToList())
+            if (_apresSuppressionLocataire.TryGetValue(op.Id, out var apres)) { _apresSuppressionLocataire.Remove(op.Id); apres?.Invoke(); }
+        // Revue 17 (D2-05, lot D ; reprise) : une fiche écrite n'est plus « refusée en fond » : sinon, revenue plus tard au
+        // JSON refusé, elle ne repartait pas (et sa relecture remettait l'écriture d'entre-temps, sans un mot).
+        foreach (var op in ops)
+            if (_refusDeFond.TryGetValue(op.Type == TypeOp.Batiment ? op.Id : op.BatimentId ?? "", out var refuses))
+                refuses.Remove(Cle(op.Type == TypeOp.Batiment, op.Id));
+        _copieAEcrire = true;
     }
 
     /// `apresSucces` (revue 16c, D2-03) : ce qui ne doit se faire qu'après l'accord du serveur (le dossier en corbeille).
-    public static void SupprimerBatiment(string id, string nom, Action apresSucces = null) { var avant = _file; _file = Supprimer(avant, id, nom, apresSucces); }
+    public static void SupprimerBatiment(string id, string nom, Action apresSucces = null)
+    {
+        // Revue 17 (D2-16, lot D) : un collègue tient le bâtiment ou l'un de ses locataires (dernier relevé des verrous) :
+        // refus tout de suite, rien n'est envoyé. Avant, seul le verrou du bâtiment comptait : le collègue en saisie sur un
+        // locataire perdait tout à son « Sauvegarder ». Le serveur refuse aussi (supprimer_fiche, etape17c) : le relevé a 10 s.
+        string qui = TenuParAutre(id, _cache, _detenteurs);
+        if (qui != null)
+        {
+            ConfirmDialog.Erreur($"« {nom} » : en cours de modification par {qui}. Rien n'est supprimé : réessayez quand la fiche sera libérée.");
+            return;
+        }
+        var avant = _file; _file = Supprimer(avant, id, nom, apresSucces);
+    }
 
     static async Task Supprimer(Task avant, string id, string nom, Action apresSucces)
     {
@@ -372,12 +653,18 @@ public static class EcritureCloud
         {
             _supprimesParMoi.Remove(id);
             // Retour du 01/11 : le bâtiment n'a pas quitté l'écran, rien à recharger ; la relecture en direct le tient à jour.
-            ConfirmDialog.Erreur(res != null ? MotifRefus(res, nom) : $"Suppression de « {nom} » impossible : {r.Erreur}");
+            // Revue 17 (D2-16, lot D) : le refus « verrou » vaut aussi pour un locataire du bâtiment tenu par un collègue :
+            // le message parle de la suppression (avant : « Vos modifications ne sont pas enregistrées »).
+            ConfirmDialog.Erreur(res == null ? $"Suppression de « {nom} » impossible : {r.Erreur}"
+                : res.refus == "verrou" ? $"« {nom} » : {RegleVerrou.Libelle(res.nom, res.motif, CloudClient.Date(res.pris_le) ?? DateTime.Now)}. " +
+                                          "Rien n'est supprimé : réessayez quand la fiche sera libérée."
+                : MotifRefus(res, nom));
             return;
         }
         _supprimesParMoi.Add(id);
         _cache.Remove(Cle(true, id));
         foreach (var k in _cache.Where(kv => kv.Value.BatimentId == id).Select(kv => kv.Key).ToList()) _cache.Remove(k);
+        _refusDeFond.Remove(id); _saisieEchouee.Remove(id);   // Revue 17 (D2-05, lot D ; reprise) : après « Annuler », la recréation repart
         _copieAEcrire = true;
         apresSucces?.Invoke();
     }
@@ -405,13 +692,15 @@ public static class EcritureCloud
     }
 
     /// « Modifier » : demande le verrou de la fiche, et ne passe en saisie que s'il est obtenu.
+    const string MotifModification = "modification";   // le motif lu par les collègues (« … (modification) depuis … »)
     public static void ModifierSiLibre(PrefabBatLoc fiche, string type, Action modifier) =>
         Reserver(new[] { (type, fiche != null ? fiche.getID() : null, fiche != null ? fiche.getName() : null) },
-                 "modification",
+                 MotifModification,
                  // Revue 16c (D2-11) : pendant l'aller-retour du verrou, une relecture a pu remplacer la fiche (objet détruit) :
                  // on le dit au lieu d'ouvrir l'écran dessus ; le verrou retombe au signal suivant (`actif` faux).
                  () => { if (fiche == null) ConfirmDialog.Erreur("La fiche vient d'être mise à jour par un collègue : réessayez « Modifier »."); else modifier(); },
-                 () => fiche != null && fiche.EnEdition);
+                 // Revue 17 (D2-17, lot D) : le verrou tient aussi tant que l'enregistrement attend ou part (RegleVerrou.ResteTenu).
+                 () => fiche != null && RegleVerrou.ResteTenu(fiche.EnEdition, EnregistrementEnCours));
 
     /// Réserve les fiches, puis ouvre l'écran ; refus au centre, avec le nom, si l'une est prise
     /// (rien n'est gardé à moitié). Une fiche que je tiens déjà ne coûte pas d'aller-retour :
@@ -533,6 +822,8 @@ public static class EcritureCloud
 
     /// Ferme sans enregistrer les écrans qui tiennent une fiche, puis libère tout (rechargement,
     /// changement d'entreprise, déconnexion) : un écran resté ouvert garderait l'ancienne fiche.
+    /// Revue 17 (D4-07, coutures) : un formulaire de facture en plein envoi ne se ferme qu'une fois sa facture enregistrée
+    /// (FermerDeForce des quatre formulaires) ; EnvoiEnCours et Occupe le voient d'ici là.
     public static void FermerEcrans()
     {
         foreach (var t in _tenus.ToList())
@@ -547,19 +838,8 @@ public static class EcritureCloud
         _tenus.Clear();
     }
 
-    /// Réglages › supprimer une liste de charges écrit TOUS les bâtiments : refusé si l'un est
-    /// pris par quelqu'un, pour ne rien écrire à moitié. Hors cloud : exécute.
-    public static async void SiAucunBatimentPris(IList<Batiment> bats, Action action)
-    {
-        if (!SessionCloud.Active || SessionCloud.Entreprise == null) { action(); return; }
-        var autres = await Gardien.VerrousDesAutres();
-        if (autres == null) { ConfirmDialog.Erreur("Impossible de vérifier les fiches en cours de modification : réessayez."); return; }
-        var pris = autres.FirstOrDefault(v => v.cible_type == "batiment" && bats.Any(b => b.id == v.cible_id));
-        if (pris == null) { action(); return; }
-        string nom = bats.First(b => b.id == pris.cible_id).Name;
-        ConfirmDialog.Erreur($"« {nom} » : {RegleVerrou.Libelle(pris.nom, pris.motif, CloudClient.Date(pris.pris_le) ?? DateTime.Now)}. " +
-                             "Rien n'est modifié : réessayez quand la fiche sera libérée.");
-    }
+    // Revue 17 (D2-25, lot D) : SiAucunBatimentPris retiré (plus d'appelant depuis D2-08 de la 16c : il lisait les verrous
+    // puis écrivait sans rien tenir). Pour écrire plusieurs bâtiments : Reserver.
 
     // ── Étape 7 : envoi automatique des factures ───────────────────────────────
 
@@ -574,19 +854,18 @@ public static class EcritureCloud
 
     /// Écrans qui tiennent une fiche (facture, achat, charge, révision, départ…) : leurs saisies attendent leur propre
     /// bouton, la garde de fermeture doit les voir (revue 16c, D8-05). L'envoi des factures n'est pas un écran.
-    public static IEnumerable<string> FichesTenues() => _tenus.Where(t => t.Actif() && t.Motif != MotifEnvoi).Select(t => t.Nom);
-
-    /// `action` une fois la file des enregistrements vide (revue 16c, D8-03 : la fermeture attend l'écriture en vol).
-    public static async void QuandTermine(Action action)
-    {
-        try { await _file; } catch (Exception) { /* déjà signalé */ }
-        action?.Invoke();
-    }
+    /// Revue 17 (D2-17, lot D) : sans la réservation de « Modifier ». Elle tient aussi pendant l'enregistrement en vol
+    /// (RegleVerrou.ResteTenu) : juste après « Sauvegarder », la fermeture disait la fiche « non enregistrée ». Une fiche
+    /// vraiment en saisie est déjà citée par FermetureGuard.NomsEnEdition (EnEdition) ; l'enregistrement en vol, par QuitterSansGarde.
+    public static IEnumerable<string> FichesTenues() =>
+        _tenus.Where(t => t.Actif() && t.Motif != MotifEnvoi && t.Motif != MotifModification).Select(t => t.Nom);
 
     /// Un enregistrement attend ou part : le verrou d'un envoi n'est rendu qu'après celui de son statut.
     public static bool EnregistrementEnCours => !_file.IsCompleted;
     /// Un envoi de factures tient encore son verrou : un rechargement attend sa fin (revue 16c, D2-06).
-    public static bool EnvoiEnCours => _tenus.Any(t => t.Motif == MotifEnvoi && t.Actif());
+    /// Revue 17 (D4-07, coutures) : ou un formulaire de facture envoie son e-mail (FactureEmission.EnvoisEnCours) : sa fiche perdue
+    /// (FermerEcrans ne le ferme pas en plein envoi), le rechargement et la fermeture de CIPL attendent qu'il ait enregistré la facture.
+    public static bool EnvoiEnCours => FactureEmission.EnvoisEnCours > 0 || _tenus.Any(t => t.Motif == MotifEnvoi && t.Actif());
     /// La file des enregistrements, pour l'attendre avant de remplacer les fiches (revue 16c, D2-07).
     public static Task Attendre() => _file;
 
@@ -623,13 +902,19 @@ public static class EcritureCloud
     [Serializable] class Vide { }
     [Serializable] class ParamNom { public string p_nom; }
 
+    /// Mon nom affiché, tel que le serveur le connaît : "" s'il n'a jamais été saisi, null si le serveur ne répond pas.
+    public static async Task<string> MonNom()
+    {
+        var r = await CloudClient.Fonction(Url, CleApi, await SessionCloud.Jeton(), "mon_nom_saisi", new Vide());
+        if (!r.Ok) return null;
+        string nom = r.Corps.Trim().Trim('"');
+        return nom == "null" ? "" : nom;
+    }
+
     /// Demande « Votre nom » à la première ouverture d'une entreprise (sinon on affiche l'e-mail).
     public static async Task VerifierNom(Canvas canvas)
     {
-        var r = await CloudClient.Fonction(Url, CleApi, await SessionCloud.Jeton(), "mon_nom_saisi", new Vide());
-        if (!r.Ok) return;
-        string nom = r.Corps.Trim().Trim('"');
-        if (!string.IsNullOrEmpty(nom) && nom != "null") return;
+        if (await MonNom() != "") return;   // saisi, ou serveur muet
         string saisi = await EcransCloud.DemanderNom(canvas);
         if (!string.IsNullOrWhiteSpace(saisi))
             await CloudClient.Fonction(Url, CleApi, await SessionCloud.Jeton(), "definir_mon_nom", new ParamNom { p_nom = saisi.Trim() });
@@ -672,7 +957,10 @@ public static class EcritureCloud
                 {
                     bool actif;
                     try { actif = t.Actif(); } catch (Exception) { actif = false; }
-                    if (!actif) { _tenus.Remove(t); if (!Tient(t.Type, t.Id)) Liberer(t.Type, t.Id); }
+                    // Revue 17 (D2-17, D7a-17, lot D) : écran fermé pendant qu'un enregistrement attend ou part : le verrou
+                    // reste jusqu'à la file vide (un collègue ne prend pas la fiche avant le serveur), pour TOUS les écrans ;
+                    // FichesTenues ne le cite plus (Actif faux) : la fermeture ne dit pas « non enregistrée ».
+                    if (!actif) { if (EnregistrementEnCours) continue; _tenus.Remove(t); if (!Tient(t.Type, t.Id)) Liberer(t.Type, t.Id); }
                     else if (now >= t.ProchainSignal) { t.ProchainSignal = now + 30f; Renouveler(t); }
                 }
                 SurveillerInactivite(now);

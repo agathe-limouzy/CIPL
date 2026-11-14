@@ -326,9 +326,14 @@ public static class TransfertEntreprise
             }
             if (l.facturesEtat != null)
                 foreach (var f in l.facturesEtat)
+                {
                     if (ListesCharges.LireCle(f.key, out int annee, out string lid)
                         && !string.IsNullOrEmpty(lid) && map.TryGetValue(lid, out var n2))
                         f.key = ListesCharges.Cle(n2, annee);
+                    // Revue 17 (lot 16) : les provisions imprimées sur un loyer (D6-07) suivent aussi : la régularisation les
+                    // additionne par liste (Loyers.ProvisionsAppelees) ; sous l'ancien id, elle n'en retrouvait aucune.
+                    if (f.provisionsListes != null) foreach (var pl in f.provisionsListes) pl.listeId = Remap(pl.listeId);
+                }
         }
         return ajout ? dest : null;
     }

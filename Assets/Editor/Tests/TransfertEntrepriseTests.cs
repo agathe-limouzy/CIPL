@@ -308,6 +308,9 @@ public class TransfertEntrepriseTests
         loc.listesConcernees = new List<string> { "o1" };
         loc.factureRegul = new FactureInfo { listesRegul = new List<string> { "", "o1" } };
         loc.factureLoyer = new FactureInfo { provisionsListes = new List<MontantListe> { new MontantListe { listeId = "o1", montant = 50 } } };
+        // Revue 17 (lot 16) : la provision imprimée sur un loyer (D6-07), que la régularisation additionne par liste.
+        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2026-P1", type = "Loyer", statut = "Paye", provisionsConnues = true,
+            provisionsListes = new List<MontantListe> { new MontantListe { listeId = "o1", montant = 50 } } });
 
         var r = TransfertEntreprise.TransfererBatiment(src, _orig, _dest);
 
@@ -316,6 +319,7 @@ public class TransfertEntrepriseTests
         Assert.That(l.listesConcernees, Is.EqualTo(new[] { "d9" }), "toujours limité à la taxe foncière");
         Assert.That(l.factureRegul.listesRegul, Is.EqualTo(new[] { "", "d9" }));
         Assert.That(l.factureLoyer.provisionsListes[0].listeId, Is.EqualTo("d9"));
+        Assert.That(l.facturesEtat.Single(x => x.key == "loyer-2026-P1").provisionsListes[0].listeId, Is.EqualTo("d9"), "la provision imprimée suit la liste");
     }
 
     // ── Sécurité ──────────────────────────────────────────────────────────────

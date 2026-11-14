@@ -19,12 +19,15 @@ public class AchatItemUI : MonoBehaviour
         txtMensualite.text = data.emprunt
             ? $"{RentabiliteCalculator.Mensualite(data.montantEmprunte, data.tauxInteretAnnuel, data.dureeMois):N0} € / mois"
             : "Comptant";
-        string dateA = string.IsNullOrEmpty(data.dateAchat) ? "—" : data.dateAchat;
-        txtDate.text = $"{dateA} · {(data.emprunt ? "emprunt" : "comptant")}";
+        txtDate.text = $"{DateLisible(data.dateAchat)} · {(data.emprunt ? "emprunt" : "comptant")}";
 
         btnEdit.onClick.RemoveAllListeners();
         btnEdit.onClick.AddListener(() => onEdit());
         btnDelete.onClick.RemoveAllListeners();
         btnDelete.onClick.AddListener(() => onDelete());
     }
+
+    /// Revue 17 (D7b-18, lot D) : la liste montrait la date brute « 2026-11-09 » : jj/mm/aaaa, « — » si absente ou illisible.
+    public static string DateLisible(string iso)
+        => FacturationSuivi.TryEcheance(iso, out var d) ? d.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture) : "—";
 }

@@ -105,11 +105,15 @@ Deno.serve(async (req) => {
       // qu'au paiement (stripe-webhook, à la création de l'abonnement) : un paiement abandonné ne
       // change rien.
       const choix = new Map<string, number>((repartition ?? []).map((r: { entreprise: string; licences: number }) => [r.entreprise, r.licences]));
+      // Revue 17 (D3-14) : une métadonnée Stripe « l_<entreprise> » par entreprise, lue par stripe-webhook (repartir) : une seule
+      // valeur « licences » tenait 500 caractères, soit 12 entreprises ; au-delà, la page de paiement refusait de s'ouvrir.
       const parEntreprise: Record<string, number> = {};
       for (const e of ents ?? []) {
         const l = Number(choix.get(e.id) ?? e.licences_max), u = await utilisees(e.id);
+        // Revue 17 (D1-12) : un nombre entier, comme dans « ajuster » (2,5 passait, et Stripe refusait la page).
+        if (!Number.isInteger(l) || l < 1) return json({ erreur: "Nombre de licences invalide." });
         if (!(l >= Math.max(1, u))) return json({ erreur: `${e.nom} : ${u} licences sont utilisées, il en faut au moins autant.` });
-        parEntreprise[e.id] = l;
+        parEntreprise["l_" + e.id] = l;
       }
       const total = Object.values(parEntreprise).reduce((a, b) => a + b, 0);
 
@@ -139,11 +143,15 @@ Deno.serve(async (req) => {
         locale: "fr",
         payment_method_types: ["card", "sepa_debit"],
         payment_method_collection: "always",
+        // Revue 17 (D3-06, décision du 04/11) : l'adresse de facturation, mention obligatoire de chaque facture d'abonnement,
+        // enregistrée sur le client Stripe avec le nom (donc sur toutes ses factures), et le n° de TVA intracommunautaire, facultatif.
+        billing_address_collection: "required",
+        customer_update: { address: "auto", name: "auto" },
+        tax_id_collection: { enabled: true },
         line_items: lignes,
         subscription_data: {
-          // ponytail: une valeur de métadonnée Stripe tient 500 caractères, soit une dizaine
-          // d'entreprises ; au-delà, garder la répartition sur le serveur en attendant le paiement.
-          metadata: { groupe_id: g, licences: JSON.stringify(parEntreprise) },
+          // ponytail: 50 clés de métadonnées par objet Stripe, soit 49 entreprises ; au-delà, garder la répartition sur le serveur.
+          metadata: { groupe_id: g, ...parEntreprise },
           default_tax_rates: [await tva()],
           ...(essai ? { trial_end: lendemain } : {}),
         },
@@ -162,11 +170,15 @@ Deno.serve(async (req) => {
 
     if (action === "ajuster") {
       if (!groupe.stripe_abonnement) return json({ erreur: "Aucun abonnement en cours." });
+      // Revue 17 (D3-18, relecture) : un abonnement impayé reste connu ; un « + » y ferait une facture de plus (always_invoice).
+      if (groupe.statut === "expire") return json({ erreur: "Abonnement impayé : réglez la facture dans « Paiement et factures »." });
       if (groupe.stripe_client) await contact(groupe.stripe_client);   // D3-11
       const sub = await stripe.subscriptions.retrieve(groupe.stripe_abonnement);
       const f = sub.items.data[0]?.price.recurring?.interval === "year" ? "annuel" : "mensuel";
       const ligne = (nom: string) => sub.items.data.find((i) => i.price.lookup_key === `cipl_${nom}_${f}`);
-      const prorata = { proration_behavior: "create_prorations" as const };
+      // Revue 17 (D3-13, décision du 09/11) : le prorata est facturé (et prélevé) tout de suite, un retrait fait un avoir au solde
+      // du client. Avant, il attendait la facture suivante : un an sur l'annuel, jamais si le client résiliait à l'échéance.
+      const prorata = { proration_behavior: "always_invoice" as const };
 
       // Licences de l'entreprise `cible` (0 : inchangées) ; jamais moins que celles qu'elle
       // utilise. La ligne « licence » de Stripe suit le total des entreprises.
@@ -183,18 +195,20 @@ Deno.serve(async (req) => {
       const total = (ents ?? []).reduce((a, x) => a + x.licences_max, 0);
       const l = ligne("licence");
       if (!l) throw new Error("Ligne « licence » absente de l'abonnement.");
-      if (l.quantity !== total) await stripe.subscriptionItems.update(l.id, { quantity: total, ...prorata });
+      // Revue 17 (D3-13, relecture) : les deux lignes (licences, entreprises supplémentaires) changent en UN appel : une seule
+      // facture de prorata (« Ajouter une entreprise » change la licence de l'admin et l'entreprise supplémentaire). Stripe
+      // d'abord : la base n'est écrite qu'une fois la facture à jour (revue 16c, D1-08).
+      const items: Stripe.SubscriptionUpdateParams.Item[] = [];
+      if (l.quantity !== total) items.push({ id: l.id, quantity: total });
+      // Entreprises : la ligne « supplémentaire » suit le nombre d'entreprises du groupe.
+      const suivantes = n - 1, s = ligne("entreprise_suivante");
+      if (s && suivantes > 0 && s.quantity !== suivantes) items.push({ id: s.id, quantity: suivantes });
+      else if (s && suivantes <= 0) items.push({ id: s.id, deleted: true });
+      else if (!s && suivantes > 0) items.push({ price: await prix("entreprise_suivante", f), quantity: suivantes });
+      if (items.length) await stripe.subscriptions.update(sub.id, { items, ...prorata });
       if (licences && cible) {
         const { error } = await service.from("entreprises").update({ licences_max: licences }).eq("id", cible);
         if (error) throw error;
-      }
-
-      // Entreprises : la ligne « supplémentaire » suit le nombre d'entreprises du groupe.
-      const suivantes = n - 1, s = ligne("entreprise_suivante");
-      if (s && suivantes > 0 && s.quantity !== suivantes) await stripe.subscriptionItems.update(s.id, { quantity: suivantes, ...prorata });
-      else if (s && suivantes <= 0) await stripe.subscriptionItems.del(s.id, prorata);
-      else if (!s && suivantes > 0) {
-        await stripe.subscriptionItems.create({ subscription: sub.id, price: await prix("entreprise_suivante", f), quantity: suivantes, ...prorata });
       }
       return json({ ok: true });
     }

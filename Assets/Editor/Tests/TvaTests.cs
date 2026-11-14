@@ -84,7 +84,7 @@ public class TvaTests
         string src(string f) => File.ReadAllText(Path.Combine(Application.dataPath, "Script", f));
         StringAssert.DoesNotContain("assujettiTva", src("Locataire/Locataire.cs"));
         StringAssert.DoesNotContain("AssujettiTva", src("Locataire/LocatairePrefab.cs"));
-        StringAssert.Contains("Active && Tva.Soumis(loc)", src("Facturation/FactureElectronique.cs"), "Concerne et SansSiret");
+        StringAssert.Contains("Active && Math.Abs(tva) > 0.005f", src("Facturation/FactureElectronique.cs"), "Concerne et SansSiret : le taux du document (Revue 17, D5-08, lot 10), plus le bail du jour");
         StringAssert.Contains("_tvaToggle", src("RevisionLoyer/RevisionPanel.cs"), "une case, pas un menu");
         StringAssert.Contains("if (_tvaTouche) _loc.tvaLoyer", src("RevisionLoyer/RevisionPanel.cs"), "BK4 : le bail garde son choix dès qu'on y a touché");
         foreach (var p in new[] { "Facturation/FactureLoyerPanel.cs", "Facturation/FactureRegulPanel.cs", "Facturation/FactureRefacPanel.cs" })

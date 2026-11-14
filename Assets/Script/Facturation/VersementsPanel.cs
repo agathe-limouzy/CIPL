@@ -12,12 +12,29 @@ public static class VersementsPanel
 {
     static string Euros(float v) => v.ToString("#,##0.00", FacturePdfService.FrCulture) + " €";
 
-    public static void Ouvrir(LocatairePrefab fiche, FactureEtat ligne, Action apres)
+    /// Revue 17 (D4-12, coutures) : les deux fenêtres réservent le locataire ET son bâtiment (« Payé » écrit aussi les charges
+    /// couvertes) tant qu'elles sont ouvertes, comme un formulaire de facture : fiche prise par un collègue → refus au centre à
+    /// l'ouverture ; la relecture en direct attend (EcritureCloud.Occupe) et la fermeture de CIPL les voit (FichesTenues).
+    /// Avant : aucune réservation, et un versement saisi pendant une relecture partait sur une fiche périmée, perdu sans message.
+    static void Reserver(LocatairePrefab fiche, string motif, Func<RectTransform> construire)
+    {
+        if (fiche == null) return;
+        RectTransform scrim = null;
+        EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, true), motif,
+            // fiche relue pendant l'aller-retour du verrou (objet détruit) : on le dit, comme « Modifier » (D2-11)
+            () => { if (fiche == null) ConfirmDialog.Erreur("La fiche vient d'être mise à jour par un collègue : recommencez."); else scrim = construire(); },
+            () => scrim != null, () => { if (scrim != null) UnityEngine.Object.Destroy(scrim.gameObject); });
+    }
+
+    public static void Ouvrir(LocatairePrefab fiche, FactureEtat ligne, Action apres) =>
+        Reserver(fiche, "paiement", () => Fenetre(fiche, ligne, apres));
+
+    static RectTransform Fenetre(LocatairePrefab fiche, FactureEtat ligne, Action apres)
     {
         var loc = fiche != null ? fiche.GetLocataire() : null;
         var canvas = fiche != null ? fiche.GetComponentInParent<Canvas>() : null;
         var rec = FacturationSuivi.Porteuse(loc, ligne?.key);
-        if (loc == null || canvas == null || rec == null) return;
+        if (loc == null || canvas == null || rec == null) return null;
         FacturationSuivi.Solde(loc, ligne.key, out float total, out float payeAvant);
         // Copie : « Annuler » ne touche à rien.
         var liste = (rec.versements ?? new List<Versement>())
@@ -125,16 +142,20 @@ public static class VersementsPanel
                 ? $"Paiement enregistré : reste {Euros(reste)} à payer."
                 : "Facture réglée : elle passe « Payé ».");
         });
+        return scrim;
     }
 
     /// Retour BN17 (décisions du 04/11) : « Remboursé… » : ce que nous rendons au locataire (le trop-perçu d'une facture payée
     /// puis corrigée à la baisse, ou un avoir) : montant proposé, date ; tout rendu → la facture passe « Payé ». Les règles
     /// sont dans FacturationSuivi.EnregistrerRemboursement.
-    public static void Rembourser(LocatairePrefab fiche, FactureEtat ligne, Action apres)
+    public static void Rembourser(LocatairePrefab fiche, FactureEtat ligne, Action apres) =>
+        Reserver(fiche, "remboursement", () => FenetreRemboursement(fiche, ligne, apres));   // D4-12 : réservée comme « Paiement partiel… »
+
+    static RectTransform FenetreRemboursement(LocatairePrefab fiche, FactureEtat ligne, Action apres)
     {
         var loc = fiche != null ? fiche.GetLocataire() : null;
         var canvas = fiche != null ? fiche.GetComponentInParent<Canvas>() : null;
-        if (loc == null || canvas == null || FacturationSuivi.Porteuse(loc, ligne?.key) == null) return;
+        if (loc == null || canvas == null || FacturationSuivi.Porteuse(loc, ligne?.key) == null) return null;
         FacturationSuivi.Solde(loc, ligne.key, out float total, out float paye);
         float du = FacturationSuivi.ARembourser(loc, ligne.key);
 
@@ -192,5 +213,6 @@ public static class VersementsPanel
                 ? $"Remboursement enregistré : reste {Euros(reste)} à rendre."
                 : "Remboursement enregistré : la facture passe « Payé ».");
         });
+        return scrim;
     }
 }

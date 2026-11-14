@@ -248,8 +248,8 @@ public static class EmailService
         + "Cordialement,\n"
         + "{societe.nom}";
 
-    /// Étape 18b : jusqu'au 31/8/2027, l'e-mail avec le PDF d'un loyer qui part aussi par la plateforme. La
-    /// facture électronique fait foi, le PDF en est la copie (décisions des 30 et 31/10).
+    /// Étape 18b : jusqu'au 31/8/2027, l'e-mail avec le PDF d'une facture qui part aussi par la plateforme (loyer ; régularisation
+    /// et refacturation depuis la Revue 17, D5-10, lot 13). La facture électronique fait foi, le PDF en est la copie (décisions des 30 et 31/10).
     public const string CopieObjetDefaut = "{societe.nom} — facture {numero} — copie pour information";
 
     public const string CopieCorpsDefaut =
@@ -259,7 +259,7 @@ public static class EmailService
         + "Cordialement,\n"
         + "{societe.nom}";
 
-    /// Étape 18b : l'e-mail de notification, sans PDF, à partir du 1/9/2027.
+    /// Étape 18b : l'e-mail de notification, sans PDF, à partir du 1/9/2027 (les trois factures par la plateforme : lot 13).
     public const string NotifObjetDefaut = "{societe.nom} — facture {numero} transmise";
 
     public const string NotifCorpsDefaut =
@@ -302,6 +302,50 @@ public static class EmailService
 
     /// À l'enregistrement d'une facture : vide si le texte est celui du modèle, qu'il continuera de suivre.
     public static string AGarder(string texte, string modele) => (texte ?? "").Trim() == (modele ?? "").Trim() ? "" : texte;
+
+    // ── Revue 17 (D5-10, lot 13) : une seule règle du mode de l'e-mail pour le loyer, la régularisation et la refacturation ──
+    // Facture qui part par la plateforme : avant le 1/9/2027, l'e-mail « copie » avec le PDF ; après, la notification sans PDF
+    // (décisions des 30 et 31/10). Sinon l'e-mail de facture. Avant, régul et refac partaient toujours avec l'e-mail de facture
+    // (limite du 02/11) : le locataire recevait deux originaux du même numéro.
+
+    /// Le texte (objet, corps) du mode : celui propre à la facture `f` dans la paire de ce mode, sinon le modèle des Réglages, sinon l'usine.
+    public static (string objet, string corps) Modeles(FactureInfo f, bool parPlateforme, bool notification) =>
+        parPlateforme && notification ? (ObjetNotif(f?.notifObjet), CorpsNotif(f?.notifCorps))
+        : parPlateforme ? (ObjetCopie(f?.copieObjet), CorpsCopie(f?.copieCorps))
+        : (ObjetFacture(f?.emailObjet), CorpsFacture(f?.emailCorps));
+
+    /// À l'enregistrement, et quand le mode change sous un texte retouché : le texte du formulaire va dans la paire du mode AFFICHÉ
+    /// (vide s'il suit le modèle, AGarder). Un e-mail de facture personnalisé ne devient pas la « copie » du type.
+    public static void Garder(FactureInfo f, bool parPlateforme, bool notification, string objet, string corps)
+    {
+        if (f == null) return;
+        var (mo, mc) = Modeles(null, parPlateforme, notification);
+        if (parPlateforme && notification) { f.notifObjet = AGarder(objet, mo); f.notifCorps = AGarder(corps, mc); }
+        else if (parPlateforme) { f.copieObjet = AGarder(objet, mo); f.copieCorps = AGarder(corps, mc); }
+        else { f.emailObjet = AGarder(objet, mo); f.emailCorps = AGarder(corps, mc); }
+    }
+
+    /// Ce qui part par e-mail avec le PDF : le texte du formulaire quand il est affiché dans le vrai mode (`modeAffiche` ; vide : le modèle
+    /// des Réglages), sinon le texte du vrai mode (Modeles) : une facture ouverte en « copie » qui ne part finalement pas par la plateforme,
+    /// ou l'inverse (état de Super PDP relu entre l'ouverture et l'envoi). La règle « copieFausse » du loyer, dans les deux sens.
+    public static (string objet, string corps) TexteEnvoi(FactureInfo f, bool parPlateforme, bool modeAffiche, string objet, string corps)
+    {
+        var m = Modeles(modeAffiche ? null : f, parPlateforme, false);
+        return modeAffiche ? (FacturePdfService.Texte(objet, m.objet), FacturePdfService.Texte(corps, m.corps)) : m;
+    }
+
+    /// L'aide sous les champs de l'e-mail, selon le mode affiché.
+    public static string Aide(bool parPlateforme, bool notification) =>
+        "« / » ouvre la liste des variables. "
+        + (parPlateforme && notification ? "E-mail de notification, sans pièce jointe : la facture part par la plateforme."
+           : parPlateforme ? "La facture part aussi par la plateforme : cet e-mail en joint la copie PDF."
+           : "La facture est jointe en PDF automatiquement.")
+        + " Modèle : Réglages › Modèles d'e-mail.";
+
+    /// Un avoir ne se règle pas : pour un total négatif, la notification perd son « , à régler le {echeance} » (texte d'usine, ou modèle
+    /// des Réglages qui l'a gardé) ; une facture le garde. Lu par FactureElectronique.Notifier.
+    public static string CorpsNotif(string propre, bool avoir) =>
+        avoir ? CorpsNotif(propre).Replace(", à régler le {echeance}", "") : CorpsNotif(propre);
 
     /// Objet et corps du message de test. Volontairement explicites : s'il arrive
     /// dans une vraie boîte, il doit se lire comme un test et pas comme une facture.

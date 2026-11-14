@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 /// Emplacement des données d'un bâtiment et de ses locataires, nommé par le NOM
@@ -184,6 +185,7 @@ public static class DossiersDonnees
         string cible = Path.GetFileName(source);
         for (int i = 2; File.Exists(Path.Combine(dossier, cible)); i++) cible = $"{nom} ({i}){ext}";
         File.Copy(source, Path.Combine(dossier, cible));
+        DocumentsCloud.Bientot();   // Revue 17 (D2-03, lot D) : le document part au cloud dans 2 s, sans attendre le passage des 20 s
         return cible;
     }
 
@@ -206,7 +208,7 @@ public static class DossiersDonnees
 
         if (!Directory.Exists(source)) return true;            // aucun dossier encore créé
 
-        if (Directory.Exists(destination))
+        if (DestinationOccupee(destination))
         {
             erreur = $"un dossier « {NomDossier(nouveauNom)} » existe déjà";
             return false;
@@ -215,7 +217,11 @@ public static class DossiersDonnees
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(destination));
+            // Revue 17 (D2-02, lot D) : geste voulu, annoncé juste APRÈS le déplacement réussi (sans attente entre les deux) :
+            // les fichiers « disparus » de l'ancien dossier ne font pas sauter le fusible des suppressions (sinon l'ancien nom
+            // restait pour toujours chez les collègues). Un déplacement raté (PDF ouvert) n'annonce rien : la garde reste entière.
             Directory.Move(source, destination);
+            DocumentsCloud.RetraitVoulu(source);
             DocumentsCloud.Bientot();   // les collègues voient les documents sous le nouveau nom sans attendre
             return true;
         }
@@ -237,7 +243,7 @@ public static class DossiersDonnees
 
         if (!Directory.Exists(source)) return true;
 
-        if (Directory.Exists(destination))
+        if (DestinationOccupee(destination))
         {
             erreur = $"un dossier « {NomDossier(nouveauNom)} » existe déjà dans ce bâtiment";
             return false;
@@ -246,6 +252,7 @@ public static class DossiersDonnees
         try
         {
             Directory.Move(source, destination);
+            DocumentsCloud.RetraitVoulu(source);   // Revue 17 (D2-02, lot D) : après le déplacement réussi, voir RenommerBatiment
             DocumentsCloud.Bientot();   // voir RenommerBatiment
             return true;
         }
@@ -254,6 +261,25 @@ public static class DossiersDonnees
             erreur = e.Message;
             return false;
         }
+    }
+
+    /// Revue 17 (D2-11, lot D) : la destination d'un renommage est-elle prise ? Un dossier sans AUCUN fichier ne l'est pas : il
+    /// est retiré et le renommage continue. Chez les collègues, un bâtiment supprimé ou renommé ailleurs laissait son
+    /// arborescence vide, et un renommage vers ce nom était refusé sur leur poste (« un dossier existe déjà »), sans issue.
+    /// Les dossiers vides sont retirés un par un, du plus profond vers le haut : jamais de suppression récursive, donc
+    /// jamais un fichier. Illisible ou ouvert ailleurs : tenu pour pris, le renommage est refusé comme avant.
+    static bool DestinationOccupee(string destination)
+    {
+        if (!Directory.Exists(destination)) return false;
+        try
+        {
+            if (Directory.EnumerateFiles(destination, "*", SearchOption.AllDirectories).Any()) return true;
+            foreach (var d in Directory.GetDirectories(destination, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length))
+                Directory.Delete(d);
+            Directory.Delete(destination);
+            return false;
+        }
+        catch (Exception) { return true; }
     }
 
     /// Réécrit les chemins de photos après un changement de nom de bâtiment : le

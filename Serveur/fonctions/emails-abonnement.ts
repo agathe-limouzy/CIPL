@@ -44,7 +44,9 @@ async function alignerAbonnements(): Promise<Record<string, string>> {
       if (sub.status === "canceled" || sub.status === "incomplete_expired") { bilan[g.id] = "abonnement terminé"; continue; }
       const f = sub.items.data[0]?.price.recurring?.interval === "year" ? "annuel" : "mensuel";
       const ligne = (nom: string) => sub.items.data.find((i) => i.price.lookup_key === `cipl_${nom}_${f}`);
-      const prorata = { proration_behavior: "create_prorations" as const };
+      // Revue 17 (D3-13, décision du 09/11) : le prorata est facturé tout de suite, comme dans « ajuster » (abonnement-stripe.ts).
+      // Avant, il attendait la facture suivante : un an sur l'annuel, jamais si le client résiliait à l'échéance.
+      const prorata = { proration_behavior: "always_invoice" as const };
       const faits: string[] = [];
       const l = ligne("licence");
       if (l && total > 0 && l.quantity !== total) {
@@ -101,24 +103,24 @@ function message(sorte: string, ents: string, date: string): { objet: string; pa
     case "essai_j7": return {
       objet: `Votre essai CIPL se termine dans ${joursRestants(date)} jours`,
       paragraphes: [
-        `L'essai gratuit de CIPL pour ${ents} se termine le ${jour(date)}. Pour continuer à saisir et envoyer vos factures sans interruption, choisissez votre abonnement dans CIPL : Réglage › Abonnement (mensuel ou annuel, une licence par personne et par entreprise).`,
+        `L'essai gratuit de CIPL pour ${ents} se termine le ${jour(date)}. Pour continuer à saisir et envoyer vos factures sans interruption, choisissez votre abonnement dans CIPL : Réglages › Abonnement (mensuel ou annuel, une licence par personne et par entreprise).`,
         `Sans abonnement, CIPL passera en lecture seule le ${jour(date, 1)} : vos données resteront consultables et exportables.`,
       ] };
     case "essai_j1": return {
       objet: "Votre essai CIPL se termine demain",
-      paragraphes: [`L'essai gratuit de CIPL pour ${ents} se termine demain, le ${jour(date)}. Choisissez votre abonnement dans Réglage › Abonnement pour ne pas passer en lecture seule.`] };
+      paragraphes: [`L'essai gratuit de CIPL pour ${ents} se termine demain, le ${jour(date)}. Choisissez votre abonnement dans Réglages › Abonnement pour ne pas passer en lecture seule.`] };
     case "essai_fin": return {
       objet: "Votre essai CIPL est terminé",
-      paragraphes: [`L'essai gratuit de CIPL pour ${ents} est terminé : CIPL est maintenant en lecture seule pour tout le groupe. Rien n'est perdu : choisissez votre abonnement dans Réglage › Abonnement, et la saisie et l'envoi des factures reprennent aussitôt.`] };
+      paragraphes: [`L'essai gratuit de CIPL pour ${ents} est terminé : CIPL est maintenant en lecture seule pour tout le groupe. Rien n'est perdu : choisissez votre abonnement dans Réglages › Abonnement, et la saisie et l'envoi des factures reprennent aussitôt.`] };
     case "resiliation": return {
       objet: "Votre résiliation CIPL est enregistrée",
       paragraphes: [
         `La résiliation de votre abonnement CIPL est enregistrée. Il reste actif jusqu'au ${jour(date)}, puis CIPL passera en lecture seule.`,
-        `Vous avez changé d'avis ? « Reprendre l'abonnement » dans Réglage › Abonnement, jusqu'à cette date. Pensez à exporter vos données (Réglage › Documents).`,
+        `Vous avez changé d'avis ? « Reprendre l'abonnement » dans Réglages › Abonnement, jusqu'à cette date. Pensez à exporter vos données (Réglages › Entreprise › Exporter toutes les données).`,
       ] };
     case "abonnement_fin": return {
       objet: "Votre abonnement CIPL est terminé",
-      paragraphes: [`Votre abonnement CIPL a pris fin le ${jour(date)} : CIPL est en lecture seule pour tout le groupe. Vos données restent consultables et exportables ; pour reprendre, choisissez un abonnement dans Réglage › Abonnement.`] };
+      paragraphes: [`Votre abonnement CIPL a pris fin le ${jour(date)} : CIPL est en lecture seule pour tout le groupe. Vos données restent consultables et exportables ; pour reprendre, choisissez un abonnement dans Réglages › Abonnement.`] };
     default: return null;
   }
 }

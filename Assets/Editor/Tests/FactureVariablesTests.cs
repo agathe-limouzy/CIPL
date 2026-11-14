@@ -4,7 +4,8 @@ using NUnit.Framework;
 
 /// Le catalogue des variables et le résolveur doivent rester d'accord.
 ///
-/// Le menu « / » propose `FactureVariables.All` dans les textes de facture. Si une
+/// Le menu « / » propose `FactureVariables.All` dans les textes de facture (les groupes à
+/// portée limitée, seulement dans leur champ : `SlashAutocomplete.Proposees`). Si une
 /// entrée du catalogue n'est pas résolue par `FactureVarResolver`, l'utilisatrice
 /// l'insère en confiance et le jeton `{loc.nom}` s'imprime **tel quel sur un document
 /// envoyé au client**. C'est précisément ce que ces tests interdisent.
@@ -118,15 +119,16 @@ public class FactureVariablesTests
     [Test]
     public void Les_variables_a_portee_limitee_sont_annoncees_comme_telles()
     {
-        // Elles ne sont PAS résolues par le résolveur général — c'est voulu. Leur
-        // groupe doit donc dire où elles fonctionnent, sinon le menu ment.
+        // Elles ne sont PAS résolues par le résolveur général — c'est voulu. Revue 17 (D6-08) : le menu ne les
+        // propose donc que dans le champ qui les remplace (avant, il les proposait partout sans montrer leur groupe).
         foreach (var v in FactureVariables.All)
         {
             if (Array.IndexOf(GroupesResolusAilleurs, v.groupe) < 0) continue;
 
             Assert.That(FactureVarResolver.Resolve(v.token, Loc(), Bat(), Ctx()), Is.EqualTo(v.token),
                         $"{v.token} est censée être résolue ailleurs qu'au résolveur général");
-            Assert.That(v.groupe, Is.Not.Null.And.Not.Empty);
+            Assert.That(SlashAutocomplete.Proposees("").Exists(x => x.token == v.token), Is.False, v.token + " : pas proposée partout");
+            Assert.That(SlashAutocomplete.Proposees("", v.groupe).Exists(x => x.token == v.token), Is.True, v.token + " : proposée dans son champ");
         }
     }
 }

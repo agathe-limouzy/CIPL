@@ -9,7 +9,7 @@ using UnityEngine.UI;
 
 /// Écran « Information Facture — Régularisation des charges ».
 /// Récapitule la quote-part du locataire sur les charges IMPAYÉES d'une année,
-/// la compare aux provisions déjà versées (provision × nb de périodes) et facture
+/// la compare aux provisions déjà versées (celles appelées avec les loyers de l'année) et facture
 /// la différence (TVA 20 %). L'aperçu réel est rendu à droite (image), et
 /// « Sauvegarder et envoyer » produit le PDF, passe les charges concernées en
 /// « payé » et avance le numéro. AUCUN envoi réel ici.
@@ -36,13 +36,20 @@ public class FactureRegulPanel : MonoBehaviour
     LocatairePrefab _fiche; Locataire _loc; Batiment _bat;
 
     TMP_Text _titre, _entetePreview, _modeInfo, _previewHint;
+    Button _btnSauver;   // décision du 11/11 : « Corriger et envoyer » pendant une correction
     TMP_Text _tCharges, _tProvisions, _tDeja, _tSolde, _tTVA, _tTTC;
     TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _provisions, _emailEnvoi;
     TMP_InputField _texteTvaDebit, _tauxTva;
     TMP_InputField _emailObjet, _emailCorps;
+    TMP_Text _aideEmail;
+    // Revue 17 (D5-10, lot 13) : comme le loyer, les champs de l'e-mail sont ceux de la « copie » (facture qui part aussi par la plateforme,
+    // avant la bascule) ou de la notification (après), sinon ceux de l'e-mail de facture ; ils suivent le SIRET et le taux tapés
+    // (RefreshPlateforme) ; `_chargement` : LoadIntoUI écrit ces champs, l'écouteur attend la fin.
+    bool _modeNotif, _modeCopie, _chargement;
     bool _envoiEnCours;   // empêche un second clic de produire un second envoi
     string _numeroEmis;   // le numéro décidé par FactureEmission.Preparer pendant l'émission (revue 16c, D6-03)
     string NumeroDocument() => _numeroEmis ?? ComposedNumero();
+    string _idGarde;      // Revue 17 (2c, décision du 06/11) : l'ID tapé, mis de côté pendant qu'un numéro repris occupe la ligne
     string _autoEcheance; // échéance proposée, suivie tant qu'elle n'est pas saisie à la main (revue 16c, D6-02)
 
     void SuivreEcheance()
@@ -51,7 +58,7 @@ public class FactureRegulPanel : MonoBehaviour
         _autoEcheance = d.AddDays(FacturationSuivi.EcheanceAutres(_loc)).ToString("dd/MM/yyyy");
         _echeance.text = _autoEcheance;
     }
-    TMP_Text _numeroPrefixe;
+    TMP_Text _numeroPrefixe, _numeroAide;
     string _autoSomme;   // dernière phrase de règlement auto (suivie tant que non personnalisée)
     string _autoProv;    // dernière provision auto (suit l'année tant que non saisie à la main)
     UIDropdown _ribDD, _enteteDD, _numeroFormatDD, _anneeDD;
@@ -61,6 +68,8 @@ public class FactureRegulPanel : MonoBehaviour
     Transform _listesBox;
     readonly List<(string id, Toggle t)> _listesCases = new List<(string, Toggle)>();
     FactureEtat _ligneCiblee;   // ligne du suivi cliquée : elle désigne l'année à ouvrir
+    string _autoTaux;           // Revue 17 (D5-08, lot 10) : dernier taux de TVA proposé (suivi tant qu'il n'est pas saisi à la main)
+    bool _acheteurAutre;        // Revue 17 (D4-01, lot 6) : correction d'une facture d'un autre titulaire (cédant) : son acheteur, pas le réglage du type
     Toggle _retard;
     UIDropdown _mentionTva;
     Transform _chargesBox;
@@ -101,7 +110,7 @@ public class FactureRegulPanel : MonoBehaviour
         // panneau est ouvert (étape 4b, décision du 13/10).
         var p = Instance;
         EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, true), "régularisation", () => p.OpenFor(fiche, ligneCiblee),
-            () => p != null && p.gameObject.activeSelf && p._fiche == fiche, () => { if (p != null) p.Close(); });
+            () => p != null && p.gameObject.activeSelf && p._fiche == fiche, () => { if (p != null) p.FermerDeForce(); });
     }
 
     void OpenFor(LocatairePrefab fiche, FactureEtat ligneCiblee = null)
@@ -127,7 +136,11 @@ public class FactureRegulPanel : MonoBehaviour
 
     public void Close() => gameObject.SetActive(false);
     void Retour() { if (!FactureEmission.RefuseFermeture(_envoiEnCours)) Close(); }   // revue 16c, D4-02
-    void OnDisable() => _envoiEnCours = false;   // fermé de force pendant un envoi : pas bloqué ensuite
+    // Revue 17 (D4-07, coutures) : fermeture venue du cloud (fiche libérée par un admin, reprise après une coupure, rechargement) : pendant
+    // l'envoi, elle attend sa fin (EnvoyerPuisFinaliser). Avant : Close() arrêtait l'envoi entre l'e-mail et l'enregistrement.
+    bool _fermerApresEnvoi;
+    void FermerDeForce() { if (FactureEmission.RefuseFermeture(_envoiEnCours)) _fermerApresEnvoi = true; else Close(); }   // même message que « Retour »
+    void OnDisable() { FactureEmission.NoterEnvoi(ref _envoiEnCours, false); _fermerApresEnvoi = false; }   // fermé pendant un envoi : pas bloqué ensuite
     void OnDestroy() { if (_previewTex != null) Destroy(_previewTex); }
 
     // ── Construction ───────────────────────────────────────────────────────────
@@ -171,6 +184,7 @@ public class FactureRegulPanel : MonoBehaviour
         UIFactory.Text(d.transform, "Adresse", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _adresse = UIFactory.Input(d.transform, "Adresse (plusieurs lignes possibles)", 88, true);
         _siret = Labeled(d, "SIRET");
+        _siret.onValueChanged.AddListener(_ => RefreshPlateforme());   // Revue 17 (D5-10, lot 13) : le SIRET tapé décide aussitôt de la plateforme
 
         // ── 1. En-tête du document ──
         var e = UIFactory.Section(content, "En-tête du document", CoBleu, CoBleuL);
@@ -206,11 +220,12 @@ public class FactureRegulPanel : MonoBehaviour
             UITheme.Role.Donnee, UITheme.TexteSecondaire).gameObject;
         _listesBox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "ListesBox").transform;
         UIFactory.Text(g.transform, "Année à régulariser (charges impayées)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
-        _anneeDD = UIDropdown.Create(g.transform, new List<string> { "—" }, new List<string> { DateTime.Today.Year.ToString() }, 0, _ => { RefreshProvisionsAuto(); RefreshCharges(); });
+        _anneeDD = UIDropdown.Create(g.transform, new List<string> { "—" }, new List<string> { DateTime.Today.Year.ToString() }, 0, _ => { RefreshProvisionsAuto(); RefreshCharges(); RefreshNumero(); RefreshTauxDefault(); });   // Revue 17 (D5-08, lot 10) : le taux suit la facture visée
         UIFactory.Text(g.transform, "Charges concernées (quote-part du locataire) :", UITheme.Role.Aide, UITheme.TexteSecondaire);
         var cbox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "ChargesBox");
         _chargesBox = cbox.transform;
-        _provisions = Labeled(g, "Provisions déjà versées (provision × périodes facturées)");
+        // Revue 17 (lot 16, D6-N5) : le libellé dit ce qui est proposé : les provisions appelées, période par période (ProvisionsAuto).
+        _provisions = Labeled(g, "Provisions déjà versées (appelées avec les loyers de l'année)");
         SaisieNumerique.Montant(_provisions);   // retour BN2 (04/11) : la virgule aussi
         _provisions.onValueChanged.AddListener(_ => { RefreshTotaux(); RefreshEntetePreview(); });
         _tCharges    = MontRow(g, "Total des charges (quote-part)");
@@ -227,7 +242,7 @@ public class FactureRegulPanel : MonoBehaviour
         // pas à la chercher. Même règle que sur le panneau Loyer.
         _mentionTva = MentionTva.Creer(g.transform, out _texteTvaDebit);
         _tauxTva = Labeled(g, "Taux de TVA (%)");   // 02/11
-        _tauxTva.onValueChanged.AddListener(_ => RefreshCharges());
+        _tauxTva.onValueChanged.AddListener(_ => { RefreshCharges(); RefreshPlateforme(); });   // Revue 17 (D5-08, lot 10 ; D5-10, lot 13) : la plateforme suit le taux du document
 
         // ── 3. Règlement (pied du document) ──
         // L'échéance, la phrase qu'elle alimente et le RIB sont voisins : le lien se
@@ -235,7 +250,7 @@ public class FactureRegulPanel : MonoBehaviour
         // libellé de l'échéance — elle ne servait qu'à compenser l'éloignement.
         var p = UIFactory.Section(content, "Règlement", CoReglement, CoReglementL);
         _echeance = Labeled(p, "Date d'échéance");
-        _echeance.onValueChanged.AddListener(_ => RefreshSommeDefault());
+        _echeance.onValueChanged.AddListener(_ => { RefreshSommeDefault(); RefreshEntetePreview(); });   // coutures (10/11) : l'aperçu de l'entête suit l'échéance ({echeance})
         _sommePhrase = Labeled(p, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
         SlashAutocomplete.Attach(_sommePhrase);
         UIFactory.Text(p.transform, "RIB CIPL", UITheme.Role.Donnee, UITheme.TexteSecondaire);
@@ -254,9 +269,7 @@ public class FactureRegulPanel : MonoBehaviour
         UIFactory.Text(o.transform, "Corps du message", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         _emailCorps = UIFactory.Input(o.transform, EmailService.CorpsDefaut, 110, true);
         SlashAutocomplete.Attach(_emailCorps);
-        UIFactory.Text(o.transform,
-            "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement.",
-            UITheme.Role.Aide, UITheme.TexteSecondaire);
+        _aideEmail = UIFactory.Text(o.transform, EmailService.Aide(false, false), UITheme.Role.Aide, UITheme.TexteSecondaire);   // lot 13 : suit le mode
         _emailEnvoi = Labeled(o, "Email d'envoi");
 
         var gen = UIFactory.Button(left.transform, "Générer facture", UITheme.Primaire, Color.white, 46, UITheme.Role.Bouton);
@@ -302,7 +315,10 @@ public class FactureRegulPanel : MonoBehaviour
 
         var save = UIFactory.Button(right.transform, "Sauvegarder et envoyer", Hex("#854F0B"), Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(save.gameObject, minH: 56, flexH: 0);
-        save.onClick.AddListener(SauvegarderEtEnvoyer);
+        _btnSauver = save;
+        // Revue 17 (D5-17, coutures) : un taux de TVA inhabituel tapé pour cette facture, autre que celui du bail ou de la facture
+        // corrigée, se confirme avant l'émission (même règle que le loyer : Tva.ConfirmerTaux).
+        save.onClick.AddListener(() => Tva.ConfirmerTaux(TauxFacture(), Tva.TauxPropose(_loc, null, Corrigee()), SauvegarderEtEnvoyer));
     }
 
     // ── Chargement ─────────────────────────────────────────────────────────────
@@ -311,13 +327,17 @@ public class FactureRegulPanel : MonoBehaviour
     {
         if (_loc == null) return;
         var f = _loc.factureRegul;
-
-
-        _titre.text = $"Régularisation des charges · {(_loc.Name ?? "")}";
+        _chargement = true;   // Revue 17 (D5-10, lot 13) : le SIRET et le taux posés ici ne déclenchent pas RefreshPlateforme, appelé en dernier
+        // (le titre, avec le nom du locataire, est posé par RefreshNumero, plus bas : Revue 17, D4-10)
 
         _nom.text     = !string.IsNullOrEmpty(f?.destNom)     ? f.destNom     : (_loc.Name ?? "");
         _adresse.text = !string.IsNullOrEmpty(f?.destAdresse) ? f.destAdresse : (_loc.adresseLocataire ?? "");
         _siret.text   = !string.IsNullOrEmpty(f?.destSiret)   ? f.destSiret   : (_loc.siretNumber ?? "");
+        // Revue 17 (D4-01, lot 6) : la correction d'une facture d'un autre titulaire (un cédant) reprend son acheteur et son adresse
+        // d'envoi, gardés sur la ligne et sa cession ; le réglage du type et la fiche sont passés au cessionnaire.
+        var acheteur = Cessions.AcheteurDe(_loc, _ligneCiblee);
+        _acheteurAutre = acheteur != null;
+        if (_acheteurAutre) { _nom.text = acheteur[0] ?? ""; _siret.text = acheteur[1] ?? ""; _adresse.text = acheteur[2] ?? ""; }
 
         _ribDD.SetOptions(
             R.ribs.Select(r => string.IsNullOrWhiteSpace(r.name) ? "(RIB)" : r.name).ToList(),
@@ -335,7 +355,8 @@ public class FactureRegulPanel : MonoBehaviour
         _autoEcheance = now.AddDays(FacturationSuivi.EcheanceAutres(_loc)).ToString("dd/MM/yyyy");
         _echeance.text = _autoEcheance;
         _autoSomme = DefaultSomme();
-        _sommePhrase.text = !string.IsNullOrEmpty(f?.sommePhrase) ? f.sommePhrase : _autoSomme;
+        // Revue 17 (06/11) : une phrase d'usine mémorisée (ancienne date) cède la place à celle de cette facture.
+        _sommePhrase.text = string.IsNullOrEmpty(f?.sommePhrase) || FactureEmission.EstPhraseUsine(f.sommePhrase) ? _autoSomme : f.sommePhrase;
 
         string fmt = f != null && !string.IsNullOrEmpty(f.numeroFormat) ? f.numeroFormat : "AMN";
         _numeroFormatDD.SetOptions(NumFmtLabels, NumFmtIds, fmt);
@@ -345,24 +366,18 @@ public class FactureRegulPanel : MonoBehaviour
         ChargerListes(f);
         ChargerAnnees(f);
 
+        _idGarde = null;   // Revue 17 (2c) : rien de mis de côté d'une ouverture précédente
         _numeroId.text = f != null && !string.IsNullOrEmpty(f.numeroId) ? f.numeroId : "";
         RefreshNumero();
 
         MentionTva.Charger(_mentionTva, _texteTvaDebit, f);
         ChargerTva(f);   // 02/11
         _retard.isOn = f?.ajouterRetard ?? true;
-        // Décision du 02/11 (BI5) : même départ que le loyer. Sur la plateforme, la phrase de retard est obligatoire
-        // (note PMD, règle BR-FR-05) : la case reste cochée pour que le PDF dise la même chose.
-        bool plateforme = FactureElectronique.Concerne(_loc, 1f, _siret.text);
-        bool obligatoire = plateforme || FactureElectronique.Professionnel(_loc, _siret.text);   // Revue 17 (D6-03) : professionnel
-        if (obligatoire) _retard.isOn = true;
-        _retard.interactable = !obligatoire;
-        _modeInfo.text = FactureElectronique.LibelleEnvoi(_loc, _siret.text);
-        _modeInfo.color = FactureElectronique.SansSiret(_loc, _siret.text) ? UITheme.Alerte : UITheme.TexteSecondaire;
-        _emailEnvoi.text = !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");
-        _emailObjet.text = EmailService.ObjetFacture(f?.emailObjet);
-        _emailCorps.text = EmailService.CorpsFacture(f?.emailCorps);
-        // La ligne « Envoi : … » (_modeInfo) est posée avec la case retard, ci-dessus (02/11).
+        _emailEnvoi.text = _acheteurAutre ? (acheteur[3] ?? "") : !string.IsNullOrEmpty(f?.emailDest) ? f.emailDest : (_loc.emailLocataire ?? "");   // lot 6
+        // Revue 17 (D5-10, lot 13) : la partie « plateforme » (case retard forcée, mode et champs de l'e-mail, ligne « Envoi ») est posée en
+        // dernier, une fois le SIRET et le taux connus, par la même méthode qui suit ensuite ce qui est tapé (comme le loyer).
+        _chargement = false;
+        RefreshPlateforme(chargement: true);
 
         RefreshCharges();
         RefreshEntetePreview();
@@ -395,8 +410,8 @@ public class FactureRegulPanel : MonoBehaviour
         _anneeDD.SetOptions(years.Select(y => y.ToString()).ToList(), years.Select(y => y.ToString()).ToList(), selYear);
 
         // Provisions : mémorisées si saisies POUR CES MÊMES LISTES ET CETTE ANNÉE (celles
-        // d'une année pleine ne valent pas pour l'année du départ), sinon somme des
-        // provisions des listes × périodes facturées.
+        // d'une année pleine ne valent pas pour l'année du départ), sinon les provisions
+        // appelées pour ces listes avec les loyers de l'année (ProvisionsAuto).
         var sel = ListesSel();
         bool memo = f != null && f.saved && f.listesRegul != null && f.anneePeriode == SelectedYear()
                     && f.listesRegul.Select(ListesCharges.Effective).OrderBy(x => x).SequenceEqual(sel.OrderBy(x => x));
@@ -431,7 +446,7 @@ public class FactureRegulPanel : MonoBehaviour
         foreach (var id in listes)
         {
             var t = UIFactory.Toggle(_listesBox, ListesCharges.Nom(id), sel.Contains(id));
-            t.onValueChanged.AddListener(_ => { ChargerAnnees(null); RefreshCharges(); RefreshEntetePreview(); });
+            t.onValueChanged.AddListener(_ => { ChargerAnnees(null); RefreshCharges(); RefreshNumero(); RefreshTauxDefault(); });   // Revue 17 (2c) : RefreshNumero rafraîchit aussi l'entête ; (D5-08, lot 10) le taux suit la facture visée
             _listesCases.Add((id, t));
         }
         bool avecListes = ListesCharges.Specifiques().Count > 0;
@@ -500,10 +515,13 @@ public class FactureRegulPanel : MonoBehaviour
         var res = new List<ChargeBatiment>();
         if (bat?.charges == null || loc == null) return res;
         listeId = ListesCharges.Effective(listeId);
-        bool regulEmise = FacturationSuivi.EstDejaEmise(loc, ListesCharges.Cle(listeId, year), out _);
+        // Revue 17 (2c, relecture du 07/11) : aussi une régularisation préparée puis bloquée (bouton « Auto » éteint), ou remise.
+        bool regulEmise = FacturationSuivi.AFacture(loc, ListesCharges.Cle(listeId, year), out _);
         foreach (var c in bat.charges)
         {
-            if (c == null || c.paye) continue;   // réglée pour tous
+            // Revue 17 (D6-09) : une charge « Réglée pour tous » que sa régularisation émise couvre déjà y reste à la correction,
+            // comme en refacturation (avant : elle en sortait) ; encore à facturer, AFacturerPour l'écarte.
+            if (c == null) continue;
             if (!ListesCharges.DeLaListe(c, listeId)) continue;   // une autre liste a sa propre régularisation
             if (!ListesCharges.Concerne(c, loc) || TryYear(c.dateISO) != year) continue;
 
@@ -630,8 +648,12 @@ public class FactureRegulPanel : MonoBehaviour
 
     // Provisions appelées : une par période facturée de l'année (départ, arrivée,
     // franchise sans provisions → moins de périodes).
+    // Revue 17 (avenant de périodicité, lot 16 ; D6-N5) : celles RÉELLEMENT appelées, période par période (Loyers.ProvisionsAppelees :
+    // le montant imprimé sur chaque loyer quand il est connu, sinon celui de la fiche ramené à la périodicité de la période).
+    // Avant : provision de la fiche × périodes facturées, faux l'année d'un changement de périodicité (300 × 8 = 2 400 € pour
+    // 1 200 € appelés) ou d'un changement de provision.
     float ProvisionsAuto()
-        => ListesSel().Sum(id => ListesCharges.Provision(_loc, id)) * Loyers.PeriodesFacturees(_loc, SelectedYear());
+        => ListesSel().Sum(id => Loyers.ProvisionsAppelees(_loc, SelectedYear(), id));
 
     // ── Numéro / aperçu entête ─────────────────────────────────────────────────
 
@@ -654,16 +676,28 @@ public class FactureRegulPanel : MonoBehaviour
         _autoSomme = def;
     }
 
+    // Revue 17 (2c, décision du 06/11) : la facture des listes cochées a déjà son numéro : la ligne montre, grisé, celui que
+    // l'émission imprimera (le même, ou « … corrigée(X) » si elle est partie), et l'ID n'est plus modifiable.
+    // Un numéro décidé par une émission finie ou abandonnée ne vaut plus : l'aperçu et l'entête suivent la ligne.
     void RefreshNumero()
     {
         if (_loc == null) return;
+        _numeroEmis = null;
         DateTime d = TryDate(_date != null ? _date.text : "", out var dd) ? dd : DateTime.Today;
         string fmt = _numeroFormatDD != null ? _numeroFormatDD.SelectedId : "AMN";
-        if (_numeroPrefixe != null) _numeroPrefixe.text = NumeroPrefixe(fmt, d);
-        if (_numeroId != null && string.IsNullOrWhiteSpace(_numeroId.text))
-            _numeroId.text = Mathf.Max(1, _loc.factureSeq).ToString("D3");
+        string repris = FactureEmission.NumeroRepris(_loc, CleFacture());
+        if (_numeroPrefixe != null && _numeroId != null)
+            FactureEmission.AfficherNumero(_numeroAide, _numeroPrefixe, _numeroId, repris, NumeroPrefixe(fmt, d), _loc.factureSeq,
+                                           "N° de facture — repris : cette facture a déjà ce numéro", ref _idGarde);
+        // Revue 17 (D4-10, coutures) : le titre annonce la correction, comme le loyer (la règle de l'émission : SeraUneCorrection), et
+        // suit l'année et les listes cochées. Avant : rien ne disait qu'une « corrigée(X) » allait partir.
+        if (_titre != null) _titre.text = $"Régularisation des charges{(FactureEmission.SeraUneCorrection(_loc, CleFacture()) ? " (correction)" : "")} · {_loc.Name ?? ""}";
+        FactureEmission.NommerBouton(_btnSauver, FactureEmission.SeraUneCorrection(_loc, CleFacture()));   // décision du 11/11
         RefreshEntetePreview();
     }
+
+    /// Revue 17 (2c) : la ligne qui portera la facture, comme à l'émission (Regroupement) ; null si les listes cochées sont refusées.
+    string CleFacture() => Regroupement(_loc, ListesSel(), SelectedYear(), out string cle) == null ? cle : null;
 
     static string NumeroPrefixe(string fmt, DateTime d) => FactureNumerotation.Prefixe(fmt, d);
 
@@ -696,10 +730,16 @@ public class FactureRegulPanel : MonoBehaviour
             loyerHT = solde,
             tva = Tva.Montant(solde, TauxFacture()),
             ttc = Tva.Ttc(solde, TauxFacture()),
+            // Revue 17 (D6-08) : {echeance} remplie, comme à l'envoi au lancement (avant : vide dans l'e-mail et le PDF).
+            echeance = TryDate(_echeance != null ? _echeance.text : "", out var e) ? e.ToString("dd/MM/yyyy") : "",
         };
     }
 
     // ── Données PDF ────────────────────────────────────────────────────────────
+
+    /// Revue 17 (D6-22, coutures) : le titre de la page 2 (détail des charges). Lot 0 = « non renseigné » : l'adresse seule
+    /// (avant : « LOT N°0 » imprimé sur le document envoyé).
+    public static string TitreDetail(string adresse, int lot) => lot > 0 ? $"{adresse}, LOT N°{lot}" : adresse;
 
     FacturePdfService.RegulData BuildData()
     {
@@ -738,7 +778,7 @@ public class FactureRegulPanel : MonoBehaviour
         float provisions = ParseF(_provisions.text);
         float solde = chargesRegul - provisions;
         string adr = (_bat != null ? _bat.adressBatiment : "") ?? "";
-        string detailTitre = $"{adr}, LOT N°{_loc.lotBatiment}";
+        string detailTitre = TitreDetail(adr, _loc.lotBatiment);
 
         return new FacturePdfService.RegulData
         {
@@ -785,6 +825,9 @@ public class FactureRegulPanel : MonoBehaviour
 
     void GenererApercu()
     {
+        // Revue 17 (D6-05) : une date vide ou illisible est refusée au centre, le formulaire reste ouvert avec la saisie. Avant,
+        // SaveFromUI l'enregistrait vide : facture datée du jour, échéance du jour dans le suivi.
+        if (SaisieDate.RefusFacture(_date.text, _echeance.text) is string refusDate) { ConfirmDialog.Erreur(refusDate); return; }
         SaveFromUI();
         var d = BuildData();
         string png = DossiersDonnees.Apercu("apercu_regul.png");
@@ -795,17 +838,25 @@ public class FactureRegulPanel : MonoBehaviour
 
     void SauvegarderEtEnvoyer()
     {
+        if (SaisieDate.RefusFacture(_date.text, _echeance.text) is string refusDate) { ConfirmDialog.Erreur(refusDate); return; }   // Revue 17 (D6-05)
         // Refus AVANT tout (PDF, confirmation) si les listes cochées ne peuvent pas
         // former une seule facture.
-        string refus = Regroupement(_loc, ListesSel(), SelectedYear(), out string cle);
+        // Une facture regroupée se range sous UNE ligne, `key` (celle de la facture existante s'il y en a une) ; les autres
+        // reçoivent le même numéro et le même PDF.
+        string refus = Regroupement(_loc, ListesSel(), SelectedYear(), out string key);
         if (refus != null) { ConfirmDialog.Erreur(refus); return; }
 
         SaveFromUI();
         // Revue 16c (D6-03) : le numéro décidé AVANT de construire le document (entête, phrase, e-mail : {numero}).
-        var emission = FactureEmission.Preparer(_loc, cle ?? ListesCharges.Cle(ListesSel()[0], SelectedYear()), ComposedNumero());
+        // Déjà émise pour cette année → version « corrigée(X) » : même numéro, aucune nouvelle séquence consommée, PDF d'origine conservé.
+        var emission = FactureEmission.Preparer(_loc, key, ComposedNumero());
         if (emission.Refus != null) { ConfirmDialog.Erreur(emission.Refus); return; }   // D4-04 : numéro déjà pris
         _numeroEmis = emission.NumeroFacture;
         var d = BuildData();
+        // Revue 17 (D6-19, coutures ; décision du 09/11) : un total nul est refusé, comme pour le loyer : rien à facturer (avant : émis, il
+        // prenait un numéro). Revue 17 (D6-15) : sans RIB, le relevé d'identité bancaire serait vide. Les deux avant le PDF.
+        if (FactureEmission.RefusTotalNul(d.ttc, d.subtitle) is string refusNul) { ConfirmDialog.Erreur(refusNul); return; }
+        if (FactureEmission.RefusSansRib(ReglageService.GetRib(_ribDD?.SelectedId)) is string refusRib) { ConfirmDialog.Erreur(refusRib); return; }
 
         // Un solde négatif (provisions > charges) est un AVOIR, pas une facture :
         // l'émettre produirait une facture à HT/TVA/TTC négatifs, non conforme.
@@ -821,16 +872,18 @@ public class FactureRegulPanel : MonoBehaviour
                 + (-d.ttc).ToString("N2", FacturePdfService.FrCulture)
                 + " € dus AU locataire, et non réclamés. "
                 + "Il consommera un numéro comme une facture.",
-                () => Emettre(d), "Émettre");
+                () => Emettre(d, key, emission), "Émettre");
             return;
         }
 
-        Emettre(d);
+        Emettre(d, key, emission);
     }
 
     /// Génère le PDF et met le suivi à jour. Séparé de `SauvegarderEtEnvoyer` pour
     /// pouvoir être repris après une confirmation (voir le cas du remboursement).
-    void Emettre(FacturePdfService.RegulData d)
+    /// Revue 17 (D4-09, coutures) : la ligne (`key`) et la décision de SauvegarderEtEnvoyer suivent jusqu'ici, comme pour le loyer et
+    /// la refacturation. Avant : un second Regroupement et un second Preparer, dont le refus n'était pas lu.
+    void Emettre(FacturePdfService.RegulData d, string key, FactureEmission.Decision emission)
     {
         // L'envoi est asynchrone : sans cette garde, un double clic partirait deux fois.
         if (_envoiEnCours) { UndoToast.Instance?.ShowInfo("Un envoi est déjà en cours."); return; }
@@ -838,28 +891,29 @@ public class FactureRegulPanel : MonoBehaviour
         int year = SelectedYear();
         string dir = FactureDir();
         var listes = ListesSel();
-        // Une facture regroupée se range sous UNE ligne (celle de la facture existante
-        // s'il y en a une) ; les autres reçoivent le même numéro et le même PDF.
-        string refus = Regroupement(_loc, listes, year, out string key);
-        if (refus != null) { ConfirmDialog.Erreur(refus); return; }
-
-        // Déjà émise pour cette année → version « corrigée(X) » : même numéro, aucune
-        // nouvelle séquence consommée, PDF d'origine conservé. Sans cette garde, un
-        // second clic consommait un numéro et écrasait la facture précédente.
-        var emission = FactureEmission.Preparer(_loc, key, d.numero);
-        d.numero = emission.NumeroFacture;
         bool correction = emission.Correction;
-        // Revue 17 (D5-02) : la correction d'une facture transmise ne part pas en avoir (la plateforme garderait les deux).
-        string refusCorrection = FactureElectronique.RefusCorrection(_loc.facturesEtat?.Find(x => x.key == key), d.ttc, d.subtitle);
-        if (FactureElectronique.Concerne(_loc, d.tva, _siret.text) && refusCorrection != null) { ConfirmDialog.Erreur(refusCorrection); return; }
+        // Revue 17 (D5-07, lot 11) : la plateforme se décide UNE fois, ici, et suit jusqu'à Finaliser (avant : Concerne relu après l'e-mail).
+        bool parPlateforme = FactureElectronique.Concerne(_loc, d.tva, _siret.text);
+        // Revue 17 (D5-02) : la correction d'une facture transmise ne part pas en avoir (la plateforme garderait les deux). Lot 11 (D5-07,
+        // D5-05, décision du 05/11) : hors plateforme, la correction d'une facture transmise est refusée ici, au centre, avec la raison
+        // (avant : elle partait par e-mail sans un mot) ; dès la bascule, une facture qui doit partir par la plateforme aussi.
+        string refus = FactureElectronique.RefusCorrection(_loc.facturesEtat?.Find(x => x.key == key), d.ttc, d.subtitle, parPlateforme,
+                    FactureElectronique.RaisonHorsPlateforme(_loc, d.tva, _siret.text))
+             ?? FactureElectronique.RefusObligation(_loc, d.tva, _siret.text, d.subtitle, parPlateforme, DateTime.Today);
+        if (refus != null) { ConfirmDialog.Erreur(refus); return; }
         // BI8 (02/11) : un avoir cite les factures qu'il corrige (BR-FR-CO-05) : la version précédente, sinon les loyers de l'année.
-        if (FactureElectronique.Concerne(_loc, d.tva, _siret.text) && d.ttc < -0.004f
-            && FactureElectronique.ReferencesAvoir(_loc, _loc.facturesEtat?.Find(x => x.key == key), year).Count == 0)
+        var citees = parPlateforme && d.ttc < -0.004f ? FactureElectronique.ReferencesAvoir(_loc, _loc.facturesEtat?.Find(x => x.key == key), year) : null;
+        if (citees != null && citees.Count == 0)
         {
+            // Revue 17 (D5-14, coutures) : la raison suit la règle : un loyer ENVOYÉ au locataire (avant : « émis », faux pour un loyer en attente d'envoi).
             ConfirmDialog.Erreur(FactureElectronique.RefusAvoir(d.subtitle,
-                $"Aucun loyer {year} émis dans CIPL à citer : émettez d'abord les loyers de l'année, ou rendez ce trop-perçu sur le prochain loyer."));
+                $"Aucun loyer {year} envoyé au locataire à citer (un loyer en attente d'envoi, ou refusé par Super PDP, ne compte pas) : "
+                + "envoyez d'abord un loyer de l'année, ou rendez ce trop-perçu sur le prochain loyer."));
             return;
         }
+        // Revue 17 (D5-15, coutures) : par la plateforme, le PDF de l'avoir nomme les factures que son XML cite (mêmes références que
+        // Finaliser). Hors plateforme, rien n'est imprimé, comme depuis le 05/10 (la régularisation solde les provisions de l'année).
+        if (citees != null) d.factureOrigine = FactureElectronique.NumerosCites(citees);
 
         string liste = listes.Count == 1 && listes[0] == "" ? "" : "-" + string.Join("+", listes.Select(ListesCharges.Nom));
         string fname = Sanitize($"RegularisationdeCharge-{_nom.text}-{year}{liste}{emission.SuffixeFichier}") + ".pdf";
@@ -874,6 +928,15 @@ public class FactureRegulPanel : MonoBehaviour
         string png = DossiersDonnees.Apercu("apercu_regul.png");
         if (FacturePdfService.GenerateRegulPreviewPng(d, png, out _, 794, 2246)) ShowPreview(png);
 
+        // Revue 17 (D5-10 / D5-26, lot 13) : dès la bascule (1/9/2027), comme le loyer : plus de PDF par e-mail, la facture part par Super PDP
+        // après confirmation, puis la notification (FactureElectronique.Notifier). Avant : l'e-mail de facture avec le PDF, puis la notification.
+        // Pour un avoir, cette confirmation suit celle du « Remboursement au locataire ».
+        if (parPlateforme && FactureElectronique.NotificationSeule)
+        {
+            FactureElectronique.ConfirmerTransmission(_emailEnvoi.text,
+                () => Finaliser(d, year, key, emission, correction, pdf, true, parPlateforme, "  Transmise par la plateforme agréée."));
+            return;
+        }
 
         // Refus AVANT la confirmation si quelque chose manque.
         string dest = (_emailEnvoi.text ?? "").Trim();
@@ -888,10 +951,11 @@ public class FactureRegulPanel : MonoBehaviour
         if (manque != null) { ConfirmDialog.Erreur(manque + " Le PDF est enregistré."); return; }
 
         var ctx = BuildContext();
-        string objet = FactureVarResolver.Resolve(
-            FacturePdfService.Texte(_emailObjet.text, EmailService.ObjetFacture()), _loc, _bat, ctx);
-        string corps = FactureVarResolver.Resolve(
-            FacturePdfService.Texte(_emailCorps.text, EmailService.CorpsFacture()), _loc, _bat, ctx);
+        // Revue 17 (D5-10, lot 13) : par la plateforme, l'e-mail est la « copie pour information » (avant : l'e-mail de facture, deux originaux
+        // du même numéro chez le locataire) ; le texte affiché s'il est du vrai mode, sinon celui du vrai mode (EmailService.TexteEnvoi).
+        var (eo, ec) = EmailService.TexteEnvoi(_loc.factureRegul, parPlateforme, !_modeNotif && _modeCopie == parPlateforme, _emailObjet.text, _emailCorps.text);
+        string objet = FactureVarResolver.Resolve(eo, _loc, _bat, ctx);
+        string corps = FactureVarResolver.Resolve(ec, _loc, _bat, ctx);
 
         // Sans confirmation disponible, rien ne part.
         if (ConfirmDialog.Instance == null)
@@ -905,7 +969,7 @@ public class FactureRegulPanel : MonoBehaviour
             "Envoyer la régularisation par email ?",
             $"À : {dest}\nObjet : {objet}\nPièce jointe : {Path.GetFileName(pdf)}\n\n"
             + "Le message part immédiatement et ne pourra pas être rappelé.",
-            () => StartCoroutine(EnvoyerPuisFinaliser(d, year, key, emission, correction, pdf, dest, objet, corps)),
+            () => StartCoroutine(EnvoyerPuisFinaliser(d, year, key, emission, correction, pdf, parPlateforme, dest, objet, corps)),
             "Envoyer");
     }
 
@@ -914,30 +978,35 @@ public class FactureRegulPanel : MonoBehaviour
     /// partie, rien de ce qu'elle emporte ne doit être considéré comme acquis.
     System.Collections.IEnumerator EnvoyerPuisFinaliser(
         FacturePdfService.RegulData d, int year, string key, FactureEmission.Decision emission,
-        bool correction, string pdf, string dest, string objet, string corps)
+        bool correction, string pdf, bool parPlateforme, string dest, string objet, string corps)
     {
-        _envoiEnCours = true;
+        FactureEmission.NoterEnvoi(ref _envoiEnCours, true);   // Revue 17 (D4-07) : compté : rechargement et fermeture de CIPL attendent la fin
         UndoToast.Instance?.ShowInfo($"Envoi en cours vers {dest}…");
 
         var envoi = EmailService.Envoyer(dest, objet, corps, new[] { pdf });
         while (!envoi.Termine) yield return null;
 
-        _envoiEnCours = false;
+        FactureEmission.NoterEnvoi(ref _envoiEnCours, false);
 
         if (!envoi.Succes)
         {
             ConfirmDialog.Erreur("Envoi échoué — " + envoi.Erreur
                 + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : tu peux réessayer.");
+            if (_fermerApresEnvoi) Close();   // D4-07 : la fermeture demandée pendant l'envoi
             yield break;
         }
 
-        Finaliser(d, year, key, emission, correction, pdf, true, $" et envoyée à {dest}");
+        if (FactureEmission.FichePerdue(_bat, dest)) { Close(); yield break; }   // Revue 17 (D4-07, coutures) : fiche vidée pendant l'envoi : dit au centre, rien n'est écrit
+        Finaliser(d, year, key, emission, correction, pdf, true, parPlateforme, $" et envoyée à {dest}", dest);
+        if (_fermerApresEnvoi) Close();   // Revue 17 (D4-07, coutures) : la fermeture demandée pendant l'envoi, une fois la facture enregistrée
     }
 
     /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après succès).
+    /// `dest` (Revue 17, D4-01, lot 6) : l'adresse à laquelle l'e-mail est réellement parti ; sinon celle du formulaire.
+    /// `parPlateforme` (Revue 17, D5-07, lot 11) : décidé par Emettre, le même pour le refus, l'e-mail et la facture électronique.
     void Finaliser(FacturePdfService.RegulData d, int year, string key,
-                   FactureEmission.Decision emission, bool correction, string pdf, bool envoye,
-                   string suffixeMessage = "")
+                   FactureEmission.Decision emission, bool correction, string pdf, bool envoye, bool parPlateforme,
+                   string suffixeMessage = "", string dest = null)
     {
         // Les charges régularisées passent « en attente de paiement », PAS « payé » :
         // la facture vient de partir, le virement n'est pas arrivé. Elles sortent du
@@ -955,6 +1024,9 @@ public class FactureRegulPanel : MonoBehaviour
         foreach (var c in ChargesFor(year)) c.MarquerFacturee(_loc.id, aujourdhui);
 
         var avant = _loc.facturesEtat?.Find(x => x.key == key);   // lue avant l'enregistrement : une correction transmise la cite
+        // Revue 17 (D5-14 / D5-15, coutures) : ce qu'un avoir cite se lit AVANT l'enregistrement aussi (BI8 : la version précédente, sinon
+        // les loyers de l'année) : après, une version jamais partie vient de passer « Envoyé » et l'avoir se citait lui-même, pas son PDF.
+        var citees = FactureElectronique.ReferencesAvoir(_loc, avant, year);
         FacturationSuivi.Solde(_loc, key, out float totalAvantCorrection, out _);   // Revue 17 (D4-03) : avant la correction
         string message = FactureEmission.Enregistrer(_loc, key, "Regul", emission,
             d.subtitle, _loc.factureRegul?.dateEcheanceISO, pdf, montants[listes[0]], _ribDD?.SelectedId,
@@ -964,54 +1036,75 @@ public class FactureRegulPanel : MonoBehaviour
         // Les autres listes de la MÊME facture : même numéro, même PDF, chacune sa part
         // du montant (la somme des lignes redonne le total de la facture). Le numéro
         // n'est consommé qu'une fois, par la première liste ci-dessus.
+        // Revue 17 (D4-06, coutures) : une seule règle, partagée avec la refacturation : ces lignes reçoivent aussi l'échéance et le RIB
+        // d'une correction, et une liste ajoutée à une correction le numéro de base (FactureEmission.EnregistrerLiee).
         for (int i = 1; i < listes.Count; i++)
-        {
-            string k = ListesCharges.Cle(listes[i], year);
-            string lib = ListesCharges.Libelle(listes[i], year);
-            if (correction && FacturationSuivi.EstDejaEmise(_loc, k, out _))
-                FacturationSuivi.MarquerCorrige(_loc, k, lib, pdf, montants[listes[i]]);
-            else
-                FacturationSuivi.MarquerEnvoye(_loc, k, "Regul", lib, _loc.factureRegul?.dateEcheanceISO,
-                    d.numero, pdf, montants[listes[i]], _ribDD?.SelectedId, FactureEmission.RibNom(_ribDD?.SelectedId), envoye);
-        }
+            FactureEmission.EnregistrerLiee(_loc, ListesCharges.Cle(listes[i], year), "Regul", emission, ListesCharges.Libelle(listes[i], year),
+                _loc.factureRegul?.dateEcheanceISO, pdf, montants[listes[i]], _ribDD?.SelectedId, envoye);
         FacturationSuivi.ApresCorrection(_loc, key, totalAvantCorrection);   // Revue 17 (D4-03) : payée, l'écart redevient dû
 
         foreach (var l in FacturationSuivi.MemeFacture(_loc, key)) l.tauxTva = d.masquerTva ? 0f : TauxFacture();   // 02/11 : taux de l'époque
+        // Revue 17 (D4-01, lot 6) : pour qui la facture est préparée (la fiche, ou le cédant d'une facture corrigée) et l'adresse réellement
+        // envoyée, sinon celle du formulaire ; lus par le rappel et la notification.
+        FacturationSuivi.PoserAcheteur(_loc, key, _acheteurAutre ? _ligneCiblee?.acheteur : null, dest ?? _emailEnvoi.text);
         // Décision du 02/11 (BI5) : la facture électronique sur la ligne principale, comme le loyer ; un total négatif part en
-        // avoir (FactureEn16931). Hors plateforme (sans SIRET, SCI non reliée…) : rien, la copie PDF part par e-mail comme avant.
+        // avoir (FactureEn16931). Hors plateforme (sans SIRET, SCI non reliée…) : rien, la copie PDF part par e-mail comme avant
+        // (une facture transmise, elle, a été refusée avant l'envoi : lot 11).
         FactureElectronique.Preparer(_loc.facturesEtat?.Find(x => x.key == key), avant,
-            FactureElectronique.Concerne(_loc, d.tva, _siret.text), new FactureEn16931.Entree
+            parPlateforme, new FactureEn16931.Entree
             {
                 numero = d.numero, dateISO = BuildContext().date.ToString("yyyy-MM-dd"), echeanceISO = _loc.factureRegul?.dateEcheanceISO,
                 acheteurNom = d.clientNom, acheteurSiren = SocieteLocataire.Siren(FactureElectronique.SiretAcheteur(_loc, _siret.text)),
                 acheteurSiret = FactureElectronique.Siret14(FactureElectronique.SiretAcheteur(_loc, _siret.text)), acheteurAdresse = _adresse.text,
                 lignes = FactureEn16931.LignesRegul(d), mention = d.tvaDebit ? d.texteTvaDebit : null, penalites = d.legal, escompte = d.escompte,
                 tauxTva = TauxFacture(),
-                references = FactureElectronique.ReferencesAvoir(_loc, avant, year),   // BI8 : la version précédente, sinon les loyers de l'année
+                references = citees,
             });
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();   // persiste locataire + charges
         LocataireSuiviInline.RefreshFor(_fiche);   // Suivi à jour tout de suite
         FactureElectronique.Rattraper(_fiche.batimentPrefabOrigin, _loc);
 
+        // Revue 17 (2c, décision du 06/11) : la ligne « N° de facture » reprend le numéro de la facture, correction comprise (la
+        // suivante sera « corrigée(2) »), et l'aperçu avec elle (avant : il gardait le numéro émis).
         if (!correction)
         {
             if (_numeroId != null) _numeroId.text = "";
-            RefreshNumero();
             RefreshCharges();   // les charges régularisées disparaissent (désormais payées)
         }
+        RefreshNumero();
+        ChargerTva(_loc.factureRegul);   // Revue 17 (D5-08, lot 10) : le taux proposé repart de la facture telle qu'émise (voir le loyer)
 
         UndoToast.Instance?.ShowInfo(message + suffixeMessage);
     }
 
     /// Part de chaque liste dans le TTC de la facture : ses charges moins sa provision.
     /// La première liste porte le reste, pour que la somme redonne exactement le total.
-    Dictionary<string, float> MontantsParListe(List<string> listes, int year, float ttcTotal) =>
-        MontantsParListe(listes, id => ChargesDeRegul(_bat, _loc, year, id).Sum(QuotePart), id => ListesCharges.Provision(_loc, id),
-                         Loyers.PeriodesFacturees(_loc, year), ttcTotal, TauxFacture());
+    /// Revue 17 (lot 16 ; D6-16, D6-N5) : chaque liste déduit SA part de la provision SAISIE dans le formulaire (PartProvision), au
+    /// prorata des provisions appelées pour elle dans l'année (Loyers.ProvisionsAppelees). Avant : sa provision de fiche × périodes
+    /// facturées, quelle que soit la saisie : la première liste absorbait tout l'écart (lignes fausses dans le suivi et Créances,
+    /// au total juste). La forme statique reçoit donc la part déjà calculée, pour une seule « période ».
+    Dictionary<string, float> MontantsParListe(List<string> listes, int year, float ttcTotal)
+    {
+        float saisie = ParseF(_provisions.text);
+        var appelees = listes.Distinct().ToDictionary(id => id, id => Loyers.ProvisionsAppelees(_loc, year, id));
+        float total = appelees.Values.Sum();
+        return MontantsParListe(listes, id => ChargesDeRegul(_bat, _loc, year, id).Sum(QuotePart), id => PartProvision(saisie, appelees[id], total),
+                                1, ttcTotal, TauxFacture());
+    }
+
+    /// Revue 17 (D6-16) : la part d'une liste dans la provision saisie : au prorata de ce qui a été appelé pour elle (`appelee`)
+    /// sur ce qui l'a été pour toutes les listes de la facture (`total`), au centime. Rien d'appelé : 0 (la première liste porte tout).
+    public static float PartProvision(float saisie, float appelee, float total)
+    {
+        decimal t = Tva.Centimes(total);
+        return t == 0m ? 0f : (float)Math.Round(Tva.Centimes(saisie) * Tva.Centimes(appelee) / t, 2, MidpointRounding.AwayFromZero);
+    }
 
     /// La part de chaque liste dans une régularisation regroupée (la première absorbe l'écart : la somme des lignes redonne le
     /// TTC). Revue 16c (D4-08, D6-11) : les provisions déduites comptent les périodes FACTURÉES de l'année (arrivée, départ),
     /// comme le total du formulaire, et plus celles d'une année pleine.
+    /// Revue 17 (D5-13 ← D5-N8, lot 16) : la part TTC de chaque liste passe par Tva.Ttc, le chemin commun (décimal, « au plus
+    /// loin »). Avant, en float : 1 234,45 € à 10 % donnait 123,44 € de TVA ici et 123,45 € partout ailleurs.
     public static Dictionary<string, float> MontantsParListe(List<string> listes, Func<string, float> chargesDe,
                                                              Func<string, float> provisionDe, int periodesFacturees, float ttcTotal, float taux = 20f)
     {
@@ -1020,7 +1113,7 @@ public class FactureRegulPanel : MonoBehaviour
         for (int i = 1; i < listes.Count; i++)
         {
             float solde = Cents(chargesDe(listes[i]) - provisionDe(listes[i]) * periodesFacturees);
-            float ttc = solde + Cents(solde * taux / 100f);
+            float ttc = Tva.Ttc(solde, taux);
             res[listes[i]] = ttc;
             autres += ttc;
         }
@@ -1052,23 +1145,22 @@ public class FactureRegulPanel : MonoBehaviour
     {
         if (_loc == null) return;
         var f = _loc.factureRegul ?? new FactureInfo();
-        f.destNom = _nom.text;
-        f.destAdresse = _adresse.text;
-        f.destSiret = _siret.text;
+        // Revue 17 (D4-01, lot 6) : l'acheteur d'une facture d'un autre titulaire (cédant) ne devient pas celui du type.
+        if (!_acheteurAutre) { f.destNom = _nom.text; f.destAdresse = _adresse.text; f.destSiret = _siret.text; }
         f.ribId = _ribDD?.SelectedId;
         f.enteteId = _enteteDD?.SelectedId;
         f.dateISO = TryDate(_date.text, out var dt) ? dt.ToString("yyyy-MM-dd") : "";
         f.dateEcheanceISO = TryDate(_echeance.text, out var de) ? de.ToString("yyyy-MM-dd") : "";
-        f.sommePhrase = _sommePhrase.text;
+        f.sommePhrase = FactureEmission.PhraseAMemoriser(_sommePhrase.text);   // Revue 17 (06/11) : la phrase d'usine suit l'échéance
         f.numeroFormat = _numeroFormatDD?.SelectedId ?? "AMN";
         f.numeroId = (_numeroId.text ?? "").Trim();
         f.numero = ComposedNumero();
-        MentionTva.Enregistrer(_mentionTva, _texteTvaDebit, f);
-        f.tauxTva = TauxAMemoriser();   // 02/11
+        if (Corrigee() == null) MentionTva.Enregistrer(_mentionTva, _texteTvaDebit, f);   // décision du 10/11 : la mention choisie pendant une correction ne vaut que pour elle, comme le taux
+        if (Corrigee() == null) f.tauxTva = TauxAMemoriser();   // 02/11 ; Revue 17 (D5-08, lot 10) : le taux tapé pendant une correction ne vaut que pour elle
         f.ajouterRetard = _retard.isOn;
-        f.emailDest = _emailEnvoi.text;
-        f.emailObjet = EmailService.AGarder(_emailObjet.text, EmailService.ObjetFacture());   // vide : suit le modèle des Réglages
-        f.emailCorps = EmailService.AGarder(_emailCorps.text, EmailService.CorpsFacture());
+        if (!_acheteurAutre) f.emailDest = _emailEnvoi.text;   // lot 6
+        // Revue 17 (D5-10, lot 13) : dans la paire du mode affiché (facture, « copie », notification) ; vide : suit le modèle des Réglages.
+        EmailService.Garder(f, _modeCopie || _modeNotif, _modeNotif, _emailObjet.text, _emailCorps.text);
         f.refInterne = _refInterne.text;
         f.provisionMontant = ParseF(_provisions.text);
         f.anneePeriode = SelectedYear();
@@ -1100,7 +1192,7 @@ public class FactureRegulPanel : MonoBehaviour
 
     void BuildNumeroRow(VerticalLayoutGroup body)
     {
-        UIFactory.Text(body.transform, "N° de facture  =  format  +  ID locataire", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        _numeroAide = UIFactory.Text(body.transform, "N° de facture  =  format  +  ID locataire", UITheme.Role.Aide, UITheme.TexteSecondaire);
         var row = UIFactory.HBox(body.transform, 8, false, "NumRow");
         UIFactory.LE(row.gameObject, minH: 46);
 
@@ -1116,7 +1208,8 @@ public class FactureRegulPanel : MonoBehaviour
 
         _numeroId = UIFactory.Input(row.transform, "ID locataire (ex. 001)");
         UIFactory.LE(_numeroId.gameObject, minH: 46, flexW: 1);
-        _numeroId.onValueChanged.AddListener(_ => RefreshEntetePreview());
+        // Revue 17 (2c, décision du 06/11) : un ID retapé après une émission abandonnée : l'entête et l'aperçu le suivent.
+        _numeroId.onValueChanged.AddListener(_ => { _numeroEmis = null; RefreshEntetePreview(); });
     }
 
     Transform MakeScroll(Transform parent)
@@ -1151,29 +1244,79 @@ public class FactureRegulPanel : MonoBehaviour
     }
 
 
-    /// TVA de cette facture (02/11) : 0 si le bail est exonéré ; sinon le taux tapé dans le formulaire, à défaut celui du bail
-    /// ou de l'entreprise (Tva.Taux).
+    /// TVA de cette facture (02/11) : le taux tapé dans le formulaire, à défaut celui proposé (Tva.TauxPropose : la facture corrigée,
+    /// sinon le bail ou l'entreprise). Revue 17 (D5-08, lot 10) : un 0 tapé compte (une facture taxée peut se corriger exonérée), et
+    /// plus de 0 forcé par le bail du jour (la correction d'une facture taxée d'un bail devenu exonéré partait sans TVA).
     float TauxFacture()
-    {
-        if (!Tva.Soumis(_loc)) return 0f;
-        return _tauxTva != null && SaisieNumerique.TryParse(_tauxTva.text, out float t) && t > 0f ? t : Tva.Taux(_loc);
-    }
+        => _tauxTva != null && !string.IsNullOrWhiteSpace(_tauxTva.text) && SaisieNumerique.TryParse(_tauxTva.text, out float t) && t >= 0f
+           ? t : Tva.TauxPropose(_loc, null, Corrigee());
 
     /// Le taux tapé n'est mémorisé que s'il diffère de celui du bail ou de l'entreprise (sinon il suivrait un changement de réglage).
     float TauxAMemoriser() => Tva.Soumis(_loc) && SaisieNumerique.TryParse(_tauxTva.text, out float t) && t > 0f
                               && Mathf.Abs(t - Tva.Taux(_loc)) > 0.001f ? t : 0f;
 
-    /// Exonéré : le menu « Mention TVA » et le taux disparaissent (la mention d'exonération s'imprime d'office).
+    /// Revue 17 (D5-08, lot 10) : la facture PARTIE que le formulaire corrige (la ligne qui portera la facture, comme le numéro repris :
+    /// CleFacture, donc suivie à chaque changement d'année ou de liste), sinon null : son taux imprimé est proposé, et le taux tapé ne
+    /// vaut que pour elle (SaveFromUI ne le mémorise pas sur la facture du type).
+    FactureEtat Corrigee()
+    {
+        if (_loc?.facturesEtat == null) return null;
+        string cle = CleFacture();
+        var ligne = cle == null ? null : _loc.facturesEtat.Find(x => x.key == cle);
+        return Tva.FacturePartie(ligne) ? ligne : null;
+    }
+
+    /// Le taux proposé est celui du document (Tva.TauxPropose). Correction d'une facture partie : son taux imprimé, champ montré même à
+    /// 0 (modifiable vers ou depuis 0) ; facture neuve d'un bail exonéré : le menu « Mention TVA » et le taux disparaissent (la mention
+    /// d'exonération s'imprime d'office). Revue 17 (D5-08, lot 10) : avant, le taux du jour, et le champ caché si le bail était devenu exonéré.
     void ChargerTva(FactureInfo f)
     {
-        bool soumis = Tva.Soumis(_loc);
+        var corrigee = Corrigee();
+        bool soumis = corrigee != null || Tva.Soumis(_loc);
         if (_tauxTva != null)
         {
             UIFactory.MontrerAvecLibelle(_tauxTva.gameObject, soumis);   // 02/11 (BK2) : le champ et son libellé, pas la section entière
-            _tauxTva.text = soumis ? Tva.Taux(_loc, f).ToString("0.##", FacturePdfService.FrCulture) : "";
+            _autoTaux = soumis ? Tva.TauxPropose(_loc, f, corrigee).ToString("0.##", FacturePdfService.FrCulture) : "";
+            _tauxTva.text = _autoTaux;
         }
         if (_mentionTva != null) UIFactory.MontrerAvecLibelle(_mentionTva.gameObject, soumis);
-        if (_texteTvaDebit != null && !soumis) _texteTvaDebit.transform.parent.gameObject.SetActive(false);
+        if (_texteTvaDebit != null && _mentionTva != null) _texteTvaDebit.transform.parent.gameObject.SetActive(soumis && MentionTva.Imprimee(_mentionTva));
+    }
+
+    /// Revue 17 (D5-08, lot 10) : la facture visée vient de changer (année, listes) : le taux proposé la suit, tant qu'il n'a pas été
+    /// saisi à la main. Sinon, une facture NEUVE faite après une correction sans fermer le formulaire gardait le taux de l'époque.
+    void RefreshTauxDefault() { if (_loc != null && _tauxTva != null && _tauxTva.text == _autoTaux) ChargerTva(_loc.factureRegul); }
+
+    /// La ligne « Envoi : … » suit le taux du document et le SIRET affiché (Revue 17, D5-08, lot 10 ; avant : posée une fois au chargement).
+    /// Lot 13 (D5-10) : après la bascule, elle annonce la notification, comme le loyer.
+    void RefreshModeEnvoi()
+    {
+        if (_modeInfo == null || _loc == null || _siret == null) return;
+        _modeInfo.text = FactureElectronique.LibelleEnvoi(_loc, TauxFacture(), _siret.text, FactureElectronique.NotificationSeule);
+        _modeInfo.color = FactureElectronique.SansSiret(_loc, TauxFacture(), _siret.text) ? UITheme.Alerte : UITheme.TexteSecondaire;
+    }
+
+    /// Revue 17 (D5-10, lot 13) : la partie « plateforme » du formulaire suit le SIRET et le taux tapés, aussitôt, comme le loyer : case retard
+    /// (forcée pour la plateforme ou un professionnel, D6-03), mode de l'e-mail (facture, « copie », notification) et ses champs, ligne « Envoi ».
+    /// Un texte retouché reste dans la paire de son mode (EmailService.Garder) avant que les champs passent au texte du nouveau mode.
+    /// `chargement` : fin de LoadIntoUI, les champs sont posés quoi qu'il en soit, sans rien garder (le texte à l'écran est encore l'ancien).
+    void RefreshPlateforme(bool chargement = false)
+    {
+        if (_loc == null || _retard == null || (_chargement && !chargement)) return;
+        var f = _loc.factureRegul;
+        bool plateforme = FactureElectronique.Concerne(_loc, TauxFacture(), _siret.text);   // Revue 17 (D5-08, lot 10) : au taux du document
+        bool obligatoire = plateforme || FactureElectronique.Professionnel(_loc, _siret.text);   // Revue 17 (D6-03) : professionnel
+        if (obligatoire) _retard.isOn = true;   // plateforme : phrase de retard obligatoire (note PMD, règle BR-FR-05 ; décision du 02/11, BI5)
+        _retard.interactable = !obligatoire;
+        bool notif = plateforme && FactureElectronique.NotificationSeule, copie = plateforme && !notif;
+        if (chargement || notif != _modeNotif || copie != _modeCopie)
+        {
+            if (!chargement) EmailService.Garder(f, _modeCopie || _modeNotif, _modeNotif, _emailObjet.text, _emailCorps.text);
+            _modeNotif = notif; _modeCopie = copie;
+            (_emailObjet.text, _emailCorps.text) = EmailService.Modeles(f, plateforme, notif);
+            _aideEmail.text = EmailService.Aide(plateforme, notif);
+        }
+        RefreshModeEnvoi();
     }
 
     TMP_InputField Labeled(VerticalLayoutGroup body, string label)

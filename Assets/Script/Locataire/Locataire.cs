@@ -99,6 +99,10 @@ public class Locataire : Data
     // l'avenant est proratisée entre l'ancien et le nouveau loyer (voir Loyers).
     public string debutConditionsISO;
     public List<PalierLoyer> historiqueLoyers = new List<PalierLoyer>();
+    // Revue 17 (avenant de périodicité, lot 14) : les périodicités d'avant, datées ({fin, périodicité, mois cochés}, valables
+    // jusqu'à fin inclus), comme historiqueLoyers pour le loyer. Vide = la périodicité actuelle depuis toujours. Voir
+    // FacturationSuivi.Plan (les périodes d'une année) et Loyers.EnregistrerAvenantPeriodicite.
+    public List<PeriodiciteAnterieure> historiquePeriodicites = new List<PeriodiciteAnterieure>();
     // Départ du locataire : dernier jour de location. Vide = il reste, et le loyer
     // continue après la fin du bail (tacite prolongation). Sinon la période qui le
     // contient est proratisée et les suivantes ne sont plus facturées (voir Loyers).
@@ -410,7 +414,14 @@ public class Locataire : Data
     }
 
     /// Fin d'un bail de `ans` années : la veille de l'anniversaire (01/06/2020 → 31/05/2029).
-    public static DateTime FinDeBail(DateTime debut, int ans) => debut.AddYears(ans).AddDays(-1);
+    /// Revue 17 (D7a-13, lot D) : un bail commencé un 29 février finit le 28 février les années sans 29 février
+    /// (29/02/2024 + 9 ans → 28/02/2033). AddYears ramenait l'anniversaire au 28/02, puis on retirait un jour : 27/02.
+    public static DateTime FinDeBail(DateTime debut, int ans)
+    {
+        var anniversaire = debut.AddYears(ans);
+        if (debut.Month == 2 && debut.Day == 29 && anniversaire.Day == 28) anniversaire = anniversaire.AddDays(1);
+        return anniversaire.AddDays(-1);
+    }
 
     /// Durée du bail : celle saisie ; sinon déduite des dates quand elles couvrent
     /// un nombre entier d'années ; sinon celle du type. Un bail repris en cours
@@ -513,6 +524,16 @@ public class PalierLoyer
     public string debutISO;
     public string finISO;
     public float loyer;
+}
+
+/// Revue 17 (avenant de périodicité, lot 14) : une périodicité du loyer d'avant un avenant. Elle valait, avec ses mois cochés,
+/// jusqu'à finISO inclus (le dernier jour d'un mois). [Serializable] vital, comme PalierLoyer.
+[Serializable]
+public class PeriodiciteAnterieure
+{
+    public string finISO;
+    public Periodicite periodicite;
+    public List<int> mois = new List<int>();   // mois cochés d'alors (vide = le calendrier standard)
 }
 
 /// Une « référence » d'indexation : le loyer de base et l'indice de départ

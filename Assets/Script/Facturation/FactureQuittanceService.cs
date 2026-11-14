@@ -19,11 +19,13 @@ public static class FactureQuittanceService
         var foot = (R?.basDePage ?? "").Replace("\r", "").Split('\n');
         string periode = PeriodeDepuisLibelle(l.libelle);
         string montant = l.montant > 0f ? l.montant.ToString("#,##0.00", Fr) + " €" : "—";
+        var (clientNom, clientAdresse) = Client(loc, l);   // Revue 17 (D4-13, lot 6) : qui a payé
 
         var d = new FacturePdfService.QuittanceData
         {
-            clientNom = loc.Name,
-            clientAdresseHtml = FacturePdfService.AdresseHtml(loc.adresseLocataire),
+            societe = FactureVarResolver.Societe(R?.entrepriseNom, SessionCloud.Entreprise).nom,   // Revue 17 (D6-17) : le bailleur
+            clientNom = clientNom,
+            clientAdresseHtml = FacturePdfService.AdresseHtml(clientAdresse),
             dateStr = DateTime.Today.ToString("d MMMM yyyy", FacturePdfService.FrCulture),
             periode = string.IsNullOrEmpty(periode) ? "—" : periode,
             designation = Designation(fiche, loc),
@@ -36,7 +38,7 @@ public static class FactureQuittanceService
         // Batiment/<GUID>/<GUID>/Facture : introuvable a cote des factures.
         string dir = DossiersDonnees.DossierFactures(
             fiche.batimentPrefabOrigin.getName(), loc.Name);
-        string pdf = DossiersDonnees.CheminFacture(dir, Sanitize($"Quittance-{loc.Name}-{periode}") + ".pdf");
+        string pdf = DossiersDonnees.CheminFacture(dir, Sanitize($"Quittance-{clientNom}-{periode}") + ".pdf");
 
         if (!FacturePdfService.GenerateQuittancePdf(d, pdf, out string err))
         {
@@ -45,6 +47,15 @@ public static class FactureQuittanceService
         }
         Application.OpenURL(Plateforme.UrlFichier(pdf));
         UndoToast.Instance?.ShowInfo("Quittance de loyer générée (PDF).");
+    }
+
+    /// Revue 17 (D4-13, lot 6) : une quittance est un reçu : elle nomme qui a payé. L'acheteur gardé sur la ligne (sa cession
+    /// donne l'adresse), sinon le titulaire de la période (lignes d'avant), sinon la fiche. Avant, la quittance du loyer payé par
+    /// le cédant portait le nom et l'adresse du cessionnaire.
+    public static (string nom, string adresse) Client(Locataire loc, FactureEtat l)
+    {
+        var t = Cessions.AcheteurDe(loc, l) ?? Cessions.TitulaireLigne(loc, l);
+        return t != null ? (t[0] ?? "", t[2] ?? "") : (loc?.Name ?? "", loc?.adresseLocataire ?? "");
     }
 
     // « Loyer Janvier 2026 — corrigée(2) » → « Janvier 2026 ».

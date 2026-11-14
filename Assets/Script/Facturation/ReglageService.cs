@@ -80,6 +80,51 @@ public static class ReglageService
         return pc;
     }
 
+    // ── Revue 17 (D2-21, lot D) : retiré d'une entreprise ou déconnecté, ce PC n'en garde ni les Réglages ni les secrets ──
+
+    /// Les fichiers de ce PC qui gardent les Réglages (RIB en clair) et les secrets (mot de passe SMTP) d'une entreprise du cloud,
+    /// chacun avec le .bak de l'écriture atomique. Jamais reglage.json ni pennylane_secrets.dat du dossier de l'entreprise (mode sans
+    /// cloud), ni cipl_app_secrets.dat (adresse du cloud).
+    public static string[] FichiersDe(string dossierPc, string entrepriseCloud)
+    {
+        string r = Path.Combine(dossierPc, $"cipl_reglages_{entrepriseCloud}.json"), s = Path.Combine(dossierPc, $"cipl_secrets_{entrepriseCloud}.dat");
+        return new[] { r, AtomicFile.CheminBak(r), s, AtomicFile.CheminBak(s) };
+    }
+
+    static readonly System.Text.RegularExpressions.Regex FichierCopie =
+        new System.Text.RegularExpressions.Regex(@"^cipl_(?:reglages|secrets)_(.+?)\.(?:json|dat)(?:\.bak)?$");
+
+    /// Les entreprises du cloud dont ce PC garde des Réglages ou des secrets, d'après les noms de ses fichiers.
+    public static List<string> EntreprisesCopiees(IEnumerable<string> fichiers)
+    {
+        var ids = new List<string>();
+        foreach (var f in fichiers)
+        {
+            var m = FichierCopie.Match(Path.GetFileName(f));
+            if (m.Success && !ids.Contains(m.Groups[1].Value)) ids.Add(m.Groups[1].Value);
+        }
+        return ids;
+    }
+
+    /// Efface de ce PC les Réglages et les secrets d'une entreprise du cloud (un admin m'en a retiré), ou de toutes (null :
+    /// « Se déconnecter »). Ils reviennent du serveur à l'ouverture suivante. Ceux en mémoire ne bougent pas.
+    public static void EffacerCopie(string entrepriseCloud = null) => EffacerCopie(Application.persistentDataPath, entrepriseCloud);
+
+    public static void EffacerCopie(string dossierPc, string entrepriseCloud)
+    {
+        try
+        {
+            var ids = entrepriseCloud != null ? new List<string> { entrepriseCloud }
+                                              : EntreprisesCopiees(Directory.GetFiles(dossierPc, "cipl_*"));
+            foreach (var id in ids)
+            {
+                foreach (var f in FichiersDe(dossierPc, id)) if (File.Exists(f)) File.Delete(f);
+                if (Plateforme.Mac) Trousseau.Effacer($"cipl_secrets_{id}");   // étape 15b : sur Mac, les secrets sont dans le trousseau (EcrireTexte)
+            }
+        }
+        catch (System.Exception e) { Debug.LogWarning("[ReglageService] Réglages et secrets de ce PC non effacés : " + e.Message); }
+    }
+
     // Secrets de l'APPLICATION, communs à toutes les entreprises (adresse et clé du cloud).
     // La clé Pennylane et le mot de passe SMTP, eux, appartiennent à une entreprise donnée.
     private static string AppSecretsPath =>

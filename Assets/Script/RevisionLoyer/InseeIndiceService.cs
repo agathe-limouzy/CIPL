@@ -31,7 +31,10 @@ public static class InseeIndiceService
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                onError?.Invoke(req.error);
+                // Revue 17 (D7b-06, lot D) : l'échec dit en français (« Cannot connect to destination host » s'affichait tel quel) ;
+                // le détail anglais part au journal.
+                UnityEngine.Debug.LogWarning($"[INSEE] {req.result} : {req.error}");
+                onError?.Invoke(MessageEchec(req.result));
                 yield break;
             }
 
@@ -115,6 +118,36 @@ public static class InseeIndiceService
         rang = annee * 4 + trim;
         return true;
     }
+
+    /// Revue 17 (D7b-01, lot D) : le trimestre de révision proposé : celui de la dernière révision (lu dans l'indice actuel,
+    /// « 137.16  (2027-T1) ») + 1 an, sinon celui de la référence + 1 an. Avant : l'année précédant aujourd'hui, qui retombait sur
+    /// la référence elle-même pour un bail signé l'année de sa référence (révision sans effet). "" si rien n'est lisible.
+    public static string TrimestreSuivant(string reference, string indiceActuel)
+    {
+        if (!TryDecompose(LoyerHistoryService.IndicePeriode(indiceActuel, ""), out int annee, out int trim)
+            && !TryDecompose(reference, out annee, out trim)) return "";
+        return $"{annee + 1}-T{trim}";
+    }
+
+    /// Revue 17 (D7b-01, lot D) : refus d'un trimestre de révision qui n'est pas postérieur à la référence ET à la dernière
+    /// révision (égal : loyer inchangé, mais prochaine révision repoussée d'un an), ou null. Un trimestre illisible ne refuse rien.
+    public static string RefusTrimestre(string voulu, string reference, string indiceActuel)
+    {
+        string derniere = LoyerHistoryService.IndicePeriode(indiceActuel, "");
+        bool avecDerniere = TryRang(derniere, out _);
+        if (!PasApres(voulu, reference) && !(avecDerniere && PasApres(voulu, derniere))) return null;
+        return $"Le trimestre de révision ({Normalize(voulu)}) doit être postérieur au trimestre de référence ({Normalize(reference)})"
+             + (avecDerniere ? $" et à celui de la dernière révision ({derniere})" : "") + " : choisissez un trimestre plus récent.";
+    }
+
+    // Vrai si `voulu` n'est pas strictement après `x` (les deux lisibles).
+    static bool PasApres(string voulu, string x) => TryRang(voulu, out int r1) && TryRang(x, out int r2) && r1 <= r2;
+
+    /// Revue 17 (D7b-06, lot D) : l'échec réseau de l'INSEE, en français (comme PLUService).
+    public static string MessageEchec(UnityWebRequest.Result result)
+        => result == UnityWebRequest.Result.ProtocolError
+            ? "Le service INSEE ne répond pas (maintenance ?) : réessayez plus tard."
+            : "INSEE injoignable : vérifiez la connexion, puis réessayez.";
 
     public static string Normalize(string input)
     {

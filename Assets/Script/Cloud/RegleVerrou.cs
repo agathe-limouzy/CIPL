@@ -16,6 +16,11 @@ public static class RegleVerrou
 
     public static bool Expire(DateTime expireLe, DateTime maintenant) => maintenant > expireLe;
 
+    /// Revue 17 (D2-17, lot D) : le verrou d'une fiche en saisie tient aussi tant que son enregistrement attend ou part.
+    /// Avant, il était rendu dès que le bouton Enregistrer disparaissait : un collègue pouvait prendre la fiche avant
+    /// que l'enregistrement ne sorte de la file, et le faire refuser.
+    public static bool ResteTenu(bool enEdition, bool enregistrementEnCours) => enEdition || enregistrementEnCours;
+
     /// Fiche prise sans un clic ni une touche pendant ce délai : « Toujours là ? ». Modifiable
     /// pendant le Play pour tester (script-execute), sinon 15 min.
     public static TimeSpan Inactivite = TimeSpan.FromMinutes(15);

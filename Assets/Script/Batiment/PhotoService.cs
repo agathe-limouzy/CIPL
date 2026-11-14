@@ -47,6 +47,7 @@ public static class PhotoService
                 Debug.LogError($"[Photo] Copie échouée ({src}) : {e.Message}");
             }
         }
+        if (n > 0) DocumentsCloud.Bientot();   // Revue 17 (D2-03, lot D) : les photos partent au cloud dans 2 s, sans attendre le passage des 20 s
         return n;
 #else
         return 0;

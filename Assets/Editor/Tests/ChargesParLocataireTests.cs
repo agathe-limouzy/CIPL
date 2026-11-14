@@ -198,9 +198,9 @@ public class ChargesParLocataireTests
         // Suivi : un avoir envoyé ne devient jamais « Impayé » (c'est nous qui devons).
         var ligne = new FactureEtat { key = "refac-avoir", type = "Refac", statut = "Envoye", montant = -240f,
                                       pdfPath = "f.pdf", echeanceISO = "2020-01-01" };
-        Assert.That(FacturationSuivi.EtatDe(ligne), Is.EqualTo(FacturationSuivi.Etat.Envoye));
+        Assert.That(FacturationSuivi.EtatDe(ligne, null), Is.EqualTo(FacturationSuivi.Etat.Envoye));
         ligne.montant = 240f;
-        Assert.That(FacturationSuivi.EtatDe(ligne), Is.EqualTo(FacturationSuivi.Etat.Impaye));
+        Assert.That(FacturationSuivi.EtatDe(ligne, null), Is.EqualTo(FacturationSuivi.Etat.Impaye));
     }
 
     [Test]

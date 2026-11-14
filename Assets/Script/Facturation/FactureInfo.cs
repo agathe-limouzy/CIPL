@@ -64,11 +64,12 @@ public class FactureInfo
     // Message d'accompagnement. Vides = modèle des Réglages (`EmailService.ObjetFacture` / `CorpsFacture`).
     public string emailObjet;
     public string emailCorps;
-    // Étape 18b : jusqu'au 31/8/2027, l'e-mail « copie » d'un loyer qui part aussi par la plateforme.
+    // Étape 18b : jusqu'au 31/8/2027, l'e-mail « copie » d'une facture qui part aussi par la plateforme (loyer ; régularisation et
+    // refacturation depuis la Revue 17, D5-10, lot 13 : une règle, `EmailService.Modeles` / `Garder`).
     // Vides = modèle des Réglages (`EmailService.ObjetCopie` / `CorpsCopie`).
     public string copieObjet;
     public string copieCorps;
-    // Étape 18b : l'e-mail de notification qui le remplace dès le 1/9/2027 (loyers par la plateforme).
+    // Étape 18b : l'e-mail de notification qui le remplace dès le 1/9/2027 (les trois factures par la plateforme).
     // Vides = modèle des Réglages (`EmailService.ObjetNotif` / `CorpsNotif`).
     public string notifObjet;
     public string notifCorps;

@@ -178,11 +178,15 @@ public class RentabiliteGlobaleController : MonoBehaviour
 
             // 1) Affichage immédiat : cache si dispo, sinon repli loyer courant.
             //    Le tableau ne reste jamais vide en attendant le réseau.
-            BuildTableauRentabilite(locataires, achats, travaux,
-                LoyerHistoryService.ObsEnCache(types));
+            // Revue 17 (D7b-16, lot D) : l'étape 2 seulement s'il manque un indice au cache : sinon le téléchargement rendait le même
+            // cache, et le tableau était reconstruit deux fois à chaque enregistrement du bâtiment.
+            var cache = LoyerHistoryService.ObsEnCache(types);
+            bool attendre = isActiveAndEnabled && LoyerHistoryService.Manquants(types, cache).Count > 0;
+            // Revue 17 (D7b-07, lot D) : contrôleur inactif = aucun essai à l'INSEE : ne pas dire « indisponibles ».
+            BuildTableauRentabilite(locataires, achats, travaux, cache, types, isActiveAndEnabled && !attendre);
 
             // 2) Récupère les vrais indices INSEE puis reconstruit avec.
-            if (isActiveAndEnabled)
+            if (attendre)
                 StartCoroutine(BuildTableauReel(locataires, achats, travaux, types));
         }
     }
@@ -194,15 +198,17 @@ public class RentabiliteGlobaleController : MonoBehaviour
     {
         Dictionary<IndiceImmo, List<(string periode, float valeur)>> obs = null;
         yield return LoyerHistoryService.FetchIndices(types, o => obs = o);
-        if (obs != null && obs.Count > 0)
-            BuildTableauRentabilite(locataires, achats, travaux, obs);
+        // Revue 17 (D7b-07, lot D) : reconstruit aussi après un échec, pour dire sous le tableau que des indices manquent.
+        BuildTableauRentabilite(locataires, achats, travaux,
+            obs ?? new Dictionary<IndiceImmo, List<(string periode, float valeur)>>(), types, true);
     }
 
     // ── Tableau année par année ───────────────────────────────────────────────
 
     private void BuildTableauRentabilite(List<Locataire> locataires,
         List<AchatFinancement> achats, List<TravauxFinancement> travaux,
-        Dictionary<IndiceImmo, List<(string periode, float valeur)>> obs)
+        Dictionary<IndiceImmo, List<(string periode, float valeur)>> obs,
+        IEnumerable<IndiceImmo> types, bool signalerManquants)
     {
         foreach (Transform child in tableauContent) Destroy(child.gameObject);
 
@@ -263,6 +269,16 @@ public class RentabiliteGlobaleController : MonoBehaviour
             var go = Instantiate(rentabiliteRowPrefab, tableauContent);
             go.GetComponent<RentabiliteRow>()
               .Setup(annee, rentrees, coutAchat, coutTravaux, cumul, seuilAtteint);
+        }
+
+        // Revue 17 (D7b-07, lot D) : sans indices INSEE, les années que l'historique ne couvre pas prennent le loyer actuel à plat
+        // (LoyerHistoryService.LoyerPourAnnee) : une ligne sous le tableau le dit. Avant : le journal Unity seulement.
+        if (signalerManquants && LoyerHistoryService.Manquants(types, obs).Count > 0)
+        {
+            var note = UIFactory.Text(tableauContent, "Indices INSEE indisponibles : loyers des années anciennes non indexés, valeurs approchées.",
+                UITheme.Role.Aide, UITheme.TexteSecondaire);
+            note.enableWordWrapping = true;
+            UIFactory.LE(note.gameObject, minH: 22);
         }
     }
 

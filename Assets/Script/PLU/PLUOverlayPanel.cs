@@ -299,13 +299,15 @@ public class PLUOverlayPanel : MonoBehaviour
                 (la, lo) => { lat = la; lon = lo; geocodeOk = true; },
                 err => { geocodeError = err; }));
 
+        // Revue 17 (D7b-12, lot D) : le résultat (ou le refus) va à l'onglet qui a lancé la recherche.
         if (!geocodeOk)
         {
-            ShowError($"Adresse introuvable : {geocodeError}");
+            // Revue 17 (D7b-05, lot D) : le message dit déjà la cause (imprécise, introuvable, injoignable).
+            if (_searchMode == SearchMode.Adresse) ShowError(geocodeError);
             yield break;
         }
 
-        yield return RechercherPLUByPoint(lat, lon);
+        yield return RechercherPLUByPoint(lat, lon, SearchMode.Adresse);
     }
 
     private IEnumerator RechercherParCadastre(string commune, string section, string numero)
@@ -320,15 +322,17 @@ public class PLUOverlayPanel : MonoBehaviour
 
         if (!ok)
         {
-            ShowError(string.IsNullOrEmpty(error) ? "Parcelle introuvable." : error);
+            if (_searchMode == SearchMode.Cadastre) ShowError(string.IsNullOrEmpty(error) ? "Parcelle introuvable." : error);
             yield break;
         }
 
-        yield return RechercherPLUByPoint(lat, lon);
+        yield return RechercherPLUByPoint(lat, lon, SearchMode.Cadastre);
     }
 
     /// Étape commune aux deux recherches : point (lat/lon) → zonage PLU.
-    private IEnumerator RechercherPLUByPoint(double lat, double lon)
+    /// Revue 17 (D7b-12, lot D) : rangé dans l'onglet qui a lancé la recherche (le zonage d'une adresse s'affichait
+    /// sous « Cadastre » si l'on changeait d'onglet entre-temps), affiché seulement si cet onglet est encore ouvert.
+    private IEnumerator RechercherPLUByPoint(double lat, double lon, SearchMode mode)
     {
         bool pluOk = false;
         PLUZoneInfo zoneInfo = null;
@@ -342,17 +346,18 @@ public class PLUOverlayPanel : MonoBehaviour
 
         if (!pluOk)
         {
-            ShowError(string.IsNullOrEmpty(pluError)
-                ? "Délai dépassé — réessayez."
-                : pluError);
+            if (_searchMode == mode)
+                ShowError(string.IsNullOrEmpty(pluError)
+                    ? "Délai dépassé — réessayez."
+                    : pluError);
             yield break;
         }
 
-        // Mémorise le résultat pour le mode courant (restauré à la bascule).
-        if (_searchMode == SearchMode.Adresse) { _cacheAdr = zoneInfo; _cLatAdr = lat; _cLonAdr = lon; }
+        // Mémorise le résultat pour le mode qui l'a cherché (restauré à la bascule).
+        if (mode == SearchMode.Adresse) { _cacheAdr = zoneInfo; _cLatAdr = lat; _cLonAdr = lon; }
         else { _cacheCad = zoneInfo; _cLatCad = lat; _cLonCad = lon; }
 
-        DisplayInfo(zoneInfo, lat, lon);
+        if (_searchMode == mode) DisplayInfo(zoneInfo, lat, lon);
     }
 
     // ── Affichage ─────────────────────────────────────────────────────────────

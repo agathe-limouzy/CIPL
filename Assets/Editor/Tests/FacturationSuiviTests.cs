@@ -41,7 +41,7 @@ public class FacturationSuiviTests
         Assert.That(total, Is.EqualTo(3000f));
         Assert.That(paye, Is.EqualTo(1500f));
         Assert.That(FacturationSuivi.EtatAffiche(loc, rec), Is.EqualTo(FacturationSuivi.Etat.Partiel));
-        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.Envoye), "Partiel n'est qu'un affichage");
+        Assert.That(FacturationSuivi.EtatDe(rec, null), Is.EqualTo(FacturationSuivi.Etat.Envoye), "Partiel n'est qu'un affichage");
 
         var dues = FacturationSuivi.DuesDe(loc);
         Assert.That(dues, Has.Count.EqualTo(1));
@@ -57,7 +57,7 @@ public class FacturationSuiviTests
         var rec = loc.facturesEtat.Find(x => x.key == Key);
         rec.versements.Add(new Versement { dateISO = Iso(-5), montant = 1000f });
         Assert.That(FacturationSuivi.EtatAffiche(loc, rec), Is.EqualTo(FacturationSuivi.Etat.Partiel));
-        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.Impaye));
+        Assert.That(FacturationSuivi.EtatDe(rec, null), Is.EqualTo(FacturationSuivi.Etat.Impaye));
         Assert.That(FacturationSuivi.DuesDe(loc)[0].montant, Is.EqualTo(2000f));
     }
 
@@ -174,7 +174,7 @@ public class FacturationSuiviTests
         var rec = loc.facturesEtat.Find(x => x.key == Key);
 
         Assert.That(rec.statut, Is.EqualTo("AttenteEnvoi"));
-        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
+        Assert.That(FacturationSuivi.EtatDe(rec, null), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
     }
 
     [Test]
@@ -198,7 +198,7 @@ public class FacturationSuiviTests
         var loc = LocataireAvecFactureEmise(Iso(60), envoye: false);
         var rec = loc.facturesEtat.Find(x => x.key == Key);
         Assert.That(rec.statut, Is.EqualTo("AttenteEnvoi"));
-        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
+        Assert.That(FacturationSuivi.EtatDe(rec, null), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
     }
 
     [Test]
@@ -208,7 +208,7 @@ public class FacturationSuiviTests
         // ne soit parti. C'est précisément le cas qui affichait « Envoyé » à tort.
         var loc = LocataireAvecFactureEmise(Iso(5), envoye: false);
         var rec = loc.facturesEtat.Find(x => x.key == Key);
-        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
+        Assert.That(FacturationSuivi.EtatDe(rec, null), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
     }
 
     [Test]
@@ -217,7 +217,7 @@ public class FacturationSuiviTests
         // On ne peut pas reprocher un impayé à qui n'a jamais reçu sa facture.
         var loc = LocataireAvecFactureEmise(Iso(-40), envoye: false);
         var rec = loc.facturesEtat.Find(x => x.key == Key);
-        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
+        Assert.That(FacturationSuivi.EtatDe(rec, null), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
     }
 
     [Test]
@@ -238,7 +238,7 @@ public class FacturationSuiviTests
         var loc = LocataireAvecFactureEmise(Iso(60), envoye: true);
         var rec = loc.facturesEtat.Find(x => x.key == Key);
         Assert.That(rec.statut, Is.EqualTo("Envoye"));
-        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.Envoye));
+        Assert.That(FacturationSuivi.EtatDe(rec, null), Is.EqualTo(FacturationSuivi.Etat.Envoye));
         Assert.That(FacturationSuivi.DejaTraite(loc, Key), Is.True, "l'alerte peut s'éteindre");
     }
 
@@ -250,7 +250,7 @@ public class FacturationSuiviTests
         var loc = LocataireAvecFactureEmise(Iso(5), envoye: false);
         loc.facturesEtat.Find(x => x.key == Key).statut = "Envoye";
         var rec = loc.facturesEtat.Find(x => x.key == Key);
-        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.Envoye));
+        Assert.That(FacturationSuivi.EtatDe(rec, null), Is.EqualTo(FacturationSuivi.Etat.Envoye));
     }
 
     // ── Une ligne ambre sans PDF est un piège (22/09/2026) ──────────────────
@@ -263,12 +263,12 @@ public class FacturationSuiviTests
         // alertes. Il y a bien une facture à produire : elle doit dire « À faire ».
         var proche = new FactureEtat { key = Key, type = "Loyer", statut = "AttenteEnvoi",
                                        echeanceISO = Iso(5), pdfPath = "" };
-        Assert.That(FacturationSuivi.EtatDe(proche), Is.EqualTo(FacturationSuivi.Etat.AFaire));
+        Assert.That(FacturationSuivi.EtatDe(proche, null), Is.EqualTo(FacturationSuivi.Etat.AFaire));
 
         // Loin de l'échéance, elle n'est pas encore à faire : « À venir ».
         var lointaine = new FactureEtat { key = Key, type = "Loyer", statut = "AttenteEnvoi",
                                           echeanceISO = Iso(200), pdfPath = "" };
-        Assert.That(FacturationSuivi.EtatDe(lointaine), Is.EqualTo(FacturationSuivi.Etat.AVenir));
+        Assert.That(FacturationSuivi.EtatDe(lointaine, null), Is.EqualTo(FacturationSuivi.Etat.AVenir));
     }
 
     [Test]
@@ -277,7 +277,7 @@ public class FacturationSuiviTests
         // Non-régression : le cas normal ne doit pas changer.
         var loc = LocataireAvecFactureEmise(Iso(5), envoye: false);
         var rec = loc.facturesEtat.Find(x => x.key == Key);
-        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
+        Assert.That(FacturationSuivi.EtatDe(rec, null), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi));
     }
 
     // ── Échéance figée ≠ modalités actuelles (22/09/2026) ───────────────────
@@ -337,7 +337,7 @@ public class FacturationSuiviTests
     public void Une_facture_echue_depuis_plus_de_quinze_jours_passe_impayee()
     {
         var rec = new FactureEtat { key = Key, type = "Loyer", statut = "Envoye", echeanceISO = Iso(-20) };
-        Assert.That(FacturationSuivi.EtatDe(rec), Is.EqualTo(FacturationSuivi.Etat.Impaye));
+        Assert.That(FacturationSuivi.EtatDe(rec, null), Is.EqualTo(FacturationSuivi.Etat.Impaye));
     }
 
     [Test]

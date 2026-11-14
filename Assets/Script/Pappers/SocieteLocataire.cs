@@ -160,10 +160,14 @@ public static class SocieteLocataire
 
     // ── Petits outils ──────────────────────────────────────────────────────────
 
+    /// Le SIREN d'un texte saisi comme SIRET : ses neuf premiers chiffres, s'il en compte exactement 9 (un SIREN) ou 14 (un
+    /// SIRET) ; sinon vide. Revue 17 (D5-22, coutures) : avant, les neuf premiers chiffres de tout texte d'au moins neuf
+    /// chiffres : un téléphone, un n° de TVA ou un IBAN tapé dans le champ devenait un faux SIREN d'acheteur, et la facture
+    /// électronique partait vers une autre société. Un texte douteux vaut « pas de SIRET » (la ligne « Envoi » le réclame).
     public static string Siren(string siret)
     {
         string c = Chiffres(siret);
-        return c.Length >= 9 ? c.Substring(0, 9) : c;
+        return c.Length == 9 || c.Length == 14 ? c.Substring(0, 9) : "";
     }
 
     static string Chiffres(string s) => new string((s ?? "").Where(char.IsDigit).ToArray());

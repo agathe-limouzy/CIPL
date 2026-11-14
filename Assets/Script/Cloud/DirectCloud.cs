@@ -19,6 +19,7 @@ public static class DirectCloud
     static readonly Dictionary<string, Attente> _aRelire = new Dictionary<string, Attente>();
     static readonly HashSet<string> _enLecture = new HashSet<string>();
     static bool _verrous, _presences;
+    static bool _abonnementRefuse;   // Revue 17 (D2-22, lot D) : voir Traiter et Entretenir
     static GameObject _barre;
     static List<string> _enLigne = new List<string>();
 
@@ -43,6 +44,16 @@ public static class DirectCloud
     }
 
     static string Val(string s) => string.IsNullOrEmpty(s) ? null : s;
+
+    /// Revue 17 (D2-22, lot D) : le serveur a refusé l'abonnement (réponse en erreur) : le canal reste ouvert mais ne
+    /// recevra rien. Avant, ce n'était que journalisé : les fiches des collègues n'arrivaient plus qu'au rechargement.
+    public static bool AbonnementRefuse(TempsReel.MessageEntrant m) =>
+        m != null && m.@event == "phx_reply" && m.payload?.status == "error";
+
+    /// Revue 17 (D2-22, lot D) : le canal est à relancer : jamais ouvert, coupé (connexion impossible, erreur de socket),
+    /// fermé, arrêté, ou abonnement refusé. « connexion… » n'y est pas : TempsReel.Demarrer la borne à 10 s, puis « coupé ».
+    public static bool ARelancer(string etat, bool abonnementRefuse) =>
+        abonnementRefuse || etat == null || etat.StartsWith("coupé") || etat.StartsWith("fermé") || etat == "arrêté";
 
     // ── Marche / arrêt ─────────────────────────────────────────────────────────
 
@@ -73,16 +84,24 @@ public static class DirectCloud
 
     static async Task Connecter()
     {
+        int generation = _generation;
+        TempsReel canal = null;
         try
         {
             string jeton = await SessionCloud.Jeton();
+            if (generation != _generation) return;   // arrêté (ou autre entreprise) pendant l'attente du jeton
             string filtre = "entreprise_id=eq." + _entreprise;
-            _canal = new TempsReel();
-            await _canal.Demarrer(SessionCloud.Url, SessionCloud.Cle,
+            // Revue 17 (D2-22, lot D) : l'ancien canal est arrêté avant d'en ouvrir un autre : après un abonnement refusé
+            // sa socket est encore ouverte, elle resterait à battre pour rien.
+            _canal?.Arreter();
+            _abonnementRefuse = false;
+            _canal = canal = new TempsReel();
+            await canal.Demarrer(SessionCloud.Url, SessionCloud.Cle,
                 r => TempsReel.MessageJoinFiltre(new[] { "batiments", "locataires", "verrous", "presences", "documents", "reglages", "secrets" }, filtre, jeton, r));
             _jetonEnvoye = jeton;
         }
-        catch (Exception e) { _canal = null; Debug.LogWarning("[Direct] Connexion impossible : " + e.Message); }
+        // `_canal == canal` : un canal ouvert entre-temps par un autre appel n'est pas lâché sur l'échec de celui-ci.
+        catch (Exception e) { if (_canal == canal) _canal = null; Debug.LogWarning("[Direct] Connexion impossible : " + e.Message); }
     }
 
     // ── Messages reçus ─────────────────────────────────────────────────────────
@@ -91,8 +110,14 @@ public static class DirectCloud
     {
         var m = TempsReel.Lire(json);
         if (m == null) return;
-        if (m.@event == "phx_reply" && m.payload?.status == "error")
-        { Debug.LogWarning("[Direct] Abonnement refusé : " + m.payload.response?.reason); return; }
+        if (AbonnementRefuse(m))
+        {
+            // Revue 17 (D2-22, lot D) : retenu ici (fil principal), pas dans l'état du canal : le fil de la socket le
+            // remettrait à « connecté » au message suivant. Entretenir relance le canal au prochain tour (30 s au plus).
+            _abonnementRefuse = true;
+            Debug.LogWarning("[Direct] Abonnement refusé : " + m.payload.response?.reason);
+            return;
+        }
         if (m.@event != "postgres_changes" || m.payload?.data == null) return;
 
         var d = m.payload.data;
@@ -361,8 +386,9 @@ public static class DirectCloud
         {
             try
             {
-                string etat = _canal?.Etat ?? "arrêté";
-                if (_canal == null || etat.StartsWith("coupé") || etat.StartsWith("fermé") || etat == "arrêté")
+                // Revue 17 (D2-22, lot D) : un abonnement refusé relance aussi le canal (règle ARelancer).
+                string etat = _abonnementRefuse ? "coupé : abonnement refusé" : _canal?.Etat ?? "arrêté";
+                if (_canal == null || ARelancer(etat, _abonnementRefuse))
                 {
                     Debug.Log($"[Direct] Canal {etat} : reconnexion");
                     await Connecter();

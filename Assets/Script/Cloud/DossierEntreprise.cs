@@ -70,7 +70,10 @@ public static class DossierEntreprise
         for (int vus = 0, max = 5000 * Math.Max(1, file.Count); file.Count > 0 && vus < max; vus++)
         {
             var (d, n) = file.Dequeue();
-            if (ImportLocal.LireRepere(d)?.id == entrepriseId) return d;
+            // Revue 17 (D2-19, lot D) : le repère d'un dossier local (« Dans CIPL ») n'est pas celui du dossier partagé : Documents est
+            // souvent dans OneDrive, et ce PC prendrait sa propre copie pour le Drive (il ne recevrait plus aucun document).
+            var repere = ImportLocal.LireRepere(d);
+            if (repere != null && repere.id == entrepriseId && !repere.local) return d;
             if (n >= profondeur) continue;
             string[] sous;
             try { sous = Directory.GetDirectories(d); } catch (Exception) { continue; }
@@ -98,8 +101,33 @@ public static class DossierEntreprise
         var r = ImportLocal.LireRepere(dossier);
         if (r == null) return $"Ce dossier ne contient pas les documents d'une entreprise CIPL ({ImportLocal.NomRepere} absent).";
         if (r.id != entrepriseId) return $"Ce dossier est celui de « {r.nom} », pas de « {nomEntreprise} ».";
+        // Revue 17 (D2-19, lot D) : avant, ce dossier n'avait pas de repère et était refusé « absent ».
+        if (r.local) return "Ce dossier est la copie des documents d'un ordinateur (mode « Dans CIPL »), pas le dossier partagé de l'entreprise.";
         return null;
     }
+
+    /// Revue 17 (D2-19, lot D) : le dossier local d'une entreprise sous `parent` (Documents\CIPL). Deux entreprises de même nom
+    /// partageaient le même dossier, et chacune envoyait les documents de l'autre sur son cloud. Le dossier au nom de l'entreprise
+    /// est le sien s'il porte son repère ou n'en porte pas (dossier neuf, ou d'avant la correction) ; s'il porte le repère d'une
+    /// autre entreprise : « nom (2) », « nom (3) »… `lireRepere` : ImportLocal.LireRepere (null sans dossier ou sans repère).
+    public static string DossierLibre(string parent, string nom, string entrepriseId, Func<string, ImportLocal.Repere> lireRepere)
+    {
+        for (int i = 1; ; i++)
+        {
+            string d = Path.Combine(parent, i == 1 ? nom : $"{nom} ({i})");
+            var r = lireRepere(d);
+            if (r == null || r.id == entrepriseId) return d;
+        }
+    }
+
+    /// Revue 17 (D2-12, lot D) : mode « Sur chaque PC », que faire du dossier retenu sur ce PC. Jamais ouvert ici, ou retour du Drive
+    /// partagé : un dossier local neuf. Retenu mais introuvable (disque externe, NAS) : on demande, au lieu de le remplacer en
+    /// silence et pour toujours par Documents\CIPL.
+    public enum Local { Garder, Nouveau, Demander }
+
+    public static Local DecisionLocal(string retenu, bool existe, string type) =>
+        string.IsNullOrEmpty(retenu) || type == DriveAuto || type == DriveMain ? Local.Nouveau
+      : existe ? Local.Garder : Local.Demander;
 
     /// Recopie Batiment/, Logo/, Anciens documents/ et reglage.json d'un dossier vers un autre, sans rien écraser
     /// (passage au Drive partagé, ou retour dans CIPL). Renvoie le nombre de documents recopiés.

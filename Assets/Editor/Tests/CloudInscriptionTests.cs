@@ -67,6 +67,9 @@ public class CloudInscriptionTests
         Assert.That(r.lieuEmission, Is.EqualTo("Toulouse"));
         Assert.That(r.smtp.fromName, Is.EqualTo("Patrimoine de Jean Martin"));
         Assert.That(r.smtp.fromEmail, Is.EqualTo("jean@b.fr"));
+        // Revue 17 (D3-17) : location nue d'un particulier, exonérée : pas de TVA sur sa première facture.
+        Assert.That(r.loyersSoumisTva, Is.False);
+        Assert.That(RegleInscription.ReglagesAjout(false, "Patrimoine de Jean Martin", "", null).loyersSoumisTva, Is.False, "entreprise ajoutée au groupe");
     }
 
     [Test]
@@ -87,6 +90,8 @@ public class CloudInscriptionTests
         Assert.That(r.smtp.host, Is.Empty, "pas le serveur d'envoi de CIPL");
         Assert.That(new AnnuaireSiege { commune = "92048" }.Ville, Is.EqualTo(""), "jamais le code INSEE comme nom de ville");
         Assert.That(new ReglageData().sansLogo, Is.False, "les Réglages déjà enregistrés gardent le logo CIPL");
+        Assert.That(r.loyersSoumisTva, Is.True, "Revue 17 (D3-17) : une société part soumise, tant que la question n'est pas posée à l'inscription");
+        Assert.That(new ReglageData().loyersSoumisTva, Is.True, "les entreprises existantes ne changent pas (02/11)");
 
         var sansAnnuaire = RegleInscription.Reglages(true, "SCI Rivoli", "73282932000074", null, "Marie Dupont", "", "marie@b.fr");
         Assert.That(sansAnnuaire.basDePage, Is.EqualTo("SCI Rivoli - Siret : 732 829 320 00074 - TVA intracommunautaire : " + FactureEn16931.TvaIntra("732829320")));

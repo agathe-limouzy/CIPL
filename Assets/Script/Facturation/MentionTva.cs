@@ -22,12 +22,24 @@ public static class MentionTva
     public static readonly List<string> Libelles = new List<string>
         { "Aucune mention", "TVA payée sur les débits", "TVA payée sur les encaissements" };
 
-    public static int Lire(FactureInfo f)
+    public static int Lire(FactureInfo f) => Lire(f, Debits);   // sans réglage d'entreprise : la valeur d'usine
+
+    /// Revue 17 (D5-25, coutures ; décision du 09/11) : `defaut` est le choix d'un type de facture qui n'a encore rien de
+    /// mémorisé pour ce locataire : jamais enregistré, et mention encore à sa valeur d'usine. Les formulaires passent le
+    /// réglage d'entreprise (ParDefaut) ; avant, « débits » pour tous, même pour une SCI au régime des encaissements.
+    /// Une fiche relue du serveur porte toujours une FactureInfo d'usine (JsonUtility n'écrit pas « rien ») : `f == null`
+    /// ne suffit pas. Un choix hérité du locataire précédent (HeritageFacture) qui s'écarte de l'usine reste gardé.
+    /// ponytail: un « débits » hérité ne se distingue pas de l'usine : il suit le réglage d'entreprise ; pour le garder,
+    /// il faudrait un champ « mention choisie » sur FactureInfo.
+    public static int Lire(FactureInfo f, int defaut)
     {
-        if (f == null) return Debits;   // réglage d'usine
+        if (f == null || (!f.saved && f.tvaDebit && !f.tvaEncaissements && string.IsNullOrWhiteSpace(f.texteTvaDebit))) return defaut;
         if (!f.tvaDebit) return Aucune;
         return f.tvaEncaissements ? Encaissements : Debits;
     }
+
+    /// Le réglage d'entreprise « Mention TVA par défaut » (Réglages › TVA sur les loyers) : débits ou encaissements.
+    public static int ParDefaut(ReglageData r) => r != null && r.mentionTvaParDefaut == Encaissements ? Encaissements : Debits;
 
     public static void Ecrire(FactureInfo f, int choix)
     {
@@ -56,11 +68,10 @@ public static class MentionTva
         => !string.IsNullOrWhiteSpace(texte) && texte != Base(r, choix) && texte != Defaut(choix);
 
     /// Phrase effectivement imprimée pour cette facture (avant résolution des variables).
-    public static string PhraseFacture(ReglageData r, FactureInfo f)
-    {
-        int choix = Lire(f);
-        return Surcharge(r, choix, f?.texteTvaDebit) ? f.texteTvaDebit : Base(r, choix);
-    }
+    public static string PhraseFacture(ReglageData r, FactureInfo f) => PhraseFacture(r, f, Lire(f, ParDefaut(r)));
+
+    static string PhraseFacture(ReglageData r, FactureInfo f, int choix)
+        => Surcharge(r, choix, f?.texteTvaDebit) ? f.texteTvaDebit : Base(r, choix);
 
     // ── Panneaux ────────────────────────────────────────────────────────────────
 
@@ -92,11 +103,15 @@ public static class MentionTva
 
     /// Pré-remplie avec la phrase réellement imprimée — la base ou le remplacement —
     /// plutôt qu'un champ vide dont il faudrait deviner l'effet.
-    public static void Charger(UIDropdown menu, TMP_InputField phrase, FactureInfo f)
+    public static void Charger(UIDropdown menu, TMP_InputField phrase, FactureInfo f) => Charger(menu, phrase, f, ParDefaut(R));
+
+    /// `defaut` : le choix proposé quand ce type de facture n'a rien de mémorisé (D5-25 : le réglage d'entreprise ; un
+    /// formulaire peut imposer le sien).
+    public static void Charger(UIDropdown menu, TMP_InputField phrase, FactureInfo f, int defaut)
     {
-        int choix = Lire(f);
+        int choix = Lire(f, defaut);
         menu.SetIndex(choix, false);
-        phrase.text = PhraseFacture(R, f);
+        phrase.text = PhraseFacture(R, f, choix);
         phrase.transform.parent.gameObject.SetActive(choix != Aucune);
     }
 

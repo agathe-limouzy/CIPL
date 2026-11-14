@@ -284,6 +284,9 @@ public class InvestissementListPanel : MonoBehaviour
 
     private void DemanderSuppressionCharge(ChargeBatiment ch)
     {
+        // Revue 17 (D6-09) : une charge déjà facturée ne se supprime plus (avant : une confirmation, et sa facture ne se
+        // corrigeait plus) : refus au centre, comme un RIB utilisé.
+        if (ChargeBatiment.RefusSuppression(ch, _batiment.getBatiment().locataireDuBatiment) is string refus) { ConfirmDialog.Erreur(refus); return; }
         string nom = string.IsNullOrEmpty(ch.nom) ? "cette charge" : ch.nom;
         ConfirmDialog.Instance.Show("Supprimer la charge", $"Supprimer « {nom} » ?", () =>
         {

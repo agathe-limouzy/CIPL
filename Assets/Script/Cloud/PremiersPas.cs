@@ -16,14 +16,15 @@ public static class PremiersPas
 
     public struct Etat
     {
-        public bool admin, logo, rib, envoi, facture, autrePersonne, abonne;
+        public bool admin, logo, rib, envoi, facture, autrePersonne, abonne, expire;   // Revue 17 (D3-10) : expire = essai fini sans abonnement
         public int batiments, locataires, joursEssai;
     }
 
     public static List<(Ligne ligne, string texte, string sous, bool fait)> Lignes(Etat e)
     {
         var l = new List<(Ligne, string, string, bool)>();
-        void Ajouter(Ligne x, bool fait) => l.Add((x, Nom(x), x == Ligne.Abonnement ? (e.abonne ? "Abonné" : "Essai : " + Jours(e.joursEssai)) : Sous(x), fait));
+        // Revue 17 (D3-10) : un groupe expiré n'est pas à son « dernier jour » d'essai.
+        void Ajouter(Ligne x, bool fait) => l.Add((x, Nom(x), x == Ligne.Abonnement ? (e.abonne ? "Abonné" : e.expire ? "Essai terminé" : "Essai : " + Jours(e.joursEssai)) : Sous(x), fait));
         if (e.admin)
         {
             Ajouter(Ligne.Logo, e.logo);
@@ -67,7 +68,9 @@ public static class PremiersPas
     /// Pourquoi faire la prochaine étape (dans le cadre « Prochaine étape »).
     public static string Phrase(Ligne x) => x switch
     {
-        Ligne.Logo => "Votre logo s'imprime en haut de chaque facture. Le bas de page et le lieu d'émission sont déjà remplis d'après votre SIRET : vérifiez-les au passage.",
+        // Revue 17 (D3-17) : l'option TVA part du type d'entreprise (particulier : sans, société : avec) ; à vérifier avant la première facture.
+        Ligne.Logo => "Votre logo s'imprime en haut de chaque facture. Le bas de page et le lieu d'émission sont déjà remplis d'après votre SIRET : vérifiez-les au passage, "
+                      + "ainsi que l'option « TVA sur les loyers » (sans TVA pour un particulier, avec pour une société).",
         Ligne.Rib => "Le compte où vos locataires paient : son IBAN et son BIC s'impriment sur chaque facture.",
         Ligne.Envoi => "Réglez l'adresse qui envoie vos factures : c'est par là qu'elles partiront.",
         Ligne.Batiment => "Chaque immeuble ou local a sa fiche et son onglet ; ses lots, puis ses locataires, s'y ajoutent.",
@@ -110,6 +113,7 @@ public static class PremiersPas
             autrePersonne = (ent?.licences_utilisees ?? 1) > 1,
             abonne = AbonnementCloud.Courant?.abonne == true,
             joursEssai = AbonnementCloud.JoursRestants,
+            expire = AbonnementCloud.Etat == RegleAbonnement.Etat.Expire,   // Revue 17 (D3-10)
         };
     }
 
@@ -233,6 +237,9 @@ public static class PremiersPas
         // 13b-3 : ce qui manque d'abord — pas de locataire sans bâtiment, pas de facture sans locataire.
         if (l == Ligne.Locataire && Fiches().Count == 0) l = Ligne.Batiment;
         if (l == Ligne.Facture && Locataires().Count == 0) l = Fiches().Count == 0 ? Ligne.Batiment : Ligne.Locataire;
+        // Décision du 11/11 (D6-15) : sans RIB, la facture serait refusée (FactureEmission.RefusSansRib) : le guide commence par « Vos RIB ».
+        // L'administrateur seulement : lui seul peut en ajouter ; un membre garde le message du refus, qui le lui dit.
+        if (l == Ligne.Facture) { var e = Lire(); if (e.admin && !e.rib) l = Ligne.Rib; }
         var avant = Maintenant();
         // Retour du 25/10 : la facture du tutoriel est émise sans être envoyée (pas d'e-mail réel, et
         // un e-mail mal réglé ne bloque pas) ; avant Aller, le bouton s'ouvre déjà sur « Émettre ».
@@ -387,6 +394,9 @@ public static class PremiersPas
                   () => Bulles.Bouton("Choisir un logo…", Reglages),
                   () => !string.IsNullOrEmpty(ReglageService.Current?.logoPath) && ReglageService.Current.logoPath != logoAvant,
                   "La suite s'affiche dès que le logo est choisi."),
+                // Revue 17 (D3-17) : l'option TVA, posée d'après le type d'entreprise, se vérifie avant la première facture.
+                E("La TVA sur les loyers", "Un particulier démarre sans TVA (location nue, exonérée), une société avec. Si ce n'est pas votre cas, changez l'option ici : elle vaut pour chaque facture.",
+                  () => Bulles.Section("TVA sur les loyers", Reglages)),
                 E("Le bas de page et le lieu", "Ils ont été remplis d'après votre SIRET : vérifiez-les, corrigez si besoin, puis cliquez sur « Enregistrer » en bas de l'écran.",
                   () => Bulles.Section("Textes fixes", Reglages)),
             };

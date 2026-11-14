@@ -7,12 +7,13 @@ using System.Collections.Generic;
 public class RibData
 {
     public string id = Guid.NewGuid().ToString();
-    public string name;          // libellé court (ex "BNP Mazamet")
-    public string titulaire;     // ex "Groupe CIPL"
-    public string domiciliation; // ex "BNP PARIBAS Mazamet (00747)"
-    public string rib;           // ex "30004 00747 00021009833 38"
-    public string iban;          // ex "FR76 3000 4007 4700 0210 0983 338"
-    public string bic;           // ex "BNPAFRPPALB"
+    // Revue 17 (D6-21) : exemples neutres, jamais un vrai compte.
+    public string name;          // libellé court (ex "Compte loyers")
+    public string titulaire;     // ex "SCI Exemple"
+    public string domiciliation; // banque et agence (ex "Banque, agence (guichet)")
+    public string rib;           // banque, guichet, compte, clé (ex "12345 67890 00012345678 12")
+    public string iban;          // 27 caractères en France (ex "FR76 1234 5678 9012 3456 7890 123", exemple non valide)
+    public string bic;           // 8 ou 11 caractères (ex "ABCDFRPPXXX")
 
     public RibData() { }
 }
@@ -89,10 +90,12 @@ public class ReglageData
     // documents. Réglage d'entreprise seulement : aucune facture ne le remplace.
     public string lieuEmission = FacturePdfService.LieuDefaut;
 
+    // Revue 17 (D6-27, coutures) : l'article cité est le L441-10 (l'ancien L441-6, renuméroté en 2019). Texte d'usine
+    // seulement : des Réglages déjà enregistrés gardent leur phrase (à retoucher dans Réglages › Textes fixes).
     public string phraseRetard =
         "En cas de retard de paiement, des pénalités de retard, à un taux d'intérêt égal à trois fois " +
         "le taux d'intérêt légal seront appliquées + une indemnité forfaitaire de 40 € pour frais de " +
-        "recouvrement (Art L 441-6 du C.com).";
+        "recouvrement (art. L441-10 du Code de commerce).";
 
     // Demande du 04/11 : la phrase sur l'escompte (obligatoire, art. L441-9 du Code de commerce), au PDF et au XML (note
     // AAB). Vide : la phrase d'usine (FactureEn16931.Escompte), jamais rien.
@@ -102,6 +105,10 @@ public class ReglageData
     // elle-même (`FactureInfo.texteTvaDebit`) — voir MentionTva.
     public string mentionTvaDebits = FacturePdfService.TvaDebitDefaut;
     public string mentionTvaEncaissements = FacturePdfService.TvaEncaissementsDefaut;
+    // Revue 17 (D5-25, coutures ; décision du 09/11) : la mention proposée sur une facture dont le type n'a encore rien de
+    // mémorisé pour ce locataire (MentionTva.Debits ou Encaissements ; voir MentionTva.ParDefaut). Des Réglages d'avant ce
+    // champ gardent « débits » : rien ne change sans un geste dans Réglages › TVA sur les loyers.
+    public int mentionTvaParDefaut = MentionTva.Debits;
     // TVA sur les loyers (02/11) : l'option du bailleur par entreprise, son taux, et la mention d'exonération (Textes fixes). Voir Tva.
     public bool loyersSoumisTva = true;
     public float tauxTva = Tva.TauxDefaut;

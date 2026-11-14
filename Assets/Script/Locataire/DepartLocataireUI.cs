@@ -105,8 +105,15 @@ public class ParcoursDepartUI : MonoBehaviour
                 DepartPanel.Ouvrir(_fiche);
                 break;
             case DepartLocataire.Etape.DernierLoyer:
-                FactureLoyerPanel.OpenLoyer(_fiche, DepartLocataire.LigneDernierLoyer(loc));
+            {
+                // Revue 17 (2c, relecture du 07/11) : un loyer d'une période après le départ se retire du suivi (le formulaire refuse
+                // 0 €) : l'étape montre le suivi au lieu d'ouvrir le formulaire.
+                var ligne = DepartLocataire.LigneDernierLoyer(loc);
+                if (ligne != null && DepartLocataire.PeriodeApresDepart(loc, ligne) && DepartLocataire.LirePeriode(ligne.key, out int annee, out _))
+                    LocataireSuiviInline.MontrerPour(_fiche, annee);
+                else FactureLoyerPanel.OpenLoyer(_fiche, ligne);
                 break;
+            }
             case DepartLocataire.Etape.Decompte:
                 FactureDepotPanel.OpenDepot(_fiche);   // départ saisi → mode « décompte de sortie »
                 break;
@@ -186,8 +193,12 @@ public static class DepartPanel
     {
         if (fiche == null) return;
         RectTransform scrim = null;   // sur le cloud : locataire réservé tant que la fenêtre est ouverte (étape 4b)
-        EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, false), "départ", () => scrim = Construire(fiche),
-            () => scrim != null, () => { if (scrim != null) UnityEngine.Object.Destroy(scrim.gameObject); });
+        // Revue 17 (D7a-17, lot D) : le bâtiment aussi : « un nouveau locataire reprend le lot » écrit ses charges (parts du remplaçant).
+        EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, true), "départ", () => scrim = Construire(fiche),
+            // Revue 17 (D7a-17, lot D) : fenêtre fermée, le gardien d'EcritureCloud garde le verrou tant que l'écriture du
+            // départ attend ou part : le bâtiment n'est pas libéré avant le serveur.
+            () => scrim != null,
+            () => { if (scrim != null) UnityEngine.Object.Destroy(scrim.gameObject); });
     }
 
     static RectTransform Construire(LocatairePrefab fiche)
@@ -217,18 +228,21 @@ public static class DepartPanel
         var body = UIFactory.VBox(v.transform, 10, 18, 18, 14, 16, "Body");
         bool depart = DepartLocataire.Sortie(loc, out var s);
 
-        // Type de départ (menu déroulant, retour du 06/10). La cession n'a plus de sens
-        // une fois un départ saisi.
+        // Type de départ (menu déroulant, retour du 06/10). Revue 17 (D7a-22, D7a-26, lot D) : les types viennent de TypesProposes.
         UIFactory.Text(body.transform, "Type de départ", UITheme.Role.Donnee, UITheme.TexteSecondaire);
-        var types = new List<string> { "Le locataire part, le lot reste libre",
-            "Il part, un nouveau locataire reprend le lot (bail au lendemain du départ)" };
-        if (!depart) types.Add("Cession du bail : un nouveau titulaire reprend le bail tel quel");
+        var bat = fiche.batimentPrefabOrigin != null ? fiche.batimentPrefabOrigin.getBatiment() : null;
+        var remplacantExistant = depart ? DepartLocataire.Remplacant(loc, bat, s) : null;
+        bool cessionPrevue = Cessions.Prevue(loc) != null;   // rouvrir = la retrouver
+        var types = TypesProposes(depart, cessionPrevue, remplacantExistant != null);
         Action majCas = null;
-        bool cessionPrevue = !depart && Cessions.Prevue(loc) != null;   // rouvrir = la retrouver
-        var type = UIDropdown.Create(body.transform, types, null, cessionPrevue ? 2 : 0, _ => majCas?.Invoke());
-        Func<bool> remplacant = () => type.Index == 1, cession = () => type.Index == 2;
+        // Retour de BW4 (12/11) : une cession prévue vient avant le départ (refusé avant elle) : la fenêtre s'ouvre dessus, même départ saisi.
+        var type = UIDropdown.Create(body.transform, types, null, types.IndexOf(TypeOuvert(types, cessionPrevue)), _ => majCas?.Invoke());
+        Func<bool> remplacant = () => types[type.Index] == TypeRemplacant, cession = () => types[type.Index] == TypeCession;
 
         var blocDepart = UIFactory.VBox(body.transform, 10, name: "BlocDepart").transform;
+        if (remplacantExistant != null)   // Revue 17 (D7a-26, lot D) : dit pourquoi « reprend le lot » n'est plus proposé
+            UIFactory.Text(blocDepart, $"« {remplacantExistant.Name} » reprend ce lot le {s.AddDays(1):dd/MM/yyyy}.",
+                UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         // Dernier jour · délai de restitution, puis la date limite calculée.
         var ligne1 = UIFactory.HBox(blocDepart, 16, false, "Ligne1");
@@ -279,17 +293,22 @@ public static class DepartPanel
             + "charges au prorata de présence.", UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         GameObject blocCession = null;
-        Func<string> enregistrerCession = depart ? null : CessionPanel.Bloc(fiche, loc, body.transform, fermer, out blocCession);
+        // Revue 17 (D7a-22, décision du 11/11, lot D) : une cession prévue garde son bloc (et « Annuler la cession prévue ») après un départ.
+        Func<string> enregistrerCession = !types.Contains(TypeCession) ? null : CessionPanel.Bloc(fiche, loc, body.transform, fermer, out blocCession);
+        if (blocCession != null && depart)   // Retour de BW4 (12/11) : la fenêtre s'ouvre sur la cession : le départ saisi est rappelé
+            UIFactory.Text(blocCession.transform, $"Un départ est aussi saisi au {s:dd/MM/yyyy} : choisissez « {TypeLibre} » pour le modifier ou l'annuler.",
+                UITheme.Role.Aide, UITheme.TexteSecondaire).transform.SetAsFirstSibling();
 
         // Pied : Annuler le départ · Fermer · Enregistrer.
         var pied = UIFactory.HBox(v.transform, 8, false, "Pied");
         pied.padding = new RectOffset(18, 18, 10, 14);
+        Button annuler = null;   // Retour de BW4 (12/11) : montré seulement côté départ (il se lisait « annuler la cession »)
         if (depart)
         {
-            var annuler = UIFactory.Button(pied.transform, "Annuler le départ", UITheme.Carte, UITheme.Alerte, 40, UITheme.Role.Bouton, false);
+            annuler = UIFactory.Button(pied.transform, "Annuler le départ", UITheme.Carte, UITheme.Alerte, 40, UITheme.Role.Bouton, false);
             UIFactory.Border(annuler.gameObject, UITheme.Alerte);
             UIFactory.LargeurDuTexte(annuler);
-            annuler.onClick.AddListener(() => Annuler(fiche, loc, fermer));
+            annuler.onClick.AddListener(() => Annuler(fiche, loc, bat, fermer));
         }
         var espace = UIFactory.Rect("Espace", pied.transform);
         UIFactory.LE(espace.gameObject, flexW: 1);
@@ -307,6 +326,7 @@ public static class DepartPanel
             bool c = cession();
             blocDepart.gameObject.SetActive(!c);
             if (blocCession != null) blocCession.SetActive(c);
+            if (annuler != null) annuler.gameObject.SetActive(!c);
             titre.text = (c ? "Cession du bail — " : "Départ du locataire — ") + loc.Name;
             enregistrerTexte.text = c ? "Enregistrer la cession" : "Enregistrer";
         };
@@ -321,29 +341,62 @@ public static class DepartPanel
                 fermer();
                 fiche.ApresDepart();
                 var p = Cessions.Prevue(loc);
+                // Revue 17 (D7a-12, lot D) : cession faite tout de suite : la fiche société du nouveau titulaire, comme « Sauvegarder ».
+                if (p == null) fiche.StartCoroutine(PappersSync.Un(fiche.batimentPrefabOrigin, loc));
                 UndoToast.Instance?.ShowInfo(p != null && FacturationSuivi.TryEcheance(p.dateISO, out var dp)
                     ? $"Cession enregistrée : « {p.nom} » reprendra le bail le {dp:dd/MM/yyyy}. D'ici là, la fiche reste au nom de « {loc.Name} »."
                     : $"Bail cédé : « {loc.Name} » est le nouveau locataire.");
                 return;
             }
-            string erreur = Enregistrer(loc, jour, delai.text, oui.isOn, dateEdl);
+            string erreur = Enregistrer(loc, bat, jour, delai.text, oui.isOn, dateEdl);
             if (erreur != null) { ConfirmDialog.Erreur(erreur); return; }
+            // Revue 17 (D7a-17, lot D) : le remplaçant est préparé AVANT l'écriture du départ : ses parts des charges du bâtiment
+            // partent dans la même écriture, sous la réservation de la fenêtre (bâtiment + locataire). Avant, elles attendaient le
+            // premier « Sauvegarder » de sa fiche, sans réservation : un refus emportait alors la fiche saisie.
+            var nouveau = remplacant() ? AjouterRemplacant(fiche, loc) : null;
             fermer();
             fiche.ApresDepart();
-            if (remplacant()) CreerRemplacant(fiche, loc);
+            if (nouveau != null) OuvrirRemplacant(fiche, loc, nouveau);
             else UndoToast.Instance?.ShowInfo($"Départ de « {loc.Name} » enregistré.");
         });
         return scrim;
     }
 
-    // Nouvelle fiche sur le même lot, pré-remplie, en création (parcours habituel :
-    // nom, fin du bail, puis loyer et dépôt).
-    static void CreerRemplacant(LocatairePrefab fiche, Locataire ancien)
+    public const string TypeLibre = "Le locataire part, le lot reste libre";
+    public const string TypeRemplacant = "Il part, un nouveau locataire reprend le lot (bail au lendemain du départ)";
+    public const string TypeCession = "Cession du bail : un nouveau titulaire reprend le bail tel quel";
+
+    /// Revue 17 (D7a-22, D7a-26, décisions du 09/11 et du 11/11, lot D) : les types proposés par la fenêtre. « Reprend le lot » :
+    /// pas quand un remplaçant reprend déjà le lot (un second serait créé). « Cession du bail » : sans départ, ou tant qu'une
+    /// cession est prévue (pour la modifier ou l'annuler, même après un départ saisi).
+    /// Retour de BW4 (12/11) : le type affiché à l'ouverture : la cession tant qu'elle est prévue (elle vient avant le départ,
+    /// on y décale sa date ou on l'annule), sinon le premier proposé.
+    public static string TypeOuvert(List<string> types, bool cessionPrevue)
+        => cessionPrevue && types.Contains(TypeCession) ? TypeCession : types[0];
+
+    public static List<string> TypesProposes(bool depart, bool cessionPrevue, bool remplacant)
+    {
+        var t = new List<string> { TypeLibre };
+        if (!remplacant) t.Add(TypeRemplacant);
+        if (!depart || cessionPrevue) t.Add(TypeCession);
+        return t;
+    }
+
+    // Nouvelle fiche sur le même lot, pré-remplie (lot, bail au lendemain, parts des charges), pas encore inscrite dans le
+    // bâtiment (« Sauvegarder » l'y inscrit). Revue 17 (D7a-17, lot D) : appelée avant l'écriture du départ.
+    static LocatairePrefab AjouterRemplacant(LocatairePrefab fiche, Locataire ancien)
     {
         var bp = fiche.batimentPrefabOrigin;
         var prefab = bp.Addlocataire(true);
+        DepartLocataire.PreparerRemplacant(ancien, prefab.GetLocataire(), bp.getBatiment());
+        return prefab;
+    }
+
+    // Ouvre la fiche du remplaçant, en création (parcours habituel : nom, fin du bail, puis loyer et dépôt).
+    static void OuvrirRemplacant(LocatairePrefab fiche, Locataire ancien, LocatairePrefab prefab)
+    {
+        var bp = fiche.batimentPrefabOrigin;
         var nouveau = prefab.GetLocataire();
-        DepartLocataire.PreparerRemplacant(ancien, nouveau, bp.getBatiment());
         bp.menulocataire.CreateTab(prefab);
         bp.menulocataire.OnSelect(prefab, true);
         prefab.InitializeLocataire(nouveau, true);   // affiche le lot et le début du bail repris
@@ -404,12 +457,15 @@ public static class DepartPanel
            && string.IsNullOrWhiteSpace(d.yearInput.text);
 
     /// Vérifie puis écrit la saisie. Message d'erreur, ou null si tout est enregistré.
-    static string Enregistrer(Locataire loc, DateInputController jour, string delai, bool avecEdl, DateInputController dateEdl)
+    static string Enregistrer(Locataire loc, Batiment bat, DateInputController jour, string delai, bool avecEdl, DateInputController dateEdl)
     {
         if (!jour.LireDate(out var dernier))
             return "Dernier jour de location : saisissez une date (JJ/MM/AAAA).";
         if (FacturationSuivi.TryEcheance(loc.dateDebutBailISO, out var debut) && dernier.Date < debut.Date)
             return $"Le départ ne peut pas précéder le début du bail ({debut:dd/MM/yyyy}).";
+        // Revue 17 (D7a-19, décision du 09/11, lot D) : un remplaçant reprend le lot au lendemain de l'ancienne date : refus qui le nomme.
+        string chevauche = DepartLocataire.RefusRemplacant(loc, bat, dernier);
+        if (chevauche != null) return chevauche;
         var cession = Cessions.Prevue(loc);
         if (cession != null && FacturationSuivi.TryEcheance(cession.dateISO, out var dc) && dc.Date > dernier.Date)
             return $"Une cession du bail est prévue le {dc:dd/MM/yyyy} à « {cession.nom} » : annulez-la d'abord (type « Cession du bail »).";
@@ -430,9 +486,10 @@ public static class DepartPanel
         return null;
     }
 
-    static void Annuler(LocatairePrefab fiche, Locataire loc, Action fermer)
+    static void Annuler(LocatairePrefab fiche, Locataire loc, Batiment bat, Action fermer)
     {
-        string refus = DepartLocataire.PeutAnnuler(loc);
+        // Revue 17 (D7a-19, lot D) : annuler le départ ferait aussi chevaucher le remplaçant.
+        string refus = DepartLocataire.PeutAnnuler(loc) ?? DepartLocataire.RefusRemplacant(loc, bat, null);
         if (refus != null) { ConfirmDialog.Erreur(refus); return; }
         ConfirmDialog.Instance?.Show("Annuler le départ",
             $"« {loc.Name} » reste dans les lieux : le dernier jour, l'état des lieux et le délai sont effacés. "

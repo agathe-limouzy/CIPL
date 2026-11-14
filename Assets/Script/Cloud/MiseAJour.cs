@@ -48,6 +48,7 @@ public class MiseAJour : MonoBehaviour
     GameObject _bandeau, _fenetre;
     TMP_Text _texte;
     Action<string> _afficherFenetre;
+    Action<string> _afficher;      // où s'affiche le téléchargement en cours : le bandeau, ou la fenêtre obligatoire
     Func<Canvas> _canvas;          // Revue 17 (D2-01) : version.json relu toutes les heures
     float _prochaineLecture;
 
@@ -70,6 +71,21 @@ public class MiseAJour : MonoBehaviour
     /// Après une mise à jour : réussie, un message en bas ; échouée, au centre (retour du 26/10).
     IEnumerator Bilan()
     {
+        // Revue 17 (D8-11, lot D) : à chaque lancement, les installeurs téléchargés par les mises à jour d'avant (réussies ou non) sont
+        // effacés du dossier temporaire : chacun y restait, l'application entière à chaque version. Un fichier encore tenu par
+        // l'installeur qui finit partira au lancement suivant.
+        try
+        {
+            foreach (var f in Directory.GetFiles(Path.GetTempPath(), RegleVersion.MotifInstalleurs))
+            {
+                // Revue 17 (D8-11, lot D) : pas un installeur de moins d'un jour : un autre CIPL ouvert (deux instances permises) l'a peut-être
+                // téléchargé et le lancera à sa fermeture. Il part au lancement du lendemain.
+                if (File.GetLastWriteTimeUtc(f) > DateTime.UtcNow.AddDays(-1)) continue;
+                try { File.Delete(f); } catch (Exception) { /* encore tenu */ }
+            }
+        }
+        catch (Exception e) { Debug.LogWarning("[MiseAJour] Installeurs téléchargés non effacés : " + e.Message); }
+
         string visee;
         try
         {
@@ -86,7 +102,8 @@ public class MiseAJour : MonoBehaviour
             UndoToast.Instance.ShowInfo($"CIPL est à jour : version {Application.version}.");
     }
 
-    IEnumerator Lire(Func<Canvas> canvas)
+    /// `fenetre` faux : relit seulement version.json (Derniere), sans ouvrir de fenêtre.
+    IEnumerator Lire(Func<Canvas> canvas, bool fenetre = true)
     {
         _source = SourceEssai() ?? Publiee;
         using (var r = UnityWebRequest.Get(_source + "version.json"))
@@ -96,12 +113,16 @@ public class MiseAJour : MonoBehaviour
             if (r.result != UnityWebRequest.Result.Success) { Debug.Log($"[MiseAJour] {_source}version.json non lu : {r.error}"); yield break; }
             Derniere = RegleVersion.Analyser(r.downloadHandler.text);
         }
+        if (!fenetre) yield break;
         _etat = RegleVersion.Lire(Application.version, Derniere, Plateforme.Mac);
         Debug.Log($"[MiseAJour] Installée {Application.version}, publiée {Derniere?.version}, minimale {Derniere?.minimale} : {_etat}");
         if (_etat != RegleVersion.Etat.Obligatoire) yield break;
         while (canvas() == null) yield return null;
+        // Revue 17 (D8-17, lot D) : installeur déjà téléchargé ou en cours (fermeture refusée par la garde, puis version devenue
+        // obligatoire à la relecture horaire) : la fenêtre le dit (« Mettre à jour » ne ferait rien : grisé) et reçoit la suite du téléchargement.
         (_fenetre, _afficherFenetre) = EcransCloud.MiseAJourObligatoire(canvas(), Application.version, Derniere.version,
-                                                                       () => StartCoroutine(Telecharger(_afficherFenetre)));
+                                                                       () => StartCoroutine(Telecharger(_afficherFenetre)), _enCours);
+        if (_enCours) _afficher = _afficherFenetre;
     }
 
     void Update()
@@ -139,6 +160,15 @@ public class MiseAJour : MonoBehaviour
         _texte.text = _enCours ? RegleVersion.TextePret : RegleVersion.TexteProposee(Derniere.version, Application.version);
     }
 
+    /// Revue 17 (D8-11, lot D) : le fichier téléchargé a l'empreinte SHA-256 publiée dans version.json. Sans empreinte publiée
+    /// (version.json d'avant ce contrôle) : accepté, sans lire le fichier.
+    static bool InstalleurAttendu(string fichier, string sha256)
+    {
+        if (RegleVersion.InstalleurValide(null, sha256)) return true;
+        try { using (var f = File.OpenRead(fichier)) return RegleVersion.InstalleurValide(RegleVersion.Empreinte(f), sha256); }
+        catch (Exception e) { Debug.LogWarning("[MiseAJour] Installeur téléchargé illisible : " + e.Message); return false; }
+    }
+
     /// Null : retour à la proposition (le bandeau se reconstruit avec ses boutons).
     void AfficherBandeau(string t)
     {
@@ -157,21 +187,34 @@ public class MiseAJour : MonoBehaviour
         }
         if (_enCours) yield break;
         _enCours = true;
-        string fichier = Path.Combine(Path.GetTempPath(), $"CIPL-installation-{Derniere.version}.exe");
+        _afficher = afficher;   // Revue 17 (D8-17, lot D) : la fenêtre obligatoire, ouverte pendant ce téléchargement, prend la suite (Lire)
+        string fichier = Path.Combine(Path.GetTempPath(), RegleVersion.NomInstalleur(Derniere.version));
         string lien = _source == Publiee ? LienWindows : _source + Installeur;   // essai : l'installeur du dossier du PC
         using (var r = new UnityWebRequest(lien, UnityWebRequest.kHttpVerbGET, new DownloadHandlerFile(fichier) { removeFileOnAbort = true }, null))
         {
             var envoi = r.SendWebRequest();
-            while (!envoi.isDone) { afficher(RegleVersion.TexteTelechargement(Derniere.version, r.downloadProgress)); yield return null; }
+            while (!envoi.isDone) { _afficher(RegleVersion.TexteTelechargement(Derniere.version, r.downloadProgress)); yield return null; }
             if (r.result != UnityWebRequest.Result.Success)
             {
                 _enCours = false;
-                afficher(null);
+                _afficher(null);
                 ConfirmDialog.Erreur($"Téléchargement de la mise à jour impossible ({r.error}). Vérifiez la connexion, puis réessayez.");
                 yield break;
             }
         }
-        afficher(RegleVersion.TextePret);
+        // Revue 17 (D8-11, lot D) : une réponse « 200 » qui n'est pas l'installeur (proxy d'entreprise, portail Wi-Fi) n'est pas lancée.
+        if (!InstalleurAttendu(fichier, Derniere.sha256))
+        {
+            try { File.Delete(fichier); } catch (Exception) { /* effacé au prochain lancement (Bilan) */ }
+            _enCours = false;
+            _afficher(null);
+            ConfirmDialog.Erreur(RegleVersion.TexteInstalleurRefuse);
+            // Revue 17 (D8-11, lot D) : sous la fenêtre obligatoire, version.json n'est plus relu chaque heure (Update) : une version publiée
+            // entre la lecture et le téléchargement ferait refuser chaque essai jusqu'au relancement. On relit son empreinte.
+            if (_fenetre != null) StartCoroutine(Lire(_canvas, fenetre: false));
+            yield break;
+        }
+        _afficher(RegleVersion.TextePret);
         Debug.Log("[MiseAJour] Installeur téléchargé : " + fichier);
         // Lancé à la vraie fermeture : si la garde demande d'abord d'enregistrer une fiche et qu'on
         // annule, l'installation attend la fermeture suivante. /CLOSEAPPLICATIONS : l'installeur

@@ -86,6 +86,34 @@ public class BatimentPrefab : PrefabBatLoc
         if (loc != null && !batiment.locataireDuBatiment.Contains(loc)) batiment.locataireDuBatiment.Add(loc);
     }
 
+    /// Revue 17 (D7a-16, lot D, décision du 11/11) : une fiche créée par « + Ajouter », jamais enregistrée (absente du bâtiment), qui
+    /// porte encore le nom par défaut (ou rien) : quitter vers le résumé l'abandonne. Un nom tapé la garde en saisie. Pure, testée.
+    public static bool CreationAbandonnee(Locataire loc, Batiment bat, string nomSaisi)
+        => loc != null && (bat?.locataireDuBatiment == null || !bat.locataireDuBatiment.Contains(loc))
+           && (string.IsNullOrWhiteSpace(nomSaisi) || nomSaisi.Trim() == Data.NomParDefaut);
+
+    /// Retire de l'écran les créations abandonnées, sans passer par le serveur (rien n'y est parti). Avant, la fiche restait en saisie
+    /// toute la session : « Modifier » du bâtiment refusé et changements des collègues sur ce bâtiment retenus. Une fiche neuve
+    /// n'a pas de verrou ; elle ne vit que dans la liste, le dictionnaire et l'onglet, retirés ici.
+    void RetirerCreationsAbandonnees()
+    {
+        var abandonnees = dictionnairelocataire.Where(kv => kv.Value != null && kv.Value.EnEdition
+            && CreationAbandonnee(kv.Key, batiment, kv.Value.nameOfLocataire != null && kv.Value.nameOfLocataire.inputModify != null
+                                                    ? kv.Value.nameOfLocataire.inputModify.text : "")).ToList();
+        if (abandonnees.Count == 0) return;
+        foreach (var kv in abandonnees)
+        {
+            listLocataire.Remove(kv.Key);
+            dictionnairelocataire.Remove(kv.Key);
+            menulocataire.RemoveTabAndBuilding(kv.Value);
+            Destroy(kv.Value.gameObject);
+        }
+        RefreshTailleBatiment();
+        RefreshLoyerTotal();
+        RebuildLocataireRows();
+        UndoToast.Instance?.ShowInfo("Création du locataire abandonnée.");
+    }
+
 public float GetLoyerTotal()
 {
     float total = 0f;
@@ -193,6 +221,7 @@ public float GetLoyerTotal()
 
     public void ShowSummary()
     {
+        RetirerCreationsAbandonnees();   // Revue 17 (D7a-16, lot D) : au retour au résumé
         if (FicheGroup != null)
         {
             FicheGroup.alpha = 0f;
@@ -410,7 +439,8 @@ public float GetLoyerTotal()
         // ── Listeners — RemoveAllListeners AVANT d'ajouter ───────────────────
         btnPLU.onClick.RemoveAllListeners();
         btnPLU.onClick.AddListener(() =>
-            PLUOverlayPanel.Instance.OpenWithBatiment(mapController.GetAdress(), batiment.cadastral));
+            // Revue 17 (D9-19, lot D) : GetAdress relançait un géocodage et une image Google à chaque ouverture du PLU.
+            PLUOverlayPanel.Instance.OpenWithBatiment(mapController.Adresse, batiment.cadastral));
 
         btnRetourMenu.onClick.RemoveAllListeners();
         btnRetourMenu.onClick.AddListener(() =>
@@ -514,6 +544,8 @@ public float GetLoyerTotal()
         }
 
         Delete.onClick.AddListener(() =>
+        {
+            if (DepartLocataire.RefusSuppression(batiment) is string refus) { ConfirmDialog.Erreur(refus); return; }   // Revue 17 (D7a-09)
             ConfirmDialog.Instance.Show(
                 "Supprimer le bâtiment",
                 $"Supprimer « {batiment.Name} » et tous ses locataires ?",
@@ -542,7 +574,8 @@ public float GetLoyerTotal()
                                 }
                                 BatimentManager.Instance.RestoreBatiment(backup);
                             }));
-                }));
+                });
+        });
 
         TransfertEntrepriseUI.AjouterBouton(Delete, () => TransfertEntrepriseUI.OuvrirBatiment(this));
     }
@@ -644,6 +677,7 @@ public float GetLoyerTotal()
     /// Le remplaçant d'un locataire qui part (DepartLocataireUI) reprend son lot : il ne passe pas par là.
     public bool RefuserAjoutSansLotLibre(Action ajouter = null)
     {
+        if (BatimentManager.RefuserAjout()) return true;   // Revue 17 (D7a-18, lot D) : hors ligne ou lecture seule, avant toute saisie
         string refus = LotsBatiment.RefusSansLotLibre(batiment);
         if (refus == null) return false;
         if (ConfirmDialog.Instance != null)
@@ -689,6 +723,13 @@ public float GetLoyerTotal()
     {
         var data = JsonUtility.FromJson<Locataire>(json);
         if (data == null) return;
+        // Revue 17 (D8-09, lot D) : suppression refusée par le serveur puis fiche relue, le locataire est revenu : le restaurer
+        // ferait un doublon du même identifiant (deux fiches à l'écran, enregistrement refusé).
+        if (batiment.locataireDuBatiment.Exists(l => l != null && l.id == data.id))
+        {
+            UndoToast.Instance?.ShowInfo($"« {data.Name} » est toujours dans le bâtiment : rien à restaurer.");
+            return;
+        }
 
         var prefab = SpawnPrefabLocataireInPanel(data, menulocataire.ContentPrefab.transform, false);
         listLocataire.Add(data);
@@ -764,6 +805,12 @@ public float GetLoyerTotal()
             else if (!acquisitionDate.Vide())
             { ConfirmDialog.Erreur("Date d'acquisition : saisissez une date complète (JJ/MM/AAAA), ou laissez-la vide."); return; }
         }
+
+        // Revue 17 (D7a-14, lot D) : une surface illisible (« 1 250 m2 ») est refusée avant toute écriture et avant le renommage du
+        // dossier ; la fiche reste en saisie. Avant, elle était enregistrée 0 sans un mot (les lots non saisis passaient à 0 m²).
+        string refusNombre = (LotsBatiment.Definis(batiment) ? null : RefusNombre(tailleBatimentText.GetValue(), "surface du bâtiment"))
+                             ?? RefusNombre(tailleTerrainText.GetValue(), "surface du terrain");
+        if (refusNombre != null) { ConfirmDialog.Erreur(refusNombre); return; }
 
         // ── Nom : unicité imposée + dossier déplacé si le nom change ──────────────
         // Les dossiers sont nommés par le NOM : deux homonymes partageraient factures

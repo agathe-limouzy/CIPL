@@ -54,7 +54,7 @@ public class Revue17Tests
     public void D2_01_un_champ_ajoute_fait_monter_le_numero_de_modele()
     {
         string e = Empreinte(typeof(Batiment), typeof(Locataire), typeof(ReglageData));
-        Assert.That(DonneesCloud.Modele + ":" + Hash(e), Is.EqualTo("7:1d9bc7661d3e"),
+        Assert.That(DonneesCloud.Modele + ":" + Hash(e), Is.EqualTo("11:973caba90b7c"),   // 11 : ReglageData.mentionTvaParDefaut, FactureEtat.payeLeISO (coutures) ; 10 : Locataire.historiquePeriodicites (lot 14) ; 9 : FactureEtat.encaisseeAAnnulerId (lot 9) ; 8 : destinataire / acheteur (lot 6), retireApresEnvoi / factureCitee (lot 6b)
             "Un champ des données a changé : montez DonneesCloud.Modele, puis recopiez ici le nouveau « numéro:empreinte ».");
     }
 
@@ -413,7 +413,7 @@ public class Revue17Tests
         StringAssert.Contains("if (!corps.groupe) {", ts, "seulement la tâche du matin, pas un e-mail demandé par stripe-webhook");
         StringAssert.Contains("ligne(\"licence\")", ts);
         StringAssert.Contains("ligne(\"entreprise_suivante\")", ts);
-        StringAssert.Contains("proration_behavior: \"create_prorations\"", ts, "au prorata, comme « ajuster »");
+        StringAssert.Contains("proration_behavior: \"always_invoice\"", ts, "au prorata facturé tout de suite, comme « ajuster » (D3-13)");
         StringAssert.Contains("l.quantity !== total", ts, "seulement si une quantité diffère");
     }
 
@@ -620,6 +620,740 @@ public class Revue17Tests
             "pas d'« Encaissée » avant le remboursement");
     }
 
+    /// Revue 17, lot 2b (04/11) : abonnement et comptes, côté serveur (script etape17b, fonctions Stripe).
+    [Test]
+    public void Lot2b_le_serveur_porte_les_corrections()
+    {
+        string sql = File.ReadAllText(Path.Combine("Serveur", "etape17b_supabase.sql"));
+        string import = Fonction(sql, "creer_entreprise_import");
+        StringAssert.Contains("auth.jwt() -> 'amr'", import, "D1-04 : adresse prouvée par le code reçu");
+        StringAssert.Contains("adresse non prouvée par le code reçu", import);
+        StringAssert.Contains("update public.groupes set titulaire = auth.uid() where id = g and titulaire = p_user;",
+            Fonction(sql, "retirer_membre"), "D3-04 : le titre passe à l'admin qui retire");
+        string webhook = File.ReadAllText(Path.Combine("Serveur", "fonctions", "stripe-webhook.ts"));
+        StringAssert.Contains("if (r && avant !== sub.id && sub.status !== \"canceled\") await repartir(sub);", webhook, "D3-02");
+        StringAssert.DoesNotContain("evt.type === \"customer.subscription.created\" && !avant", webhook, "D3-02 : plus seulement au « created »");
+        string abo = File.ReadAllText(Path.Combine("Serveur", "fonctions", "abonnement-stripe.ts"));
+        StringAssert.Contains("billing_address_collection: \"required\"", abo, "D3-06 : adresse de facturation");
+        StringAssert.Contains("customer_update: { address: \"auto\", name: \"auto\" }", abo, "D3-06 : enregistrée sur le client");
+        StringAssert.Contains("tax_id_collection: { enabled: true }", abo, "D3-06 : n° de TVA facultatif");
+    }
+
+    // ── D4-02 : une facture partie ne se dé-émet plus ──
+
+    /// Revue 17 (D4-02, décision du 05/11) : une facture envoyée, impayée ou payée ne redevient ni « À faire » ni
+    /// « Automatique » ; un « Payé » cliqué par erreur se défait par « Envoyé ».
+    [Test]
+    public void D4_02_une_facture_partie_ne_redevient_pas_a_faire()
+    {
+        var loc = new Locataire { id = "D42a" };
+        var oct = new FactureEtat { key = "loyer-2026-P10", type = "Loyer", statut = "Envoye", libelle = "Loyer Octobre 2026", numero = "2026/10003",
+            pdfPath = "oct.pdf", montant = 1200f, echeanceISO = DateTime.Today.AddDays(10).ToString("yyyy-MM-dd") };
+        loc.facturesEtat = new List<FactureEtat> { oct };
+        Assert.That(FacturationSuivi.Partie(loc, oct.key), Is.True);
+        FacturationSuivi.SetStatut(loc, oct, "");
+        FacturationSuivi.SetStatut(loc, oct, "AFaire");
+        Assert.That(oct.statut, Is.EqualTo("Envoye"), "avant : « À faire », hors des créances, et « Refaire » prenait un second numéro");
+        Assert.That(FacturationSuivi.DuesDe(loc).Select(x => x.key), Does.Contain(oct.key), "elle reste dans les créances");
+        Assert.That(FactureEmission.Preparer(loc, oct.key, "2026/10004").NumeroFacture, Is.EqualTo("2026/10003 corrigée(1)"));
+        FacturationSuivi.SetStatut(loc, oct, "Paye");
+        FacturationSuivi.SetStatut(loc, oct, "");
+        Assert.That(oct.statut, Is.EqualTo("Paye"), "payée : pareil");
+        FacturationSuivi.SetStatut(loc, oct, "Envoye");
+        Assert.That(oct.statut, Is.EqualTo("Envoye"), "« Payé » par erreur : « Envoyé » le défait");
+
+        var force = new FactureEtat { key = "loyer-2026-P9", type = "Loyer", statut = "Paye", echeanceISO = "2026-09-01" };
+        loc.facturesEtat.Add(force);
+        Assert.That(FacturationSuivi.Partie(loc, force.key), Is.False, "« Payé » forcé sur une ligne jamais émise (ni numéro ni PDF)");
+        FacturationSuivi.SetStatut(loc, force, "");
+        Assert.That(force.statut, Is.Empty, "elle revient en automatique");
+
+        Assert.That(FacturationSuivi.AvecBoutonAuto(loc, oct), Is.False, "pas de bouton « Auto » sur une facture partie (même aide que SetStatut)");
+        string menu = Src("Facturation/LocataireSuiviInline.cs");
+        StringAssert.Contains("if (DepartLocataire.Retirable(_loc, ligne))", menu, "l'exception du départ : « Retirer du suivi… »");
+        Assert.That(DepartLocataire.Retirable(loc, oct), Is.False, "pas de départ : rien à retirer");
+    }
+
+    /// Revue 17 (D4-02) : une facture seulement préparée garde « Automatique » ; refaite, elle reprend son numéro sans en
+    /// consommer un autre, et le refus de périodicité (D4-04) ne la vise pas : elle n'a jamais été envoyée.
+    [Test]
+    public void D4_02_une_facture_preparee_remise_en_automatique_garde_son_numero()
+    {
+        var loc = new Locataire { id = "D42b", factureSeq = 5, factureLoyer = new FactureInfo(), periodiciteLoyer = Periodicite.mensuel };
+        var nov = new FactureEtat { key = "loyer-2026-P11", type = "Loyer", statut = "AttenteEnvoi", libelle = "Loyer Novembre 2026",
+            numero = "2026/11004", pdfPath = "nov.pdf", montant = 1200f, echeanceISO = "2026-11-01", periodicite = "mensuel" };
+        loc.facturesEtat = new List<FactureEtat> { nov };
+        Assert.That(FacturationSuivi.Partie(loc, nov.key), Is.False, "préparée : pas partie");
+        FacturationSuivi.SetStatut(loc, nov, "");
+        Assert.That(nov.statut, Is.Empty, "« Automatique » reste");
+        Assert.That(FactureEmission.Preparer(loc, "loyer-2026-P12", "2026/11004").Refus, Does.Contain("déjà"), "son numéro lui reste");
+        var d = FactureEmission.Preparer(loc, nov.key, "2026/11009", "mensuel");
+        Assert.That(d.Reecriture, Is.True);
+        Assert.That(d.Correction, Is.False);
+        Assert.That(d.NumeroFacture, Is.EqualTo("2026/11004"), "avant : 2026/11009, et 2026/11004 manquait à la numérotation");
+        FactureEmission.Enregistrer(loc, nov.key, "Loyer", d, "Loyer Novembre 2026", "2026-11-01", "nov.pdf", 1200f, null, loc.factureLoyer, "Facture", false);
+        Assert.That(loc.factureSeq, Is.EqualTo(5), "aucun numéro consommé");
+        Assert.That(nov.numero, Is.EqualTo("2026/11004"));
+        Assert.That(nov.statut, Is.EqualTo("AttenteEnvoi"));
+
+        var mars = new FactureEtat { key = "loyer-2026-P3", type = "Loyer", statut = "", libelle = "Loyer Mars 2026", numero = "2026/03002",
+            pdfPath = "mars.pdf", montant = 1200f, echeanceISO = "2026-03-01", periodicite = "mensuel" };   // préparée au mois, remise
+        loc.facturesEtat.Add(mars);
+        loc.periodiciteLoyer = Periodicite.trimestriel;
+        var t3 = FactureEmission.Preparer(loc, mars.key, "2026/07009", "trimestriel");
+        Assert.That(t3.Refus, Is.Null, "jamais envoyée : pas de refus de périodicité");
+        Assert.That(t3.NumeroFacture, Is.EqualTo("2026/03002"));
+    }
+
+    /// Revue 17 (D4-02, décision du 05/11) : exception : un loyer envoyé pour une période entièrement après un départ saisi ensuite
+    /// repasse « Automatique » (« Hors bail ») et ne bloque plus l'archivage ; l'avoir qui l'annule peut le citer.
+    [Test]
+    public void D4_02_un_loyer_envoye_apres_le_depart_repasse_automatique()
+    {
+        var loc = new Locataire { id = "D42c", Name = "Dupont", loyerAnnuel = 12000f, periodiciteLoyer = Periodicite.mensuel };
+        loc.DateDebutBail = new DateTime(2024, 1, 1); loc.DateFinBail = new DateTime(2032, 12, 31);
+        var oct = new FactureEtat { key = "loyer-2026-P10", type = "Loyer", statut = "Envoye", libelle = "Loyer Octobre 2026", numero = "2026/10003",
+            pdfPath = "oct.pdf", montant = 1200f, loyerHT = 1000f, echeanceISO = "2026-10-01", periodicite = "mensuel" };
+        var nov = new FactureEtat { key = "loyer-2026-P11", type = "Loyer", statut = "Envoye", libelle = "Loyer Novembre 2026", numero = "2026/11003",
+            pdfPath = "nov.pdf", montant = 1200f, loyerHT = 1000f, echeanceISO = "2026-11-01", periodicite = "mensuel" };
+        loc.facturesEtat = new List<FactureEtat> { oct, nov };
+        loc.dateSortieISO = "2026-10-15";   // départ saisi après l'envoi du loyer de novembre
+        Assert.That(DepartLocataire.LoyerACorriger(loc, nov), Is.True, "pré-requis : l'archivage est bloqué par lui");
+        Assert.That(DepartLocataire.PeriodeApresDepart(loc, nov), Is.True);
+        Assert.That(DepartLocataire.PeriodeApresDepart(loc, oct), Is.False, "octobre, au prorata du départ : il se corrige");
+        FacturationSuivi.SetStatut(loc, oct, "");
+        Assert.That(oct.statut, Is.EqualTo("Envoye"));
+        FacturationSuivi.SetStatut(loc, nov, "AFaire");
+        Assert.That(nov.statut, Is.EqualTo("Envoye"), "« À faire » : jamais");
+        FacturationSuivi.SetStatut(loc, nov, "");
+        Assert.That(nov.statut, Is.Empty, "« Automatique » : la seule sortie (« Corriger » à 0 € est refusé)");
+        Assert.That(FacturationSuivi.Lignes(loc, 2026).First(x => x.key == nov.key).statut, Is.EqualTo("HorsBail"));
+        Assert.That(DepartLocataire.RaisonsNonArchivable(loc), Has.None.Contains("Loyer Novembre 2026"));
+        FacturationSuivi.FacturesOrigine(loc, out _, out var ids);
+        Assert.That(ids, Does.Contain("2026/11003"), "Refacturation, « Avoir sur la facture n° 2026/11003 »");
+
+        var mars = new FactureEtat { key = "loyer-2026-P3", type = "Loyer", statut = "Envoye", libelle = "Loyer Mars 2026", numero = "2026/03001",
+            pdfPath = "mars.pdf", montant = 1200f, echeanceISO = "2026-03-01", periodicite = "mensuel" };
+        var trim = new Locataire { id = "D42d", periodiciteLoyer = Periodicite.trimestriel, dateSortieISO = "2026-06-30",
+            facturesEtat = new List<FactureEtat> { mars } };
+        Assert.That(DepartLocataire.PeriodeApresDepart(trim, mars), Is.False, "mars, émis au mois : pas le 3e trimestre (D4-04)");
+        FacturationSuivi.SetStatut(trim, mars, "");
+        Assert.That(mars.statut, Is.EqualTo("Envoye"));
+    }
+
+    /// Revue 17 (D4-02, relecture du 05/11) : un loyer dont la période commence après le départ ne se corrige pas (« Corriger » à
+    /// 0 € est refusé) : le bandeau et l'archivage disent sa sortie (son état › « Automatique »), une seule fois, et aussi pour un
+    /// loyer de l'année suivante, au lieu de « non payée ». Avant : « corrigez-le ».
+    [Test]
+    public void D4_02_un_loyer_apres_le_depart_dit_sa_sortie_au_lieu_de_corrigez_le()
+    {
+        Locataire Dupont(string sortie, params FactureEtat[] lignes)
+        {
+            var l = new Locataire { id = "D42e", Name = "Dupont", loyerAnnuel = 12000f, periodiciteLoyer = Periodicite.mensuel, dateSortieISO = sortie,
+                facturesEtat = lignes.ToList() };
+            l.DateDebutBail = new DateTime(2024, 1, 1); l.DateFinBail = new DateTime(2032, 12, 31);
+            return l;
+        }
+        FactureEtat Loyer(string key, string libelle, string numero, string echeance) => new FactureEtat { key = key, type = "Loyer",
+            statut = "Envoye", libelle = libelle, numero = numero, pdfPath = numero.Replace('/', '-') + ".pdf", montant = 1200f, loyerHT = 1000f,
+            echeanceISO = echeance, periodicite = "mensuel" };
+        const string sortie = "commence après le départ : rien n'y est dû ; dans le suivi, cliquez son état puis « Retirer du suivi »";
+        var dec = Loyer("loyer-2026-P12", "Loyer Décembre 2026", "2026/12003", "2026-12-01");
+
+        var loc = Dupont("2026-11-30", dec);
+        Assert.That(DepartLocataire.Consigne(loc, DateTime.Today), Is.EqualTo($"Étape 2 — Dernier loyer : « Loyer Décembre 2026 » {sortie}."),
+            "avant : « ne correspond plus au départ : corrigez-le »");
+        Assert.That(DepartLocataire.RaisonsNonArchivable(loc).Where(x => x.Contains("Loyer Décembre 2026")),
+            Is.EqualTo(new[] { $"« Loyer Décembre 2026 » {sortie}" }), "une seule raison : ni « à corriger », ni « non payée »");
+
+        loc = Dupont("2026-11-15", Loyer("loyer-2026-P11", "Loyer Novembre 2026", "2026/11003", "2026-11-01"), dec);
+        Assert.That(DepartLocataire.RaisonsNonArchivable(loc), Has.Some.EqualTo("« Loyer Novembre 2026 » à corriger : il ne correspond plus au départ"),
+            "novembre, au prorata du départ : il se corrige");
+        StringAssert.EndsWith("« Loyer Novembre 2026 » ne correspond plus au départ : corrigez-le.", DepartLocataire.Consigne(loc, DateTime.Today));
+
+        loc = Dupont("2026-12-31", Loyer("loyer-2027-P1", "Loyer Janvier 2027", "2027/01001", "2027-01-01"));   // parti avant le départ au 31/12
+        var r = DepartLocataire.RaisonsNonArchivable(loc);
+        Assert.That(r, Has.Some.EqualTo($"« Loyer Janvier 2027 » {sortie}"));
+        Assert.That(r, Has.None.Contains("non payée"), "avant : « facture n° 2027/01001 « Loyer Janvier 2027 » non payée »");
+    }
+
+    /// Revue 17 (D4-02, relecture du 05/11) : la confirmation « Retirer ce loyer du suivi ? » suit ce qui a été réglé. Impayé :
+    /// l'avoir annule la dette, rien à rendre (avant : le même rappel partout ; repris coché au décompte de sortie, l'avoir rendait
+    /// un loyer jamais payé). Payé en partie : seul le versé se rend. Payé : l'avoir, puis le remboursement. Et si le départ est
+    /// annulé ou repoussé : remettre son état ; « Refaire » est refusé (lot 6b, décision du 09/11 : même numéro, PDF reçu écrasé).
+    [Test]
+    public void D4_02_le_rappel_de_l_avoir_suit_ce_qui_a_ete_regle()
+    {
+        string Eur(float v) => v.ToString("N2", FacturePdfService.FrCulture) + " €";   // séparateur de milliers insécable
+        var dec = new FactureEtat { key = "loyer-2026-P12", type = "Loyer", statut = "Envoye", libelle = "Loyer Décembre 2026", numero = "2026/12003",
+            pdfPath = "dec.pdf", montant = 1200f, loyerHT = 1000f, echeanceISO = "2026-12-01", periodicite = "mensuel" };
+        var loc = new Locataire { id = "D42f", Name = "Dupont", loyerAnnuel = 12000f, periodiciteLoyer = Periodicite.mensuel, dateSortieISO = "2026-11-30",
+            facturesEtat = new List<FactureEtat> { dec } };
+
+        string impaye = DepartLocataire.ConfirmationRetrait(loc, dec);
+        StringAssert.Contains("« Loyer Décembre 2026 » (n° 2026/12003) est déjà parti chez le locataire", impaye);
+        StringAssert.Contains("(dernier jour de location : 30/11/2026)", impaye);
+        StringAssert.Contains($"Il ne l'a pas payé : envoyez-lui un avoir de {Eur(1200f)} (Refacturation, « Avoir sur la facture n° 2026/12003 » : "
+            + "choisissez-la, c'est elle qui dit ce qu'il y a à rendre), qui l'annule ; il n'y a rien à lui rendre : l'avoir restera « Envoyé » "
+            + "et ne sera pas repris au décompte de sortie.", impaye);
+        StringAssert.Contains("cliquez son état et remettez-le « Envoyé » : « Refaire » sera refusé, il garde son numéro", impaye);
+
+        dec.versements.Add(new Versement { dateISO = "2026-11-20", montant = 400f });
+        string partiel = DepartLocataire.ConfirmationRetrait(loc, dec);
+        StringAssert.Contains($"Il en a payé {Eur(400f)} : envoyez-lui un avoir de {Eur(1200f)}", partiel);
+        StringAssert.Contains($"l'avoir, qui cite cette facture, ne rendra que {Eur(400f)} (« Remboursé… » sur l'avoir, ou au décompte de sortie).", partiel);
+
+        dec.versements.Clear(); dec.statut = "Paye";   // « Payé » à la main
+        string paye = DepartLocataire.ConfirmationRetrait(loc, dec);
+        StringAssert.Contains($"Il l'a payé : envoyez-lui un avoir de {Eur(1200f)}", paye);
+        StringAssert.Contains("puis remboursez-le (« Remboursé… » sur l'avoir, ou au décompte de sortie).", paye);
+        StringAssert.Contains("cliquez son état et remettez-le « Payé » : « Refaire » sera refusé", paye);
+        StringAssert.DoesNotContain("rien à lui rendre", paye);
+
+        StringAssert.Contains("DepartLocataire.ConfirmationRetrait(_loc, ligne)", Src("Facturation/LocataireSuiviInline.cs"), "le menu montre ce texte");
+    }
+
+    // ── D6-04 : « Facturer le loyer » ouvre la période à envoyer ──
+
+    /// Revue 17 (D6-04, décision du 05/11) : sans ligne du suivi, le formulaire du loyer ouvre la première période, à partir de celle
+    /// en cours, dont le loyer n'est pas parti (avant : la dernière enregistrée, que « Sauvegarder et envoyer » corrigeait sans le
+    /// dire) ; rien à envoyer : la dernière facturable. L'alerte porte la période dont elle parle, et « (correction) » suit la règle
+    /// de Preparer.
+    [Test]
+    public void D6_04_facturer_le_loyer_ouvre_la_periode_a_envoyer_pas_la_derniere_emise()
+    {
+        var auj = new DateTime(2026, 11, 16);
+        Locataire Dupont(Periodicite p, string sortie = null) => new Locataire { id = "D64", Name = "Dupont", typeRevision = TypeRevision.Aucune,
+            loyerAnnuel = 12000f, loyerDepart = 12000f, periodiciteLoyer = p, jourDemandeLoyer = 1, dateDebutBailISO = "2025-01-01",
+            dateFinBailISO = "2033-12-31", depotInitialise = true, delaisPropres = true, envoiAvantJours = 15, dateSortieISO = sortie };
+        FactureEtat Loyer(string key, string statut, string echeance, string pdf = "l.pdf") => new FactureEtat { key = key, type = "Loyer",
+            statut = statut, numero = pdf == null ? null : "2026/" + key.Substring(key.LastIndexOf('P')), pdfPath = pdf, montant = 1200f,
+            loyerHT = 1000f, echeanceISO = echeance };
+
+        var loc = Dupont(Periodicite.mensuel);
+        Assert.That(FactureLoyerPanel.PeriodeAOuvrir(loc, auj), Is.EqualTo((2026, 11)), "rien d'envoyé : la période en cours");
+        var nov = Loyer("loyer-2026-P11", "Envoye", "2026-11-01");
+        loc.facturesEtat.Add(nov);
+        Assert.That(FactureLoyerPanel.PeriodeAOuvrir(loc, auj), Is.EqualTo((2026, 12)), "novembre parti : décembre (avant : novembre, corrigé)");
+        Assert.That(FactureEmission.SeraUneCorrection(loc, nov.key), Is.True, "novembre choisi à la main : « (correction) »");
+        Assert.That(FactureEmission.SeraUneCorrection(loc, "loyer-2026-P12"), Is.False);
+        var alerte = FacturationAlertes.Pour(loc, auj).Single(a => a.type == FacturationAlertes.AlerteType.Loyer);
+        Assert.That(alerte.cle, Is.EqualTo("loyer-2026-P12"), "l'alerte ouvre la période dont elle parle");
+
+        var dec = Loyer("loyer-2026-P12", "AttenteEnvoi", "2026-12-01");
+        loc.facturesEtat.Add(dec);
+        Assert.That(FactureLoyerPanel.PeriodeAOuvrir(loc, auj), Is.EqualTo((2026, 12)), "préparé, pas envoyé : proposé");
+        Assert.That(FactureEmission.SeraUneCorrection(loc, dec.key), Is.False, "il se remplace, sans « (correction) »");
+        dec.statut = "Envoye";
+        Assert.That(FactureLoyerPanel.PeriodeAOuvrir(loc, auj), Is.EqualTo((2027, 1)), "décembre parti aussi : janvier");
+
+        nov.pdfPath = null; nov.numero = null; nov.statut = "Paye";   // « Payé » forcé par la pastille, sans facture de CIPL
+        Assert.That(FactureEmission.SeraUneCorrection(loc, nov.key), Is.False, "Preparer en émet une neuve : pas de « (correction) »");
+        Assert.That(FactureLoyerPanel.PeriodeAOuvrir(loc, auj), Is.EqualTo((2027, 1)), "réglé : pas à envoyer");
+
+        var trim = Dupont(Periodicite.trimestriel);
+        trim.facturesEtat.Add(Loyer("loyer-2026-P4", "Envoye", "2026-10-01"));
+        Assert.That(FactureLoyerPanel.PeriodeAOuvrir(trim, auj), Is.EqualTo((2027, 1)), "trimestriel, 4e trimestre parti");
+
+        var parti = Dupont(Periodicite.mensuel, "2026-10-15");
+        var oct = Loyer("loyer-2026-P10", "Envoye", "2026-10-01");   // envoyé en entier avant la saisie du départ
+        parti.facturesEtat.Add(oct);
+        Assert.That(FactureLoyerPanel.PeriodeAOuvrir(parti, auj), Is.EqualTo((2026, 10)), "parti : le dernier loyer, pas une période après le départ");
+        Assert.That(FactureEmission.SeraUneCorrection(parti, oct.key), Is.True, "affiché « (correction) »");
+        Assert.That(FacturationAlertes.Pour(parti, auj).Single(a => a.message.Contains("montant à corriger")).cle, Is.EqualTo(oct.key),
+            "« montant à corriger (départ) » ouvre octobre");
+
+        string panneau = Src("Facturation/FactureLoyerPanel.cs");
+        StringAssert.Contains("PeriodeAOuvrir(_loc, DateTime.Today)", panneau, "le chargement ouvre la période à envoyer");
+        StringAssert.Contains("FactureEmission.SeraUneCorrection(_loc,", panneau, "titre et bouton : la règle de Preparer");
+        StringAssert.Contains("\"Corriger et envoyer\"", panneau);
+        StringAssert.DoesNotContain("PeriodePartie()", panneau, "plus le statut seul");
+        string accueil = Src("General/HomeAlert.cs");
+        StringAssert.Contains("cleFacture = fa.cle", accueil, "l'alerte de l'accueil et des cartes « Automatique » garde la période");
+        StringAssert.Contains("FactureLoyerPanel.OpenLoyer(lp, a.cleFacture == null ? null", accueil, "le clic ouvre la période de l'alerte");
+        StringAssert.Contains("a.locataire.facturesEtat?.Find(x => x.key == a.cleFacture) ?? new FactureEtat { key = a.cleFacture }", accueil,
+            "avec sa ligne enregistrée (un loyer à corriger garde ses provisions), sinon une ligne neuve de cette période");
+    }
+
+    // ── D6-05 : une date illisible est refusée, plus remplacée ──
+
+    /// Revue 17 (D6-05, D10-06) : une date vide ou illisible est refusée au centre avant l'aperçu et avant l'émission des quatre
+    /// formulaires de facture, et à « Enregistrer » d'une charge (avec un nom vide ou un coût illisible) ; tirets et points se
+    /// lisent (SaisieDateTests). Avant, sans rien dire : facture datée du jour, échéance vide (le loyer partait tout de suite),
+    /// charge gardée à son ancienne date.
+    [Test]
+    public void D6_05_une_date_illisible_est_refusee_au_lieu_d_etre_remplacee()
+    {
+        Assert.That(SaisieDate.RefusFacture("05/11/2026", "01-12-2026"), Is.Null, "tirets : lue, le loyer attend sa date d'envoi");
+        Assert.That(SaisieDate.RefusFacture("05/11/2026", "1er décembre 2026"),
+            Is.EqualTo("Date d'échéance « 1er décembre 2026 » illisible : tapez-la sous la forme jj/mm/aaaa."));
+        Assert.That(SaisieDate.RefusFacture(" ", "01/12/2026"), Is.EqualTo("Date de la facture : obligatoire."));
+
+        Assert.That(ChargePanel.Refus("Eau", "", "31.12.2026"), Is.Null, "coût vide : 0 €, comme avant ; points : le 31/12/2026");
+        Assert.That(ChargePanel.Refus(" ", "120", "31/12/2026"), Is.EqualTo("Nom de la charge : obligatoire."), "D10-06");
+        StringAssert.StartsWith("Coût « - » illisible", ChargePanel.Refus("Eau", "-", "31/12/2026"));
+        Assert.That(ChargePanel.Refus("Eau", "120", "31.13.2026"),
+            Is.EqualTo("Date de la charge « 31.13.2026 » n'existe pas : vérifiez le jour et le mois."), "bien formée : le format n'est pas en cause");
+        Assert.That(SaisieDate.Refus("31/02/2026", "Date"), Is.EqualTo("Date « 31/02/2026 » n'existe pas : vérifiez le jour et le mois."));
+        Assert.That(ChargePanel.Refus("Eau", "120", ""), Is.EqualTo("Date de la charge : obligatoire."));
+        string charge = Src("Facturation/ChargePanel.cs");
+        int garde = charge.IndexOf("if (Refus(fNom.text, fCout.text, fDate.text) is string refus) { ConfirmDialog.Erreur(refus); return; }", StringComparison.Ordinal);
+        Assert.That(garde >= 0 && garde < charge.IndexOf("SaveForm(fNom.text", StringComparison.Ordinal), Is.True, "refus avant l'enregistrement, fenêtre ouverte");
+
+        // Les deux boutons des quatre formulaires : la garde passe avant SaveFromUI, qui enregistrait vide une date illisible.
+        foreach (var p in new[] { "FactureLoyerPanel.cs", "FactureRegulPanel.cs", "FactureRefacPanel.cs", "FactureDepotPanel.cs" })
+        {
+            string src = Src("Facturation/" + p);
+            foreach (var m in new[] { "void GenererApercu()", "void SauvegarderEtEnvoyer()" })
+            {
+                int debut = src.IndexOf(m, StringComparison.Ordinal);
+                int refus = src.IndexOf("if (SaisieDate.RefusFacture(_date.text, _echeance.text) is string refusDate) { ConfirmDialog.Erreur(refusDate); return; }",
+                                        Math.Max(0, debut), StringComparison.Ordinal);
+                Assert.That(debut >= 0 && refus > debut && refus < src.IndexOf("SaveFromUI();", debut, StringComparison.Ordinal), Is.True, p + " : " + m);
+            }
+        }
+    }
+
+    // ── D6-09 : une charge déjà facturée ne se supprime plus ──
+
+    /// Revue 17 (D6-09) : une charge portée sur une facture d'un locataire du bâtiment (archivé compris) ne se supprime plus : refus au
+    /// centre qui nomme les locataires et dit quoi faire. Avant : une seule confirmation, puis la refacturation ne se corrigeait plus
+    /// et la correction de la régularisation sortait sans la charge.
+    [Test]
+    public void D6_09_une_charge_facturee_ne_se_supprime_pas()
+    {
+        var dupont = new Locataire { id = "D69", Name = "Dupont" };
+        var martin = new Locataire { id = "D69b", Name = "Martin", archive = true };
+        var durand = new Locataire { id = "D69c", Name = "Durand" };   // présent, jamais facturé
+        var locs = new List<Locataire> { dupont, martin, durand };
+        var jardin = new ChargeBatiment { nom = "Jardin 2026", cout = 480f, dateISO = "2026-06-01" };
+        Assert.That(ChargeBatiment.RefusSuppression(jardin, locs), Is.Null, "jamais facturée : confirmation puis « Annuler », comme avant");
+
+        jardin.MarquerFacturee("D69", "2026-07-01");
+        jardin.MarquerFacturee("D69b", "2026-07-01");
+        string refus = ChargeBatiment.RefusSuppression(jardin, locs);
+        StringAssert.StartsWith("« Jardin 2026 » ne peut pas être supprimée : elle est sur des factures de Dupont, Martin ;", refus, "l'archivé compris");
+        StringAssert.DoesNotContain("Durand", refus, "seuls ceux à qui elle a été facturée");
+        StringAssert.Contains("mettez son coût à 0, puis refaites ces factures depuis le suivi (« Corriger », ou « Refaire »", refus, "le bouton du suivi (coutures, D4-10 : « Corriger » pour une facture partie)");
+        Assert.That(ChargeBatiment.RefusSuppression(jardin, new List<Locataire> { durand }), Is.Null,
+                    "facturée seulement à des locataires supprimés depuis (D7a-09) : un autre locataire présent ne la bloque pas");
+
+        string liste = Src("Achat/InvestissementListPanel.cs");
+        int garde = liste.IndexOf("ChargeBatiment.RefusSuppression(ch, _batiment.getBatiment().locataireDuBatiment) is string refus) { ConfirmDialog.Erreur(refus); return; }",
+                                  StringComparison.Ordinal);
+        Assert.That(garde >= 0 && garde < liste.IndexOf("\"Supprimer la charge\"", StringComparison.Ordinal), Is.True, "refus avant la confirmation");
+    }
+
+    /// Revue 17 (D6-09) : une charge « Réglée pour tous » que la régularisation émise couvre déjà reste dans sa correction, comme en
+    /// refacturation (avant : la correction la perdait) ; pas encore facturée, elle n'est plus proposée.
+    [Test]
+    public void D6_09_une_charge_reglee_pour_tous_reste_dans_la_correction_de_sa_regul()
+    {
+        var a = new Locataire { id = "D69A", Name = "A" };
+        a.facturesEtat.Add(new FactureEtat { key = "regul-2026", type = "Regul", statut = "Envoye", numero = "2027/01001", pdfPath = "r.pdf",
+                                          echeanceISO = "2027-02-15" });
+        var b = new Locataire { id = "D69B", Name = "B" };
+        var taxe = new ChargeBatiment { nom = "Taxe foncière 2026", cout = 1000f, dateISO = "2026-10-15", tousLocataires = true };
+        var bat = new Batiment { charges = { taxe }, locataireDuBatiment = { a, b } };
+        taxe.MarquerFacturee("D69A", "2027-01-15");   // portée par la régul 2026 de A
+        taxe.paye = true;                              // puis « Réglée pour tous » cochée
+
+        Assert.That(FactureRegulPanel.ChargesDeRegul(bat, a, 2026), Is.EqualTo(new[] { taxe }), "couverte par la régul émise : gardée");
+        Assert.That(FactureRegulPanel.ChargesDeRegul(bat, b, 2026), Is.Empty, "jamais facturée à B : plus proposée");
+    }
+
+    // ── D6-08 : variables du menu « / » ──
+
+    /// Revue 17 (D6-08) : {echeance} est remplie dans les quatre formulaires, comme à l'envoi au lancement. Avant, le même modèle
+    /// disait « à régler avant le . » parti d'un formulaire, et portait la date parti au lancement.
+    [Test]
+    public void D6_08_l_echeance_est_dans_le_contexte_des_quatre_formulaires()
+    {
+        foreach (var p in new[] { "FactureLoyerPanel.cs", "FactureRegulPanel.cs", "FactureRefacPanel.cs", "FactureDepotPanel.cs" })
+        {
+            string src = Src("Facturation/" + p);
+            int debut = src.IndexOf("FactureContext BuildContext()", StringComparison.Ordinal);
+            int fin = debut < 0 ? -1 : src.IndexOf("\n    }", debut, StringComparison.Ordinal);
+            Assert.That(debut >= 0 && fin > debut, Is.True, p + " : BuildContext introuvable");
+            StringAssert.Contains("echeance = TryDate(_echeance != null ? _echeance.text : \"\", out var e) ? e.ToString(\"dd/MM/yyyy\") : \"\",",
+                                  src.Substring(debut, fin - debut), p);
+        }
+    }
+
+    /// Revue 17 (D6-08) : le menu « / » ne propose une variable que là où elle est remplacée : {montant} dans la phrase du montant
+    /// mensuel, {depot.*} dans l'explication du dépôt, {reste} dans le modèle du rappel. Avant : tout le catalogue partout, et
+    /// « Montant du dépôt (positif) » choisi dans un e-mail partait « {depot.montant} ».
+    [Test]
+    public void D6_08_le_menu_ne_propose_dans_un_champ_que_ce_qui_y_est_remplace()
+    {
+        var ctx = new FactureContext { date = new DateTime(2026, 12, 1), numero = "2026/12001", periode = "Décembre 2026", echeance = "05/12/2026" };
+        var partout = SlashAutocomplete.Proposees("");
+        foreach (var v in partout)
+            Assert.That(FactureVarResolver.Resolve(v.token, new Locataire { Name = "D68" }, new Batiment { Name = "Rivoli" }, ctx),
+                        Is.Not.EqualTo(v.token), v.token + " : proposée partout, mais pas remplacée");
+        var jetons = partout.ConvertAll(v => v.token);
+        foreach (var t in new[] { "{montant}", "{depot.termes}", "{depot.nb}", "{depot.base}", "{depot.montant}", "{reste}" })
+            Assert.That(jetons, Does.Not.Contain(t), t + " : remplacée dans un seul texte");
+        Assert.That(jetons, Does.Contain("{echeance}").And.Contain("{loc.nom}"));
+
+        Assert.That(SlashAutocomplete.Proposees("mont", "Ligne montant mensuel").ConvertAll(v => v.token), Does.Contain("{montant}"),
+                    "phrase du montant mensuel");
+        Assert.That(SlashAutocomplete.Proposees("", "Explication dépôt").ConvertAll(v => v.token),
+                    Does.Contain("{depot.montant}").And.Contain("{numero}").And.Not.Contain("{montant}"), "explication du dépôt");
+        Assert.That(SlashAutocomplete.Proposees("reste", "Rappel d'impayé").ConvertAll(v => v.token), Is.EqualTo(new[] { "{reste}" }),
+                    "modèle du rappel");
+
+        // Le menu suit ce filtre, et les champs qui remplacent ces variables les nomment.
+        StringAssert.Contains("filtered = Proposees(query, groupesEnPlus);", Src("Facturation/SlashAutocomplete.cs"));
+        StringAssert.Contains("void OnDisable() => Hide();", Src("Facturation/SlashAutocomplete.cs"), "D6-14 : fermer le formulaire masque le menu");
+        StringAssert.Contains("SlashAutocomplete.Attach(_texteMensuel, \"Ligne montant mensuel\")", Src("Facturation/FactureLoyerPanel.cs"));
+        string depot = Src("Facturation/FactureDepotPanel.cs");
+        foreach (var champ in new[] { "_depotRappel", "_depotDu", "_depotRembourse", "_depotEquilibre" })
+            StringAssert.Contains($"SlashAutocomplete.Attach({champ}, \"Explication dépôt\")", depot);
+        string reglages = Src("Facturation/ReglagePanel.cs");
+        StringAssert.Contains("SlashAutocomplete.Attach(objet, groupes); SlashAutocomplete.Attach(corps, groupes);", reglages);
+        int rappel = reglages.IndexOf("BlocModele(body.transform, \"Rappel d'impayé\"", StringComparison.Ordinal);
+        Assert.That(rappel, Is.GreaterThanOrEqualTo(0));
+        StringAssert.EndsWith("\"Rappel d'impayé\"", reglages.Substring(rappel, reglages.IndexOf(");", rappel, StringComparison.Ordinal) - rappel),
+                              "le modèle du rappel nomme son groupe");
+    }
+
+    /// Revue 17 (D6-08) : les phrases de l'explication du dépôt reçoivent le contexte de la facture. Avant : « suite à la facture  du »,
+    /// et {echeance} vide.
+    [Test]
+    public void D6_08_l_explication_du_depot_recoit_le_contexte_de_la_facture()
+    {
+        var ctx = new FactureContext { date = new DateTime(2026, 12, 1), numero = "2026/12001", echeance = "15/12/2026" };
+        var depot = new FactureInfo { depotDu = "Suite à la facture {numero} du {date}, à régler avant le {echeance} : {depot.montant}." };
+        string html = ExplicationDepot.Html(new Locataire { Name = "D68" }, 2, 250f, ctx.date, null, depot, false, ctx);
+        StringAssert.Contains("Suite à la facture 2026/12001 du ", html);
+        StringAssert.Contains(", à régler avant le 15/12/2026 : 250,00 €.", html);
+        StringAssert.DoesNotContain("{", html, "aucun jeton ne reste");
+        StringAssert.Contains("_ttcToggle != null && _ttcToggle.isOn, ctx)", Src("Facturation/FactureDepotPanel.cs"), "le formulaire passe son contexte");
+    }
+
+    /// Revue 17 (06/11, trouvé en vérifiant D6-08) : la phrase de règlement d'usine n'est plus mémorisée, elle suit l'échéance de
+    /// la facture suivante ; une phrase d'usine déjà mémorisée, avec une ancienne date, cède la place. Avant, le loyer de novembre
+    /// proposait, et imprimait, « SOMME À NOUS RÉGLER LE 5 octobre 2026 ».
+    [Test]
+    public void La_phrase_de_reglement_d_usine_suit_l_echeance()
+    {
+        Assert.That(FactureEmission.EstPhraseUsine("SOMME À NOUS RÉGLER LE 5 octobre 2026"), Is.True);
+        Assert.That(FactureEmission.EstPhraseUsine("SOMME QUI VOUS SERA REMBOURSÉE"), Is.True);
+        Assert.That(FactureEmission.PhraseAMemoriser("SOMME À NOUS RÉGLER LE 1 décembre 2026"), Is.EqualTo(""));
+        Assert.That(FactureEmission.PhraseAMemoriser("Valeur en votre aimable règlement"), Is.EqualTo("Valeur en votre aimable règlement"));
+        Assert.That(FactureEmission.PhraseAMemoriser("SOMME À NOUS RÉGLER LE {echeance}"), Is.EqualTo("SOMME À NOUS RÉGLER LE {echeance}"),
+                    "personnalisée : gardée (elle suit déjà l'échéance)");
+        foreach (var p in new[] { "FactureLoyerPanel.cs", "FactureRegulPanel.cs", "FactureRefacPanel.cs", "FactureDepotPanel.cs" })
+        {
+            string src = Src("Facturation/" + p);
+            StringAssert.Contains("f.sommePhrase = FactureEmission.PhraseAMemoriser(_sommePhrase.text);", src, p + " : enregistrement");
+            StringAssert.Contains("string.IsNullOrEmpty(f?.sommePhrase) || FactureEmission.EstPhraseUsine(f.sommePhrase) ? _autoSomme : f.sommePhrase",
+                                  src, p + " : ouverture");
+        }
+    }
+
+    // ── 2c : bouton « Auto » dans le suivi ──
+
+    /// Revue 17 (2c, décisions du 06/11 ; relecture du 07/11) : « Automatique » et « À faire » quittent le menu de la pastille pour
+    /// un bouton « Auto » à côté d'elle, sur une ligne pas encore partie ni grisée, ni remise après un départ annulé (numéro et PDF
+    /// gardés). Allumé : CIPL gère la ligne. Éteint : un état mis à la main. L'éteindre bloque la ligne « À faire » ; le rallumer
+    /// rend la main à CIPL (StatutAutomatique).
+    [Test]
+    public void Bouton_Auto_allume_eteint_et_absent_d_une_facture_partie()
+    {
+        FactureEtat Dec(string statut, string numero = "2026/11003", string pdf = "dec.pdf") => new FactureEtat { key = "loyer-2026-P12",
+            type = "Loyer", statut = statut, libelle = "Loyer Décembre 2026", numero = numero, pdfPath = pdf, montant = 1200f, echeanceISO = "2026-12-01",
+            periodicite = "mensuel" };
+        var loc = new Locataire { id = "AUTO2", loyerAnnuel = 12000f, periodiciteLoyer = Periodicite.mensuel };
+        loc.DateDebutBail = new DateTime(2024, 1, 1); loc.DateFinBail = new DateTime(2032, 12, 31);
+        foreach (var s in new[] { "", null, "AttenteEnvoi" })
+            Assert.That(FacturationSuivi.AutoAllume(Dec(s)), Is.True, "allumé : " + (s ?? "null"));
+        Assert.That(FacturationSuivi.AutoAllume(null), Is.True, "ligne jamais enregistrée : CIPL la gère");
+        Assert.That(FacturationSuivi.AutoAllume(Dec("AFaire")), Is.False, "« À faire » bloqué");
+        foreach (var s in new[] { "Paye", "Impaye", "Envoye" })
+            Assert.That(FacturationSuivi.AutoAllume(Dec(s, "", "")), Is.False, s + " mis à la main sans facture de CIPL");
+
+        Assert.That(FacturationSuivi.StatutApresBoutonAuto(loc, Dec("")), Is.EqualTo("AFaire"), "éteindre : bloquée « À faire »");
+        Assert.That(FacturationSuivi.StatutApresBoutonAuto(loc, Dec("AttenteEnvoi")), Is.EqualTo("AFaire"), "préparée : bloquée, plus proposée à l'envoi");
+        Assert.That(FacturationSuivi.StatutApresBoutonAuto(loc, Dec("AFaire")), Is.EqualTo("AttenteEnvoi"), "rallumer : la facture préparée repart en attente");
+        Assert.That(FacturationSuivi.StatutApresBoutonAuto(loc, Dec("AFaire", "", "")), Is.EqualTo(""), "rallumer : les dates");
+        Assert.That(FacturationSuivi.StatutApresBoutonAuto(loc, Dec("Paye", "", "")), Is.EqualTo(""), "rallumer : le « Payé » mis à la main est annulé");
+
+        var dec = Dec("AttenteEnvoi");
+        loc.facturesEtat = new List<FactureEtat> { dec };
+        Assert.That(FacturationSuivi.AvecBoutonAuto(loc, dec), Is.True, "préparée : le bouton est là");
+        FacturationSuivi.SetStatut(loc, dec, FacturationSuivi.StatutApresBoutonAuto(loc, dec));
+        Assert.That(FacturationSuivi.EtatDe(dec, loc), Is.EqualTo(FacturationSuivi.Etat.AFaire), "éteint : « À faire »");
+        FacturationSuivi.SetStatut(loc, dec, FacturationSuivi.StatutApresBoutonAuto(loc, dec));
+        Assert.That(FacturationSuivi.EtatDe(dec, loc), Is.EqualTo(FacturationSuivi.Etat.AttenteEnvoi), "rallumé : de nouveau en attente d'envoi");
+        dec.statut = "Envoye";
+        Assert.That(FacturationSuivi.AvecBoutonAuto(loc, dec), Is.False, "partie (numéro, PDF, envoyée) : pas de bouton");
+        FacturationSuivi.SetStatut(loc, dec, "AttenteEnvoi");
+        Assert.That(dec.statut, Is.EqualTo("Envoye"), "partie : SetStatut refuse aussi « En attente d'envoi »");
+        dec.statut = "";
+        Assert.That(FacturationSuivi.AvecBoutonAuto(loc, dec), Is.False,
+            "en automatique avec numéro et PDF (retirée après un départ annulé) : pas de bouton, elle ne repartirait pas seule");
+        loc.dateSortieISO = "2026-10-15";
+        Assert.That(FacturationSuivi.AvecBoutonAuto(loc, FacturationSuivi.Lignes(loc, 2026).First(x => x.key == "loyer-2026-P11")), Is.False,
+            "ligne grisée « Hors bail » : pas de bouton");
+
+        string suivi = Src("Facturation/LocataireSuiviInline.cs");
+        StringAssert.Contains("FacturationSuivi.AvecBoutonAuto(_loc, l) ? FacturationSuivi.AutoAllume(l) : (bool?)null", suivi, "la ligne passe le bouton");
+        StringAssert.Contains("string statut = FacturationSuivi.StatutApresBoutonAuto(_loc, rec);", suivi, "le clic passe par la règle");
+        StringAssert.DoesNotContain("MenuItem(vlg.transform, \"À faire\"", suivi, "« À faire » a quitté le menu");
+        StringAssert.DoesNotContain("MenuItem(vlg.transform, \"Automatique\"", suivi, "« Automatique » a quitté le menu");
+        StringAssert.Contains("MenuItem(vlg.transform, \"Retirer du suivi…\"", suivi, "l'exception du départ garde sa sortie");
+    }
+
+    /// Revue 17 (2c, décisions du 06/11) : le bouton « Auto » se crée au premier besoin, à droite de la pastille ; les deux tiennent
+    /// dans la cellule État (132) sans rétrécir la pastille. Allumé et éteint n'ont pas la même couleur ; un clic appelle l'action de
+    /// la ligne. Il se cache sur une facture partie (null), sur l'en-tête et sur la ligne « aucune facture ». Libellés sans accent :
+    /// voir SuiviRowPrefabTests (atlas de la police).
+    [Test]
+    public void Bouton_Auto_tient_a_cote_de_la_pastille_et_se_cache_ailleurs()
+    {
+        var racine = UnityEditor.PrefabUtility.LoadPrefabContents("Assets/Prefab/SuiviFactureRow.prefab");
+        try
+        {
+            var r = racine.GetComponent<SuiviRowUI>();
+            var neutres = new SuiviRowUI.Couleurs(Color.white, Color.black, Color.gray);
+            int clics = 0;
+            void Ligne(bool? auto) => r.Setup("Loyer Decembre 2026", "01/12/2026", "1 200,00 EUR", neutres, "A faire", Color.white,
+                Color.black, true, null, new (string, Action)[0], auto, () => clics++);
+            Transform Bouton() => r.etatCell.transform.Find("BoutonAuto");
+            Vector3[] Coins(Transform t) { var c = new Vector3[4]; ((RectTransform)t).GetWorldCorners(c); return c; }
+
+            Ligne(null);
+            Assert.That(Bouton(), Is.Null, "facture partie : rien n'est créé");
+            Ligne(true);
+            Assert.That(Bouton().gameObject.activeSelf, Is.True);
+            Assert.That(Bouton().GetComponentInChildren<TMPro.TMP_Text>().text, Is.EqualTo("Auto"));
+            var bouton = Bouton().GetComponent<UnityEngine.UI.Button>();
+            Assert.That(bouton, Is.Not.Null, "un vrai bouton");
+            Assert.That(((UnityEngine.UI.Graphic)bouton.targetGraphic).raycastTarget, Is.True, "le fond reçoit le clic");
+            bouton.onClick.Invoke();
+            Assert.That(clics, Is.EqualTo(1), "le clic appelle l'action de la ligne");
+            var encreAllume = Bouton().GetComponentInChildren<TMPro.TMP_Text>().color;
+            UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)racine.transform);
+            var cellule = Coins(r.etatCell.transform); var pastille = Coins(r.pastille.transform); var auto = Coins(Bouton());
+            Assert.That(pastille[2].x - pastille[0].x, Is.EqualTo(96f).Within(0.5f), "la pastille garde sa largeur");
+            Assert.That(auto[0].x, Is.GreaterThan(pastille[2].x), "à droite de la pastille, sans la chevaucher");
+            Assert.That(auto[2].x, Is.LessThanOrEqualTo(cellule[2].x), "dans la cellule État, pas sur la colonne Actions");
+            Assert.That(auto[2].x - auto[0].x, Is.GreaterThan(20f), "le texte « Auto » est mesuré");
+            Assert.That(auto[1].y - auto[0].y, Is.LessThan(pastille[1].y - pastille[0].y), "plus petit que la pastille");
+
+            Ligne(false);
+            Assert.That(Bouton().gameObject.activeSelf, Is.True, "éteint : toujours là");
+            Assert.That(Bouton().GetComponentInChildren<TMPro.TMP_Text>().color, Is.Not.EqualTo(encreAllume), "éteint : une autre couleur");
+            Ligne(null);
+            Assert.That(Bouton().gameObject.activeSelf, Is.False, "facture partie");
+            Ligne(true);
+            r.SetupEntete("Facture", "Echeance", "Montant TTC", "Etat", "Actions", Color.gray, Color.black);
+            Assert.That(Bouton().gameObject.activeSelf, Is.False, "en-tête");
+            Ligne(true);
+            r.SetupVide("Aucune facture pour cette annee.", Color.white, Color.gray);
+            Assert.That(Bouton().gameObject.activeSelf, Is.False, "ligne « aucune facture »");
+            Ligne(true); Ligne(false); Ligne(true);
+            Assert.That(r.etatCell.transform.Cast<Transform>().Count(x => x.name == "BoutonAuto"), Is.EqualTo(1), "un seul bouton, quel que soit le nombre de Setup");
+        }
+        finally { UnityEditor.PrefabUtility.UnloadPrefabContents(racine); }
+    }
+
+    // ── 2c : numéro repris, grisé ──
+
+    /// Revue 17 (2c, décision du 06/11) : quand la facture a déjà un numéro, le formulaire montre celui que l'émission imprimera :
+    /// pas encore partie (préparée, ou remise en automatique), le même ; partie, « corrigée(X) ». Une facture neuve, ou une émission
+    /// refusée (D4-04), n'en reprend aucun : la ligne propose le numéro suivant, comme avant.
+    [Test]
+    public void Numero_repris_celui_que_l_emission_imprimera()
+    {
+        FactureEtat Dec(string statut, string pdf = "dec.pdf") => new FactureEtat { key = "loyer-2026-P12", type = "Loyer", statut = statut,
+            libelle = "Loyer Décembre 2026", numero = "2026/11003", pdfPath = pdf, montant = 1200f, echeanceISO = "2026-12-01", periodicite = "mensuel" };
+        Locataire Loc(FactureEtat l) => new Locataire { id = "BP8", factureSeq = 4, periodiciteLoyer = Periodicite.mensuel,
+            facturesEtat = new List<FactureEtat> { l } };
+
+        Assert.That(FactureEmission.NumeroRepris(Loc(Dec("AttenteEnvoi")), "loyer-2027-P1", "mensuel"), Is.Null, "facture neuve : la séquence");
+        Assert.That(FactureEmission.NumeroRepris(Loc(Dec("AttenteEnvoi")), "loyer-2026-P12", "mensuel"), Is.EqualTo("2026/11003"), "préparée");
+        var remise = Loc(Dec(""));
+        Assert.That(FactureEmission.NumeroRepris(remise, "loyer-2026-P12", "mensuel"), Is.EqualTo("2026/11003"),
+            "remise en automatique, statut vide (avant : 2026/11004 à l'écran, 2026/11003 sur le PDF)");
+        var envoye = Dec("Envoye");
+        Assert.That(FactureEmission.NumeroRepris(Loc(envoye), envoye.key, "mensuel"), Is.EqualTo("2026/11003 corrigée(1)"), "partie : sa correction");
+        envoye.corrections = 1;
+        Assert.That(FactureEmission.NumeroRepris(Loc(envoye), envoye.key, "mensuel"), Is.EqualTo("2026/11003 corrigée(2)"), "corrigée une fois : la suivante");
+        Assert.That(FactureEmission.NumeroRepris(Loc(Dec("Envoye")), "loyer-2026-P12", "trimestriel"), Is.Null, "refus D4-04 de périodicité : rien de repris");
+        // Le titre « (correction) » suit la même règle que la ligne (avant : « (correction) » au titre, un numéro neuf sur la ligne).
+        Assert.That(FactureEmission.SeraUneCorrection(Loc(Dec("Envoye")), "loyer-2026-P12", "trimestriel"), Is.False, "refus D4-04 : pas de « (correction) »");
+        Assert.That(FactureEmission.SeraUneCorrection(Loc(Dec("Envoye")), "loyer-2026-P12", "mensuel"), Is.True, "même périodicité : la correction");
+        Assert.That(FactureEmission.NumeroRepris(Loc(Dec("AttenteEnvoi", pdf: "")), "loyer-2026-P12", "mensuel"), Is.Null, "sans PDF : une facture neuve");
+
+        // L'émission reçoit le numéro affiché comme numéro proposé : il est ignoré, sans refus « déjà pris » ni séquence consommée.
+        var d = FactureEmission.Preparer(remise, "loyer-2026-P12", "2026/11003", "mensuel");
+        Assert.That(d.Refus, Is.Null);
+        Assert.That(d.Reecriture, Is.True);
+        Assert.That(d.NumeroFacture, Is.EqualTo("2026/11003"));
+    }
+
+    /// Revue 17 (2c) : la ligne « N° de facture » d'un numéro repris : la boîte le montre, grisé, l'ID est vide, non modifiable,
+    /// « (repris) », et l'aide le dit ; préfixe + ID donnent le numéro imprimé (aperçu, {numero}). De retour sur une facture
+    /// neuve : l'ID tapé revient, modifiable ; sans ID, la séquence. Les quatre formulaires y passent, avec la clé de leur
+    /// émission, et la rafraîchissent après chaque émission, correction comprise.
+    [Test]
+    public void Numero_repris_grise_et_non_modifiable_dans_les_quatre_formulaires()
+    {
+        var racine = new GameObject("BP8", typeof(RectTransform));
+        racine.SetActive(false);
+        try
+        {
+            var aide = UIFactory.Text(racine.transform, "N° de facture  =  format  +  ID locataire", UITheme.Role.Aide, UITheme.TexteSecondaire);
+            var prefixe = UIFactory.Text(racine.transform, "—", UITheme.Role.Libelle, UITheme.TextePrincipal, true);
+            var id = UIFactory.Input(racine.transform, "ID locataire (ex. 001)");
+            var indication = (TMPro.TMP_Text)id.placeholder;
+            string garde = null;
+            const string aideRepris = "N° de facture — repris : cette période a déjà ce numéro";
+
+            id.text = "050";   // tapé sur une facture neuve
+            FactureEmission.AfficherNumero(aide, prefixe, id, "2026/11003 corrigée(1)", "2026/11", 4, aideRepris, ref garde);
+            Assert.That(prefixe.text + id.text.Trim(), Is.EqualTo("2026/11003 corrigée(1)"), "préfixe + ID : le numéro imprimé");
+            Assert.That(id.interactable, Is.False, "non modifiable");
+            Assert.That(indication.text, Is.EqualTo("(repris)"));
+            Assert.That(aide.text, Is.EqualTo(aideRepris));
+            Assert.That(prefixe.color, Is.EqualTo(UITheme.TexteExemple), "grisé, comme « (repris) »");
+
+            FactureEmission.AfficherNumero(aide, prefixe, id, null, "2027/01", 4, aideRepris, ref garde);
+            Assert.That(prefixe.text + id.text, Is.EqualTo("2027/01050"), "facture neuve : l'ID tapé revient");
+            Assert.That(id.interactable, Is.True);
+            Assert.That(indication.text, Is.EqualTo("ID locataire (ex. 001)"));
+            Assert.That(aide.text, Is.EqualTo("N° de facture  =  format  +  ID locataire"));
+            Assert.That(prefixe.color, Is.EqualTo(UITheme.TextePrincipal));
+
+            id.text = "";   // émise : l'ID est consommé, la ligne reprend son numéro
+            FactureEmission.AfficherNumero(aide, prefixe, id, "2027/01050", "2027/01", 51, aideRepris, ref garde);
+            FactureEmission.AfficherNumero(aide, prefixe, id, null, "2027/02", 51, aideRepris, ref garde);
+            Assert.That(id.text, Is.EqualTo("051"), "période suivante : la séquence, comme avant");
+        }
+        finally { UnityEngine.Object.DestroyImmediate(racine); }
+
+        // Lot 15 (avenant de périodicité) : la périodicité passée est celle de la période affichée (PeriodiciteChoisie), plus celle de la fiche.
+        foreach (var (p, cle) in new[] { ("FactureLoyerPanel.cs", "CleLoyer(), PeriodiciteChoisie().ToString()"), ("FactureRegulPanel.cs", "CleFacture()"),
+                                         ("FactureRefacPanel.cs", "CleFacture()"), ("FactureDepotPanel.cs", "CleSuivi()") })
+        {
+            string src = Src("Facturation/" + p);
+            string Corps(string debut)
+            {
+                int i = src.IndexOf(debut, StringComparison.Ordinal);
+                Assert.That(i, Is.GreaterThanOrEqualTo(0), p + " : " + debut);
+                // Revue 17 (2c) : la fin de la méthode, sans le saut de ligne qui suit : le motif marche en LF comme en CRLF (autocrlf).
+                return src.Substring(i, src.IndexOf("\n    }", i, StringComparison.Ordinal) - i);
+            }
+            string refresh = Corps("void RefreshNumero()");
+            StringAssert.Contains($"FactureEmission.NumeroRepris(_loc, {cle})", refresh, p + " : la clé de l'émission");
+            StringAssert.Contains("FactureEmission.AfficherNumero(_numeroAide, _numeroPrefixe, _numeroId, repris,", refresh, p + " : grisée, non modifiable");
+            StringAssert.Contains("_numeroEmis = null;", refresh, p + " : l'aperçu (NumeroDocument) suit la ligne, pas un numéro d'une émission passée");
+            StringAssert.Contains("_numeroAide = UIFactory.Text(", src, p + " : l'aide suit la ligne");
+            StringAssert.Contains("\n        RefreshNumero();", Corps("void Finaliser("),
+                p + " : rafraîchie après chaque émission, correction comprise (avant : seulement hors correction, « corrigée(1) » restait affiché)");
+            StringAssert.Contains("_numeroId.onValueChanged.AddListener(_ => { _numeroEmis = null; RefreshEntetePreview(); });", src,
+                p + " : un ID retapé après une émission abandonnée, l'entête et l'aperçu le suivent");
+        }
+        // Les rappels qui changent la clé rafraîchissent la ligne : sans eux, le défaut vu en Play revient (un numéro neuf affiché,
+        // l'ancien imprimé).
+        foreach (var (p, rappel, fois) in new[] { ("FactureLoyerPanel.cs", "RefreshEcheanceDefault(); RefreshNumero(); RefreshTauxDefault(); }", 2),   // période, année (lot 10 : le taux suit aussi)
+                                                  ("FactureRegulPanel.cs", "RefreshCharges(); RefreshNumero(); RefreshTauxDefault(); }", 2),           // année, listes
+                                                  ("FactureRefacPanel.cs", "RefreshTotaux(); RefreshNumero(); RefreshTauxDefault(); }", 1) })          // charges cochées
+            Assert.That(Src("Facturation/" + p).Split(new[] { rappel }, StringSplitOptions.None).Length - 1, Is.EqualTo(fois), p + " : " + rappel);
+        string loyer = Src("Facturation/FactureLoyerPanel.cs");
+        StringAssert.Contains("string key = CleLoyer();", loyer, "le loyer émet sous la clé affichée");
+        StringAssert.Contains("FactureEmission.SeraUneCorrection(_loc, CleLoyer(), PeriodiciteChoisie().ToString())", loyer,
+            "titre et bouton : la périodicité de la ligne (lot 15 : celle de la période affichée)");
+    }
+
+    /// Revue 17 (2c, décisions du 06/11 ; relecture du 07/11) : rallumer le bouton « Auto » d'une facture préparée puis bloquée
+    /// la remet « En attente d'envoi » avec son PDF, si elle correspond toujours à ce qui est dû : pas un décompte sans départ,
+    /// pas un loyer d'une période après le départ, d'une autre périodicité ou d'un autre montant (prorata d'un départ annulé).
+    /// Sinon elle revient à l'état des dates et se refait. Avant : un PDF périmé repartait tel quel.
+    [Test]
+    public void Rallumer_ne_repropose_qu_une_facture_toujours_juste()
+    {
+        var loc = new Locataire { id = "AUTO3", Name = "Dupont", loyerAnnuel = 12000f, periodiciteLoyer = Periodicite.mensuel };
+        loc.DateDebutBail = new DateTime(2024, 1, 1); loc.DateFinBail = new DateTime(2032, 12, 31);
+        FactureEtat Nov(float loyerHT, string periodicite = "mensuel") => new FactureEtat { key = "loyer-2026-P11", type = "Loyer", statut = "AFaire",
+            libelle = "Loyer Novembre 2026", numero = "2026/11003", pdfPath = "nov.pdf", montant = 1.2f * loyerHT, loyerHT = loyerHT,
+            echeanceISO = "2026-11-01", periodicite = periodicite };
+        Assert.That(FacturationSuivi.StatutAutomatique(loc, Nov(1000f)), Is.EqualTo("AttenteEnvoi"), "même loyer : elle repart en attente");
+        Assert.That(FacturationSuivi.StatutAutomatique(loc, Nov(500f)), Is.EqualTo(""), "préparée au prorata d'un départ annulé : à refaire");
+        Assert.That(FacturationSuivi.StatutAutomatique(loc, Nov(1000f, "trimestriel")), Is.EqualTo(""), "autre périodicité : à refaire");
+        var sansPdf = Nov(1000f); sansPdf.pdfPath = "";
+        Assert.That(FacturationSuivi.StatutAutomatique(loc, sansPdf), Is.EqualTo(""), "« À faire » sans facture : les dates");
+        Assert.That(FacturationSuivi.StatutAutomatique(loc, null), Is.EqualTo(""));
+        var decompte = new FactureEtat { key = DepartLocataire.CleDecompte, type = "Depot", statut = "AFaire", numero = "2026/11004", pdfPath = "d.pdf" };
+        Assert.That(FacturationSuivi.StatutAutomatique(loc, decompte), Is.EqualTo(""), "décompte sans départ (départ annulé) : il ne repart pas");
+        loc.dateSortieISO = "2026-11-15";
+        Assert.That(FacturationSuivi.StatutAutomatique(loc, decompte), Is.EqualTo("AttenteEnvoi"), "décompte, départ toujours saisi : il repart");
+        Assert.That(FacturationSuivi.StatutAutomatique(loc, new FactureEtat { key = "loyer-2026-P12", type = "Loyer", statut = "AFaire",
+            numero = "2026/11005", pdfPath = "dec.pdf", loyerHT = 1000f, echeanceISO = "2026-12-01", periodicite = "mensuel" }), Is.EqualTo(""),
+            "période après le départ : rien n'y est dû, il ne repart pas");
+        StringAssert.Contains("ne correspond plus à ce qui est dû", Src("Facturation/LocataireSuiviInline.cs"), "le message dit qu'elle est à refaire");
+    }
+
+    /// Revue 17 (2c, relecture du 07/11) : un loyer préparé (ou bloqué) pour une période entièrement après un départ saisi ensuite
+    /// se retire du suivi (« Retirer du suivi… »), sans avoir : il repasse « Hors bail », n'est plus proposé à l'envoi et ne bloque
+    /// plus l'archivage ; l'alerte et l'étape « Dernier loyer » montrent le suivi. Avant : seule une facture partie avait cette
+    /// sortie, et le bouton « Auto » ne faisait qu'alterner « À faire » et « En attente d'envoi ».
+    [Test]
+    public void Un_loyer_prepare_apres_le_depart_se_retire_du_suivi()
+    {
+        var loc = new Locataire { id = "RET", Name = "Dupont", loyerAnnuel = 12000f, periodiciteLoyer = Periodicite.mensuel };
+        loc.DateDebutBail = new DateTime(2024, 1, 1); loc.DateFinBail = new DateTime(2032, 12, 31);
+        var dec = new FactureEtat { key = "loyer-2026-P12", type = "Loyer", statut = "AttenteEnvoi", libelle = "Loyer Décembre 2026", numero = "2026/11003",
+            pdfPath = "dec.pdf", montant = 1200f, loyerHT = 1000f, echeanceISO = "2026-12-01", periodicite = "mensuel" };
+        loc.facturesEtat = new List<FactureEtat> { dec };
+        loc.dateSortieISO = "2026-11-30";
+        Assert.That(DepartLocataire.Retirable(loc, dec), Is.True, "préparé, période après le départ");
+        Assert.That(DepartLocataire.LoyerACorriger(loc, dec), Is.True, "le bandeau et l'archivage le signalent");
+        string texte = DepartLocataire.ConfirmationRetrait(loc, dec);
+        StringAssert.Contains("n'est pas parti chez le locataire", texte);
+        StringAssert.DoesNotContain("avoir", texte, "pas d'avoir : rien n'est parti");
+        // L'alerte (FacturationAlertes.Pour ne calcule que pour une fiche complète) : de départ, avec sa clé et le texte du bandeau.
+        StringAssert.Contains("? new Alerte { niveau = Niveau.Attention, type = AlerteType.Depart, cle = l.key, message = $\"{DepartLocataire.ARetirer(l)}.\" }",
+            Src("Facturation/FacturationAlertes.cs"), "pas « Facturer le loyer » : le formulaire refuse 0 €");
+        StringAssert.Contains("Retirer du suivi", DepartLocataire.ARetirer(dec));
+        StringAssert.Contains("LocataireSuiviInline.MontrerPour(lp, annee)", Src("General/HomeAlert.cs"), "l'alerte montre le suivi");
+        StringAssert.Contains("LocataireSuiviInline.MontrerPour(_fiche, annee)", Src("Locataire/DepartLocataireUI.cs"), "l'étape « Dernier loyer » aussi");
+
+        FacturationSuivi.SetStatut(loc, dec, FacturationSuivi.StatutApresBoutonAuto(loc, dec));   // bouton éteint : « À faire »
+        Assert.That(dec.statut, Is.EqualTo("AFaire"));
+        Assert.That(DepartLocataire.Retirable(loc, dec), Is.True, "bloqué : toujours retirable");
+        Assert.That(FacturationSuivi.StatutApresBoutonAuto(loc, dec), Is.EqualTo(""), "rallumé : période après le départ, il ne repart pas");
+        FacturationSuivi.SetStatut(loc, dec, "");   // « Retirer du suivi »
+        Assert.That(FacturationSuivi.Lignes(loc, 2026).First(x => x.key == dec.key).statut, Is.EqualTo("HorsBail"));
+        Assert.That(DepartLocataire.RaisonsNonArchivable(loc), Has.None.Contains("Loyer Décembre 2026"));
+    }
+
+    /// Revue 17 (2c, relecture du 07/11) : une facture préparée puis bloquée garde son document : une régularisation regroupée ne
+    /// perd pas une liste (Regroupable), ses charges restent dans sa correction (ChargesDeRegul), une refacturation garde ses
+    /// montants, et elle reste dans le suivi même quand sa liste n'est plus planifiée, pour qu'on puisse la rallumer.
+    [Test]
+    public void Une_facture_bloquee_garde_son_document()
+    {
+        var loc = new Locataire { id = "BLQ", periodiciteLoyer = Periodicite.mensuel };
+        var a = new FactureEtat { key = "regul-2026", type = "Regul", statut = "AFaire", libelle = "Régularisation des charges 2026", numero = "2027/01001",
+            pdfPath = "regul.pdf", montant = 100f, echeanceISO = "2027-01-31" };
+        var b = new FactureEtat { key = "regul-2026-L2", type = "Regul", statut = "AFaire", libelle = "Régularisation 2026 (liste 2)", numero = "2027/01001",
+            pdfPath = "regul.pdf", montant = 50f, echeanceISO = "2027-01-31" };
+        loc.facturesEtat = new List<FactureEtat> { a, b };
+        Assert.That(FacturationSuivi.EstDejaEmise(loc, a.key, out _), Is.False, "pré-requis : pas émise au sens strict");
+        Assert.That(FacturationSuivi.AFacture(loc, a.key, out _), Is.True, "mais elle a sa facture");
+        Assert.That(FacturationSuivi.Regroupable(loc, new List<string> { a.key }, out _, out var oubliees), Is.False, "on ne retire pas une liste de sa facture");
+        Assert.That(oubliees.Select(x => x.key), Is.EqualTo(new[] { b.key }));
+        Assert.That(FacturationSuivi.Lignes(loc, 2026).Select(x => x.key), Does.Contain(a.key), "bloquée, pas planifiée : elle reste visible");
+        StringAssert.Contains("FacturationSuivi.AFacture(loc, ListesCharges.Cle(listeId, year), out _)", Src("Facturation/FactureRegulPanel.cs"),
+            "une régularisation bloquée garde ses charges");
+        StringAssert.Contains("FacturationSuivi.AFacture(_loc, \"refac-\" + c.id, out var rec)", Src("Facturation/FactureRefacPanel.cs"),
+            "une refacturation bloquée garde ses montants");
+    }
+
     // ── D6-03 : mentions obligatoires ──
 
     [Test]
@@ -665,12 +1399,165 @@ public class Revue17Tests
             var (titre, texte) = FermetureGuard.Avertissement(new List<string>(), EcritureCloud.NomsEnAttente());
             Assert.That(titre, Is.EqualTo("Modifications pas encore envoyées"));
             StringAssert.Contains("• Rivoli", texte);
-            StringAssert.Contains("EcritureCloud.NomsEnAttente()", Src("General/QuitButton.cs"), "la croix Quitter aussi");
+            StringAssert.Contains("FermetureGuard.Demander(Quitter)", Src("General/QuitButton.cs"), "la croix Quitter aussi");
         }
         finally
         {
             var f = typeof(EcritureCloud).GetField("_enAttente", BindingFlags.NonPublic | BindingFlags.Static);
             ((HashSet<Batiment>)f.GetValue(null)).Remove(b);
         }
+    }
+
+    // ── Reprise du 09/11 (Fable), lot A : les critiques ──
+
+    [Test]
+    public void D6_17_la_quittance_est_signee_par_l_entreprise_ouverte()
+    {
+        string html = FacturePdfService.BuildQuittanceHtml(new FacturePdfService.QuittanceData { societe = "SCI Rivoli" });
+        Assert.That(html.Split(new[] { "SCI Rivoli" }, StringSplitOptions.None).Length - 1, Is.EqualTo(2), "« Je soussigné » et la signature");
+        StringAssert.DoesNotContain("GROUPE CIPL", html);
+        StringAssert.DoesNotContain("GROUPE CIPL", File.ReadAllText(FacturePdfService.QuittanceTemplatePath));
+        StringAssert.Contains("societe = FactureVarResolver.Societe(", Src("Facturation/FactureQuittanceService.cs"));
+    }
+
+    [Test]
+    public void D6_18_la_correction_d_une_revision_reprend_l_ancien_depot_de_sa_facture()
+    {
+        var loc = new Locataire { depotDeGarantie = 2200f, depotPrecedent = 0f };
+        var f = new FactureInfo { saved = true, moisPeriode = 2, provisionMontant = 2000f };
+        Assert.That(FactureDepotPanel.AncienPropose(loc, f, true), Is.EqualTo(2000f), "« Refaire » : l'ancien dépôt de la facture");
+        Assert.That(FactureDepotPanel.AncienPropose(loc, f, false), Is.EqualTo(2200f), "pas encore facturée : le dépôt en place");
+        loc.depotPrecedent = 2000f;
+        Assert.That(FactureDepotPanel.AncienPropose(loc, f, true), Is.EqualTo(2000f));
+        Assert.That(FactureDepotPanel.AncienPropose(loc, f, false), Is.EqualTo(2000f), "« Réviser » fait : son ancien dépôt");
+        StringAssert.Contains("AncienPropose(_loc, f, FacturationSuivi.AFacture(_loc, CleSuivi(), out _))", Src("Facturation/FactureDepotPanel.cs"));
+    }
+
+    [Test]
+    public void D6_18_sans_revision_en_attente_le_bouton_de_la_fiche_refuse()
+    {
+        var aujourdhui = new DateTime(2026, 11, 9);
+        var loc = new Locataire { depotDeGarantie = 2200f, dateRevisionDepotISO = "2027-10-01" };
+        string refus = FactureDepotPanel.RefusOuverture(loc, null, aujourdhui);
+        StringAssert.Contains("01/10/2027", refus);
+        StringAssert.Contains("« Réviser »", refus);
+        StringAssert.Contains("« Refaire »", refus);
+        Assert.That(FactureDepotPanel.RefusOuverture(loc, new FactureEtat { key = "depot-2026" }, aujourdhui), Is.Null, "depuis le suivi");
+        Assert.That(FactureDepotPanel.RefusOuverture(loc, null, new DateTime(2027, 10, 1)), Is.Null, "révision échue");
+        loc.depotPrecedent = 2000f;
+        Assert.That(FactureDepotPanel.RefusOuverture(loc, null, aujourdhui), Is.Null, "« Réviser » fait : la facture est attendue");
+        loc.depotPrecedent = 0f; loc.dateSortieISO = "2026-12-31";
+        Assert.That(FactureDepotPanel.RefusOuverture(loc, null, aujourdhui), Is.Null, "départ saisi : décompte de sortie");
+        string src = Src("Facturation/FactureDepotPanel.cs");
+        Assert.That(src.IndexOf("RefusOuverture(fiche.GetLocataire(), ligne, DateTime.Today)", StringComparison.Ordinal),
+                    Is.LessThan(src.IndexOf("EcritureCloud.Reserver(EcritureCloud.Cibles(fiche, true), \"dépôt\"", StringComparison.Ordinal)), "refusé avant de réserver");   // D4-11 : avec le bâtiment
+    }
+
+    [Test]
+    public void D8_14_se_deconnecter_previent_des_fiches_qui_attendent_la_connexion()
+    {
+        var (titre, texte) = FermetureGuard.Avertissement(new List<string>(), new List<string> { "Rivoli" }, "Se déconnecter");
+        Assert.That(titre, Is.EqualTo("Modifications pas encore envoyées"));
+        StringAssert.Contains("• Rivoli", texte);
+        StringAssert.Contains("Se déconnecter maintenant les perdrait", texte);
+        Assert.That(FermetureGuard.Bouton("Continuer", 0), Is.EqualTo("Continuer quand même"));
+        Assert.That(FermetureGuard.Bouton("Continuer", 1), Is.EqualTo("Continuer sans enregistrer"));
+        string src = Src("General/FermetureGuard.cs");
+        string garde = src.Substring(src.IndexOf("public static void ConfirmerPerteSaisies(", StringComparison.Ordinal));
+        garde = garde.Substring(0, garde.IndexOf("ConfirmDialog.Instance.Show(", StringComparison.Ordinal));
+        StringAssert.Contains("EcritureCloud.NomsEnAttente()", garde, "Se déconnecter, changer d'entreprise ou de dossier passent tous par elle");
+        StringAssert.Contains("EnvoiEnCours", garde);
+
+        // Une fiche périmée (entreprise vidée) est déjà perdue : la garde ne la cite plus.
+        var b = new Batiment { Name = "Rivoli" };
+        EcritureCloud.MettreEnAttente(b);
+        try
+        {
+            Assert.That(EcritureCloud.NomsEnAttente(), Does.Contain("Rivoli"));
+            EcritureCloud.Perimer(b);
+            Assert.That(EcritureCloud.NomsEnAttente(), Does.Not.Contain("Rivoli"));
+        }
+        finally
+        {
+            foreach (var champ in new[] { "_enAttente", "_perimes" })
+                ((HashSet<Batiment>)typeof(EcritureCloud).GetField(champ, BindingFlags.NonPublic | BindingFlags.Static).GetValue(null)).Remove(b);
+        }
+    }
+
+    [Test]
+    public void D8_01_reste_la_fermeture_qui_attend_ne_quitte_pas_sur_un_echec_ou_un_refus()
+    {
+        Assert.That(FermetureGuard.QuitterApresAttente(0, 0, false), Is.True);
+        Assert.That(FermetureGuard.QuitterApresAttente(0, 1, false), Is.False, "panne pendant l'attente : la fiche attend la connexion");
+        Assert.That(FermetureGuard.QuitterApresAttente(1, 1, false), Is.True, "« Quitter quand même » accepté avant l'attente");
+        Assert.That(FermetureGuard.QuitterApresAttente(0, 0, true), Is.False, "refus du serveur affiché au centre");
+        string src = Src("General/FermetureGuard.cs");
+        StringAssert.Contains("_quitterConfirme = false; return;", src, "CIPL reste ouvert et la croix redemandera");
+        StringAssert.DoesNotContain("QuandTermine(Application.Quit)", src);
+    }
+
+    [Test]
+    public void D8_03_la_fermeture_attend_l_envoi_de_factures_en_cours()
+    {
+        Assert.That(FermetureGuard.Decision(0, false, 0, envoiEnCours: true), Is.EqualTo(FermetureGuard.Choix.Attendre));
+        Assert.That(FermetureGuard.Decision(1, false, 0, envoiEnCours: true), Is.EqualTo(FermetureGuard.Choix.Prevenir));
+        Assert.That(FermetureGuard.Decision(0, false, 0), Is.EqualTo(FermetureGuard.Choix.Quitter));
+        var (titre, texte) = FermetureGuard.Avertissement(new List<string>(), new List<string>(), "Se déconnecter", envoiEnCours: true);
+        Assert.That(titre, Is.EqualTo("Envoi de factures en cours"));
+        StringAssert.Contains("Se déconnecter maintenant l'interromprait", texte);
+        StringAssert.Contains("FermetureGuard.Demander(Quitter)", Src("General/QuitButton.cs"), "la croix : la même décision que la garde (D8-13)");
+        StringAssert.Contains("public static bool EnCours", Src("Facturation/FactureEnvoiAuto.cs"), "l'envoi groupé, hors cloud aussi");
+    }
+
+    [Test]
+    public void D7a_09_un_locataire_facture_ne_se_supprime_pas()
+    {
+        var partie = new Locataire { Name = "Dupont", facturesEtat = new List<FactureEtat> {
+            new FactureEtat { key = "loyer-2026-P1", statut = "Envoye", numero = "2026/01001", pdfPath = "x.pdf" } } };
+        string refus = DepartLocataire.RefusSuppression(partie);
+        StringAssert.Contains("« Dupont »", refus);
+        StringAssert.Contains("« Départ du locataire »", refus);
+        var preparee = new Locataire { Name = "Martin", facturesEtat = new List<FactureEtat> {
+            new FactureEtat { key = "loyer-2026-P1", statut = "AttenteEnvoi", numero = "2026/01001", pdfPath = "x.pdf" } } };
+        Assert.That(DepartLocataire.RefusSuppression(preparee), Is.Null, "préparée, pas partie : supprimable (doublon, essai)");
+        Assert.That(DepartLocataire.RefusSuppression(new Locataire { Name = "Sans" }), Is.Null);
+
+        var bat = new Batiment { Name = "Rivoli", locataireDuBatiment = new List<Locataire> { preparee, partie } };
+        StringAssert.Contains("« Dupont »", DepartLocataire.RefusSuppression(bat));
+        bat.locataireDuBatiment = new List<Locataire> { preparee };
+        Assert.That(DepartLocataire.RefusSuppression(bat), Is.Null);
+
+        StringAssert.Contains("DepartLocataire.RefusSuppression(loc)", Src("Locataire/LocatairePrefab.cs"), "avant la confirmation");
+        StringAssert.Contains("DepartLocataire.RefusSuppression(batiment)", Src("Batiment/BatimentPrefab.cs"), "même garde pour le bâtiment");
+    }
+
+    [Test]
+    public void D5_01_reste_la_cle_d_un_numero_long_reste_unique_et_tient_en_36()
+    {
+        var loc = new Locataire { id = "a1b2c3d4-e5f6-0000-0000-000000000000" };
+        Assert.That(FactureElectronique.Cle(loc, new FactureEtat { numero = "2026/11001" }), Is.EqualTo("a1b2c3d4-2026/11001"),
+                    "inchangée : les réservations déjà prises restent valables");
+        string longNumero = "2026/11000000000000000000001";   // avec « -corrigee-N », au-delà de 36
+        string c1 = FactureElectronique.Cle(loc, new FactureEtat { numero = longNumero, plateformeDonnees = "{\"number\":\"" + longNumero + "-corrigee-1\"}" });
+        string c2 = FactureElectronique.Cle(loc, new FactureEtat { numero = longNumero, plateformeDonnees = "{\"number\":\"" + longNumero + "-corrigee-2\"}" });
+        Assert.That(c1.Length, Is.EqualTo(36));
+        Assert.That(c2.Length, Is.EqualTo(36));
+        Assert.That(c1, Is.Not.EqualTo(c2), "avant : coupées à 36, les deux rectificatives partageaient la clé");
+        StringAssert.StartsWith("a1b2c3d4-", c1);
+        StringAssert.Contains("slice(0, 36)", File.ReadAllText(Path.Combine("Serveur", "fonctions", "facture-electronique.ts")),
+                              "le serveur coupe à 36 : sans effet sur une clé de 36");
+    }
+
+    [Test]
+    public void D3_01_reste_une_entreprise_sans_ville_connue_part_sans_lieu_d_emission()
+    {
+        Assert.That(RegleInscription.Reglages(true, "SCI Rivoli", "12345678900012", null, "Marie", "", "").lieuEmission, Is.EqualTo(""), "annuaire injoignable");
+        Assert.That(RegleInscription.Reglages(false, "Patrimoine de Jean Martin", "", null, "Jean Martin", "4 rue des Lilas, 31000 Toulouse", "").lieuEmission,
+                    Is.EqualTo("Toulouse"));
+        Assert.That(RegleInscription.ReglagesAjout(false, "Patrimoine de Jean Martin", "", null).lieuEmission, Is.EqualTo(""), "particulier ajouté : sans adresse");
+        StringAssert.DoesNotContain("LieuDefaut", Src("Cloud/RegleInscription.cs"));
+        StringAssert.Contains("RegleInscription.NomParticulier(\"\", await EcritureCloud.MonNom())", Src("Cloud/SectionAbonnement.cs"),
+                              "un particulier ajouté sans nom : le même nom que le serveur, pour ses Réglages");
+        StringAssert.Contains("R.lieuEmission ?? \"\"", Src("Facturation/ReglagePanel.cs"), "les Réglages montrent le lieu tel quel, pas la ville de CIPL");
     }
 }

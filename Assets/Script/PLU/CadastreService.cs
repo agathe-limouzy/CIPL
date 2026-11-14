@@ -55,14 +55,17 @@ public class CadastreService : MonoBehaviour
         Action<double, double> onSuccess, Action<string> onError)
     {
         // 1 — Commune → INSEE
+        // Revue 17 (D7b-12, lot D) : hors ligne, la recherche disait « Commune introuvable » d'une commune juste.
         string insee = null;
+        bool reseauOk = true;
         yield return ResolveCommuneInsee(communeQuery,
             code => insee = code,
-            _ => { /* silencieux : on gère l'échec juste après */ });
+            e => { if (e == Injoignable) reseauOk = false; });
 
-        if (string.IsNullOrEmpty(insee))
+        string refusCommune = MessageCommune(reseauOk, !string.IsNullOrEmpty(insee), communeQuery);
+        if (refusCommune != null)
         {
-            onError?.Invoke($"Commune introuvable : « {communeQuery} ».");
+            onError?.Invoke(refusCommune);
             yield break;
         }
 
@@ -108,6 +111,14 @@ public class CadastreService : MonoBehaviour
 
     // ── Commune → code INSEE ──────────────────────────────────────────────────────
 
+    private const string Injoignable = "reseau";
+
+    /// Revue 17 (D7b-12, lot D) : le refus de la commune selon la cause (null si la commune est trouvée).
+    public static string MessageCommune(bool reseauOk, bool trouvee, string commune)
+        => !reseauOk ? "Service des communes injoignable, réessayez."
+         : !trouvee ? $"Commune introuvable : « {commune} »."
+         : null;
+
     private IEnumerator ResolveCommuneInsee(string query, Action<string> onSuccess, Action<string> onError)
     {
         if (string.IsNullOrWhiteSpace(query)) { onError?.Invoke("vide"); yield break; }
@@ -122,13 +133,14 @@ public class CadastreService : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                onError?.Invoke(req.error);
+                Debug.LogWarning($"[Cadastre] Commune : service injoignable ({req.responseCode} · {req.error})");
+                onError?.Invoke(Injoignable);
                 yield break;
             }
 
             CommuneResponse resp;
             try { resp = JsonUtility.FromJson<CommuneResponse>(req.downloadHandler.text); }
-            catch { onError?.Invoke("parse"); yield break; }
+            catch { onError?.Invoke(Injoignable); yield break; }
 
             if (resp?.features == null || resp.features.Length == 0 ||
                 resp.features[0].properties == null ||

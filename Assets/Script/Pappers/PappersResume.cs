@@ -96,7 +96,7 @@ public static class PappersResume
         return string.Join(" · ", new[] { data.libelle_nature_juridique, siege }.Where(x => !string.IsNullOrWhiteSpace(x)));
     }
 
-    /// Un SIRET utilisable pour l'interrogation : 9 chiffres au minimum.
+    /// Un SIRET utilisable pour l'interrogation : 9 chiffres (SIREN) ou 14 (SIRET), exactement (SocieteLocataire.Siren, Revue 17 D5-22).
     public static bool SiretExploitable(string siret)
         => SocieteLocataire.Siren(siret).Length == 9;   // revue 16c (D7a-12) : chiffres seuls, comme la tournée et l'annuaire
 

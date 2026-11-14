@@ -37,9 +37,10 @@ public class SuiviRowUI : MonoBehaviour
 
     /// Une ligne de facture. `lignesActions` : jusqu'à 4 (PDF · Corriger/Refaire ·
     /// Générer · Rappel · Quittance) ; au-delà, les suivantes sont ignorées.
+    /// `auto` : le bouton « Auto » à droite de la pastille (null : pas de bouton ; vrai : allumé ; faux : éteint), `onAuto` : son clic.
     public void Setup(string libelleTxt, string echeanceTxt, string montantTxt, Couleurs c,
         string etatLibelle, Color etatBg, Color etatFg, bool etatCliquable, Action onEtat,
-        IList<(string libelle, Action onClick)> lignesActions)
+        IList<(string libelle, Action onClick)> lignesActions, bool? auto = null, Action onAuto = null)
     {
         Fond(c.fond, HLigne);
         Texte(libelle, libelleTxt, c.principal, false);
@@ -52,6 +53,7 @@ public class SuiviRowUI : MonoBehaviour
             pastille.gameObject.SetActive(true);
             Bouton(pastille, etatLibelle, etatBg, etatFg, etatFg, etatCliquable, onEtat);
         }
+        BoutonAuto(auto, onAuto);
 
         if (actionsCell != null) actionsCell.SetActive(true);
         for (int i = 0; i < actions.Length; i++)
@@ -78,6 +80,7 @@ public class SuiviRowUI : MonoBehaviour
 
         if (etatCell != null) etatCell.SetActive(true);
         if (pastille != null) { pastille.gameObject.SetActive(true); TexteNu(pastille, etat, fg); }
+        BoutonAuto(null, null);
 
         if (actionsCell != null) actionsCell.SetActive(true);
         for (int i = 0; i < actions.Length; i++)
@@ -99,6 +102,7 @@ public class SuiviRowUI : MonoBehaviour
         if (montant != null) montant.gameObject.SetActive(false);
         if (etatCell != null) etatCell.SetActive(false);
         if (actionsCell != null) actionsCell.SetActive(false);
+        BoutonAuto(null, null);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
@@ -117,6 +121,41 @@ public class SuiviRowUI : MonoBehaviour
         }
         var le = GetComponent<LayoutElement>();
         if (le != null) le.minHeight = hauteur;
+    }
+
+    // Revue 17 (2c, décisions du 06/11, retours de BP1) : bouton « Auto » à droite de la pastille, dans la cellule État, sur une
+    // ligne pas encore partie : allumé (fond vert clair) = CIPL gère la ligne ; éteint (gris) = bloquée « À faire ». Créé par code
+    // au premier besoin (le prefab n'en sait rien), caché sinon, et toujours sur l'en-tête et la ligne « aucune facture ».
+    // Pastille (96) + écart (4) + bouton (« Auto » 25 + 3 + 3) = 131 : tient dans la cellule (WEtat = 132).
+    Button _auto;
+
+    void BoutonAuto(bool? allume, Action onClick)
+    {
+        if (_auto == null)
+        {
+            if (allume == null || etatCell == null) return;
+            var hl = etatCell.GetComponent<HorizontalLayoutGroup>();
+            if (hl != null) hl.spacing = 4;
+            ObjectifsTableau.Pastille(etatCell.transform, "Auto", UITheme.Fond, UITheme.TexteSecondaire);
+            var go = etatCell.transform.GetChild(etatCell.transform.childCount - 1).gameObject;
+            go.name = "BoutonAuto";
+            go.GetComponent<HorizontalLayoutGroup>().padding = new RectOffset(3, 3, 2, 2);   // plus petit que la pastille
+            var fond = go.transform.Find("Fond").GetComponent<Image>();
+            fond.raycastTarget = true;   // décoratif dans Pastille : ici, il reçoit le clic
+            UIFactory.Border(fond.gameObject);
+            _auto = go.AddComponent<Button>();
+            _auto.transition = Selectable.Transition.None;   // les couleurs disent l'état ; avant la cible : aucune teinte figée
+            _auto.targetGraphic = fond;
+        }
+        _auto.gameObject.SetActive(allume != null);
+        _auto.onClick.RemoveAllListeners();
+        if (allume == null) return;
+        bool on = allume.Value;
+        ((Image)_auto.targetGraphic).color = on ? UITheme.PrimaireClair : UITheme.Fond;
+        var bord = _auto.targetGraphic.GetComponent<Outline>();
+        if (bord != null) bord.effectColor = on ? UITheme.Primaire : UITheme.Bordure;
+        _auto.GetComponentInChildren<TMP_Text>(true).color = on ? UITheme.Primaire : UITheme.TexteSecondaire;   // éteint : lisible (5,6:1)
+        if (onClick != null) _auto.onClick.AddListener(() => onClick());
     }
 
     static void Texte(TMP_Text t, string valeur, Color couleur, bool gras)

@@ -80,6 +80,18 @@ public class PrefabBatLoc : MonoBehaviour
     }
 
 
+    /// Revue 17 (D7a-14, lot D) : le refus à afficher au centre pour un nombre illisible (« 2B », « 120 m2 »), ou null s'il se lit
+    /// (le vide aussi : il vaut 0). Les fiches le demandent AVANT toute écriture : SaveCorrectlyFloat / SaveCorrectlyInt
+    /// enregistraient 0 sans rien dire. `entier` : la même lecture que SaveCorrectlyInt (numéro du lot).
+    public static string RefusNombre(string texte, string quoi, bool entier = false)
+    {
+        if (string.IsNullOrWhiteSpace(texte)) return null;
+        bool lu = entier
+            ? int.TryParse(texte, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out int _)
+            : SaisieNumerique.TryParse(texte, out float _);
+        return lu ? null : $"« {texte.Trim()} » n'est pas un nombre ({quoi}). Corrigez-le ou videz le champ.";
+    }
+
     public virtual void SaveBatiment()
     {
     }

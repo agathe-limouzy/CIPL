@@ -50,7 +50,7 @@ public static class RegleExport
 public static class ExportCloud
 {
     public class Resultat { public string Dossier, Bilan, Erreur; public List<string> Manquants = new List<string>(); }
-    [Serializable] class LigneDoc { public string chemin, empreinte; }
+    [Serializable] class LigneDoc { public string chemin, empreinte, supprime_le; }
     [Serializable] class LignesDoc { public LigneDoc[] items; }
 
     /// `progression(fait, total)` : les documents, un par un.
@@ -67,12 +67,16 @@ public static class ExportCloud
         var (bats, erreur) = await DonneesCloud.Charger(e.id);
         if (bats == null) return new Resultat { Erreur = "lecture des fiches impossible : " + erreur };
 
-        // ponytail: une seule lecture, plafonnée à 1 000 lignes par Supabase ; paginer au-delà.
-        var r = await CloudClient.Table("GET", SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "documents",
-                                        $"entreprise_id=eq.{e.id}&supprime_le=is.null&select=chemin,empreinte");
+        // Revue 17 (D2-06, lot D) : toute la table, page après page, dans l'ordre de sa clé (entreprise_id, chemin). Les lignes
+        // supprimées sont lues aussi, puis écartées ici : filtrées au serveur, une suppression faite pendant la lecture
+        // décalerait les pages et ferait sauter un document vivant.
+        var r = await CloudClient.TableTout(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "documents",
+                                            $"entreprise_id=eq.{e.id}&select=chemin,empreinte,supprime_le&order=chemin.asc");
         if (!r.Ok) return new Resultat { Erreur = "liste des documents illisible : " + r.Erreur };
+        // Revue 17 (D2-15, lot D) : CheminSur (ni « .. », ni chemin complet), comme le passage des documents (D1-01 de la
+        // 16c) : une ligne mal formée ferait écrire l'export hors de son dossier.
         var lignes = (JsonUtility.FromJson<LignesDoc>("{\"items\":" + r.Corps + "}")?.items ?? new LigneDoc[0])
-            .Where(l => SyncDocuments.Partage(l.chemin) && !string.IsNullOrEmpty(l.empreinte));
+            .Where(l => l != null && string.IsNullOrEmpty(l.supprime_le) && SyncDocuments.CheminSur(l.chemin) && !string.IsNullOrEmpty(l.empreinte));
         // Une ligne encore à l'ancien chemin part à sa nouvelle place (rangement du 23/10).
         var serveur = SyncDocuments.Redresser(lignes.Select(l => (l.chemin, l.empreinte, false)), out _)
             .ToDictionary(kv => kv.Key, kv => kv.Value.Empreinte);

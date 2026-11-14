@@ -24,6 +24,7 @@ public class HomeAlert
     public Locataire locataire;  // optionnel (null pour un objectif bâtiment)
     public Objective objectif;   // l'objectif lui-même (Kind.Objectif) : le clic ouvre sa fenêtre
     public FacturationAlertes.AlerteType? facturation;   // Kind.Facturation : l'écran à ouvrir
+    public string cleFacture;    // Revue 17 (D6-04) : la ligne du suivi dont parle une alerte de loyer, la période à ouvrir
 }
 
 /// Tuiles de filtre de « À traiter » (accueil et résumé du bâtiment, maquette « tuiles »
@@ -177,11 +178,20 @@ public static class RappelsAuto
         if (a.kind == HomeAlert.Kind.Facturation)
             switch (a.facturation)
             {
-                case FacturationAlertes.AlerteType.Loyer: FactureLoyerPanel.OpenLoyer(lp); break;
+                // Revue 17 (D6-04, décision du 05/11) : l'alerte ouvre la période dont elle parle, avec sa ligne stockée (un loyer
+                // à corriger après un départ garde ainsi ses provisions, D6-07) ; avant : la dernière période enregistrée.
+                case FacturationAlertes.AlerteType.Loyer:
+                    FactureLoyerPanel.OpenLoyer(lp, a.cleFacture == null ? null
+                        : a.locataire.facturesEtat?.Find(x => x.key == a.cleFacture) ?? new FactureEtat { key = a.cleFacture });
+                    break;
                 case FacturationAlertes.AlerteType.Regul: FactureRegulPanel.OpenRegul(lp); break;
                 case FacturationAlertes.AlerteType.Depot:
                 case FacturationAlertes.AlerteType.Restitution: FactureDepotPanel.OpenDepot(lp); break;
-                case FacturationAlertes.AlerteType.Depart: DepartPanel.Ouvrir(lp); break;
+                // Revue 17 (2c, relecture du 07/11) : un loyer à retirer du suivi après le départ : l'alerte montre le suivi.
+                case FacturationAlertes.AlerteType.Depart:
+                    if (a.cleFacture != null && DepartLocataire.LirePeriode(a.cleFacture, out int annee, out _)) LocataireSuiviInline.MontrerPour(lp, annee);
+                    else DepartPanel.Ouvrir(lp);
+                    break;
             }
         else if (a.kind == HomeAlert.Kind.RevisionRetard || a.kind == HomeAlert.Kind.RevisionProche)
         {
@@ -322,7 +332,8 @@ public static class HomeAlertCollector
                         typeTexte = TxMoney,
                         batiment = bp,
                         locataire = loc,
-                        facturation = fa.type
+                        facturation = fa.type,
+                        cleFacture = fa.cle   // Revue 17 (D6-04)
                     });
                 }
             }

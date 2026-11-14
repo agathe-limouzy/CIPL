@@ -75,6 +75,10 @@ public static class RegleAbonnement
     /// Jamais moins de licences que de personnes (membres et invitations en cours), ni moins d'une.
     public static int LicencesMin(int utilisees) => Math.Max(1, utilisees);
 
+    /// Revue 17 (D3-09) : au choix de l'abonnement, le nombre proposé d'office est celui des licences utilisées (au moins une),
+    /// plus les 3 de l'essai : un gérant seul qui ne touche pas aux « - » paie une licence, pas trois.
+    public static int LicencesProposees(int utilisees) => LicencesMin(utilisees);
+
     /// Premier prélèvement : le lendemain de la fin de l'essai, si Stripe a ses 48 h d'avance
     /// (3 jours d'écart en dates) ; sinon aujourd'hui. Même règle que la fonction abonnement-stripe.
     public static DateTime PremierPrelevement(Etat e, DateTime finEssai, DateTime aujourdhui)

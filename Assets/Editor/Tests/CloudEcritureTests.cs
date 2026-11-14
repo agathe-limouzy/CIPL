@@ -51,17 +51,20 @@ public class CloudEcritureTests
         Assert.That(ops.All(o => o.Version == 0), Is.True);
     }
 
+    /// Revue 17 (D2-05, lot D) : l'ordre n'est plus renuméroté. Avant, Atelier Nord repartait avec l'ordre 0 : tenu par
+    /// un collègue, il faisait refuser la suppression de Volteo.
     [Test]
-    public void Un_locataire_retire_est_supprime_et_l_ordre_change_est_envoye()
+    public void Un_locataire_retire_est_supprime_sans_renvoyer_le_suivant()
     {
         var b = Rivoli(out var volteo, out var nord);
         var cache = Lu(b);
-        b.locataireDuBatiment.Remove(volteo);   // Atelier Nord passe de l'onglet 2 à l'onglet 1
+        b.locataireDuBatiment.Remove(volteo);   // Atelier Nord passe de l'onglet 2 à l'onglet 1, son ordre au serveur reste 1
 
         var ops = EcritureCloud.Differences(b, cache);
-        Assert.That(ops.Any(o => o.Type == EcritureCloud.TypeOp.SupprimerLocataire && o.Id == volteo.id), Is.True);
-        Assert.That(ops.Any(o => o.Type == EcritureCloud.TypeOp.Locataire && o.Id == nord.id && o.Ordre == 0), Is.True);
-        Assert.That(ops.Any(o => o.Type == EcritureCloud.TypeOp.Batiment), Is.False, "le bâtiment lui-même n'a pas changé");
+        Assert.That(ops.Count, Is.EqualTo(1), "une seule fiche part : la suppression");
+        Assert.That(ops[0].Type, Is.EqualTo(EcritureCloud.TypeOp.SupprimerLocataire));
+        Assert.That(ops[0].Id, Is.EqualTo(volteo.id));
+        Assert.That(cache[EcritureCloud.Cle(false, nord.id)].Ordre, Is.EqualTo(1), "l'état connu n'est pas touché par la comparaison");
     }
 
     [Test]

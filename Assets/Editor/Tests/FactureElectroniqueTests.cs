@@ -148,14 +148,15 @@ public class FactureElectroniqueTests
 
         // Ce qu'un avoir cite : la version précédente s'il corrige, sinon les loyers de l'année (régul) ou l'origine (refac).
         var loc = new Locataire();
-        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2026-P3", type = "Loyer", numero = "2026/10001", dateEnvoiISO = "2026-07-01" });
-        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2026-P4", type = "Loyer", numero = "2026/10002 corrigée(1)", dateEnvoiISO = "2026-10-02" });
-        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2025-P4", type = "Loyer", numero = "2025/10009", dateEnvoiISO = "2025-10-01" });
-        loc.facturesEtat.Add(new FactureEtat { key = "refac-a", type = "Refac", numero = "2026/10005", dateEnvoiISO = "2026-09-01" });
+        // Revue 17 (D5-14, coutures) : seules les factures parties sont citées : ces lignes sont payées (avant : sans statut).
+        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2026-P3", type = "Loyer", statut = "Paye", numero = "2026/10001", dateEnvoiISO = "2026-07-01" });
+        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2026-P4", type = "Loyer", statut = "Paye", numero = "2026/10002 corrigée(1)", dateEnvoiISO = "2026-10-02" });
+        loc.facturesEtat.Add(new FactureEtat { key = "loyer-2025-P4", type = "Loyer", statut = "Paye", numero = "2025/10009", dateEnvoiISO = "2025-10-01" });
+        loc.facturesEtat.Add(new FactureEtat { key = "refac-a", type = "Refac", statut = "Paye", numero = "2026/10005", dateEnvoiISO = "2026-09-01" });
         var regul = FactureElectronique.ReferencesAvoir(loc, null, 2026);
         Assert.That(regul.Select(x => x.Key), Is.EqualTo(new[] { "2026/10001", "2026/10002-corrigee-1" }), "les loyers de l'année, numéros au format BR-FR-02");
         Assert.That(regul[1].Value, Is.EqualTo("2026-10-02"));
-        var avant = new FactureEtat { key = "regul-2026", numero = "2026/11001 corrigée(2)", dateEnvoiISO = "2026-11-02" };
+        var avant = new FactureEtat { key = "regul-2026", statut = "Paye", numero = "2026/11001 corrigée(2)", dateEnvoiISO = "2026-11-02" };
         Assert.That(FactureElectronique.ReferencesAvoir(loc, avant, 2026).Select(x => x.Key), Is.EqualTo(new[] { "2026/11001-corrigee-2" }), "correction : la version précédente seule");
         var refac = FactureElectronique.ReferencesAvoir(loc, null, 2026, "2026/10005");
         Assert.That(refac.Select(x => x.Key), Is.EqualTo(new[] { "2026/10005", "2026/10001", "2026/10002-corrigee-1" }), "avoir sur refacturation : l'origine, puis les loyers de l'année");
@@ -197,7 +198,9 @@ public class FactureElectroniqueTests
         Assert.That(FactureElectronique.Pastille(r), Is.Null);
         r.statut = "Envoye";
         Assert.That(FactureElectronique.EnAttente(r), Is.True);
-        Assert.That(FactureElectronique.Pastille(r), Is.EqualTo("À renvoyer"));
+        Assert.That(FactureElectronique.Pastille(r), Is.EqualTo("À transmettre"), "Revue 17 (D5-16) : pas encore essayée, ce n'est pas un échec");
+        r.plateformeEtat = "a_renvoyer";
+        Assert.That(FactureElectronique.Pastille(r), Is.EqualTo("À renvoyer"), "après un essai en panne");
         r.plateformeId = "42"; r.plateformeEtat = "envoyee";
         Assert.That(FactureElectronique.EnAttente(r), Is.False);
         Assert.That(FactureElectronique.Pastille(r), Is.EqualTo("Plateforme"));

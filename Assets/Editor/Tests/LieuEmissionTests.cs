@@ -31,13 +31,18 @@ public class LieuEmissionTests
         }
     }
 
+    // Revue 17 (D3-01 reste, 09/11) : sans ville, la date seule — jamais la ville de CIPL sur le document d'un client.
     [Test]
-    public void Un_lieu_vide_retombe_sur_la_valeur_d_usine()
+    public void Un_lieu_vide_imprime_la_date_seule()
     {
         ReglageService.Current.lieuEmission = "  ";
 
         foreach (var html in Documents())
-            Assert.That(html, Does.Contain(FacturePdfService.LieuDefaut + ", le"));
+        {
+            Assert.That(html, Does.Contain(">Le&nbsp;"));
+            Assert.That(html, Does.Not.Contain("St Marcel Paulel"));
+            Assert.That(html, Does.Not.Contain("{{LIEU"));
+        }
     }
 
     [Test]

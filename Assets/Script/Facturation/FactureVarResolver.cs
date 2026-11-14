@@ -12,6 +12,9 @@ public struct FactureContext
     public float ttc;
     public string echeance;    // « 01/02/2026 » (e-mail de notification, étape 18b)
     public float reste;        // reste à payer (rappel d'impayé)
+    // Revue 17 (avenant de périodicité, lot 15) : la périodicité de la période facturée (« mensuel » pour mai, facturé après la
+    // saisie d'un passage au trimestriel au 1er juillet) ; vide : inconnue, {loc.periodicite} imprime celle de la fiche.
+    public string periodicite;
 }
 
 /// Remplace les tokens {loc.*}, {bat.*}, {societe.*}, {date}, {loyer.*}… d'un
@@ -54,7 +57,8 @@ public static class FactureVarResolver
     static Dictionary<string, string> BuildMap(Locataire loc, Batiment bat, FactureContext ctx)
     {
         var m = new Dictionary<string, string>();
-        string periodicite = loc != null ? loc.periodiciteLoyer.ToString() : "";
+        // Revue 17 (lot 15) : celle de la période facturée quand le contexte la connaît (formulaire du loyer, loyer envoyé au lancement).
+        string periodicite = !string.IsNullOrEmpty(ctx.periodicite) ? ctx.periodicite : loc != null ? loc.periodiciteLoyer.ToString() : "";
 
         // ── Locataire ──
         m["{loc.nom}"]         = S(loc?.Name);
@@ -75,7 +79,7 @@ public static class FactureVarResolver
         m["{loc.loyer}"]       = loc != null ? $"{N2(loc.loyerAnnuel)} €" : "";
         m["{loc.periodicite}"] = periodicite;
         m["{loc.provision}"]   = loc != null && loc.provisionPourCharges
-                                 ? $"{N2(ListesCharges.ProvisionTotale(loc))} €" : "—";   // toutes listes
+                                 ? $"{N2(ProvisionFacturee(loc, ctx.periodicite))} €" : "—";   // toutes listes
         m["{loc.taux}"]        = loc != null ? $"{loc.tauxDeRentabilité:0.##} %" : "";
 
         // ── Bâtiment ──
@@ -103,6 +107,22 @@ public static class FactureVarResolver
         m["{societe.siret}"]   = siret;
         m["{societe.tva}"]     = tva;
         return m;
+    }
+
+    /// Revue 17 (avenant de périodicité, finitions) : {loc.provision} : la provision de la fiche (toutes listes), ramenée à la
+    /// périodicité de la période facturée quand le contexte la connaît et qu'elle n'est pas celle de la fiche (fiche à 300 € par
+    /// trimestre, facture de mai encore mensuel : 100 €), liste par liste, comme le formulaire du loyer la propose
+    /// (Loyers.ProvisionPeriode). Périodicité inconnue ou celle de la fiche : la provision de la fiche, comme avant.
+    /// Sans historique de périodicité : jamais de conversion, comme le formulaire (un loyer émis en mensuel sur une fiche passée
+    /// au trimestriel sans date, avant le lot 14, garde « mensuel » sur sa ligne : l'e-mail disait 33,33 € pour 100 € facturés).
+    static float ProvisionFacturee(Locataire loc, string periodicite)
+    {
+        if (loc.historiquePeriodicites == null || loc.historiquePeriodicites.Count == 0
+            || !Enum.TryParse(periodicite, out Periodicite p) || p == loc.periodiciteLoyer) return ListesCharges.ProvisionTotale(loc);
+        float total = Loyers.ProvisionConvertie(ListesCharges.Provision(loc, ""), loc.periodiciteLoyer, p);
+        foreach (var l in ListesCharges.Specifiques())
+            total += Loyers.ProvisionConvertie(ListesCharges.Provision(loc, l.id), loc.periodiciteLoyer, p);
+        return total;
     }
 
     static string S(string s) => s ?? "";

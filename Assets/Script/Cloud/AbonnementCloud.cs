@@ -37,16 +37,18 @@ public static class AbonnementCloud
     public static bool LectureSeule => SessionCloud.Active && SessionCloud.Entreprise != null && !RegleAbonnement.PeutEcrire(Etat);
     public static string Refus => RegleAbonnement.Refus(Admin, Courant?.admin);
 
-    /// Null si lu, sinon le motif.
+    /// Null si lu, sinon le motif. Revue 17 (D3-19) : l'état connu reste tant que la relecture n'a pas réussi (avant,
+    /// `Courant = null` avant l'appel : un 500 ou un délai effaçait le bandeau « expiré » et rouvrait chaque bouton).
     public static async Task<string> Lire(EntrepriseCloud e)
     {
-        Courant = null;
         if (e == null) return "Aucune entreprise ouverte.";
         var r = await CloudClient.Fonction(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "abonnement",
                                            new PEntreprise { p_entreprise = e.id });
         if (!r.Ok) return r.Erreur;
-        try { Courant = JsonUtility.FromJson<Lu>(r.Corps); }
+        Lu lu;
+        try { lu = JsonUtility.FromJson<Lu>(r.Corps); }
         catch (Exception ex) { return "Réponse illisible : " + ex.Message; }
+        Courant = lu;
         Bandeau.Assurer();
         return null;
     }

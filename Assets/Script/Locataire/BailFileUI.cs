@@ -28,13 +28,13 @@ public class BailFileUI : MonoBehaviour
     {
         _locatairePrefab = locatairePrefab;
 
-        Brancher(btnParcourir, () =>
+        Brancher(btnParcourir, () => Reserve(() =>
         {
             string nom = ChoisirEtCopier("Choisir le bail");
             if (nom != null) Modifier(loc => loc.cheminBail = nom);
-        });
+        }));
         Brancher(btnOuvrir, () => Ouvrir(Locataire()?.cheminBail));
-        if (btnRetirer != null) Brancher(btnRetirer, () => Modifier(loc => loc.cheminBail = ""));
+        if (btnRetirer != null) Brancher(btnRetirer, () => Reserve(() => Modifier(loc => loc.cheminBail = "")));
 
         // « + Avenant », cloné de « Parcourir… » pour en garder l'allure, en bout de ligne.
         // Largeur au texte d'abord : le libellé change (« Ajouter le bail » / « Modifier »),
@@ -49,11 +49,11 @@ public class BailFileUI : MonoBehaviour
             var t = _btnAvenant.GetComponentInChildren<TMP_Text>(true);
             if (t != null) t.text = "+ Avenant";
         }
-        Brancher(_btnAvenant, () =>
+        Brancher(_btnAvenant, () => Reserve(() =>
         {
             string nom = ChoisirEtCopier("Choisir l'avenant");
             if (nom != null) Modifier(loc => (loc.avenants ??= new List<string>()).Add(nom));
-        });
+        }));
 
         Refresh();
     }
@@ -120,7 +120,7 @@ public class BailFileUI : MonoBehaviour
         var btnRet = btnRetirer != null ? ligne.transform.Find(btnRetirer.name)?.GetComponent<Button>() : null;
         AfficherLigne(txt, ouvrir, btnRet, stocke, "");
         if (ouvrir != null) { ouvrir.gameObject.SetActive(true); Brancher(ouvrir, () => Ouvrir(stocke)); }
-        if (btnRet != null) Brancher(btnRet, () => Modifier(retirer));
+        if (btnRet != null) Brancher(btnRet, () => Reserve(() => Modifier(retirer)));
         _lignesDocs.Add(ligne);
     }
 
@@ -155,11 +155,31 @@ public class BailFileUI : MonoBehaviour
     {
         bool lie = !string.IsNullOrEmpty(stocke);
         string chemin = Chemin(stocke);
-        bool existe = lie && File.Exists(chemin);
-        if (txt != null)
-            txt.text = !lie ? texteVide : existe ? Path.GetFileName(chemin) : $"Introuvable : {Path.GetFileName(chemin)}";
-        if (ouvrir != null) ouvrir.interactable = existe;
+        var (texte, ouvrable) = EtatLigne(lie, lie && File.Exists(chemin), SessionCloud.Active, lie ? Path.GetFileName(chemin) : "", texteVide);
+        if (txt != null) txt.text = texte;
+        if (ouvrir != null) ouvrir.interactable = ouvrable;
         if (retirer != null) retirer.gameObject.SetActive(lie);
+    }
+
+    /// Revue 17 (D7a-21, lot D) : texte et bouton « Ouvrir » d'une ligne de document (bail, avenant, état des lieux). Sur le cloud,
+    /// un document lié pas encore arrivé sur ce PC s'ouvre quand même (DocumentsCloud.Ouvrir le lit depuis le cloud) : « Pas encore
+    /// reçu : nom ». Hors cloud : « Introuvable : nom », grisé. Avant : grisé et « Introuvable » aussi sur le cloud.
+    public static (string texte, bool ouvrable) EtatLigne(bool lie, bool existe, bool cloud, string nom, string texteVide)
+    {
+        if (!lie) return (texteVide, false);
+        if (existe) return (nom, true);
+        return cloud ? ($"Pas encore reçu : {nom}", true) : ($"Introuvable : {nom}", false);
+    }
+
+    // Revue 17 (D7a-23, lot D) : « Ajouter le bail », « + Avenant » et « Retirer » réservent la fiche AVANT le sélecteur de fichier :
+    // un refus (fiche prise, hors ligne, lecture seule) arrive avant toute copie. Avant, le fichier était copié (et partait au
+    // cloud) puis l'enregistrement refusé : un document orphelin, et « bail (2).pdf » au second essai. Le verrou tient tant que
+    // l'enregistrement est en file (gardien d'EcritureCloud) ; JoindreEtatDesLieux n'en a pas besoin (fenêtre du départ, déjà réservée).
+    void Reserve(Action action)
+    {
+        if (_locatairePrefab == null) return;
+        EcritureCloud.Reserver(EcritureCloud.Cibles(_locatairePrefab, false), "bail",
+            () => { if (this != null && _locatairePrefab != null) action(); }, () => false);
     }
 
     // Choisit un document et le copie dans le dossier du locataire. Nom retenu, ou null.

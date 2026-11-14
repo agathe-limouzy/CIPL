@@ -116,7 +116,7 @@ public class SocieteLocataireTests
         string cartes = File.ReadAllText(Path.Combine(dossier, "fonctions", "cartes.ts"));
         foreach (var champ in typeof(TileLoader.DemandeCarte).GetFields().Select(f => f.Name))
             StringAssert.Contains("d." + champ, cartes, champ);
-        StringAssert.Contains("maptype: \"hybrid\"", cartes);
+        StringAssert.Contains("maptype: \"roadmap\"", cartes, "plan routier : Google refuse le satellite aux comptes européens (13/11)");
         StringAssert.DoesNotContain(", 502)", cartes, "502 à 504 feraient passer CIPL hors ligne");
 
         StringAssert.Contains("pappers_fiches", File.ReadAllText(Path.Combine(dossier, "etape16b_supabase.sql")));

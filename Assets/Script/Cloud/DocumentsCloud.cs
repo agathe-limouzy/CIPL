@@ -14,7 +14,8 @@ using UnityEngine;
 public static class SyncDocuments
 {
     public class Distant { public string Empreinte; public bool Supprime; }
-    public enum Action { Noter, Envoyer, Telecharger, SupprimerServeur, Corbeille }
+    /// `Indexer` (Revue 17, D2-26, lot D) : la ligne `documents` seulement ; le contenu est déjà au cloud sous cette empreinte.
+    public enum Action { Noter, Envoyer, Telecharger, SupprimerServeur, Corbeille, Indexer }
 
     /// Les dossiers partagés de l'entreprise ; « Anciens documents » depuis le rangement du 23/10.
     public static readonly string[] Racines = { "Batiment", "Logo", DossiersDonnees.ANCIENS };
@@ -60,11 +61,47 @@ public static class SyncDocuments
     /// voulue (l'application supprime un document à la fois) : refusées, journalisées.
     public static bool SuppressionsSuspectes(int aSupprimer, int connus) => aSupprimer > 5 && aSupprimer * 2 > connus;
 
+    // ── Revue 17 (D2-02, lot D) : retraits voulus ──────────────────────────────
+    // Renommer ou supprimer un bâtiment (ou un locataire) dans CIPL déplace tout son dossier : ses fichiers sont vus
+    // « supprimés ici ». Le fusible ne distinguait pas ce geste d'un dossier disparu : dès que le dossier portait plus de
+    // la moitié des documents, il refusait ces suppressions pour toujours (doublons chez les collègues). CIPL annonce
+    // donc le dossier qu'il retire lui-même (DocumentsCloud.RetraitVoulu) ; ce qui est dessous n'est ni compté par le
+    // fusible ni tenu pour « disparu ». Un dossier disparu SANS annonce reste bloqué, comme avant.
+
+    /// Le préfixe (« Batiment/rivoli/ ») d'un dossier retiré, donné par son chemin relatif ; null s'il n'est pas un
+    /// sous-dossier d'un dossier partagé : jamais « Batiment » entier ni la racine, qui désarmeraient le fusible.
+    public static string PrefixeRetrait(string relatif)
+    {
+        string r = (relatif ?? "").TrimEnd('/');
+        return r.Contains("/") && CheminSur(r + "/x") ? r + "/" : null;
+    }
+
+    /// Ce chemin est sous un retrait voulu (sans tenir compte de la casse, comme le disque).
+    public static bool SousRetrait(string chemin, IEnumerable<string> retraits) =>
+        chemin != null && retraits != null && retraits.Any(r => chemin.StartsWith(r, StringComparison.OrdinalIgnoreCase));
+
+    /// Les suppressions du plan que le fusible doit contrôler : toutes, sauf celles sous un retrait voulu.
+    public static int SuppressionsAControler(IEnumerable<(Action action, string chemin)> plan, IEnumerable<string> retraits) =>
+        plan.Count(p => p.action == Action.SupprimerServeur && !SousRetrait(p.chemin, retraits));
+
+    /// Revue 17 (D1-09) : une écriture de Logo/ au serveur (envoi, suppression), que documenter et supprimer_document
+    /// réservent à l'admin : un poste « utilisateur » ne la tente pas (sinon un refus à chaque passage) ; il reçoit seulement.
+    public static bool ReserveAdmin(Action action, string chemin) =>
+        (action == Action.Envoyer || action == Action.Indexer || action == Action.SupprimerServeur) && chemin.StartsWith("Logo/", StringComparison.Ordinal);
+
+    /// `dejaPasse` (Revue 17, D2-02, lot D) : un passage complet a déjà eu lieu depuis l'ouverture de l'entreprise. Un manifeste
+    /// vide n'est alors pas un premier passage, mais un dossier dont tout a été retiré (le seul bâtiment supprimé, ses
+    /// suppressions transmises) : si « Annuler » le remet, ses fichiers repartent au lieu d'aller en corbeille.
     public static List<(Action action, string chemin)> Plan(IDictionary<string, string> local, IDictionary<string, string> manifeste,
-                                                            IDictionary<string, Distant> serveur, bool telecharger)
+                                                            IDictionary<string, Distant> serveur, bool telecharger, bool dejaPasse = false)
     {
         var plan = new List<(Action, string)>();
-        bool premier = manifeste.Count == 0;   // premier passage de ce dossier (import, dossier neuf)
+        bool premier = manifeste.Count == 0 && !dejaPasse;   // premier passage de ce dossier (import, dossier neuf)
+        // Revue 17 (D2-26, lot D) : un contenu que le serveur a déjà, vivant, sous un autre chemin (dossier renommé) n'est pas
+        // renvoyé : le stockage est rangé par empreinte (<entreprise>/<empreinte>), la ligne `documents` suffit. Avant, chaque
+        // fichier d'un dossier renommé était relu et renvoyé en entier, pour être refusé « existe déjà ».
+        var vivantes = new HashSet<string>(serveur.Values.Where(d => d != null && !d.Supprime && d.Empreinte != null).Select(d => d.Empreinte));
+        Action Depot(string empreinte) => vivantes.Contains(empreinte) ? Action.Indexer : Action.Envoyer;
         foreach (var c in local.Keys.Union(manifeste.Keys).Union(serveur.Keys).OrderBy(c => c, StringComparer.Ordinal))
         {
             local.TryGetValue(c, out var l);
@@ -79,10 +116,10 @@ public static class SyncDocuments
                 // cloud où ce PC, déjà synchronisé, a remis un fichier depuis : il repart (renommage
                 // revenu à un ancien nom, rivoli → rivoli2 → rivoli ; retour du 23/10, il partait en corbeille).
                 else if (m == null && s != null && (vivant || premier)) { if (telecharger) plan.Add((vivant ? Action.Telecharger : Action.Corbeille, c)); }
-                else if (l != m) plan.Add((Action.Envoyer, c));                                // nouveau ou modifié ici : il l'emporte
+                else if (l != m) plan.Add((Depot(l), c));                                      // nouveau ou modifié ici : il l'emporte
                 else if (vivant) { if (telecharger) plan.Add((Action.Telecharger, c)); }       // modifié par un collègue
                 else if (s != null) { if (telecharger) plan.Add((Action.Corbeille, c)); }      // supprimé par un collègue
-                else plan.Add((Action.Envoyer, c));                                             // le serveur ne l'a plus
+                else plan.Add((Depot(l), c));                                                   // le serveur ne l'a plus
             }
             else if (m != null)   // je l'avais : supprimé ici
             {
@@ -126,7 +163,8 @@ public static class SyncDocuments
 /// et 2 s après qu'un collègue en a déposé un, CIPL compare Batiment/ et Logo/ du dossier de
 /// l'entreprise avec la table `documents` : il envoie ce qui est nouveau ou modifié ici, reçoit
 /// ce que les collègues ont ajouté, range en corbeille ce qu'ils ont supprimé. Le contenu est
-/// stocké sous son empreinte : un renommage de bâtiment ne renvoie aucun fichier.
+/// stocké sous son empreinte : un renommage de bâtiment ne renvoie aucun fichier (vrai depuis la Revue 17, D2-26 :
+/// action « Indexer »).
 public static class DocumentsCloud
 {
     const string Compartiment = "documents";
@@ -145,11 +183,26 @@ public static class DocumentsCloud
     static float _prochain, _bientot = -1;
     static int _generation;
 
+    // Revue 17 (D2-02, lot D) : les dossiers que CIPL vient de retirer lui-même (préfixes « Batiment/rivoli/ »), en mémoire
+    // seulement, et l'entreprise + le dossier pour lesquels ils valent.
+    static readonly List<string> _retraits = new List<string>();
+    static string _retraitsPour;
+    // Revue 17 (D2-07, lot D) : la synchronisation est suspendue (dossier vide ou introuvable) ; l'issue n'est proposée qu'une
+    // fois par session (pour cette entreprise et ce dossier).
+    static bool _suspendue;
+    static string _issueProposeePour;
+    static int _suspensionsDeSuite;   // passages suspendus de suite (remis à 0 par un passage qui franchit les gardes)
+
     /// `telecharger` faux (étape 6b) : dossier dans un Drive partagé, qui recopie et supprime lui-même ;
     /// ce PC n'en fait qu'envoyer ce qui change ici.
     public static void Demarrer(string entrepriseId, string racine, bool telecharger)
     {
         Arreter();
+        // Revue 17 (D2-02, lot D) : un retrait voulu ne survit pas à un changement d'entreprise (ni de dossier) ; il survit à
+        // un simple rechargement de la même entreprise, sinon le fusible bloquerait de nouveau un renommage pas encore transmis.
+        if (_retraitsPour != entrepriseId + "|" + racine) _retraits.Clear();
+        _suspendue = false;
+        _suspensionsDeSuite = 0;
         _entreprise = entrepriseId;
         _racine = racine;
         _telecharger = telecharger;
@@ -216,8 +269,52 @@ public static class DocumentsCloud
         _enCours = false;
     }
 
-    /// Un collègue vient de déposer ou de supprimer un document : passage dans 2 s.
+    /// Un collègue vient de déposer ou de supprimer un document, ou un document vient d'être écrit sur ce PC (Revue 17,
+    /// D2-03 : facture, photo, bail) : passage dans 2 s.
     public static void Bientot() => _bientot = Time.realtimeSinceStartup + 2f;
+
+    /// Revue 17 (D2-02, lot D) : CIPL va déplacer ou renommer ce dossier de documents par un geste voulu (renommage ou
+    /// suppression d'un bâtiment, d'un locataire). À appeler juste avant ou, mieux, juste APRÈS le déplacement réussi, sans
+    /// attente entre les deux (Passer relit les retraits sur le fil principal, après la liste des fichiers) : un déplacement
+    /// raté n'annonce alors rien et la garde du 01/11 reste entière pour ce dossier. Les
+    /// suppressions sous ce dossier ne comptent plus dans le fusible ; le retrait est oublié à la fin du premier passage
+    /// complet qui n'a plus rien à transmettre sous lui. Sans effet hors cloud, ou hors d'un sous-dossier partagé.
+    public static void RetraitVoulu(string dossierAbsolu)
+    {
+        if (_racine == null || string.IsNullOrEmpty(dossierAbsolu)) return;
+        string prefixe;
+        try { prefixe = SyncDocuments.PrefixeRetrait(Relatif(_racine, dossierAbsolu)); }
+        catch (Exception) { return; }   // chemin mal formé
+        if (prefixe == null) return;
+        if (!_retraits.Contains(prefixe)) _retraits.Add(prefixe);
+        _retraitsPour = _entreprise + "|" + _racine;
+    }
+
+    /// Revue 17 (D2-03, lot D) : à la fermeture, un dernier passage (le document écrit à l'instant part au cloud au lieu
+    /// d'attendre le prochain lancement de ce poste), borné à 15 s, puis `ensuite`, exactement une fois : aussi en cas
+    /// d'erreur, et tout de suite si la synchronisation n'est pas démarrée, hors cloud ou hors ligne.
+    public static async void Terminer(Action ensuite)
+    {
+        try
+        {
+            if (_entreprise != null && SessionCloud.Active && !HorsLigne.Actif)
+            {
+                // Le message « Envoi des documents… » est affiché par l'appelant (FermetureGuard), une seule fois. CIPL se ferme :
+                // pas de fenêtre « Documents introuvables » (D2-07) à cet instant, elle serait aussitôt emportée.
+                _issueProposeePour = _entreprise + "|" + _racine;
+                var limite = Task.Delay(15000);
+                // Un passage déjà en cours a pu lister les fichiers avant le dernier document : on l'attend, puis on en fait un entier.
+                while (_enCours && !limite.IsCompleted) await Task.WhenAny(Task.Delay(100), limite);
+                if (_entreprise != null && !_enCours && !limite.IsCompleted)
+                {
+                    _bientot = -1;
+                    await Task.WhenAny(Passer(), limite);
+                }
+            }
+        }
+        catch (Exception e) { Debug.LogWarning("[Documents] Dernier passage : " + e.Message); }
+        ensuite?.Invoke();
+    }
 
     public static void Tic(float maintenant)
     {
@@ -225,35 +322,109 @@ public static class DocumentsCloud
         if (maintenant < _prochain && (_bientot < 0 || maintenant < _bientot)) return;
         _prochain = maintenant + Periode;
         _bientot = -1;
-        Passer();
+        _ = Passer();
     }
 
-    static async void Passer()
+    /// Revue 17 (D2-07, lot D, décision du 11/11) : la synchronisation suspendue ne le disait qu'au journal, sans issue : un
+    /// poste dont le dossier avait été vidé ne retéléchargeait jamais ses documents. Une fois par session, quand la
+    /// suspension dure (IssueAProposer), une fenêtre à deux choix. Pas en mode Drive (il recopie lui-même) ; jamais
+    /// par-dessus une autre fenêtre (elle la remplacerait) : elle sera proposée au passage suivant.
+    static void Suspendre(string racine, int connus)
+    {
+        _suspendue = true;
+        _suspensionsDeSuite++;
+        var fenetre = ConfirmDialog.Instance;
+        string ent = _entreprise, pour = _entreprise + "|" + racine;
+        if (_issueProposeePour == pour || !IssueAProposer(_suspensionsDeSuite, connus, _telecharger)
+            || fenetre == null || fenetre.gameObject.activeSelf) return;
+        _issueProposeePour = pour;
+        fenetre.Show("Documents introuvables", MessageSuspension(racine, connus), () => ToutRetelecharger(ent, racine),
+                     "Tout retélécharger depuis le cloud", "Attendre");
+    }
+
+    /// Revue 17 (D2-07, reprise) : pas dès le premier passage suspendu. Un état passager (un PDF effacé puis réécrit par
+    /// FacturePdfService, le seul fichier connu listé à cet instant) se résout au passage suivant, 20 s après ; la fenêtre
+    /// ne vient qu'au deuxième passage suspendu de suite. Jamais en mode Drive (il recopie lui-même), ni sans fichier connu.
+    public static bool IssueAProposer(int suspensionsDeSuite, int connus, bool telecharger) =>
+        suspensionsDeSuite >= 2 && connus > 0 && telecharger;
+
+    public static string MessageSuspension(string racine, int connus) =>
+        $"Le dossier des documents de cette entreprise est vide ou introuvable :\n{racine}\n\n"
+        + $"{connus} document(s) y étaient connus. La synchronisation des documents est suspendue sur ce PC ; rien n'est supprimé, "
+        + "ni ici ni sur le cloud.\n\n"
+        + "• « Attendre » : elle reprendra seule quand le dossier reviendra (disque rebranché, dossier remis à sa place).\n"
+        + "• « Tout retélécharger depuis le cloud » : les documents du cloud sont recopiés dans ce dossier. Rien n'est supprimé sur le cloud.";
+
+    /// Le second choix : l'état du dernier passage est remis à zéro. Le passage suivant est un premier passage (manifeste
+    /// vide) : SyncDocuments.Plan ne supprime au serveur que ce que le manifeste connaît, il télécharge donc tout et ne
+    /// supprime RIEN (test LotDDocumentsTests.D2_07).
+    static void ToutRetelecharger(string ent, string racine)
+    {
+        if (ent == null || _entreprise != ent || _racine != racine || _etat == null) return;   // entreprise changée ou fermée depuis la fenêtre
+        if (!_suspendue)
+        {
+            UndoToast.Instance?.ShowInfo("Le dossier des documents est revenu : la synchronisation a repris, rien à retélécharger.");
+            return;
+        }
+        try { Directory.CreateDirectory(racine); }
+        catch (Exception e)
+        {
+            ConfirmDialog.Erreur($"Le dossier des documents ({racine}) ne peut pas être recréé : {e.Message}\n\nLa synchronisation des documents reste suspendue.");
+            return;
+        }
+        _generation++;      // un passage en vol, parti de l'ancien état, s'arrête (comme dans Arreter)
+        _enCours = false;
+        _etat = new Etat();
+        Sauver(_etat);
+        _premier = true;    // premier passage, au sens de SyncDocuments.Plan
+        _retraits.Clear();
+        _suspendue = false;
+        _suspensionsDeSuite = 0;
+        _prochain = 0;      // passage tout de suite
+        UndoToast.Instance?.ShowInfo("Les documents sont retéléchargés depuis le cloud…");
+    }
+
+    static async Task Passer()
     {
         int generation = _generation;
         string ent = _entreprise, racine = _racine;
         _enCours = true;
         try
         {
+            // Revue 17 (D2-02, lot D) : seuls les retraits annoncés AVANT ce passage seront oubliés à sa fin (un retrait annoncé
+            // pendant la liste des fichiers peut ne pas y être encore visible).
+            var retraitsAuDepart = _retraits.ToList();
             // Retour du 01/11 (parcours BF15) : un dossier de l'entreprise introuvable (Drive fermé, clé débranchée, dossier
             // renommé) serait lu comme « tous les fichiers supprimés ici », et le plan supprimerait TOUS les documents sur le
             // cloud, puis chez les collègues. La synchronisation attend que le dossier revienne ; rien n'est supprimé.
             if (!Directory.Exists(racine))
             {
                 Debug.LogWarning($"[Documents] Dossier des documents introuvable ({racine}) : synchronisation suspendue, rien n'est supprimé.");
+                Suspendre(racine, _etat.fichiers.Count(f => f?.c != null));
                 return;
             }
             var connus = _etat.fichiers.Where(f => f?.c != null).GroupBy(f => f.c).ToDictionary(g => g.Key, g => g.First());
             var locaux = await Task.Run(() => Lister(racine, connus));
-            if (SyncDocuments.DossierDeplace(locaux.Count, connus.Count))
+            if (generation != _generation) return;
+            // Revue 17 (D2-02, lot D) : les fichiers connus sous un retrait voulu ne sont pas « disparus » : ils ne comptent ni
+            // pour le dossier déplacé (supprimer le seul bâtiment qui a des documents ne suspend pas tout), ni pour le fusible.
+            // Sans retrait annoncé, les deux gardes sont exactement celles d'avant.
+            var retraits = _retraits.ToList();
+            int aSurveiller = connus.Keys.Count(c => !SyncDocuments.SousRetrait(c, retraits));
+            if (SyncDocuments.DossierDeplace(locaux.Count, aSurveiller))
             {
-                Debug.LogWarning($"[Documents] Aucun fichier sous {racine} alors que {connus.Count} étaient connus : dossier déplacé ou vide, "
+                Debug.LogWarning($"[Documents] Aucun fichier sous {racine} alors que {aSurveiller} étaient connus : dossier déplacé ou vide, "
                                  + "synchronisation suspendue, rien n'est supprimé.");
+                Suspendre(racine, aSurveiller);
                 return;
             }
-            // ponytail: une seule lecture, plafonnée à 1 000 lignes par Supabase ; paginer au-delà.
-            var r = await CloudClient.Table("GET", SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "documents",
-                                            $"entreprise_id=eq.{ent}&select=chemin,empreinte,supprime_le,taille");
+            _suspendue = false;
+            _suspensionsDeSuite = 0;
+            // Revue 17 (D2-06, lot D) : toute la table, page après page, dans l'ordre de sa clé (entreprise_id, chemin) ; une page
+            // en échec = pas de passage (jamais de liste partielle : un fichier absent de la liste serait renvoyé, et une
+            // suppression faite par un collègue serait défaite).
+            var r = await CloudClient.TableTout(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(), "documents",
+                                                $"entreprise_id=eq.{ent}&select=chemin,empreinte,supprime_le,taille&order=chemin.asc");
             if (generation != _generation) return;
             if (!r.Ok) { Debug.LogWarning("[Documents] Lecture de la liste : " + r.Erreur); return; }
             var lignes = (JsonUtility.FromJson<LignesDoc>("{\"items\":" + r.Corps + "}")?.items ?? new LigneDoc[0])
@@ -263,14 +434,18 @@ public static class DocumentsCloud
 
             var plan = SyncDocuments.Plan(locaux.ToDictionary(kv => kv.Key, kv => kv.Value.e),
                                           connus.Where(kv => kv.Value.m != null).ToDictionary(kv => kv.Key, kv => kv.Value.m),
-                                          serveur, _telecharger);
-            int aSupprimer = plan.Count(p => p.action == SyncDocuments.Action.SupprimerServeur);
-            if (SyncDocuments.SuppressionsSuspectes(aSupprimer, connus.Count))
+                                          serveur, _telecharger, dejaPasse: !_premier);
+            // Revue 17 (D2-02, lot D) : le fusible ne juge que ce qui n'est pas sous un retrait voulu, suppressions comme
+            // fichiers connus ; les suppressions voulues partent même s'il saute pour les autres.
+            int aSupprimer = SyncDocuments.SuppressionsAControler(plan, retraits);
+            if (SyncDocuments.SuppressionsSuspectes(aSupprimer, aSurveiller))
             {
-                Debug.LogWarning($"[Documents] {aSupprimer} suppressions d'un coup sur {connus.Count} fichiers connus : refusées "
+                Debug.LogWarning($"[Documents] {aSupprimer} suppressions d'un coup sur {aSurveiller} fichiers connus : refusées "
                                  + "(dossier déplacé ?). Un document se supprime depuis l'application, un par un.");
-                plan.RemoveAll(p => p.action == SyncDocuments.Action.SupprimerServeur);
+                plan.RemoveAll(p => p.action == SyncDocuments.Action.SupprimerServeur && !SyncDocuments.SousRetrait(p.chemin, retraits));
             }
+            // Revue 17 (D1-09) : le logo est réservé à l'admin au serveur : un poste « utilisateur » ne l'envoie ni ne le supprime.
+            if (SessionCloud.Entreprise?.EstAdmin != true) plan.RemoveAll(p => SyncDocuments.ReserveAdmin(p.action, p.chemin));
 
             // Nouvel état : les fichiers d'ici, plus ceux disparus d'ici dont la suppression reste à transmettre.
             var etat = new Dictionary<string, Fichier>(locaux);
@@ -278,6 +453,7 @@ public static class DocumentsCloud
                 if (!etat.ContainsKey(kv.Key) && kv.Value.m != null) etat[kv.Key] = new Fichier { c = kv.Key, m = kv.Value.m };
 
             int envoyes = 0, recus = 0, corbeille = 0;
+            var nonTransmises = new List<string>();   // Revue 17 (D2-02) : suppressions que le serveur n'a pas prises
             foreach (var (action, c) in plan)
             {
                 if (generation != _generation) return;
@@ -289,12 +465,15 @@ public static class DocumentsCloud
                     case SyncDocuments.Action.Envoyer:
                         if (await Envoyer(ent, racine, c, etat[c].e)) { etat[c].m = etat[c].e; envoyes++; }
                         break;
+                    case SyncDocuments.Action.Indexer:   // Revue 17 (D2-26, lot D) : la ligne seulement, sans relire ni redéposer le contenu
+                        if (await Documenter(ent, c, etat[c].t, etat[c].e)) { etat[c].m = etat[c].e; envoyes++; }
+                        break;
                     case SyncDocuments.Action.Telecharger:
                         var recu = await Telecharger(ent, racine, c, serveur[c].Empreinte, etat.TryGetValue(c, out var ici) ? ici : null);
                         if (recu != null) { etat[c] = recu; recus++; }
                         break;
                     case SyncDocuments.Action.SupprimerServeur:
-                        if (await SupprimerServeur(ent, c)) etat.Remove(c);
+                        if (await SupprimerServeur(ent, c)) etat.Remove(c); else nonTransmises.Add(c);
                         break;
                     case SyncDocuments.Action.Corbeille:
                         if (MettreEnCorbeille(racine, c)) { etat.Remove(c); corbeille++; }
@@ -319,6 +498,9 @@ public static class DocumentsCloud
             if (generation != _generation) return;   // entreprise changée pendant le dernier envoi
             _etat = new Etat { fichiers = etat.Values.ToList() };
             Sauver(_etat);
+            // Revue 17 (D2-02, lot D) : passage complet : un retrait annoncé avant lui est oublié, sauf s'il reste sous lui une
+            // suppression que le serveur n'a pas prise (elle repartira au passage suivant).
+            _retraits.RemoveAll(x => retraitsAuDepart.Contains(x) && !nonTransmises.Any(c => SyncDocuments.SousRetrait(c, new[] { x })));
 
             if (envoyes + recus + corbeille > 0)
                 Debug.Log($"[Documents] {envoyes} envoyé(s), {recus} reçu(s), {corbeille} rangé(s) en corbeille");
@@ -444,9 +626,26 @@ public static class DocumentsCloud
             string nom = Path.GetFileNameWithoutExtension(dest), ext = Path.GetExtension(dest), dir = Path.GetDirectoryName(dest);
             for (int i = 2; File.Exists(dest); i++) dest = Path.Combine(dir, $"{nom} ({i}){ext}");
             File.Move(abs, dest);
+            RetirerDossiersVides(racine, Path.GetDirectoryName(abs));
             return true;
         }
         catch (Exception e) { Debug.LogWarning($"[Documents] Corbeille de {chemin} : {e.Message}"); return false; }
+    }
+
+    /// Revue 17 (D2-11, lot D) : les dossiers vidés par ce rangement partent aussi, du plus profond vers le haut (comme
+    /// RangerIci) : chez les collègues, un bâtiment supprimé ou renommé laissait ses dossiers vides, et un renommage vers
+    /// ce nom était ensuite refusé sur leur poste. Jamais un dossier racine (Batiment, Logo…), jamais un dossier non vide.
+    public static void RetirerDossiersVides(string racine, string dossier)
+    {
+        try
+        {
+            for (string d = dossier; Relatif(racine, d)?.Contains("/") == true; d = Path.GetDirectoryName(d))
+            {
+                if (Directory.EnumerateFileSystemEntries(d).Any()) return;
+                Directory.Delete(d);
+            }
+        }
+        catch (Exception) { /* dossier ouvert ailleurs : il reste, vide ; DossiersDonnees le retirera au renommage */ }
     }
 
     // ── Réseau ─────────────────────────────────────────────────────────────────

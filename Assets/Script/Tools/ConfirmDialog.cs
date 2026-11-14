@@ -43,24 +43,27 @@ public class ConfirmDialog : MonoBehaviour
     public static void Erreur(string message, Action ensuite)
     {
         if (Instance == null) { UndoToast.Instance?.ShowInfo(message); ensuite?.Invoke(); return; }
-        if (Instance.gameObject.activeSelf) { Instance._attente.Enqueue((message, ensuite)); return; }
+        if (Instance.gameObject.activeSelf) { Instance._attente.Add((message, ensuite)); return; }
         Instance.MontrerErreur(message, ensuite);
     }
 
     // Revue 16c (D2-05) : un message arrivé pendant qu'un autre est affiché attend son tour au lieu de le remplacer :
     // chaque `ensuite` s'exécute (un `ensuite` perdu laissait une fiche jamais relue, ou une perte de verrou ignorée).
-    readonly Queue<(string message, Action ensuite)> _attente = new Queue<(string message, Action ensuite)>();
+    readonly List<(string message, Action ensuite)> _attente = new List<(string message, Action ensuite)>();
+    bool _erreurAffichee;   // Revue 17 (D8-02) : la fenêtre montre une erreur, dont la suite (`ensuite`) n'a pas encore été exécutée
 
     void MontrerErreur(string message, Action ensuite)
     {
         Show("Attention", message, ensuite, "OK");
+        _erreurAffichee = true;
         if (btnAnnuler != null) btnAnnuler.gameObject.SetActive(false);
     }
 
     void Suivant()
     {
         if (_attente.Count == 0 || gameObject.activeSelf) return;   // actif : le clic vient d'en ouvrir un autre, il passera après
-        var (message, ensuite) = _attente.Dequeue();
+        var (message, ensuite) = _attente[0];
+        _attente.RemoveAt(0);
         MontrerErreur(message, ensuite);
     }
 
@@ -68,6 +71,11 @@ public class ConfirmDialog : MonoBehaviour
     /// (par défaut « Annuler »).
     public void Show(string titre, string message, Action onConfirm, string confirmLabel = null, string annulerLabel = null)
     {
+        // Revue 17 (D8-02, coutures) : une confirmation arrivée pendant un message d'erreur (croix de la fenêtre, Alt+F4) le
+        // remplaçait, et sa suite (relire la fiche, fermer les écrans après une perte de verrou) n'était jamais exécutée :
+        // l'erreur repasse en tête de la file et revient dès que la confirmation est fermée.
+        if (_erreurAffichee && gameObject.activeSelf) _attente.Insert(0, (txtMessage.text, _onConfirm));
+        _erreurAffichee = false;
         if (btnAnnuler != null) btnAnnuler.gameObject.SetActive(true);   // masqué par Erreur
         _onConfirm = onConfirm;
         txtTitre.text = titre;

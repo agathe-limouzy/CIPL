@@ -14,10 +14,15 @@ public static class DonneesCloud
     /// le serveur refuse qu'une version plus ancienne réécrive une fiche enregistrée par une plus récente : `JsonUtility` y
     /// effacerait les champs qu'elle ne connaît pas. À MONTER à chaque champ ajouté ou retiré dans Batiment, Locataire,
     /// ReglageData ou ce qu'ils contiennent (le test D2_01 de Revue17Tests le rappelle par une empreinte des champs).
-    public const int Modele = 7;   // 2 : ChargeBatiment.ponctuelle ; 3 : Batiment.lots ; 4 : ReglageData.phraseEscompte (04/11) ;
+    public const int Modele = 11;  // 2 : ChargeBatiment.ponctuelle ; 3 : Batiment.lots ; 4 : ReglageData.phraseEscompte (04/11) ;
                                    // 5 : AchatFinancement.fraisNotaireAuto (Revue 17, D7b-02) ;
                                    // 6 : FactureEtat.provisionsConnues / provision / provisionsListes (Revue 17, D6-07) ;
-                                   // 7 : FactureEtat.periodicite (Revue 17, D4-04)
+                                   // 7 : FactureEtat.periodicite (Revue 17, D4-04) ;
+                                   // 8 : FactureEtat.destinataire / acheteur (Revue 17, D4-01, lot 6) ; retireApresEnvoi / factureCitee
+                                   //     (lot 6b, décisions du 09/11, même modèle) ;
+                                   // 9 : FactureEtat.encaisseeAAnnulerId (Revue 17, D5-06, lot 9) ;
+                                   // 10 : Locataire.historiquePeriodicites (Revue 17, avenant de périodicité, lot 14) ;
+                                   // 11 : ReglageData.mentionTvaParDefaut ; FactureEtat.payeLeISO (coutures)
 
     // ── Découpage et recomposition (sans réseau : testés en EditMode) ──────────
 
@@ -43,12 +48,17 @@ public static class DonneesCloud
     {
         var bats = JsonUtility.FromJson<LignesBatiments>("{\"items\":" + jsonBatiments + "}")?.items ?? new LigneBatiment[0];
         var locs = JsonUtility.FromJson<LignesLocataires>("{\"items\":" + jsonLocataires + "}")?.items ?? new LigneLocataire[0];
-        var parBatiment = locs.Where(l => l?.data != null).GroupBy(l => l.batiment_id)
+        // Revue 17 (D2-06, lot D) : une lecture en plusieurs pages peut rendre deux fois la même ligne (insertion d'un
+        // collègue pendant la lecture) : on garde la première par id, sans quoi l'export écrirait une fiche en double.
+        // Un id vide n'est jamais pris pour un doublon (chaque ligne sans id reste).
+        var vus = new HashSet<string>();
+        var parBatiment = locs.Where(l => l?.data != null && (string.IsNullOrEmpty(l.data.id) || vus.Add("l:" + l.data.id)))
+                              .GroupBy(l => l.batiment_id)
                               .ToDictionary(g => g.Key, g => g.OrderBy(l => l.ordre).Select(l => l.data).ToList());
         var resultat = new List<Batiment>();
         foreach (var ligne in bats)
         {
-            if (ligne?.data == null) continue;
+            if (ligne?.data == null || (!string.IsNullOrEmpty(ligne.id) && !vus.Add("b:" + ligne.id))) continue;
             ligne.data.locataireDuBatiment = parBatiment.TryGetValue(ligne.id, out var l) ? l : new List<Locataire>();
             resultat.Add(ligne.data);
         }
@@ -63,7 +73,7 @@ public static class DonneesCloud
 
     /// Corps d'insertion : le JSON de CIPL est posé tel quel dans « data » (objet, pas chaîne).
     public static string CorpsBatiment(string entrepriseId, string id, string jsonBatiment) =>
-        "[{\"entreprise_id\":" + Chaine(entrepriseId) + ",\"id\":" + Chaine(id) + ",\"data\":" + jsonBatiment + "}]";
+        "[{\"entreprise_id\":" + CloudClient.Q(entrepriseId) + ",\"id\":" + CloudClient.Q(id) + ",\"data\":" + jsonBatiment + "}]";
 
     public static string CorpsLocataires(string entrepriseId, string batimentId, IList<string> ids, IList<string> jsons)
     {
@@ -71,16 +81,17 @@ public static class DonneesCloud
         for (int i = 0; i < jsons.Count; i++)
         {
             if (i > 0) sb.Append(',');
-            sb.Append("{\"entreprise_id\":").Append(Chaine(entrepriseId))
-              .Append(",\"id\":").Append(Chaine(ids[i]))
-              .Append(",\"batiment_id\":").Append(Chaine(batimentId))
+            sb.Append("{\"entreprise_id\":").Append(CloudClient.Q(entrepriseId))
+              .Append(",\"id\":").Append(CloudClient.Q(ids[i]))
+              .Append(",\"batiment_id\":").Append(CloudClient.Q(batimentId))
               .Append(",\"ordre\":").Append(i)
               .Append(",\"data\":").Append(jsons[i]).Append('}');
         }
         return sb.Append(']').ToString();
     }
 
-    static string Chaine(string s) => "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    // Revue 17 (D1-16, lot D) : la copie privée « Chaine » (guillemets et barres obliques seulement) est remplacée par
+    // CloudClient.Q, qui échappe aussi les caractères de contrôle (D3-14 de la 16c l'avait manquée).
 
     // ── Réseau ─────────────────────────────────────────────────────────────────
 
@@ -123,11 +134,13 @@ public static class DonneesCloud
     public static async Task<(List<Batiment> batiments, string erreur)> Charger(string entrepriseId)
     {
         string jeton = await SessionCloud.Jeton();
-        var rb = await CloudClient.Table("GET", SessionCloud.Url, SessionCloud.Cle, jeton, "batiments",
-                                         $"entreprise_id=eq.{entrepriseId}&select=id,data");
+        // Revue 17 (D2-06, lot D) : lecture page après page (l'export passe par ici), dans l'ordre de la clé (`id`, qui ne
+        // change jamais : aucune ligne ne glisse d'une page à l'autre) ; Recomposer remet les locataires dans leur « ordre ».
+        var rb = await CloudClient.TableTout(SessionCloud.Url, SessionCloud.Cle, jeton, "batiments",
+                                             $"entreprise_id=eq.{entrepriseId}&select=id,data&order=id.asc");
         if (!rb.Ok) return (null, rb.Erreur);
-        var rl = await CloudClient.Table("GET", SessionCloud.Url, SessionCloud.Cle, jeton, "locataires",
-                                         $"entreprise_id=eq.{entrepriseId}&select=batiment_id,ordre,data&order=ordre.asc");
+        var rl = await CloudClient.TableTout(SessionCloud.Url, SessionCloud.Cle, jeton, "locataires",
+                                             $"entreprise_id=eq.{entrepriseId}&select=batiment_id,ordre,data&order=id.asc");
         if (!rl.Ok) return (null, rl.Erreur);
         try { return (Recomposer(rb.Corps, rl.Corps), null); }
         catch (Exception e) { return (null, "Données illisibles : " + e.Message); }

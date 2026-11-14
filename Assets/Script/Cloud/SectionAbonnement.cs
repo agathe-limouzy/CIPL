@@ -22,6 +22,7 @@ public class SectionAbonnement
     readonly Dictionary<string, int> _repartition = new Dictionary<string, int>();   // licences choisies, par entreprise
     bool _enAttente;
     int _attente;
+    string _entreprise;   // Revue 17 (D3-12) : l'entreprise dont le choix et l'attente sont ceux-ci
 
     public SectionAbonnement(ReglagePanel panel, Transform parent)
     {
@@ -38,6 +39,8 @@ public class SectionAbonnement
         bool voir = SessionCloud.Active && e != null && e.EstAdmin && !HorsLigne.Actif;
         _section.SetActive(voir);
         if (!voir) return;
+        // Revue 17 (D3-12) : autre entreprise (ou groupe) : le choix et l'attente de paiement repartent de zéro.
+        if (e.id != _entreprise) { _entreprise = e.id; _enAttente = false; _annuel = false; _repartition.Clear(); }
         int n = ++_lecture;
         Vider();
         Texte("Lecture de l'abonnement…", UITheme.TexteSecondaire);
@@ -84,11 +87,11 @@ public class SectionAbonnement
         Puce(formules.transform, "Mensuel", !_annuel, () => { _annuel = false; Reconstruire(); });
         Puce(formules.transform, $"Annuel · {12 - RegleAbonnement.MoisParAn} mois offerts", _annuel, () => { _annuel = true; Reconstruire(); });
 
-        // Licences par entreprise (décision du 23/10) : au départ celles de l'essai, jamais moins
-        // que celles qu'elle utilise.
+        // Licences par entreprise (décision du 23/10) : jamais moins que celles qu'elle utilise.
+        // Revue 17 (D3-09) : au départ celles qu'elle utilise (au moins une), plus les 3 de l'essai.
         int Choisi(UtilisateursCloud.Entreprise e)
         {
-            if (!_repartition.TryGetValue(e.id, out int l)) l = e.licences_max;
+            if (!_repartition.TryGetValue(e.id, out int l)) l = RegleAbonnement.LicencesProposees(e.licences_utilisees);
             return _repartition[e.id] = Math.Max(l, RegleAbonnement.LicencesMin(e.licences_utilisees));
         }
         int total = LignesEntreprises(a, _annuel, Choisi, (e, ecart) =>
@@ -106,8 +109,9 @@ public class SectionAbonnement
         var premier = RegleAbonnement.PremierPrelevement(etat, AbonnementCloud.FinEssai, AbonnementCloud.Aujourdhui);
         // Retour du 23/10 : sans cette phrase, on croyait les licences déjà changées (l'onglet
         // Utilisateurs, lui, montre celles en vigueur).
-        UIFactory.Text(_corps, "Les licences choisies ici s'appliquent au paiement ; d'ici là, chaque entreprise garde les siennes " +
-                       "(3 pendant l'essai). Carte ou prélèvement SEPA, sur la page sécurisée de Stripe. " +
+        UIFactory.Text(_corps, "Les licences choisies ici s'appliquent au paiement ; d'ici là, chaque entreprise garde les siennes" +
+                       (etat == RegleAbonnement.Etat.Essai ? " (3 pendant l'essai)" : "") +   // Revue 17 (D3-10) : essai fini : plus « pendant l'essai »
+                       ". Carte ou prélèvement SEPA, sur la page sécurisée de Stripe. " +
                        RegleAbonnement.TextePrelevement(premier, AbonnementCloud.Aujourdhui), UITheme.Role.Aide, UITheme.TexteSecondaire);
         Bouton(UIFactory.HBox(_corps, 8, false, "Payer").transform, "Continuer vers le paiement", Payer, principal: true);
     }
@@ -129,7 +133,7 @@ public class SectionAbonnement
         for (int i = 0; i < 120; i++)
         {
             await Task.Delay(5000);
-            if (n != _attente || !_enAttente || _corps == null || SessionCloud.Entreprise == null) return;
+            if (n != _attente || !_enAttente || _corps == null || SessionCloud.Entreprise?.id != _entreprise) return;   // Revue 17 (D3-12) : plus d'attente sur une autre entreprise
             await AbonnementCloud.Lire(SessionCloud.Entreprise);
             if (n != _attente || _corps == null) return;
             if (AbonnementCloud.Courant?.abonne == true)
@@ -140,6 +144,10 @@ public class SectionAbonnement
                 return;
             }
         }
+        // Revue 17 (D3-N10) : 10 minutes sans abonnement (paiement abandonné) : retour au choix, au lieu de « Paiement en cours » sans fin.
+        _enAttente = false;
+        UndoToast.Instance?.ShowInfo("Aucun paiement reçu : le choix de l'abonnement est de nouveau proposé dans Réglages › Abonnement.");
+        Reconstruire();
     }
 
     // ── Page Stripe ouverte (maquette 2) ───────────────────────────────────────
@@ -312,6 +320,13 @@ public class SectionAbonnement
     {
         Action reprendre = () => OuvrirAjout(type, siret, nom);
         AnnuaireEntreprise annuaire = null;   // Revue 17 (D3-01) : ses Réglages de départ en viennent
+        if (type != "societe" && nom == "")
+        {
+            // Revue 17 (D3-01 reste, D3-V1) : le nom que le serveur donnerait (« Patrimoine de » + mon nom), pour que les Réglages de
+            // départ (nom, bas de page, expéditeur des e-mails) ne partent pas vides.
+            nom = RegleInscription.NomParticulier("", await EcritureCloud.MonNom());
+            if (nom == "") { ConfirmDialog.Erreur("Saisissez le nom de l'entreprise.", reprendre); return; }
+        }
         if (type == "societe")
         {
             string motif = RegleAbonnement.VerifierSiret(siret);

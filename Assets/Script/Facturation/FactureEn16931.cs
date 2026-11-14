@@ -71,6 +71,13 @@ public static class FactureEn16931
         return m.Success && m.Groups[1].Value != "" ? m.Groups[1].Value : null;
     }
 
+    /// Revue 17 (D5-06, lot 9) : le total TTC que la plateforme a reçu (« total_with_vat » écrit par Json) ; 0 si absent.
+    public static float TotalDe(string json)
+    {
+        var m = Regex.Match(json ?? "", "\"total_with_vat\":\"([0-9.]+)\"");
+        return m.Success && float.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out float v) ? v : 0f;
+    }
+
     public static string Json(Entree e)
     {
         var lignes = e.lignes.Select(x => (nom: x.Key, ht: Arrondi(x.Value))).ToList();

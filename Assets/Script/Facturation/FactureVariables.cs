@@ -47,10 +47,13 @@ public static class FactureVariables
         new("{periode}",         "Période facturée",        "Facture"),
         new("{numero}",          "N° de facture",           "Facture"),
         new("{echeance}",        "Date d'échéance",         "Facture"),
-        new("{loyer.ht}",        "Montant loyer HT",        "Facture"),
-        new("{loyer.tva}",       "Montant TVA",             "Facture"),
-        new("{loyer.ttc}",       "Montant TTC",             "Facture"),
-        new("{reste}",           "Reste à payer (rappel)",  "Facture"),
+        // Revue 17 (D6-25, coutures) : ces trois jetons valent les totaux du DOCUMENT (loyer + provisions, ou le solde), pas le
+        // loyer seul : les libellés le disent (avant : « Montant loyer HT ») ; les jetons restent, les textes déjà écrits aussi.
+        new("{loyer.ht}",        "Total HT de la facture",  "Facture"),
+        new("{loyer.tva}",       "TVA de la facture",       "Facture"),
+        new("{loyer.ttc}",       "Total TTC de la facture", "Facture"),
+        // Revue 17 (D6-08) : remplacé par sa vraie valeur dans le seul rappel d'impayé (FactureRappelService) ; ailleurs « 0,00 € ».
+        new("{reste}",           "Reste à payer (rappel)",  "Rappel d'impayé"),
         new("{retard}",          "Phrase de retard (Réglages)", "Facture"),
 
         // ── Société émettrice ──────────────────────────────────────
@@ -60,16 +63,20 @@ public static class FactureVariables
 
         // ── Ligne du montant mensuel (facture de loyer) ────────────
         // Résolu par FacturePdfService, donc uniquement dans le texte de cette
-        // ligne-là. Ailleurs il resterait tel quel : le groupe le dit dans le menu.
+        // ligne-là. Ailleurs il resterait tel quel : le menu ne le propose que là (GroupesLimites).
         new("{montant}",         "Montant mensuel calculé",  "Ligne montant mensuel"),
 
         // ── Explication du dépôt ───────────────────────────────────
         // Résolues par ExplicationDepot, donc UNIQUEMENT dans les phrases
-        // d'explication du dépôt (Réglages → Textes fixes). Ailleurs elles
-        // resteraient telles quelles : le groupe le dit dans le menu.
+        // d'explication du dépôt (formulaire de la facture de dépôt). Ailleurs elles
+        // resteraient telles quelles : le menu ne les propose que là (GroupesLimites).
         new("{depot.termes}",    "Nb de termes (« deux termes »)", "Explication dépôt"),
         new("{depot.nb}",        "Nb en lettres (« deux »)",       "Explication dépôt"),
         new("{depot.base}",      "Base de calcul (H.T./T.T.C.)",   "Explication dépôt"),
         new("{depot.montant}",   "Montant du dépôt (positif)",     "Explication dépôt"),
     };
+
+    /// Revue 17 (D6-08) : groupes remplacés dans un seul texte. Le menu « / » ne les propose que dans le champ qui les nomme
+    /// (SlashAutocomplete.Attach) ; avant, il les proposait partout, et ils partaient tels quels ou à 0 hors de leur texte.
+    public static readonly string[] GroupesLimites = { "Ligne montant mensuel", "Explication dépôt", "Rappel d'impayé" };
 }

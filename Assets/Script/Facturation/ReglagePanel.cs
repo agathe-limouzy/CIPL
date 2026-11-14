@@ -33,6 +33,7 @@ public class ReglagePanel : MonoBehaviour
     readonly List<Button> _essais = new List<Button>();
     TMP_Text _reglePar;   // étape 9a : « Réglé par l'administrateur », à la place des champs d'admin
     Toggle _tvaSoumis; TMP_InputField _tvaTauxEntreprise, _mentionExoneration;   // TVA sur les loyers (02/11)
+    UIDropdown _mentionTvaDefaut;   // Revue 17 (D5-25) : « Mention TVA par défaut », débits ou encaissements
     readonly List<GameObject> _reserveAdmin = new List<GameObject>();
 
     /// Admin, ou hors cloud : SMTP et plateforme se modifient ici (étape 9a).
@@ -712,6 +713,9 @@ public class ReglagePanel : MonoBehaviour
         UIFactory.Border(reset.gameObject); UIFactory.LE(reset.gameObject, prefW: 240, flexW: 0);
         reset.onClick.AddListener(() => { R.logoPath = ""; R.sansLogo = true; ReglageService.Save(); RefreshLogo(); });
         _reserveAdmin.Add(row.gameObject);   // étape 9b : logo réservé à l'admin (décision du 11/10)
+        // Revue 17 (D1-09) : dit à tous qui peut changer le logo ; en Drive partagé, le fichier suit les droits du Drive.
+        UIFactory.Text(body.transform, "Seul un admin peut changer le logo. En mode « Drive partagé », ce sont les droits du Drive qui décident.",
+            UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         RefreshLogo();
     }
@@ -833,12 +837,13 @@ public class ReglagePanel : MonoBehaviour
         var v = saisie ?? rib;
         Modal(existing == null ? "Nouveau RIB" : "Modifier le RIB", body =>
         {
-            var fName = ModalField(body, "Nom du RIB (titre affiché dans la liste)", v.name, "BNP Mazamet");
-            var fTit = ModalField(body, "Titulaire", v.titulaire, "Groupe CIPL");
-            var fDom = ModalField(body, "Domiciliation", v.domiciliation, "BNP PARIBAS Mazamet (00747)");
-            var fRib = ModalField(body, "RIB", v.rib, "30004 00747 00021009833 38");
-            var fIban = ModalField(body, "IBAN", v.iban, "FR76 3000 4007 4700 0210 0983 338");
-            var fBic = ModalField(body, "BIC", v.bic, "BNPAFRPPALB");
+            // Revue 17 (D6-21) : exemples neutres et non valides (clé IBAN fausse : RegleRib les refuse tels quels), plus le compte de CIPL.
+            var fName = ModalField(body, "Nom du RIB (titre affiché dans la liste)", v.name, "Compte loyers");
+            var fTit = ModalField(body, "Titulaire", v.titulaire, "SCI Exemple");
+            var fDom = ModalField(body, "Domiciliation", v.domiciliation, "Banque, agence (guichet)");
+            var fRib = ModalField(body, "RIB", v.rib, "12345 67890 00012345678 12");
+            var fIban = ModalField(body, "IBAN", v.iban, "FR76 1234 5678 9012 3456 7890 123");
+            var fBic = ModalField(body, "BIC", v.bic, "ABCDFRPPXXX");
             var zones = new EcransCloud.Zones();
             zones.Ajouter(RegleRib.ChampTitulaire, fTit); zones.Ajouter(RegleRib.ChampRib, fRib);
             zones.Ajouter(RegleRib.ChampIban, fIban); zones.Ajouter(RegleRib.ChampBic, fBic);
@@ -1013,6 +1018,14 @@ public class ReglagePanel : MonoBehaviour
                             BatimentManager.Instance.SaveBatiment(b);
                         }
                         await EcritureCloud.Attendre();   // la liste ne quitte les Réglages qu'une fois les bâtiments écrits
+                        // Revue 17 (D2-24, lot D) : Attendre finit aussi après un refus (« version », fiche supprimée) ou une coupure (fiche
+                        // en attente de connexion) : la liste quittait alors les Réglages avec des charges encore rangées dedans.
+                        if (SessionCloud.Active && bats.Any(x => !EcritureCloud.AJour(x)))
+                        {
+                            ConfirmDialog.Erreur($"La liste « {liste.nom} » n'est pas supprimée : un bâtiment n'a pas pu être enregistré. " +
+                                                 "Dans les Réglages, rien n'est modifié : réessayez.");
+                            return;
+                        }
                         R.listesCharges.Remove(liste);
                         ReglageService.Save();
                         RebuildListesCharges();
@@ -1073,18 +1086,26 @@ public class ReglagePanel : MonoBehaviour
         _tvaSoumis = UIFactory.Toggle(body.transform, "Loyers soumis à TVA par défaut (option du bailleur ; chaque bail peut en décider autrement dans Gestion du loyer)", true);
         UIFactory.Text(body.transform, "Taux de TVA (%)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _tvaTauxEntreprise = UIFactory.Input(body.transform, "20");
+        // Revue 17 (D5-25, coutures ; décision du 09/11) : le régime de TVA de l'entreprise (débits ou encaissements) décide de la
+        // mention proposée sur une facture ; avant, « débits » d'office pour tous (MentionTva.ParDefaut).
+        UIFactory.Text(body.transform, "Mention TVA par défaut", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        _mentionTvaDefaut = UIDropdown.Create(body.transform, MentionTva.Libelles.GetRange(MentionTva.Debits, 2), null, 0, null);
         UIFactory.Text(body.transform,
             "Chaque bail peut déroger dans Gestion du loyer (comme l'entreprise, oui, non) avec son propre taux, et chaque facture peut "
-            + "changer le taux. Un bail exonéré est facturé sans TVA, avec la mention des Textes fixes, et ne part pas par la plateforme.",
+            + "changer le taux. Un bail exonéré est facturé sans TVA, avec la mention des Textes fixes, et ne part pas par la plateforme. "
+            + "La mention par défaut est proposée sur une facture (loyer, régularisation, refacturation) tant que ce type de facture "
+            + "n'a jamais été enregistré pour ce locataire ; chaque facture peut en changer."
+            // Revue 17 (D6-23, coutures, reprise) : les deux cas du formulaire du dépôt (FactureDepotPanel.LoadIntoUI), que l'aide ne disait pas.
+            + " Un décompte de sortie neuf la propose aussi ; le dépôt de garantie, sans TVA, propose « Aucune mention ».",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
     }
 
     void BuildTextes(Transform parent)
     {
         var body = UIFactory.Section(parent, "Textes fixes", CoTaupe, CoTaupeL);
-        UIFactory.Text(body.transform, "Lieu d'émission (imprimé « …, le 29 septembre 2026 » sur tous les documents)",
+        UIFactory.Text(body.transform, "Lieu d'émission (« Toulouse, le 29 septembre 2026 » sur tous les documents ; vide : la date seule)",
             UITheme.Role.Libelle, UITheme.TexteSecondaire);
-        _lieuEmission = UIFactory.Input(body.transform, FacturePdfService.LieuDefaut);
+        _lieuEmission = UIFactory.Input(body.transform, "Ville");
         UIFactory.Text(body.transform, "Phrase de retard / pénalités", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _phraseRetard = UIFactory.Input(body.transform, "En cas de retard…", 90, true);
         // Demande du 04/11 : la tournure de la phrase sur l'escompte, obligatoire (vide : la phrase d'usine revient).
@@ -1130,19 +1151,21 @@ public class ReglagePanel : MonoBehaviour
         (_factureObjet, _factureCorps) = BlocModele(body.transform, "E-mail de facture (avec le PDF)",
             "Les quatre types de facture. Tapez « / » pour les variables.",
             EmailService.ObjetDefaut, EmailService.CorpsDefaut, true, RemplirFacture);
+        // Revue 17 (D5-10, lot 13) : la régularisation et la refacturation suivent la même règle que le loyer.
         (_copieObjet, _copieCorps) = BlocModele(body.transform, "E-mail de facture — copie (facture transmise par la plateforme)",
-            "Jusqu'au 31 août 2027, pour un loyer qui part aussi par la plateforme agréée : la facture électronique fait "
-            + "foi, cet e-mail en joint la copie PDF. Tapez « / » pour les variables.",
+            "Jusqu'au 31 août 2027, pour un loyer, une régularisation ou une refacturation qui part aussi par la plateforme agréée : "
+            + "la facture électronique fait foi, cet e-mail en joint la copie PDF. Tapez « / » pour les variables.",
             EmailService.CopieObjetDefaut, EmailService.CopieCorpsDefaut, true, RemplirFacture);
         (_notifObjet, _notifCorps) = BlocModele(body.transform, "E-mail de notification — facture transmise par la plateforme",
-            "À partir du 1er septembre 2027, une facture de loyer qui part par la plateforme agréée n'est plus envoyée en "
-            + "PDF : ce message prévient le locataire, une fois la facture acceptée. D'ici là, c'est l'e-mail « copie » "
+            "À partir du 1er septembre 2027, un loyer, une régularisation ou une refacturation qui part par la plateforme agréée n'est "
+            + "plus envoyé en PDF : ce message prévient le locataire, une fois la facture acceptée. D'ici là, c'est l'e-mail « copie » "
             + "ci-dessus qui part.",
             EmailService.NotifObjetDefaut, EmailService.NotifCorpsDefaut, true, RemplirFacture);
         (_rappelObjet, _rappelCorps) = BlocModele(body.transform, "Rappel d'impayé",
             "Le brouillon ouvert dans votre messagerie, que vous relisez avant de l'envoyer. {reste} : ce qui reste à "
             + "payer ; {retard} : la phrase de retard (Textes fixes).",
-            EmailService.RappelObjetDefaut, EmailService.RappelCorpsDefaut, true, RemplirFacture);
+            EmailService.RappelObjetDefaut, EmailService.RappelCorpsDefaut, true, RemplirFacture,
+            "Rappel d'impayé");   // Revue 17 (D6-08) : {reste} n'est proposé que dans le rappel, le seul qui le remplace
     }
 
     /// L'e-mail d'invitation d'un collègue, sur la page Utilisateurs (remarque du 31/10), avec ses propres variables.
@@ -1158,13 +1181,13 @@ public class ReglagePanel : MonoBehaviour
     }
 
     (TMP_InputField objet, TMP_InputField corps) BlocModele(Transform parent, string titre, string aide,
-        string objetDefaut, string corpsDefaut, bool variables, Func<string, string> remplir)
+        string objetDefaut, string corpsDefaut, bool variables, Func<string, string> remplir, params string[] groupes)
     {
         UIFactory.Text(parent, titre, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         UIFactory.Text(parent, aide, UITheme.Role.Aide, UITheme.TexteSecondaire);
         var objet = UIFactory.Input(parent, objetDefaut);
         var corps = UIFactory.Input(parent, corpsDefaut, 110, true);
-        if (variables) { SlashAutocomplete.Attach(objet); SlashAutocomplete.Attach(corps); }
+        if (variables) { SlashAutocomplete.Attach(objet, groupes); SlashAutocomplete.Attach(corps, groupes); }
         var essai = UIFactory.Button(parent, "M'envoyer un essai", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(essai.gameObject);
         var info = UIFactory.Text(parent, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
@@ -1384,11 +1407,12 @@ public class ReglagePanel : MonoBehaviour
         Detecter();   // étape 16a : Google, Microsoft, ou le SMTP de la messagerie
         _feActiver.interactable = true;
         ChargerFE();  // étape 18a : la SCI est-elle reliée à Super PDP
-        _lieuEmission.text = FacturePdfService.Texte(R.lieuEmission, FacturePdfService.LieuDefaut);
+        _lieuEmission.text = R.lieuEmission ?? "";   // Revue 17 (D3-01 reste) : vide = la date seule, pas la ville de CIPL
         _phraseRetard.text = R.phraseRetard;
         _phraseEscompte.text = FactureEn16931.Escompte(R.phraseEscompte);
         _tvaSoumis.isOn = R.loyersSoumisTva;   // 02/11
         _tvaTauxEntreprise.text = (R.tauxTva > 0f ? R.tauxTva : Tva.TauxDefaut).ToString("0.##", FacturePdfService.FrCulture);
+        _mentionTvaDefaut.SetIndex(MentionTva.ParDefaut(R) - MentionTva.Debits, false);   // D5-25 : 0 = débits, 1 = encaissements
         _mentionExoneration.text = FacturePdfService.Texte(R.mentionTvaExoneration, Tva.ExonerationDefaut);
         _basDePage.text = R.basDePage;
         _tvaDebits.text = MentionTva.Base(R, MentionTva.Debits);
@@ -1416,7 +1440,13 @@ public class ReglagePanel : MonoBehaviour
         }
     }
 
-    void SaveFromUI()
+    // Revue 17 (D5-17, coutures) : un taux de TVA inhabituel (« 2 » tapé pour « 20 ») se confirme avant « Enregistrer » ; « Annuler » laisse
+    // les Réglages ouverts avec la saisie, rien n'est enregistré. Avant : tout nombre positif devenait le taux de toutes les factures.
+    void SaveFromUI() => Tva.ConfirmerTaux(TauxSaisi(), R.tauxTva, Enregistrer);
+
+    float TauxSaisi() => SaisieNumerique.TryParse(_tvaTauxEntreprise.text, out float tauxTva) && tauxTva > 0f ? tauxTva : Tva.TauxDefaut;
+
+    void Enregistrer()
     {
         R.entrepriseNom = _entrepriseNom.text.Trim();
         EntrepriseService.Register(R.entrepriseNom, SaveLocationService.GetSaveRoot());
@@ -1432,7 +1462,8 @@ public class ReglagePanel : MonoBehaviour
         R.phraseRetard = _phraseRetard.text;
         R.phraseEscompte = FactureEn16931.Escompte(_phraseEscompte.text);
         R.loyersSoumisTva = _tvaSoumis.isOn;   // 02/11
-        R.tauxTva = SaisieNumerique.TryParse(_tvaTauxEntreprise.text, out float tauxTva) && tauxTva > 0f ? tauxTva : Tva.TauxDefaut;
+        R.tauxTva = TauxSaisi();
+        R.mentionTvaParDefaut = MentionTva.Debits + _mentionTvaDefaut.Index;   // D5-25
         R.mentionTvaExoneration = _mentionExoneration.text;
         R.basDePage = _basDePage.text;
         R.mentionTvaDebits = _tvaDebits.text;

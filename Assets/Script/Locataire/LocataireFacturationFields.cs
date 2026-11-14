@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -56,10 +55,9 @@ public class LocataireFacturationFields : MonoBehaviour
 
     // Parse une date au format français JJ/MM/AAAA (évite l'ambiguïté mois/jour
     // de DateTime.TryParse qui interprète parfois en mois-d'abord façon US).
-    static bool TryParseFr(string s, out DateTime d) =>
-        DateTime.TryParseExact((s ?? "").Trim(),
-            new[] { "dd/MM/yyyy", "d/M/yyyy", "dd/MM/yy", "d/M/yy" },
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out d);
+    // Revue 17 (D6-05) : la lecture commune des formulaires (SaisieDate : « 01-10-2026 », « 1.10.2026 » aussi) ; cette copie ne
+    // lisait que les barres obliques (« Date de révision invalide », bouton grisé).
+    static bool TryParseFr(string s, out DateTime d) => SaisieDate.TryParse(s, out d);
 
     public void EnsureBuilt(LocatairePrefab fiche)
     {
@@ -929,4 +927,8 @@ public class LocataireFacturationFields : MonoBehaviour
         if (ribIban != null) loc.ribLocataireIban = ribIban.GetNewSave();
         if (ribBic != null) loc.ribLocataireBic = ribBic.GetNewSave();
     }
+
+    /// Revue 17 (D7a-15, lot D) : l'IBAN tel que saisi, sans refermer le champ (LocatairePrefab le contrôle avant d'enregistrer) ;
+    /// null si la carte n'est pas construite.
+    public string IbanSaisi => ribIban != null ? ribIban.GetValue() : null;
 }

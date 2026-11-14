@@ -95,15 +95,18 @@ public static class FacturationSuivi
         bool avecBail = Loyers.DebutPremierBail(loc, out var debutBail);
         bool avecFranchise = TryEcheance(loc.debutFacturationISO, out var finFranchise) && !Loyers.AppelleProvisions(loc);
         bool avecSortie = TryEcheance(loc.dateSortieISO, out var sortie);
-        int n = NbPeriodes(loc.periodiciteLoyer);
-        for (int p = 1; p <= n; p++)
+        // Revue 17 (avenant de périodicité, lot 14) : une ligne par période du PLAN de l'année (Plan) et non plus par numéro de la
+        // périodicité actuelle : l'année d'un changement daté garde ses mois (P1 à P6) puis ses trimestres (P7, P8), les années
+        // d'avant restent dans leur périodicité. Sans historique : les mêmes lignes, clés et libellés qu'avant.
+        var plan = Plan(loc, year);
+        for (int p = 1; p <= plan.Count; p++)
         {
             var ech = EcheanceLoyer(loc, year, p);
             var ligne = Fusion(stored, $"loyer-{year}-P{p}", "Loyer",
-                $"Loyer {PeriodeLibelle(loc.periodiciteLoyer, p, year)}", ech, 0f);
+                $"Loyer {Libelle(plan[p - 1])}", ech, 0f);
             if (string.IsNullOrEmpty(ligne.statut))
             {
-                PeriodeBornes(loc, year, p, out var debutPeriode, out var finPeriode);
+                DateTime debutPeriode = plan[p - 1].debut, finPeriode = plan[p - 1].fin;
                 if (avecBail && finPeriode < debutBail.Date) ligne.statut = "HorsBail";
                 else if (avecSortie && debutPeriode > sortie.Date) ligne.statut = "HorsBail";
                 else if (avecFranchise && finPeriode < finFranchise.Date) ligne.statut = "Franchise";
@@ -164,7 +167,10 @@ public static class FacturationSuivi
                       : TryEcheance(r.echeanceISO, out var re) ? re.Year : -1;
             if (annee != year) continue;
             var e = EtatDe(r, loc);
-            if (e == Etat.AttenteEnvoi || e == Etat.Envoye || e == Etat.Impaye || e == Etat.Paye)
+            // Revue 17 (2c, relecture du 07/11) : aussi une facture préparée puis bloquée « À faire » (bouton « Auto » éteint) : elle
+            // garde son numéro et son PDF, et doit rester visible pour qu'on puisse la rallumer.
+            if (e == Etat.AttenteEnvoi || e == Etat.Envoye || e == Etat.Impaye || e == Etat.Paye
+                || (r.statut == "AFaire" && !string.IsNullOrEmpty(r.numero) && !string.IsNullOrEmpty(r.pdfPath)))
                 res.Add(CopieDe(r));
         }
 
@@ -235,12 +241,24 @@ public static class FacturationSuivi
         encaisseeMontant = r.encaisseeMontant, encaisseeDateISO = r.encaisseeDateISO,
         // Transfert (01/11, BG7) : oubliés ici, la pastille « transmise par SCI X » ne s'affichait jamais (la ligne affichée
         // est cette copie, pas la ligne stockée). Le test Suivi_la_copie_affichee_porte_tous_les_champs veille.
-        plateformeOrigine = r.plateformeOrigine, plateformeOrigineId = r.plateformeOrigineId
+        plateformeOrigine = r.plateformeOrigine, plateformeOrigineId = r.plateformeOrigineId,
+        // Revue 17 (D4-01, lot 6) : le rappel et la correction lisent l'acheteur et l'adresse gardés sur la ligne affichée.
+        destinataire = r.destinataire, acheteur = r.acheteur,
+        // Revue 17 (lot 6b) : « Refaire » lit le marqueur sur la ligne affichée ; DuesDe lit la facture citée sur sa copie.
+        retireApresEnvoi = r.retireApresEnvoi, factureCitee = r.factureCitee,
+        // Revue 17 (D5-06, lot 9) : l'annulation en attente suit la ligne affichée (EnAttente, transfert bloqué).
+        encaisseeAAnnulerId = r.encaisseeAAnnulerId,
+        // Revue 17 (D5-12, coutures) : le jour du « Payé » suit la ligne affichée (le test de la copie veille).
+        payeLeISO = r.payeLeISO
     };
 
     // ── État d'une ligne ────────────────────────────────────────────────────────
 
-    public static Etat EtatDe(FactureEtat f, Locataire loc = null)
+    /// Revue 17 (D4-05, coutures) : `loc` est obligatoire : ses délais propres (ImpayeApres, Lead) et le solde de toute sa facture
+    /// (RegleeAuDela) décident de l'état. Sans lui, la même ligne était « Envoyé » dans la pastille et « Impayé » pour les boutons du
+    /// suivi, la pastille d'année et le menu. Null : les délais de l'entreprise (ligne sans locataire connu, ou question « émise ? »,
+    /// « payée ? », que les délais ne changent pas).
+    public static Etat EtatDe(FactureEtat f, Locataire loc)
     {
         string s = f.statut ?? "";
         DateTime today = DateTime.Today;
@@ -282,7 +300,8 @@ public static class FacturationSuivi
             // ponytail: ligne par ligne — une régul regroupée aux parts de signes mêlés
             // garderait sa part négative « Envoyé » ; juger sur MemeFacture si ça arrive.
             // Retour BN17 (04/11) : ni une facture réglée au-delà de son montant (trop-perçu à rembourser).
-            if (hasEch && today >= ech.AddDays(ImpayeApres(loc)) && f.montant >= 0f && !RegleeAuDela(f, loc))
+            // Coutures (10/11 ; vu en Play le 06/11) : ni une facture de CIPL à 0 € (un dépôt « à l'équilibre ») : rien n'est dû (RienDu).
+            if (hasEch && today >= ech.AddDays(ImpayeApres(loc)) && f.montant >= 0f && !RienDu(f, loc) && !RegleeAuDela(f, loc))
                 return Etat.Impaye;
             return Etat.Envoye;
         }
@@ -431,6 +450,15 @@ public static class FacturationSuivi
         rec.statut = envoyeReellement ? "Envoye" : "AttenteEnvoi";
     }
 
+    /// Revue 17 (D4-01, décision du 05/11, lot 6) : pose, à l'émission, pour qui la facture est préparée : l'acheteur (le nom du
+    /// titulaire ; vide = celui de la fiche) et l'adresse d'envoi, sur toutes les lignes de la facture `key` (régularisation
+    /// regroupée, refacturation de plusieurs charges). Appelée par les quatre Finaliser, après l'enregistrement des lignes.
+    public static void PoserAcheteur(Locataire loc, string key, string acheteur, string destinataire)
+    {
+        if (string.IsNullOrWhiteSpace(acheteur)) acheteur = loc?.Name ?? "";
+        foreach (var l in MemeFacture(loc, key)) { l.acheteur = acheteur.Trim(); l.destinataire = (destinataire ?? "").Trim(); }
+    }
+
     // Vrai si la ligne `key` correspond à une facture DÉJÀ ÉMISE (PDF généré, numéro
     // consommé) → une nouvelle génération sera traitée comme une correction (diagramme).
     //
@@ -481,7 +509,10 @@ public static class FacturationSuivi
         }
         rec.libelle = bas + $" — corrigée({rec.corrections})";
         rec.pdfPath = DossiersDonnees.VersRelatif(pdfPath);
-        if (montant != 0f) rec.montant = montant;   // 0 = non fourni ; négatif = avoir
+        // Revue 17 (coutures, reprise) : toujours le montant de la version corrigée, 0 compris (part nulle d'une facture regroupée,
+        // dépôt corrigé « à l'équilibre »). Avant, 0 voulait dire « non fourni » : l'ancien montant restait, la somme des lignes ne
+        // redonnait plus le total (Créances) et un dépôt corrigé à 0 € passait encore « Impayé ». Négatif = avoir.
+        rec.montant = montant;
         rec.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
         // Revue 16c (D4-03) : l'échéance et le RIB imprimés sur la version corrigée suivent la ligne (« Impayé »
         // calculé sur la bonne date, Créances sur le bon compte).
@@ -497,26 +528,35 @@ public static class FacturationSuivi
     /// rembourser (« Envoyé », affichée « À rembourser », décision révisée du 04/11, BN17) : « Remboursé… », puis « Payé ».
     /// Au même montant (correction de forme), rien ne change. Appelée par les
     /// formulaires une fois TOUTES les lignes de la facture corrigées, avec le total d'avant la correction.
+    /// Décision du 10/11 (lot 9, D5-06) : le règlement reporté en versement porte la date de l'encaissement d'origine : celle déclarée à
+    /// Super PDP (`encaisseeDateISO`, que l'annulation reprend aussi), sinon celle du dernier versement reçu, sinon aujourd'hui. Avant :
+    /// toujours le jour de la correction, et l'« Encaissée » de la rectificative (FactureElectronique.Encaissement : date du dernier
+    /// versement) tombait dans le mois de la correction, pas dans celui du paiement. Pour la même raison, la correction de forme d'une
+    /// facture déclarée « Encaissée », payée sans versement saisi, note ce règlement à sa date (elle reste « Payé ») : sans lui, sa
+    /// rectificative était déclarée encaissée le jour de la déclaration.
     public static void ApresCorrection(Locataire loc, string key, float totalAvant)
     {
         var porteuse = Porteuse(loc, key);
         if (porteuse == null || totalAvant <= 0.005f) return;
         Solde(loc, key, out float total, out float paye);
-        if (total <= 0.005f || Math.Abs(total - totalAvant) <= 0.005f) return;
+        if (total <= 0.005f) return;
         var meme = MemeFacture(loc, key);
         if (meme.Count == 0) meme.Add(porteuse);
+        string declaree = meme.Select(l => l.encaisseeDateISO).Where(d => !string.IsNullOrEmpty(d)).Max();   // décision du 10/11 : la date déclarée à la plateforme
+        bool memeMontant = Math.Abs(total - totalAvant) <= 0.005f;
+        if (memeMontant && (declaree == null || porteuse.statut != "Paye")) return;   // correction de forme : rien ne change, sauf le règlement déclaré à noter
         if (porteuse.statut == "Paye")
         {
             // « Payé » à la main, sans versement ou avec un acompte seulement (retour BN9) : ce qui était dû avant la correction
             // a été réglé ; le reste est noté en versement pour que le reste dû, ou le trop-perçu, se lise.
             if (paye < totalAvant - 0.005f)
             {
-                (porteuse.versements ??= new List<Versement>()).Add(new Versement { dateISO = DateTime.Today.ToString("yyyy-MM-dd"), montant = totalAvant - paye });
+                (porteuse.versements ??= new List<Versement>()).Add(new Versement { dateISO = declaree ?? FactureElectronique.Encaissement(loc, porteuse).dateISO, montant = totalAvant - paye });
                 paye = totalAvant;
             }
             // Retour BN17 (décision du 04/11) : un écart dans un sens ou dans l'autre rouvre la facture : à la hausse le reste
             // est dû, à la baisse le trop-perçu est à rembourser avant qu'elle repasse « Payé ».
-            if (Math.Abs(paye - total) > 0.005f) foreach (var l in meme) l.statut = "Envoye";
+            if (!memeMontant && Math.Abs(paye - total) > 0.005f) foreach (var l in meme) l.statut = "Envoye";
         }
         // Retour BN9 : réglée en partie (« Partiel »), puis corrigée à ce qui a été versé : elle est payée ; au-dessous, le
         // trop-perçu est à rembourser (BN17) : « Envoyé », jamais « Impayé ».
@@ -537,7 +577,33 @@ public static class FacturationSuivi
         Solde(loc, key, out float total, out float paye);
         if (total < 0f && porteuse.statut == "Paye") return 0f;
         float r = paye - total;
+        // Revue 17 (lot 6b, décision du 09/11) : un avoir qui cite sa facture ne rend que ce qui a été versé sur elle : min(|avoir|,
+        // versé), moins ce qui est déjà rendu (`paye`, négatif). L'avoir d'une facture jamais payée n'a rien à rendre : il reste
+        // « Envoyé » (EtatAffiche) et n'empêche plus d'archiver (DuesDe). Sans facture citée (avoir libre ou d'avant) : comme avant.
+        if (total < 0f && !string.IsNullOrEmpty(porteuse.factureCitee))
+            r = Math.Min(-total, Verse(loc, porteuse.factureCitee)) + paye;
         return r > 0.005f ? r : 0f;
+    }
+
+    /// Revue 17 (lot 6b) : ce que le locataire a versé sur la facture `key` : ses versements ; « Payé » à la main (sans versement,
+    /// ou avec un acompte) : au moins son total. 0 si la ligne n'existe pas.
+    public static float Verse(Locataire loc, string key)
+    {
+        var p = Porteuse(loc, key);
+        if (p == null) return 0f;
+        Solde(loc, key, out float total, out float paye);
+        return p.statut == "Paye" ? Math.Max(paye, total) : Math.Max(0f, paye);
+    }
+
+    /// Revue 17 (lot 6b, décision du 09/11) : l'avoir garde la clé de la facture qu'il cite (« Avoir sur la facture n° … » de la
+    /// refacturation : `numeroCite`), quand elle est dans le suivi du locataire ; sur toutes ses lignes (plusieurs charges). Sans
+    /// numéro, ou numéro inconnu du suivi (avoir libre) : rien ne change, une correction garde la facture citée à l'émission.
+    public static void PoserFactureCitee(Locataire loc, string key, string numeroCite)
+    {
+        var citee = string.IsNullOrEmpty(numeroCite) ? null
+            : loc?.facturesEtat?.FirstOrDefault(x => x.numero == numeroCite && !string.IsNullOrEmpty(x.pdfPath) && x.key != key);
+        if (citee == null) return;
+        foreach (var l in MemeFacture(loc, key)) l.factureCitee = citee.key;
     }
 
     // Retour BN17 : réglée au-delà de son montant (payée, puis corrigée à la baisse) : c'est nous qui devons, rien à réclamer.
@@ -546,6 +612,16 @@ public static class FacturationSuivi
         if (loc == null) return f.montant > 0f && Paye(f) > f.montant + 0.005f;
         Solde(loc, f.key, out float total, out float paye);
         return total > 0f && paye > total + 0.005f;
+    }
+
+    // Coutures (10/11) : une facture émise par CIPL (elle a son PDF) dont le total est nul : rien n'est dû, elle reste « Envoyé » (avant :
+    // « Impayé » après son échéance, avec le bouton « Rappel » et l'année en rouge, pour 0 €). Sans PDF, 0 est un montant inconnu (état
+    // posé à la main sur une ligne jamais facturée ici) : comme avant. Une facture portée par plusieurs lignes se juge à son total.
+    static bool RienDu(FactureEtat f, Locataire loc)
+    {
+        if (Math.Abs(f.montant) > 0.005f || string.IsNullOrEmpty(f.pdfPath)) return false;
+        var meme = MemeFacture(loc, f.key);
+        return meme.Count <= 1 || Math.Abs(meme.Sum(x => x.montant)) <= 0.005f;
     }
 
     /// Retour BN17 (décisions du 04/11) : « Remboursé… » : un versement négatif, daté, de ce que nous rendons au locataire ;
@@ -586,17 +662,42 @@ public static class FacturationSuivi
         if (loc == null || ligne == null) return;
         if (loc.facturesEtat == null) loc.facturesEtat = new List<FactureEtat>();
         var rec = loc.facturesEtat.FirstOrDefault(x => x.key == ligne.key);
+        // Revue 17 (D4-02, décision du 05/11) : une facture partie ne se dé-émet pas (« À faire », « Automatique ») : refaite, elle
+        // prenait un second numéro, et la première sortait des créances et des rappels. Garde commune à tous les appelants ; seule
+        // exception, « Automatique » pour un loyer dont la période commence après le départ (l'avoir s'envoie à part).
+        // Revue 17 (2c, relecture du 07/11) : ni « En attente d'envoi » (le bouton « Auto » l'écrit : partie, elle serait reproposée à l'envoi).
+        if (Partie(loc, ligne.key) && (statut == "AFaire" || statut == "AttenteEnvoi"
+                                       || (string.IsNullOrEmpty(statut) && !DepartLocataire.PeriodeApresDepart(loc, rec))))
+        {
+            Debug.LogWarning($"[FacturationSuivi] « {rec.libelle} » (n° {rec.numero}) est partie : elle ne redevient pas « {(statut == "AFaire" ? "À faire" : statut == "AttenteEnvoi" ? "En attente d'envoi" : "automatique")} ».");
+            return;
+        }
         if (rec == null)
         {
             rec = new FactureEtat { key = ligne.key, type = ligne.type, libelle = ligne.libelle,
                 echeanceISO = ligne.echeanceISO, montant = ligne.montant };
             loc.facturesEtat.Add(rec);
         }
+        // Revue 17 (lot 6b, décision du 09/11) : un loyer PARTI retiré du suivi par l'exception du départ garde son numéro et son
+        // PDF : le marqueur `retireApresEnvoi` refuse « Refaire » (FactureEmission.RefusRetire) jusqu'au prochain état reçu ici.
+        // « Payé » sans versement (ou avec un acompte) : ce qui était réglé est noté en versement, comme ApresCorrection, pour que
+        // l'avoir qui le citera sache quoi rendre (ARembourser) une fois le statut effacé.
+        bool retrait = string.IsNullOrEmpty(statut) && Partie(loc, rec.key);
+        if (retrait && rec.statut == "Paye")
+        {
+            Solde(loc, rec.key, out float total, out float paye);
+            if (paye < total - 0.005f)
+                (Porteuse(loc, rec.key).versements ??= new List<Versement>()).Add(new Versement { dateISO = DateTime.Today.ToString("yyyy-MM-dd"), montant = total - paye });
+        }
         // Une régularisation regroupant plusieurs listes est UNE facture portée par
         // plusieurs lignes : elles changent d'état ensemble.
         foreach (var r in MemeFacture(loc, rec.key).DefaultIfEmpty(rec))
         {
+            // Revue 17 (D5-12, coutures ; décision du 10/11) : « Payé » garde le jour où il est posé (le jour du clic), lu par
+            // FactureElectronique.Encaissement quand aucun versement n'est saisi ; déjà payée, sa date ne bouge pas ; tout autre état la vide.
+            r.payeLeISO = statut != "Paye" ? "" : r.statut == "Paye" && !string.IsNullOrEmpty(r.payeLeISO) ? r.payeLeISO : DateTime.Today.ToString("yyyy-MM-dd");
             r.statut = statut ?? "";
+            r.retireApresEnvoi = string.IsNullOrEmpty(statut) ? retrait || r.retireApresEnvoi : false;   // tombe avec un nouvel état
             if (statut == "Envoye" && string.IsNullOrEmpty(r.dateEnvoiISO))
                 r.dateEnvoiISO = DateTime.Today.ToString("yyyy-MM-dd");
             RepercuterSurCharges(loc, bat, r, EtatDe(r, loc));
@@ -623,7 +724,8 @@ public static class FacturationSuivi
         cle = cles.Count > 0 ? cles[0] : null;
         oubliees = new List<FactureEtat>();
         var emises = new List<FactureEtat>();
-        foreach (var k in cles) if (EstDejaEmise(loc, k, out var r)) emises.Add(r);
+        // Revue 17 (2c, relecture du 07/11) : aussi une facture préparée puis bloquée, ou remise (AFacture) : son PDF est partagé.
+        foreach (var k in cles) if (AFacture(loc, k, out var r)) emises.Add(r);
         if (emises.Count == 0) return true;   // facture neuve
         if (emises.Select(r => r.pdfPath).Distinct().Count() > 1) { oubliees = null; return false; }
         cle = emises[0].key;                  // la facture existante : c'est une correction
@@ -639,8 +741,10 @@ public static class FacturationSuivi
         labels = new List<string> { "— (aucune)" };
         ids = new List<string> { "" };
         if (loc?.facturesEtat == null) return;
+        // Revue 17 (D4-02) : aussi une facture remise en automatique, qui garde son numéro et son PDF : le loyer retiré du suivi
+        // après le départ s'annule par un avoir qui le cite.
         var parNumero = loc.facturesEtat
-            .Where(r => !string.IsNullOrEmpty(r.numero) && EstDejaEmise(loc, r.key, out _))
+            .Where(r => !string.IsNullOrEmpty(r.numero) && !string.IsNullOrEmpty(r.pdfPath))
             .GroupBy(r => r.numero)
             .Where(g => g.Sum(r => r.montant) > 0f)
             .OrderByDescending(g => g.Max(r => r.dateEnvoiISO ?? ""));
@@ -740,7 +844,13 @@ public static class FacturationSuivi
             if (i >= 0) res[i].montant += r.montant;
             else res.Add(CopieDe(r));
         }
-        foreach (var d in res) d.montant -= Paye(d);   // la copie de la porteuse a ses versements
+        foreach (var d in res)
+        {
+            d.montant -= Paye(d);   // la copie de la porteuse a ses versements
+            // Revue 17 (lot 6b, décision du 09/11) : un avoir qui cite sa facture ne doit que ce qui a été versé sur elle (ARembourser).
+            if (d.montant < 0f && !string.IsNullOrEmpty(d.factureCitee)) d.montant = -ARembourser(loc, d.key);
+        }
+        res.RemoveAll(d => !string.IsNullOrEmpty(d.factureCitee) && Math.Abs(d.montant) <= 0.005f);   // rien à rendre : pas dû
         return res;
     }
 
@@ -759,6 +869,71 @@ public static class FacturationSuivi
         var rec = loc?.facturesEtat?.FirstOrDefault(x => x.key == key);
         if (rec == null) return false;
         return rec.statut == "Envoye" || rec.statut == "Impaye" || rec.statut == "Paye";
+    }
+
+    /// Revue 17 (D4-02, décision du 05/11) : facture PARTIE chez le locataire : envoyée, impayée ou payée (DejaTraite), avec son
+    /// numéro et son PDF (le même test que la quittance). Elle ne redevient ni « À faire » ni « Automatique » ; un « Payé » cliqué
+    /// par erreur se défait par « Envoyé ». Une seule aide, lue par le menu de la pastille (LocataireSuiviInline.OpenStatutMenu)
+    /// et par SetStatut, pour qu'ils ne divergent pas. Une facture seulement préparée (en attente d'envoi) n'est pas partie.
+    public static bool Partie(Locataire loc, string key)
+    {
+        var rec = loc?.facturesEtat?.FirstOrDefault(x => x.key == key);
+        return DejaTraite(loc, key) && !string.IsNullOrEmpty(rec.numero) && !string.IsNullOrEmpty(rec.pdfPath);
+    }
+
+    /// Revue 17 (2c, décisions du 06/11, retours de BP1 ; relecture du 07/11) : le bouton « Auto » à côté de la pastille, sur une
+    /// ligne pas encore partie (D4-02 : une facture partie ne se dé-émet pas) ni grisée (hors bail, franchise, clôturée). Pas de
+    /// bouton non plus sur une ligne en automatique qui garde un numéro et un PDF (un loyer retiré après un départ, puis départ
+    /// annulé : le locataire l'a peut-être reçu) : l'éteindre puis le rallumer la reproposerait à l'envoi ; elle se remet « Envoyé »
+    /// ou « Payé » (lot 6b : partie, « Refaire » est refusé ; jamais partie, il la refait au même numéro). À lire sur la ligne AFFICHÉE.
+    public static bool AvecBoutonAuto(Locataire loc, FactureEtat ligne)
+        => ligne != null && !Partie(loc, ligne.key) && !EstGrisee(EtatDe(ligne, loc))
+           && !(string.IsNullOrEmpty(ligne.statut) && !string.IsNullOrEmpty(ligne.numero) && !string.IsNullOrEmpty(ligne.pdfPath));
+
+    /// Bouton « Auto » allumé : CIPL gère la ligne (statut vide : l'état suit les dates ; « En attente d'envoi » : la facture
+    /// préparée attend sa date d'envoi). Éteint : un état mis à la main (« À faire » bloqué, ou « Payé », « Impayé », « Envoyé »
+    /// sur une ligne sans facture de CIPL).
+    public static bool AutoAllume(FactureEtat rec)
+        => rec == null || string.IsNullOrEmpty(rec.statut) || rec.statut == "AttenteEnvoi";
+
+    /// Le statut après un clic sur le bouton « Auto » : allumé, il s'éteint et la ligne est bloquée « À faire » (une facture
+    /// préparée n'est plus proposée à l'envoi) ; éteint, il se rallume et CIPL reprend la main (StatutAutomatique).
+    public static string StatutApresBoutonAuto(Locataire loc, FactureEtat rec)
+        => AutoAllume(rec) ? "AFaire" : StatutAutomatique(loc, rec);
+
+    /// Revue 17 (2c, décisions du 06/11 ; relecture du 07/11) : le statut quand on rallume le bouton « Auto ». Une facture préparée
+    /// puis bloquée « À faire » (numéro et PDF gardés) repart « En attente d'envoi » avec son PDF, tel quel, si elle correspond
+    /// toujours à ce qui est dû (FactureToujoursJuste). Sinon, et pour tout autre état mis à la main (« Payé », « Impayé »,
+    /// « Envoyé » sur une ligne sans facture de CIPL), "" : l'état suit les dates, et une facture qui ne correspond plus se refait.
+    public static string StatutAutomatique(Locataire loc, FactureEtat rec)
+        => rec != null && rec.statut == "AFaire" && !string.IsNullOrEmpty(rec.numero) && !string.IsNullOrEmpty(rec.pdfPath)
+           && FactureToujoursJuste(loc, rec) ? "AttenteEnvoi" : "";
+
+    /// Revue 17 (2c, relecture du 07/11) : une facture préparée puis bloquée correspond-elle toujours à ce qui est dû ? Décompte de
+    /// sortie : un départ est toujours saisi. Loyer : sa période n'est pas après le départ, sa périodicité est la même et son loyer
+    /// HT celui de la période (un départ annulé ou déplacé change un loyer au prorata). Les autres factures : oui.
+    public static bool FactureToujoursJuste(Locataire loc, FactureEtat rec)
+    {
+        if (rec == null) return false;
+        if (rec.key == DepartLocataire.CleDecompte) return DepartLocataire.Sortie(loc, out _);
+        if (rec.type != "Loyer") return true;
+        if (DepartLocataire.PeriodeApresDepart(loc, rec)) return false;
+        bool lue = DepartLocataire.LirePeriode(rec.key, out int annee, out int periode);
+        // Revue 17 (avenant de périodicité, lot 14) : comparée à la périodicité de SA période dans le plan, pas à celle d'aujourd'hui
+        // (un loyer de mai préparé en mensuel avant un passage au trimestriel au 1er juillet reste juste).
+        if (!string.IsNullOrEmpty(rec.periodicite) && loc != null
+            && rec.periodicite != (lue ? PeriodiciteDe(loc, annee, periode) : loc.periodiciteLoyer).ToString()) return false;
+        if (rec.loyerHT <= 0f || !lue) return true;
+        return Math.Abs(rec.loyerHT - Loyers.MontantPeriode(loc, annee, periode)) <= 0.01f;
+    }
+
+    /// Revue 17 (2c, relecture du 07/11) : la ligne porte une facture de CIPL (numéro et PDF), partie ou non : émise, en attente
+    /// d'envoi, bloquée « À faire » (bouton « Auto » éteint) ou remise en automatique. Les contrôles qui protègent un document
+    /// existant (regroupement, charges d'une régularisation ou d'une refacturation à refaire) la lisent, plutôt qu'EstDejaEmise.
+    public static bool AFacture(Locataire loc, string key, out FactureEtat rec)
+    {
+        if (EstDejaEmise(loc, key, out rec)) return true;
+        return rec != null && !string.IsNullOrEmpty(rec.numero) && !string.IsNullOrEmpty(rec.pdfPath);
     }
 
     // Index de période (1..N) d'un mois, selon la périodicité (inverse de MoisEcheance).
@@ -784,22 +959,172 @@ public static class FacturationSuivi
     public static DateTime EcheanceLoyer(Locataire loc, int year, int periode)
     {
         int jour = loc != null && loc.jourDemandeLoyer > 0 ? loc.jourDemandeLoyer : 1;
-        int mois = MoisEcheance(loc, periode);
+        // Revue 17 (avenant de périodicité, lot 14) : le mois où la période du plan commence (une période coupée par l'avenant est
+        // due au jour de demande de son premier mois facturé) ; sans historique ou hors plan, le calcul d'avant.
+        int mois = DuPlan(loc, year, periode, out var pp) ? pp.debut.Month : MoisEcheance(loc, periode);
         return new DateTime(year, mois, Mathf.Clamp(jour, 1, DateTime.DaysInMonth(year, mois)));
     }
 
     /// Premier et dernier jour d'une période de loyer : du 1er de son mois d'échéance à
     /// la veille de la période suivante (les mois cochés peuvent être irréguliers).
+    /// Revue 17 (avenant de périodicité, lot 14) : les bornes FACTURÉES de la période du plan (recoupées à la date d'effet d'un
+    /// avenant de périodicité) ; hors plan (vieille clé d'une fiche changée sans date) : le calcul d'avant, périodicité actuelle.
     public static void PeriodeBornes(Locataire loc, int year, int periode, out DateTime debut, out DateTime fin)
     {
-        int n = NbPeriodes(loc != null ? loc.periodiciteLoyer : Periodicite.mensuel);
-        debut = new DateTime(year, MoisEcheance(loc, periode), 1);
+        var p = Periode(loc, year, periode);
+        debut = p.debut; fin = p.fin;
+    }
+
+    // ── Plan des périodes de loyer d'une année (Revue 17, avenant de périodicité, lot 14) ──
+
+    /// Une période de loyer du plan d'une année.
+    public struct PeriodeLoyer
+    {
+        public DateTime debut, fin;                   // ce qui est facturé (recoupé à la tranche de sa périodicité)
+        public DateTime debutNaturel, finNaturelle;   // la période entière de sa périodicité
+        public Periodicite periodicite;               // SA périodicité (celle de sa tranche, pas forcément celle d'aujourd'hui)
+        public int numero;                            // son numéro dans SA périodicité (libellé : « 3e trimestre »)
+        /// Coupée par un avenant de périodicité : elle ne facture qu'une partie de ses mois.
+        public bool Coupee => debut != debutNaturel || fin != finNaturelle;
+        /// Nombre de mois facturés (3 pour un trimestre entier, 2 pour « mai à juin »).
+        public int Mois => NbMois(debut, fin);
+        /// Part facturée, au prorata des MOIS (décision du 05/11) : 2 mois sur 3 d'un trimestre = 2/3. 1 pour une période entière.
+        public double Part => Coupee ? (double)Mois / NbMois(debutNaturel, finNaturelle) : 1.0;
+    }
+
+    static int NbMois(DateTime debut, DateTime fin) => (fin.Year - debut.Year) * 12 + fin.Month - debut.Month + 1;
+
+    static bool AvecHistorique(Locataire loc) => loc?.historiquePeriodicites != null && loc.historiquePeriodicites.Count > 0;
+
+    /// Les périodes de loyer d'une année, dans l'ordre. Le rang d'une période dans cette liste est le « n » de sa clé
+    /// « loyer-{année}-P{n} » (le format des clés ne change pas : le serveur les cherche telles quelles).
+    /// Sans historique de périodicité (Locataire.historiquePeriodicites vide) : exactement le calcul d'avant, n périodes de la
+    /// périodicité actuelle, mêmes bornes, mêmes mois cochés. Avec : chaque tranche (une périodicité d'avant jusqu'à sa fin, puis
+    /// l'actuelle) donne ses périodes, recoupées à la tranche ; une période appartient à l'année où son début facturé tombe.
+    /// L'année du changement, l'ancienne périodicité garde les rangs 1 à k et la nouvelle prend la suite (mensuel puis trimestriel
+    /// au 1er juillet : le 3e trimestre est P7). Aucune clé déjà utilisée ne change de sens tant que la date d'effet ne passe pas
+    /// avant une période déjà facturée (règle de l'écran, lot 15). Pas de cache : 12 périodes au plus.
+    public static List<PeriodeLoyer> Plan(Locataire loc, int year)
+    {
+        var res = new List<PeriodeLoyer>();
+        if (year < 2 || year > 9998) return res;   // année en cours de frappe : pas de date possible
+        var actuelle = loc != null ? loc.periodiciteLoyer : Periodicite.mensuel;
+        var tranches = AvecHistorique(loc)
+            ? loc.historiquePeriodicites.Where(h => h != null && TryEcheance(h.finISO, out _)).OrderBy(FinTranche).ToList()
+            : new List<PeriodiciteAnterieure>();
+        if (tranches.Count == 0) { res.AddRange(Naturelles(actuelle, loc?.moisFacturationLoyer, year)); return res; }
+
+        var du = DateTime.MinValue;
+        foreach (var t in tranches)
+        {
+            AjouterTranche(res, t.periodicite, t.mois, year, du, FinTranche(t));
+            du = FinTranche(t).AddDays(1);
+        }
+        AjouterTranche(res, actuelle, loc.moisFacturationLoyer, year, du, DateTime.MaxValue);
+        return res.OrderBy(p => p.debut).ToList();
+    }
+
+    static DateTime FinTranche(PeriodiciteAnterieure h) => TryEcheance(h?.finISO, out var f) ? f.Date : DateTime.MinValue;
+
+    /// Les périodes entières d'une périodicité (avec ses mois cochés) qui commencent dans l'année : le calcul d'avant le lot 14.
+    static IEnumerable<PeriodeLoyer> Naturelles(Periodicite p, List<int> mois, int year)
+    {
+        var choisis = MoisChoisis(p, mois);
+        int n = NbPeriodes(p);
+        for (int k = 1; k <= n; k++)
+        {
+            Bornes(p, choisis, year, k, out var debut, out var fin);
+            yield return new PeriodeLoyer { debut = debut, fin = fin, debutNaturel = debut, finNaturelle = fin, periodicite = p, numero = k };
+        }
+    }
+
+    // Les périodes d'une tranche [du, au] qui appartiennent à l'année, recoupées à la tranche. Celles qui commencent l'année
+    // d'avant comptent aussi : à cheval sur le 1er janvier et recoupée par la tranche, une période commence dans l'année.
+    static void AjouterTranche(List<PeriodeLoyer> res, Periodicite p, List<int> mois, int year, DateTime du, DateTime au)
+    {
+        if (du > au) return;   // tranche vide (deux fins égales dans un historique retouché à la main)
+        for (int y = year - 1; y <= year; y++)
+            foreach (var n in Naturelles(p, mois, y))
+            {
+                var x = n;
+                if (x.fin < du || x.debut > au) continue;   // hors de la tranche
+                if (x.debut < du) x.debut = du;
+                if (x.fin > au) x.fin = au;
+                if (x.debut.Year == year) res.Add(x);
+            }
+    }
+
+    // Bornes d'une période entière : du 1er de son mois d'échéance à la veille de la période suivante.
+    static void Bornes(Periodicite p, List<int> choisis, int year, int periode, out DateTime debut, out DateTime fin)
+    {
+        int n = NbPeriodes(p);
+        debut = new DateTime(year, MoisEcheance(p, choisis, periode), 1);
         var suivant = periode < n
-            ? new DateTime(year, MoisEcheance(loc, periode + 1), 1)
-            : new DateTime(year + 1, MoisEcheance(loc, 1), 1);
+            ? new DateTime(year, MoisEcheance(p, choisis, periode + 1), 1)
+            : new DateTime(year + 1, MoisEcheance(p, choisis, 1), 1);
         // Mois cochés incomplets (moins de mois que de périodes) : période standard.
         if (suivant <= debut) suivant = debut.AddMonths(12 / n);
         fin = suivant.AddDays(-1);
+    }
+
+    // La période de rang `periode` dans le plan de l'année. Faux sans historique (le calcul d'avant suffit, sans rien allouer)
+    // ou hors plan.
+    static bool DuPlan(Locataire loc, int year, int periode, out PeriodeLoyer p)
+    {
+        p = default;
+        if (periode < 1 || !AvecHistorique(loc)) return false;
+        var plan = Plan(loc, year);
+        if (periode > plan.Count) return false;
+        p = plan[periode - 1];
+        return true;
+    }
+
+    /// La période d'une clé « loyer-{année}-P{n} » : celle du plan ; hors plan (vieille clé d'une fiche changée sans date), la
+    /// période de ce numéro dans la périodicité actuelle, comme avant.
+    public static PeriodeLoyer Periode(Locataire loc, int year, int periode)
+    {
+        if (DuPlan(loc, year, periode, out var pp)) return pp;
+        var p = loc != null ? loc.periodiciteLoyer : Periodicite.mensuel;
+        Bornes(p, MoisChoisis(loc), year, periode, out var debut, out var fin);
+        return new PeriodeLoyer { debut = debut, fin = fin, debutNaturel = debut, finNaturelle = fin, periodicite = p, numero = periode };
+    }
+
+    /// La périodicité de la période d'une clé de loyer (celle de sa tranche) ; hors plan, l'actuelle. Une ligne émise qui porte une
+    /// autre périodicité (FactureEtat.periodicite, D4-04) ne désigne pas cette période.
+    public static Periodicite PeriodiciteDe(Locataire loc, int year, int periode)
+        => DuPlan(loc, year, periode, out var pp) ? pp.periodicite : loc != null ? loc.periodiciteLoyer : Periodicite.mensuel;
+
+    /// Libellé d'une période d'après le plan : « 3e trimestre 2026 », « Mars 2026 » ; coupée par un avenant de périodicité :
+    /// « 2e trimestre 2026 (mai à juin) ». Hors plan : le libellé de ce numéro dans la périodicité actuelle.
+    public static string LibellePeriode(Locataire loc, int year, int periode)
+        => DuPlan(loc, year, periode, out var pp) ? Libelle(pp)
+         : PeriodeLibelle(loc != null ? loc.periodiciteLoyer : Periodicite.mensuel, periode, year);
+
+    static string Libelle(PeriodeLoyer p)
+    {
+        string s = PeriodeLibelle(p.periodicite, p.numero, p.debutNaturel.Year);
+        return p.Coupee ? $"{s} ({MoisFactures(p)})" : s;
+    }
+
+    /// Revue 17 (avenant de périodicité, lot 15) : les mois facturés d'une période coupée, pour son libellé : « mai à juin »,
+    /// « avril » ; à cheval sur le 1er janvier et coupée après : « janvier 2026 » (« 4e trimestre 2025 (janvier 2026) »). Publique :
+    /// le formulaire du loyer écrit la même précision dans son menu « Période facturée » et sur la facture (FactureLoyerPanel.LibellePeriode).
+    public static string MoisFactures(PeriodeLoyer p)
+    {
+        string du = MoisNoms[p.debut.Month - 1].ToLowerInvariant(), au = MoisNoms[p.fin.Month - 1].ToLowerInvariant();
+        return (p.debut.Month == p.fin.Month ? du : $"{du} à {au}") + (p.debut.Year != p.debutNaturel.Year ? " " + p.debut.Year : "");
+    }
+
+    /// Le rang, dans le plan de l'année, de la période qui contient le 1er de ce mois (son mois d'échéance, en général) ; 0 si
+    /// aucune (le mois appartient à une période commencée l'année d'avant). Sans historique : PeriodeIndex(loc, mois), comme avant.
+    public static int PeriodeIndex(Locataire loc, int year, int month)
+    {
+        if (!AvecHistorique(loc)) return PeriodeIndex(loc, month);
+        if (month < 1 || month > 12) return 0;
+        var plan = Plan(loc, year);
+        if (plan.Count == 0) return 0;
+        var jour = new DateTime(year, month, 1);
+        return plan.FindIndex(p => p.debut <= jour && jour <= p.fin) + 1;
     }
 
     /// Ligne du dépôt de garantie initial, posée à l'initialisation du dépôt :
@@ -839,6 +1164,10 @@ public static class FacturationSuivi
         var parts = f.key.Split('-');
         if (parts.Length < 3 || !int.TryParse(parts[1], out int annee)) return null;
         if (!int.TryParse(parts[2].TrimStart('P', 'p'), out int periode)) return null;
+        // Revue 17 (avenant de périodicité, lot 14) : préparée sous une autre périodicité que celle de cette période (fiche changée
+        // sans date, D4-04), la clé ne désigne pas la même période : rien à comparer (avant : un faux « modalités … refaire ? » sur
+        // un loyer de novembre préparé en mensuel). L'échéance attendue elle-même suit le plan (EcheanceLoyer).
+        if (!string.IsNullOrEmpty(f.periodicite) && f.periodicite != PeriodiciteDe(loc, annee, periode).ToString()) return null;
 
         var attendue = EcheanceLoyer(loc, annee, periode);
         return attendue.Date == actuelle.Date ? (DateTime?)null : attendue;
@@ -873,22 +1202,24 @@ public static class FacturationSuivi
     /// sur un bail trimestriel facturé en février, l'alerte annonçait le 05/02 et le
     /// tableau affichait le 05/01 — deux dates pour un même loyer.
     /// Sans objet en mensuel (les douze mois sont facturés de toute façon).
+    /// Revue 17 (avenant de périodicité, lot 14) : dans la périodicité ACTUELLE (ses mois cochés). Le calendrier d'une année, avec
+    /// les périodicités d'avant, est Plan(loc, année).
     public static int MoisEcheance(Locataire loc, int periode)
-    {
-        var p = loc != null ? loc.periodiciteLoyer : Periodicite.mensuel;
-        var choisis = MoisChoisis(loc);
-        if (choisis != null)
-            return choisis[Mathf.Clamp(periode - 1, 0, choisis.Count - 1)];
-        return MoisEcheance(p, periode);
-    }
+        => MoisEcheance(loc != null ? loc.periodiciteLoyer : Periodicite.mensuel, MoisChoisis(loc), periode);
+
+    // Revue 17 (avenant de périodicité, lot 14) : la même règle pour une périodicité et ses mois cochés quels qu'ils soient
+    // (ceux d'aujourd'hui, ou ceux d'une tranche de l'historique).
+    static int MoisEcheance(Periodicite p, List<int> choisis, int periode)
+        => choisis != null ? choisis[Mathf.Clamp(periode - 1, 0, choisis.Count - 1)] : MoisEcheance(p, periode);
 
     /// Les mois de facturation cochés, triés et filtrés — ou null s'il n'y a rien à
     /// suivre (bail mensuel, liste vide, valeurs hors 1-12).
-    static List<int> MoisChoisis(Locataire loc)
+    static List<int> MoisChoisis(Locataire loc) => loc == null ? null : MoisChoisis(loc.periodiciteLoyer, loc.moisFacturationLoyer);
+
+    static List<int> MoisChoisis(Periodicite p, List<int> mois)
     {
-        if (loc == null || loc.periodiciteLoyer == Periodicite.mensuel) return null;
-        if (loc.moisFacturationLoyer == null || loc.moisFacturationLoyer.Count == 0) return null;
-        var tries = loc.moisFacturationLoyer.Where(m => m >= 1 && m <= 12).Distinct().OrderBy(m => m).ToList();
+        if (p == Periodicite.mensuel || mois == null || mois.Count == 0) return null;
+        var tries = mois.Where(m => m >= 1 && m <= 12).Distinct().OrderBy(m => m).ToList();
         return tries.Count > 0 ? tries : null;
     }
 
@@ -928,17 +1259,4 @@ public static class FacturationSuivi
     }
 
     static string Ord(int n) => n == 1 ? "1er" : $"{n}e";
-
-    // ── Helpers publics (sélecteur de reprise de facturation) ───────────────────
-
-    // Échéance (date) d'une période donnée.
-    public static DateTime EcheancePeriode(Periodicite p, int periode, int year, int jour)
-    {
-        int mois = MoisEcheance(p, periode);
-        int j = Mathf.Clamp(jour > 0 ? jour : 1, 1, DateTime.DaysInMonth(year, mois));
-        return new DateTime(year, mois, j);
-    }
-
-    // Libellé lisible d'une période (« 1er trimestre 2026 », « Janvier 2026 »…).
-    public static string LibellePeriode(Periodicite p, int periode, int year) => PeriodeLibelle(p, periode, year);
 }

@@ -196,13 +196,14 @@ public class GlobalObjectivesSection : MonoBehaviour
             item.Setup(e.Obj,
                 onAvancer: obj =>
                 {
+                    if (ObjectifPanel.PriseParUnAutre(e.Bp, e.Loc)) return;   // Revue 17 (D7b-09, lot D)
                     var s = Objectifs.Avancer(e.Liste, obj, DateTime.Today);
                     Enregistrer(e);
                     if (s != null)
                         UndoToast.Instance?.ShowInfo($"Fait. Prochain « {s.text} » le {Objectifs.Echeance(s):dd/MM/yyyy}.");
                 },
                 onDeleted: obj => OnDeleted(obj, e),
-                onOuvrir: obj => ObjectifPanel.Ouvrir(transform, e.Liste, obj, e.NomBat, e.NomLoc,
+                onOuvrir: obj => ObjectifPanel.Ouvrir(transform, e.Liste, obj, e.Bp, e.Loc,
                     () => Enregistrer(e), o => OnDeleted(o, e)),
                 source: e.Source);
             _rows.Add(go);
@@ -249,6 +250,8 @@ public class GlobalObjectivesSection : MonoBehaviour
 
     private void OnDeleted(Objective obj, Entry e)
     {
+        // Revue 17 (D7b-09, lot D) : la corbeille de la ligne écrit tout de suite : refus au centre si un collègue tient la fiche.
+        if (ObjectifPanel.PriseParUnAutre(e.Bp, e.Loc)) return;
         var annuler = Objectifs.Supprimer(e.Liste, obj);
         Enregistrer(e);
         UndoToast.Instance?.Show("Objectif supprimé", () =>

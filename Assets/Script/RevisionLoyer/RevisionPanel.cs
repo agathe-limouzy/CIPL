@@ -66,6 +66,10 @@ public class RevisionPanel : MonoBehaviour
     UIDropdown _typeRevDD;
     DateInputController _franchiseDate, _avenantDate;
     GameObject _revisionBlockGO, _typeRevRowGO, _franchiseBlockGO, _avenantBlockGO;
+    // Revue 17 (avenant de périodicité, lot 15) : la date d'effet d'un changement de périodicité, dans le même bloc que l'avenant de
+    // loyer (case cachée et cochée : la date est demandée, pas proposée) ; `_avenantPerAuto` : la dernière date proposée, que le
+    // champ suit tant qu'elle n'a pas été retouchée.
+    Toggle _avenantPerToggle; DateInputController _avenantPerDate; GameObject _avenantPerBlockGO; TMP_Text _avenantPerAide; string _avenantPerAuto;
     // Loyer selon le CA : % et bornes (écran Initialiser), CA de l'année (révision).
     readonly List<GameObject> _caChamps = new List<GameObject>();   // min, max, % (clones de « Loyer de départ »)
     GameObject _caRevisionGO, _caResultGO, _compareStripGO, _loyerPrecedentGO;
@@ -99,15 +103,34 @@ public class RevisionPanel : MonoBehaviour
     readonly List<(string id, Toggle t)> _choixListes = new List<(string, Toggle)>();
     readonly List<(string id, DateInputController date, TMP_InputField prov)> _listesChamps
         = new List<(string, DateInputController, TMP_InputField)>();
+    // Revue 17 (avenant de périodicité, lot 16) : la dernière provision proposée dans chaque champ (clé : l'id de la liste pour sa
+    // ligne, "" la générale ; ProvCase : le champ à côté de la case « Provisions »). Un champ qui la porte encore suit la
+    // périodicité choisie (ConvertirProvisions) ; un champ retouché à la main reste tel quel.
+    readonly Dictionary<string, string> _provAuto = new Dictionary<string, string>();
+    const string ProvCase = "~case";
 
     // Avertissement inline placé SOUS le « Trimestre de révision » (au lieu du bas
     // de la modale) + désactivation du bouton « Réviser » quand le trimestre est mauvais.
     TMP_Text _trimWarn;
 
+    // Retour de BW5 (12/11) : l'aperçu du loyer révisé, sous le trimestre, avant « Réviser » (qui ferme le volet : le résultat
+    // ne se voyait que dans le message du bas). Observations INSEE lues une fois par type d'indice.
+    TMP_Text _apercu;
+    List<(string periode, float valeur)> _obsApercu;
+    IndiceImmo _obsApercuType;
+    bool _obsApercuEnCours;
+    // Retour de BW5 (12/11, décision) : la révision vient d'être enregistrée dans ce volet, resté ouvert : bouton grisé jusqu'à la
+    // réouverture (un second clic repoussait la prochaine révision d'un an de plus, revue 16c D7b-01).
+    bool _reviseeIci;
+    const string LibelleReviser = "Réviser le loyer";
+
     // Blocs de la scène résolus une fois (pour l'affichage par volet).
     Transform _body;
     GameObject _periodiciteGO, _chipsIndiceGO, _loyerDepartGO, _trimRefGO,
                _dateRevGO, _modeToggleGO, _provBlockGO, _informationGO;
+    /// Revue 17 (D7b-18, lot D) : libellés du menu de périodicité, dans l'ordre de l'énumération Periodicite (l'indice du menu
+    /// reste la valeur : (Periodicite)periodiciteDropdown.value). Avant : les noms de l'énumération (« BiAnnuel »).
+    public static readonly string[] LibellesPeriodicite = { "Mensuel", "Trimestriel", "Semestriel (bi-annuel)", "Annuel" };
     static readonly string[] MoisCourts =
         { "Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc" };
 
@@ -127,6 +150,7 @@ public class RevisionPanel : MonoBehaviour
 
     void OuvrirLibre(Locataire loc, Action onSaved, Volet volet)
     {
+        _reviseeIci = false;   // retour de BW5 (12/11)
         _loc = loc;
         _onSaved = onSaved;
         _volet = volet;
@@ -139,8 +163,11 @@ public class RevisionPanel : MonoBehaviour
         indiceDropdown.AddOptions(new List<string>(Enum.GetNames(typeof(IndiceImmo))));
         indiceDropdown.value = (int)loc.indiceTypeImmo;
 
+        // Revue 17 (lot 16) : vidé AVANT de poser la périodicité : l'écouteur de l'ouverture précédente, encore branché, se déclenche
+        // ici si elle diffère, et ne doit rien convertir (les champs de provision sont rechargés plus bas, avec leur proposition).
+        _provAuto.Clear();
         periodiciteDropdown.ClearOptions();
-        periodiciteDropdown.AddOptions(new List<string>(Enum.GetNames(typeof(Periodicite))));
+        periodiciteDropdown.AddOptions(new List<string>(LibellesPeriodicite));   // Revue 17 (D7b-18, lot D)
         periodiciteDropdown.value = (int)loc.periodiciteLoyer;
 
         // Champs facturation (jour de demande, mois facturés, date de régularisation)
@@ -177,13 +204,15 @@ public class RevisionPanel : MonoBehaviour
 
         // Champs bail. Le loyer de départ se saisit dans « Initialiser » ; il change
         // le libellé du bouton (Réinitialiser) dès qu'il diffère de celui enregistré.
-        loyerDepart.text = loc.loyerDepart > 0f ? loc.loyerDepart.ToString() : "";
+        loyerDepart.text = Nombre(loc.loyerDepart);   // Revue 17 (D7b-10, lot D) : format fixe (float.ToString() : 7 chiffres sous Mono)
         loyerDepart.onValueChanged.RemoveAllListeners();
         loyerDepart.onValueChanged.AddListener(_ => RefreshBoutonInit());
         trimestreDepart.Init();
         if (!string.IsNullOrEmpty(loc.trimestreDeRevision))
             trimestreDepart.SetTrimestre(loc.trimestreDeRevision);
         trimestreDepart.CanModify();
+        trimestreDepart.OnTrimestreChanged -= OnTrimDepartChanged;   // retour de BW5 (12/11) : l'aperçu suit aussi la référence
+        trimestreDepart.OnTrimestreChanged += OnTrimDepartChanged;
 
         // Date de révision : toujours éditable, sauvegardée à chaque modification
         dateDeRevision.ApplyDate(Loyers.PremiereRevisionParDefaut(loc));   // revue 16c (D7b-03) : début du bail + 1 an par défaut
@@ -191,20 +220,15 @@ public class RevisionPanel : MonoBehaviour
         dateDeRevision.OnModify.RemoveAllListeners();
         dateDeRevision.OnModify.AddListener(OnDateRevisionModifiee);
 
-        // Trimestre de révision : toujours visible, pré-rempli sur
-        // le trimestre anniversaire de l'année en cours (modifiable)
+        // Trimestre de révision : toujours visible, pré-rempli (modifiable)
         trimestreVoulu.Init();
         trimestreVoulu.CanModify();
         trimestreVoulu.gameObject.SetActive(true);
-        // Décomposition sûre : `Normalize(...).Split('-')[1]` levait IndexOutOfRange
-        // sur un trimestre au format ancien (« T1 », « 20261 »), ce qui empêchait
-        // purement et simplement l'ouverture de la modale de révision.
-        if (InseeIndiceService.TryDecompose(loc.trimestreDeRevision, out _, out int tRev))
-        {
-            // Année précédente par défaut : le trimestre de l'année en cours
-            // n'est en général pas encore publié par l'INSEE (recherche exacte).
-            trimestreVoulu.SetTrimestre($"{DateTime.Now.Year - 1}-T{tRev}");
-        }
+        // Revue 17 (D7b-01, lot D) : le trimestre de la dernière révision + 1 an, sinon celui de la référence + 1 an. Avant : l'année
+        // précédant aujourd'hui, qui retombait sur la référence pour un bail signé l'année de sa référence. Lecture sûre : un
+        // trimestre au format ancien (« T1 », « 20261 ») ne propose rien, sans empêcher l'ouverture.
+        string propose = InseeIndiceService.TrimestreSuivant(loc.trimestreDeRevision, loc.indiceImmoActuel);
+        if (propose != "") trimestreVoulu.SetTrimestre(propose);
         // Avertissement inline + verrouillage du bouton si le trimestre est mauvais.
         EnsureTrimWarn();
         trimestreVoulu.OnTrimestreChanged -= OnTrimVouluChanged;
@@ -222,6 +246,7 @@ public class RevisionPanel : MonoBehaviour
         toggleProvisions.onValueChanged.AddListener(on => provContainer.SetActive(on));
         provContainer.SetActive(loc.provisionPourCharges);
         provisionValue.text=(loc.provisionPourChargeValue.ToString());
+        _provAuto[ProvCase] = provisionValue.text;   // Revue 17 (lot 16) : la valeur enregistrée, convertie si la périodicité change à l'écran
         toggleProvisions.onValueChanged.AddListener(_ => RefreshRegulVisibility());
         RefreshRegulVisibility();
 
@@ -232,6 +257,11 @@ public class RevisionPanel : MonoBehaviour
             : loc.typeRevision == TypeRevision.ChiffreAffaires ? "CA" : "Indice");
         ChargerCaseDate(_franchiseToggle, _franchiseDate, loc.debutFacturationISO);
         ChargerCaseDate(_avenantToggle, _avenantDate, "");   // un avenant se saisit à chaque réinitialisation
+        // Revue 17 (avenant de périodicité, lot 15) : la date d'effet aussi ; le bloc ne revient que si la périodicité change à l'écran.
+        ChargerCaseDate(_avenantPerToggle, _avenantPerDate, "");
+        _avenantPerToggle.SetIsOnWithoutNotify(true);
+        _avenantPerAuto = null;
+        SetGO(_avenantPerBlockGO, false);
         RefreshInitVisibility();
 
         // Infos
@@ -257,12 +287,14 @@ public class RevisionPanel : MonoBehaviour
         btnInitialiser.onClick.AddListener(() => StartCoroutine(Initialiser()));
         btnReviser.onClick.RemoveAllListeners();
         btnReviser.onClick.AddListener(() => StartCoroutine(Reviser()));
+        LibelleBouton(LibelleReviser);   // retour de BW5 (12/11, décision) : le prefab disait « Calculer la révision »
         btnFermer.onClick.RemoveAllListeners();
         btnFermer.onClick.AddListener(() => gameObject.SetActive(false));
 
         // Mode imposé par l'état de l'indice : l'initialiser d'abord, le réviser ensuite.
         // (La bascule manuelle du prefab est masquée dans ApplyVolet.)
         SetMode(!loc.IndiceInitialise);
+        btnInitialiser.interactable = true;   // Revue 17 (D7b-14, lot D) : fermé pendant la récupération INSEE, il restait grisé
 
         // Applique le volet demandé (Indice par défaut / Initialiser).
         ApplyVolet(volet);
@@ -270,6 +302,7 @@ public class RevisionPanel : MonoBehaviour
         // Référence : le trimestre (et l'indice) de la dernière révision ; vide la 1re fois.
         if (_trimPrecedent != null) _trimPrecedent.text = DerniereRevision(loc.indiceImmoActuel);
         if (loc.typeRevision == TypeRevision.ChiffreAffaires && loc.IndiceInitialise) ViderResultatCA();
+        RafraichirApercu();   // retour de BW5 (12/11)
     }
 
     // ── Thème dynamique : couleur de la modale = état de la révision ──────────
@@ -329,6 +362,7 @@ public class RevisionPanel : MonoBehaviour
         StyleChip(chipIRL,  i == 1);
         StyleChip(chipILAT, i == 2);
         StyleChip(chipICC, i == 3);
+        RafraichirApercu();   // retour de BW5 (12/11) : l'aperçu suit l'indice choisi
     }
 
     private static void StyleChip(Button b, bool active)
@@ -414,7 +448,7 @@ public class RevisionPanel : MonoBehaviour
         _caTitrePrecedent.text = prec != null ? $"CA précédent ({prec.annee})" : "CA précédent";
         _caPrecedent.text = prec != null ? Euros(prec.montantHT) : "";
         if (preRemplir || string.IsNullOrWhiteSpace(_caMontant.text))
-            _caMontant.text = Loyers.CA(_loc, annee) is float v ? v.ToString(CultureInfo.InvariantCulture) : "";
+            _caMontant.text = Loyers.CA(_loc, annee) is float v ? Nombre(v) : "";   // Revue 17 (D7b-10, lot D) : « 1.234568E+07 »
     }
 
     // Résultat vide (avant le calcul) : rien d'affiché ne doit passer pour un résultat.
@@ -430,7 +464,8 @@ public class RevisionPanel : MonoBehaviour
 
     private IEnumerator Initialiser()
     {
-        if (!TryParseLoyer(out float loyer)) yield break;
+        // Revue 17 (D7b-06, lot D) : refus et erreurs au centre ; le cadre du bas garde l'attente et le résultat.
+        if (!TryParseLoyer(out float loyer)) { ConfirmDialog.Erreur("Loyer de départ invalide."); yield break; }
         if (DatesIllisibles() is string refusDate) { ConfirmDialog.Erreur(refusDate); yield break; }   // BJ4 (02/11)
 
         // Selon le CA : loyer min / max et % obligatoires, le max au moins égal au min.
@@ -442,9 +477,9 @@ public class RevisionPanel : MonoBehaviour
             SaisieNumerique.TryParse(_caMin.text, out min);
             SaisieNumerique.TryParse(_caMax.text, out max);
             if (min <= 0f || max < min)
-            { statusText.text = "Saisissez un loyer minimum, et un maximum au moins égal au minimum."; yield break; }
+            { ConfirmDialog.Erreur("Saisissez un loyer minimum, et un maximum au moins égal au minimum."); yield break; }
             if (pct <= 0f || pct > 100f)
-            { statusText.text = "Saisissez le pourcentage du chiffre d'affaires (entre 0 et 100)."; yield break; }
+            { ConfirmDialog.Erreur("Saisissez le pourcentage du chiffre d'affaires (entre 0 et 100)."); yield break; }
         }
 
         btnInitialiser.interactable = false;
@@ -458,13 +493,14 @@ public class RevisionPanel : MonoBehaviour
             obs => observations = obs, err => erreur = err);
 
         btnInitialiser.interactable = true;
-        if (observations == null) { statusText.text = $"Erreur : {erreur}"; yield break; }
+        statusText.text = "";
+        if (observations == null) { ConfirmDialog.Erreur(erreur); yield break; }   // déjà en français (InseeIndiceService.MessageEchec)
 
         // Indice de départ — fallback autorisé (trimestre pas encore publié)
         string periode = InseeIndiceService.Normalize(trimestreDepart.TrimestreValue);
         var obsRef = InseeIndiceService.TrouveAvecFallback(observations, periode);
         if (string.IsNullOrEmpty(obsRef.periode))
-        { statusText.text = $"Indice introuvable pour {periode}"; yield break; }
+        { ConfirmDialog.Erreur($"Indice INSEE introuvable pour {periode}."); yield break; }
 
         // Écriture dans le locataire
         _loc.loyerDepart = loyer;
@@ -510,8 +546,16 @@ public class RevisionPanel : MonoBehaviour
 
     private IEnumerator Reviser()
     {
-        if (!TryParseLoyer(out float loyer)) yield break;
+        // Revue 17 (D7b-10, lot D) : la base enregistrée, pas le texte du champ (non modifiable ici) : le réaffichage arrondissait à
+        // 7 chiffres, et « Réviser » réécrivait cette base arrondie sur la fiche.
+        float loyer = _loc.loyerDepart;
+        if (loyer <= 0f) { ConfirmDialog.Erreur("Loyer de départ invalide."); yield break; }   // Revue 17 (D7b-06, lot D) : au centre
         if (DatesIllisibles() is string refusDate) { ConfirmDialog.Erreur(refusDate); yield break; }   // BJ4 (02/11)
+        // Revue 17 (D7b-01, lot D) : un trimestre qui n'est pas postérieur à la référence et à la dernière révision est refusé avant
+        // l'appel réseau, au centre et sous le champ. Avant : seul « avant la référence » l'était ; un trimestre égal passait (loyer
+        // inchangé, prochaine révision repoussée d'un an).
+        if (InseeIndiceService.RefusTrimestre(trimestreVoulu.TrimestreValue, trimestreDepart.TrimestreValue, _loc.indiceImmoActuel) is string refusTrim)
+        { AfficheTrimWarn(refusTrim); ConfirmDialog.Erreur(refusTrim); yield break; }
 
         btnReviser.interactable = false;
         statusText.text = "Récupération des données INSEE...";
@@ -524,13 +568,14 @@ public class RevisionPanel : MonoBehaviour
             obs => observations = obs, err => erreur = err);
 
         btnReviser.interactable = true;
-        if (observations == null) { statusText.text = $"Erreur : {erreur}"; yield break; }
+        statusText.text = "";   // Revue 17 (D7b-06, lot D) : refus et erreurs au centre, le cadre du bas garde le résultat
+        if (observations == null) { ConfirmDialog.Erreur(erreur); yield break; }   // déjà en français (InseeIndiceService.MessageEchec)
 
         // Indice de départ — fallback autorisé
         string periodeDepart = InseeIndiceService.Normalize(trimestreDepart.TrimestreValue);
         var obsDepart = InseeIndiceService.TrouveAvecFallback(observations, periodeDepart);
         if (string.IsNullOrEmpty(obsDepart.periode))
-        { statusText.text = $"Indice de départ introuvable pour {periodeDepart}"; yield break; }
+        { ConfirmDialog.Erreur($"Indice de départ introuvable pour {periodeDepart}."); yield break; }
 
         // Le fallback peut reculer de plusieurs années sans rien dire : une base plus
         // ancienne que demandée gonfle le ratio et donc le loyer révisé, sur un écran
@@ -542,7 +587,7 @@ public class RevisionPanel : MonoBehaviour
         // deviendrait Infinity/NaN et serait enregistré tel quel sur le locataire.
         if (obsDepart.valeur <= 0f)
         {
-            statusText.text = $"Indice de départ invalide ({obsDepart.periode} = {obsDepart.valeur}) — révision impossible.";
+            ConfirmDialog.Erreur($"Indice de départ invalide ({obsDepart.periode} = {obsDepart.valeur}) — révision impossible.");
             if (btnReviser != null) btnReviser.interactable = false;
             yield break;
         }
@@ -567,14 +612,7 @@ public class RevisionPanel : MonoBehaviour
             if (btnReviser != null) btnReviser.interactable = false;
             yield break;
         }
-        // Revue 16c (D7b-03) : un trimestre voulu antérieur au trimestre de référence ferait baisser le loyer sans révision
-        // réelle (le défaut proposait l'année précédente, parfois avant la référence d'un bail récent).
-        if (InseeIndiceService.RangAvant(periodeVoulue, periodeDepart))
-        {
-            AfficheTrimWarn($"Le trimestre de révision ({periodeVoulue}) ne peut pas précéder le trimestre de référence ({periodeDepart}).");
-            if (btnReviser != null) btnReviser.interactable = false;
-            yield break;
-        }
+        // Revue 16c (D7b-03) puis Revue 17 (D7b-01, lot D) : le trimestre voulu est contrôlé avant l'appel réseau (RefusTrimestre).
         MasqueTrimWarn();
 
         // Calcul
@@ -593,13 +631,13 @@ public class RevisionPanel : MonoBehaviour
             if (anneeCA != _caAnnee)
             {
                 RefreshCARevision(false);   // l'année suit la date ; le montant reste à vérifier
-                statusText.text = $"La date de révision porte sur le CA {anneeCA} : vérifiez le montant, puis recalculez.";
+                ConfirmDialog.Erreur($"La date de révision porte sur le CA {anneeCA} : vérifiez le montant, puis recalculez.");
                 yield break;
             }
             if (!SaisieNumerique.TryParse(_caMontant.text, out caHT) || caHT <= 0f)
-            { statusText.text = $"Saisissez le CA HT {anneeCA} du locataire."; yield break; }
+            { ConfirmDialog.Erreur($"Saisissez le CA HT {anneeCA} du locataire."); yield break; }
             if (!SaisieNumerique.TryParse(_caPct.text, out float pctSaisi) || pctSaisi <= 0f || pctSaisi > 100f)
-            { statusText.text = "Saisissez la part du CA (entre 0 et 100 %)."; yield break; }
+            { ConfirmDialog.Erreur("Saisissez la part du CA (entre 0 et 100 %)."); yield break; }
             minRev = (float)Math.Round(_loc.loyerMinBase * ratio, 2);
             maxRev = (float)Math.Round(_loc.loyerMaxBase * ratio, 2);
             // Part du CA éventuellement modifiée à l'écran : elle vaut pour cette révision et
@@ -610,7 +648,7 @@ public class RevisionPanel : MonoBehaviour
             if (loyerRevise <= 0f)
             {
                 _loc.pourcentageCA = pctAvant;
-                statusText.text = $"Le locataire n'était pas dans les lieux en {anneeCA} : aucun CA à prendre en compte.";
+                ConfirmDialog.Erreur($"Le locataire n'était pas dans les lieux en {anneeCA} : aucun CA à prendre en compte.");
                 yield break;
             }
         }
@@ -626,6 +664,11 @@ public class RevisionPanel : MonoBehaviour
         // L'ancien loyer reste dû jusqu'à la veille de la révision : les périodes passées (facture, rentabilité)
         // gardent leur montant (voir Loyers.LoyerAnnuelA). Pour les deux modes : en mode indice, une facture d'une
         // période passée corrigée après la révision prenait le nouveau loyer pour toute la période (revue 16c, D7b-02).
+        // Revue 17 (D7b-03, lot D) : la date de la référence, lue AVANT l'avenant (qui pose debutConditionsISO au jour de la
+        // révision) : la vraie base remplace la base de repli dès le début des conditions, pas à partir de la révision.
+        var dateReference = FacturationSuivi.TryEcheance(_loc.debutConditionsISO, out var dbRev)
+            || FacturationSuivi.TryEcheance(_loc.dateDebutBailISO, out dbRev) ? dbRev : d;
+        string precedentAvant = IndicePrecedent(_loc);   // retour de BW5 (12/11) : lu avant que l'indice actuel ne change
         Loyers.EnregistrerAvenant(_loc, d.Date);
         if (selonCA)
         {
@@ -651,20 +694,13 @@ public class RevisionPanel : MonoBehaviour
         // (trimestre de départ / indice / loyer de base) a réellement changé.
         // Revue 16c (D7b-08) : datée comme à l'initialisation (début des conditions ou du bail), pas du jour de la révision :
         // la vraie base remplace ainsi la base de repli pour TOUTES les années (Segments : à date égale, le dernier l'emporte).
-        LoyerHistoryService.EnregistrerReference(_loc,
-            FacturationSuivi.TryEcheance(_loc.debutConditionsISO, out var dbRev)
-                || FacturationSuivi.TryEcheance(_loc.dateDebutBailISO, out dbRev) ? dbRev : d,
+        LoyerHistoryService.EnregistrerReference(_loc, dateReference,
             (IndiceImmo)indiceDropdown.value, obsDepart.periode, obsDepart.valeur, loyer);
 
-        txtIndiceDepart.text = _loc.indiceImmoAuDepart;
+        txtIndiceDepart.text = precedentAvant;   // retour de BW5 (12/11) : l'indice de la dernière révision (sinon la référence)
         txtIndiceActuel.text = _loc.indiceImmoActuel;
         txtLoyerCalcule.text = $"{loyerRevise:N2} €";
-        if (txtVariation != null)
-        {
-            float variation = obsDepart.valeur != 0f
-                ? (obsActuel.valeur / obsDepart.valeur - 1f) * 100f : 0f;
-            txtVariation.text = $"{(variation >= 0 ? "+" : "")}{variation:F1} %";
-        }
+        if (txtVariation != null) txtVariation.text = VariationIndice(precedentAvant, obsActuel.valeur);
         if (txtLoyerPrecedent != null)
             txtLoyerPrecedent.text = $"{_loc.loyerAnnuelPrecedent:N2} €";
         if (selonCA)
@@ -698,8 +734,14 @@ public class RevisionPanel : MonoBehaviour
         _onSaved?.Invoke();
         // Revue 16c (D7b-01) : le panneau se ferme, comme après « Initialiser » : un second clic sur « Réviser » repoussait
         // la prochaine révision d'un an de plus et écrasait le loyer précédent.
-        UndoToast.Instance?.ShowInfo($"Loyer révisé : {loyerRevise:N2} €/an — prochaine révision le {_loc.MoisDeRevision:dd/MM/yyyy}.");
-        gameObject.SetActive(false);
+        // Revue 17 (D7b-01, lot D) : la variation du loyer est dite (le panneau se ferme : « +0,0 % » ne se voyait plus).
+        UndoToast.Instance?.ShowInfo($"Loyer révisé : {loyerRevise:N2} €/an{VariationLoyer(_loc.loyerAnnuelPrecedent, loyerRevise)} — prochaine révision le {_loc.MoisDeRevision:dd/MM/yyyy}.");
+        // Retour de BW5 (12/11, décision) : le volet reste ouvert sur le résultat enregistré (cadre du bas, déjà rempli ci-dessus) ;
+        // le bouton est grisé jusqu'à la réouverture, au lieu de fermer le volet (on ne voyait le résultat qu'en le rouvrant).
+        _reviseeIci = true;
+        btnReviser.interactable = false;
+        LibelleBouton("Révision enregistrée");
+        RafraichirApercu();
     }
 
     // ── Validation du trimestre de révision ───────────────────────────────────
@@ -776,11 +818,143 @@ public class RevisionPanel : MonoBehaviour
         else
         {
             MasqueTrimWarn();
-            if (btnReviser != null) btnReviser.interactable = true;
+            if (btnReviser != null) btnReviser.interactable = !_reviseeIci;   // retour de BW5 : grisé après la révision
         }
     }
 
-    private void OnTrimVouluChanged(string _) => ValiderTrimestreVoulu();
+    private void OnTrimVouluChanged(string _) { ValiderTrimestreVoulu(); RafraichirApercu(); }
+    private void OnTrimDepartChanged(string _) => RafraichirApercu();
+
+    /// Retour de BW5 (12/11) : le calcul que « Réviser le loyer » fera en mode indice (même base, indice de départ avec repli,
+    /// indice voulu exact). Faux si un indice manque (`dep` rempli et `act` vide : l'indice voulu n'est pas encore publié).
+    /// Pur : testé (LotDRevisionTests).
+    public static bool CalculApercu(List<(string periode, float valeur)> obs, string periodeDepart, string periodeVoulue, float loyerBase,
+                                    out (string periode, float valeur) dep, out (string periode, float valeur) act, out float revise)
+    {
+        dep = ("", 0f); act = ("", 0f); revise = 0f;
+        if (obs == null || loyerBase <= 0f) return false;
+        dep = InseeIndiceService.TrouveAvecFallback(obs, InseeIndiceService.Normalize(periodeDepart));
+        if (string.IsNullOrEmpty(dep.periode) || dep.valeur <= 0f) return false;
+        act = InseeIndiceService.TrouveExact(obs, InseeIndiceService.Normalize(periodeVoulue));
+        if (string.IsNullOrEmpty(act.periode)) return false;
+        revise = loyerBase * act.valeur / dep.valeur;
+        return true;
+    }
+
+    /// La ligne sous les trimestres : le calcul s'affiche dans le cadre « Résultat de la révision » (retour de BW5 : c'est là qu'on
+    /// le cherche), ou l'indice voulu n'est pas encore publié ; null s'il n'y a rien à dire.
+    public static string Apercu(List<(string periode, float valeur)> obs, string periodeDepart, string periodeVoulue, float loyerBase)
+    {
+        if (CalculApercu(obs, periodeDepart, periodeVoulue, loyerBase, out var dep, out _, out _))
+            return "Aperçu dans le cadre du bas, pas encore enregistré : « Réviser le loyer » enregistre ce loyer.";
+        return string.IsNullOrEmpty(dep.periode) ? null
+            : $"Aperçu : l'indice {InseeIndiceService.Normalize(periodeVoulue)} n'est pas encore publié.";
+    }
+
+    // Montre ou cache l'aperçu : mode indice, indice initialisé, trimestre voulu commencé et accepté (sinon l'avertissement le dit).
+    // Le cadre « Résultat de la révision » prend les valeurs calculées ; sans aperçu, il revient à l'état enregistré.
+    void RafraichirApercu()
+    {
+        if (_loc == null || trimestreVoulu == null || trimestreDepart == null) return;
+        if (_reviseeIci)   // retour de BW5 (12/11) : le cadre montre le résultat enregistré, rien à recalculer
+        {
+            EnsureApercu();
+            if (_apercu == null) return;
+            _apercu.text = $"Révision enregistrée : prochaine révision le {_loc.MoisDeRevision:dd/MM/yyyy}. « Fermer » pour revenir à la fiche.";
+            _apercu.gameObject.SetActive(true);
+            return;
+        }
+        bool modeIndice = _loc.typeRevision == TypeRevision.Indice && _loc.IndiceInitialise;
+        string voulu = trimestreVoulu.TrimestreValue;
+        bool montrer = modeIndice && TrimestreDejaCommence(voulu)
+            && InseeIndiceService.RefusTrimestre(voulu, trimestreDepart.TrimestreValue, _loc.indiceImmoActuel) == null;
+        var type = indiceDropdown != null ? (IndiceImmo)indiceDropdown.value : _loc.indiceTypeImmo;
+        if (montrer && (_obsApercu == null || _obsApercuType != type))
+        {
+            if (!_obsApercuEnCours && isActiveAndEnabled) StartCoroutine(ChargerApercu(type));
+            montrer = false;   // reviendra à la fin de la lecture
+        }
+        string texte = montrer ? Apercu(_obsApercu, trimestreDepart.TrimestreValue, voulu, _loc.loyerDepart) : null;
+        if (montrer && CalculApercu(_obsApercu, trimestreDepart.TrimestreValue, voulu, _loc.loyerDepart, out var dep, out var act, out float revise))
+        {
+            string precedent = IndicePrecedent(_loc);   // comme « Réviser le loyer » l'écrira
+            AfficherResultat(precedent, FormatIndice(act.valeur, act.periode), $"{revise:N2} €",
+                             VariationIndice(precedent, act.valeur), $"{_loc.loyerAnnuel:N2} €");
+        }
+        else if (modeIndice)
+            AfficherResultat(IndicePrecedent(_loc), "—",   // pas d'aperçu : l'indice en vigueur, rien de nouveau
+                             $"{_loc.loyerAnnuel:N2} €", "—",
+                             _loc.loyerAnnuelPrecedent > 0f ? $"{_loc.loyerAnnuelPrecedent:N2} €" : "—");
+        EnsureApercu();
+        if (_apercu == null) return;
+        _apercu.text = texte ?? "";
+        _apercu.gameObject.SetActive(texte != null);
+    }
+
+    void LibelleBouton(string texte)
+    {
+        var t = btnReviser != null ? btnReviser.GetComponentInChildren<TMP_Text>(true) : null;
+        if (t != null) t.text = texte;
+    }
+
+    /// Retour de BW5 (12/11) : l'« Indice précédent » du cadre : celui de la dernière révision, sinon l'indice de référence.
+    public static string IndicePrecedent(Locataire l)
+        => !string.IsNullOrEmpty(l.indiceImmoActuel) && l.indiceImmoActuel != "—" ? l.indiceImmoActuel
+         : string.IsNullOrEmpty(l.indiceImmoAuDepart) ? "—" : l.indiceImmoAuDepart;
+
+    /// La variation du nouvel indice depuis l'indice précédent (« 135.87  (2025-Q1) ») : c'est aussi celle du loyer.
+    public static string VariationIndice(string precedent, float nouveau)
+    {
+        float p = LoyerHistoryService.IndiceValeur(precedent);
+        if (p <= 0f) return "—";
+        float v = (nouveau / p - 1f) * 100f;
+        return $"{(v >= 0 ? "+" : "")}{v.ToString("0.0", FacturePdfService.FrCulture)} %";
+    }
+
+    void AfficherResultat(string indiceDepart, string indiceActuel, string loyer, string variation, string loyerPrecedent)
+    {
+        if (txtIndiceDepart != null) txtIndiceDepart.text = indiceDepart;
+        if (txtIndiceActuel != null) txtIndiceActuel.text = indiceActuel;
+        if (txtLoyerCalcule != null) txtLoyerCalcule.text = loyer;
+        if (txtVariation != null) txtVariation.text = variation;
+        if (txtLoyerPrecedent != null) txtLoyerPrecedent.text = loyerPrecedent;
+    }
+
+    IEnumerator ChargerApercu(IndiceImmo type)
+    {
+        _obsApercuEnCours = true;
+        List<(string periode, float valeur)> obs = null;
+        yield return InseeIndiceService.FetchObservations(type, o => obs = o, _ => { });
+        _obsApercuEnCours = false;
+        if (obs == null) yield break;   // INSEE injoignable : pas d'aperçu ; « Réviser le loyer » dira l'erreur au centre
+        _obsApercu = obs; _obsApercuType = type;
+        RafraichirApercu();
+    }
+
+    // Le texte de l'aperçu, construit une fois, juste sous l'avertissement du trimestre (même place, même police).
+    void EnsureApercu()
+    {
+        if (_apercu != null || trimestreVoulu == null) return;
+        // Sous l'avertissement, dans la section : le trimestre voulu est dans une ligne horizontale (LigneTrimestres) ; y mettre
+        // l'aperçu le plaçait par-dessus « Dernière révision » et « Trimestre de révision » (vu en Play, BW5).
+        EnsureTrimWarn();
+        var parent = _trimWarn != null ? _trimWarn.transform.parent : trimestreVoulu.transform.parent;
+        if (parent == null) return;
+        var go = new GameObject("ApercuRevision", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var t = go.AddComponent<TMPro.TextMeshProUGUI>();
+        var refT = trimestreVoulu.GetComponentInChildren<TMP_Text>(true);
+        if (refT != null) t.font = refT.font;
+        t.fontSize = UITheme.Role.Aide;
+        t.color = UITheme.TextePrincipal;
+        t.enableWordWrapping = true;
+        t.raycastTarget = false;
+        t.alignment = TextAlignmentOptions.TopLeft;
+        go.AddComponent<LayoutElement>().minHeight = 0;
+        if (_trimWarn != null) go.transform.SetSiblingIndex(_trimWarn.transform.GetSiblingIndex() + 1); else go.transform.SetAsLastSibling();
+        go.SetActive(false);
+        _apercu = t;
+    }
 
     // ── Communs ───────────────────────────────────────────────────────────────
 
@@ -810,6 +984,7 @@ public class RevisionPanel : MonoBehaviour
         _jourDemande = UIFactory.Input(content, "1");
         _jourDemande.contentType = TMP_InputField.ContentType.IntegerNumber;
         _jourDemande.transform.SetSiblingIndex(idx++);
+        _jourDemande.onValueChanged.AddListener(_ => RefreshAvenantPeriodicite());   // Revue 17 (lot 15) : la date d'effet proposée est un jour de demande
 
         // TVA sur le loyer (02/11) : case « soumis » (cochée d'après l'entreprise) et taux du bail, à défaut celui de l'entreprise.
         _tvaToggle = UIFactory.Toggle(content, "TVA sur le loyer (option du bailleur)", true);
@@ -861,8 +1036,9 @@ public class RevisionPanel : MonoBehaviour
         UIFactory.Text(rv.transform,
             "Bail repris — dernière période déjà facturée (laisser « Aucune » si nouveau bail)",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
+        // Revue 17 (avenant de périodicité, finitions) : la date d'effet proposée suit la reprise choisie ici.
         _repriseDD = UIDropdown.Create(rv.transform,
-            new List<string> { "Aucune (nouveau bail)" }, new List<string> { "" }, 0, _ => { });
+            new List<string> { "Aucune (nouveau bail)" }, new List<string> { "" }, 0, _ => RefreshAvenantPeriodicite());
         rv.transform.SetSiblingIndex(regulGO.transform.GetSiblingIndex() + 1);
 
         // Listes de charges spécifiques : juste sous la date de régularisation générale.
@@ -983,6 +1159,18 @@ public class RevisionPanel : MonoBehaviour
         _avenantBlockGO.transform.SetSiblingIndex(ri + 1);
         _franchiseBlockGO.transform.SetSiblingIndex(ri + 2);
 
+        // Revue 17 (avenant de périodicité, lot 15 ; décision du 05/11) : « Nouvelle périodicité à compter du », juste sous la
+        // périodicité. Le même bloc que l'avenant de loyer, sans sa case (cachée, cochée) : dès qu'un loyer est déjà facturé, la
+        // date est demandée (RefreshAvenantPeriodicite la montre, la propose et dit pourquoi).
+        _avenantPerBlockGO = BlocCaseDate(content, "AvenantPeriodiciteBlock",
+            "Nouvelle périodicité en cours de bail", "Nouvelle périodicité à compter du",
+            out _avenantPerToggle, out _avenantPerDate);
+        _avenantPerToggle.SetIsOnWithoutNotify(true);
+        _avenantPerToggle.gameObject.SetActive(false);
+        _avenantPerAide = UIFactory.Text(_avenantPerBlockGO.transform, "", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        _avenantPerBlockGO.transform.SetSiblingIndex(periodBlock.GetSiblingIndex() + 1);
+        _avenantPerBlockGO.SetActive(false);
+
         // Bouton « Enregistrer » (volet Modalités) — clone du bouton Réviser, même
         // visuel, glissé dans la rangée de boutons juste après lui.
         if (btnReviser != null)
@@ -994,7 +1182,7 @@ public class RevisionPanel : MonoBehaviour
             var t = _btnEnregistrer.GetComponentInChildren<TMP_Text>(true);
             if (t != null) t.text = "Enregistrer";
             _btnEnregistrer.onClick.RemoveAllListeners();
-            _btnEnregistrer.onClick.AddListener(ValiderInitialisation);
+            _btnEnregistrer.onClick.AddListener(ConfirmerTauxPuisValider);
             _btnEnregistrer.gameObject.SetActive(false);
         }
 
@@ -1057,6 +1245,15 @@ public class RevisionPanel : MonoBehaviour
         if (_tvaTaux != null) _tvaTaux.gameObject.SetActive(mod && soumis);
     }
     static float TauxEntreprise() => ReglageService.Current?.tauxTva > 0f ? ReglageService.Current.tauxTva : Tva.TauxDefaut;
+
+    // Revue 17 (D5-17, coutures) : le taux de TVA du bail, s'il est inhabituel (« 2 » tapé pour « 20 ») et pas déjà en place, se confirme
+    // avant l'enregistrement des modalités ; « Annuler » laisse la fenêtre ouverte avec la saisie. Avant : 2 % sur toutes ses factures.
+    void ConfirmerTauxPuisValider()
+    {
+        float enPlace = _loc != null && _loc.tauxTvaLoyer > 0f ? _loc.tauxTvaLoyer : TauxEntreprise(), taux = enPlace;
+        if (_tvaToggle != null && _tvaToggle.isOn && _tvaTaux != null && SaisieNumerique.TryParse(_tvaTaux.text, out float tx) && tx > 0f) taux = tx;
+        Tva.ConfirmerTaux(taux, enPlace, ValiderInitialisation);
+    }
 
     // Mois visibles seulement dans le volet Initialiser, hors mensuel ;
     // régularisation visible seulement dans Initialiser et en cas de provision.
@@ -1231,7 +1428,11 @@ public class RevisionPanel : MonoBehaviour
             UIFactory.Text(_lignesListes, $"{nom} — provision par période (€)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
             var prov = UIFactory.Input(_lignesListes, "0");
             SaisieNumerique.Montant(prov);   // retour BN2 (04/11) : la virgule aussi
-            prov.text = deja.Item2 ?? (provision > 0f ? provision.ToString("0.##", CultureInfo.InvariantCulture) : "");
+            // Revue 17 (lot 16) : la provision enregistrée, ramenée à la périodicité choisie à l'écran (telle quelle tant que la
+            // périodicité n'a pas changé) ; une ligne déjà à l'écran garde ce qui y est tapé, et sa dernière proposition.
+            string propose = TexteProvision(provision);
+            prov.text = deja.Item2 ?? propose;
+            if (deja.Item2 == null) _provAuto[id] = propose;
             UIFactory.LE(prov.gameObject, minH: 40);
             _listesChamps.Add((id, date, prov));
         }
@@ -1273,41 +1474,78 @@ public class RevisionPanel : MonoBehaviour
     // venait de choisir « trimestriel ») ; pas de période future — seulement celles
     // déjà échues ou dont la facture est déjà partie (22 j avant l'échéance, comme le
     // suivi) ; rien d'antérieur au bail.
+    // Revue 17 (avenant de périodicité, lot 15) : les options sont les périodes du PLAN (FacturationSuivi.Plan), « {année}-P{n} »
+    // avec n = leur rang dans l'année, comme les clés des loyers. Une fiche qui a un passé de facturation (loyer facturé, reprise,
+    // périodicité déjà changée à une date : Loyers.DateAvenantRequise) propose son plan enregistré : les périodes passées gardent
+    // leur périodicité, quelle que soit celle choisie à l'écran (avant : la reprise « Mars 2026 » d'une fiche passée au
+    // trimestriel s'affichait « 3e trimestre 2026 », et « Modifier » la déplaçait en juillet sans le dire). Sinon, comme avant :
+    // la périodicité choisie à l'écran, mois d'office.
     void RefreshRepriseOptions()
     {
         if (_repriseDD == null || _loc == null) return;
         var labels = new List<string> { "Aucune (nouveau bail)" };
         var ids = new List<string> { "" };
-        var p = (Periodicite)periodiciteDropdown.value;
-        int n = LoyerSummaryUI.NbPeriodes(p);
+        var fiche = Loyers.DateAvenantRequise(_loc) ? _loc : new Locataire { periodiciteLoyer = (Periodicite)periodiciteDropdown.value };
         int jour = _jourDemande != null && int.TryParse(_jourDemande.text, out int j) ? j : _loc.jourDemandeLoyer;
         var limite = DateTime.Today.AddDays(FacturationSuivi.Lead("Loyer", _loc));
         bool avecBail = Loyers.DebutPremierBail(_loc, out var debutBail);
         int cur = DateTime.Now.Year;
         for (int y = cur; y >= cur - 3; y--)
-            for (int per = n; per >= 1; per--)
+        {
+            var plan = FacturationSuivi.Plan(fiche, y);
+            for (int per = plan.Count; per >= 1; per--)
             {
-                var ech = FacturationSuivi.EcheancePeriode(p, per, y, jour);
+                var debut = plan[per - 1].debut;
+                var ech = new DateTime(debut.Year, debut.Month, Mathf.Clamp(jour > 0 ? jour : 1, 1, DateTime.DaysInMonth(debut.Year, debut.Month)));
                 if (ech > limite) continue;
-                var finPeriode = new DateTime(ech.Year, ech.Month, 1).AddMonths(12 / n).AddDays(-1);
-                if (avecBail && finPeriode < debutBail.Date) continue;
-                labels.Add(FacturationSuivi.LibellePeriode(p, per, y));
+                if (avecBail && plan[per - 1].fin < debutBail.Date) continue;
+                labels.Add(FacturationSuivi.LibellePeriode(fiche, y, per));
                 ids.Add($"{y}-P{per}");
             }
+        }
         string sel = "";
         if (DateTime.TryParse(_loc.repriseFacturationISO, out var rd))
         {
-            int perEnr = FacturationSuivi.PeriodeIndex(_loc, rd.Month);
-            sel = $"{rd.Year}-P{perEnr}";
+            var (anEnr, perEnr) = PeriodeReprise(_loc, rd);
+            // Revue 17 (avenant de périodicité, finitions) : introuvable dans le plan : une option « gardée », que RepriseChoisie ne
+            // lit pas (null : la reprise enregistrée reste telle quelle). Avant : « Aucune », et « Modifier » l'effaçait.
+            sel = perEnr > 0 ? $"{anEnr}-P{perEnr}" : RepriseGardee;
             // Reprise déjà enregistrée mais hors des options (plus de 4 ans…) : on la
             // garde proposée, sinon un simple « Modifier » l'effaçait sans le dire.
-            if (!ids.Contains(sel) && p == _loc.periodiciteLoyer)
+            if (!ids.Contains(sel))
             {
-                labels.Insert(1, FacturationSuivi.LibellePeriode(p, perEnr, rd.Year));
+                labels.Insert(1, perEnr > 0 ? FacturationSuivi.LibellePeriode(_loc, anEnr, perEnr) : $"Reprise enregistrée ({rd:dd/MM/yyyy})");
                 ids.Insert(1, sel);
             }
         }
         _repriseDD.SetOptions(labels, ids, sel);
+    }
+
+    const string RepriseGardee = "gardee";   // ni « {année}-P{n} » ni vide : RepriseChoisie rend null, rien n'est réécrit
+
+    /// Revue 17 (avenant de périodicité, finitions) : la période du plan qui contient la reprise enregistrée (année, rang) : celle
+    /// de son année, sinon celle de l'année d'avant, pour une période commencée avant le 1er janvier (mois cochés à cheval sur
+    /// janvier), comme Loyers.FactureJusquAu ; rang 0 si aucune. Avant, avec un historique de périodicité, ce cas donnait
+    /// « {année}-P0 », absent du menu : il retombait sur « Aucune » et « Modifier » effaçait la reprise sans le dire. Sans
+    /// historique, rien ne change (FacturationSuivi.PeriodeIndex ne rend jamais 0).
+    public static (int annee, int periode) PeriodeReprise(Locataire loc, DateTime reprise)
+    {
+        int per = FacturationSuivi.PeriodeIndex(loc, reprise.Year, reprise.Month);
+        if (per > 0) return (reprise.Year, per);
+        per = FacturationSuivi.Plan(loc, reprise.Year - 1).FindIndex(p => p.debut <= reprise.Date && reprise.Date <= p.fin) + 1;
+        return (per > 0 ? reprise.Year - 1 : reprise.Year, per);
+    }
+
+    /// Revue 17 (avenant de périodicité, lot 15) : la reprise choisie à l'écran, en date : l'échéance de la dernière période déjà
+    /// facturée hors de CIPL, lue dans le plan de la fiche à cet instant ("" : aucune ; null : option illisible, rien ne change).
+    /// Avant l'écriture, elle sert au refus de la date d'effet ; après, elle est la reprise enregistrée.
+    string RepriseChoisie()
+    {
+        string id = _repriseDD != null ? _repriseDD.SelectedId : null;
+        if (string.IsNullOrEmpty(id)) return _repriseDD != null ? "" : null;
+        var parts = id.Split('-');   // « 2026-P2 »
+        return parts.Length == 2 && int.TryParse(parts[0], out int y) && int.TryParse(parts[1].TrimStart('P', 'p'), out int per)
+            ? FacturationSuivi.EcheanceLoyer(_loc, y, per).ToString("yyyy-MM-dd") : null;
     }
 
     // ── Affichage par volet (Révision / Modalités facturation) ────────────────
@@ -1437,6 +1675,7 @@ public class RevisionPanel : MonoBehaviour
         SetGO(_revisionBlockGO, init);
         SetGO(_franchiseBlockGO, init);
         if (!init) SetGO(_avenantBlockGO, false);
+        if (!init) SetGO(_avenantPerBlockGO, false);   // Revue 17 (lot 15) : comme l'avenant de loyer, seulement dans « Gestion du loyer »
         SetGO(_typeRevRowGO, _revisionToggle != null && _revisionToggle.isOn);
         if (_franchiseDate != null) SetGO(_franchiseDate.gameObject, _franchiseToggle.isOn);
         if (_avenantDate != null) SetGO(_avenantDate.gameObject, _avenantToggle.isOn);
@@ -1547,7 +1786,13 @@ public class RevisionPanel : MonoBehaviour
         return t != null ? t.gameObject : null;
     }
 
-    static string Nombre(float v) => v > 0f ? v.ToString(CultureInfo.InvariantCulture) : "";
+    // Revue 17 (D7b-10, lot D) : en double et au format fixe : float.ToString() n'écrit que 7 chiffres sous Mono (123456,78 → 123456,8 ;
+    // 12 345 678 → 1.234568E+07). Vide pour 0. Aussi pour PaliersPanel.
+    public static string Nombre(float v) => v > 0f ? ((double)v).ToString("0.##", CultureInfo.InvariantCulture) : "";
+
+    /// Revue 17 (D7b-01, lot D) : « (+3,0 %) » pour le message de fin d'une révision ; vide sans loyer précédent.
+    public static string VariationLoyer(float avant, float apres)
+        => avant > 0f ? $" ({(apres >= avant ? "+" : "")}{((apres / avant - 1f) * 100f).ToString("0.0", FacturePdfService.FrCulture)} %)" : "";
     static string Euros(float v) => v.ToString("N2", FacturePdfService.FrCulture) + " €";
 
     // Revue 16c (BJ4, 02/11) : une date tapée mais illisible (année « 27 »…) est refusée. Avant, « Réviser » partait avec la
@@ -1560,6 +1805,8 @@ public class RevisionPanel : MonoBehaviour
     string DatesIllisibles()
     {
         if (DateIllisible(dateDeRevision)) return "Date de révision incomplète : jour, mois et année sur quatre chiffres.";
+        // Revue 17 (avenant de périodicité, lot 15) : la date d'effet aussi (ici, pas dans un appel de plus : Revue16cTests les compte).
+        if (DateIllisible(_avenantPerDate)) return "Date de la nouvelle périodicité incomplète : jour, mois et année sur quatre chiffres.";
         if (DateIllisible(_dateRegulCtrl)) return "Date de régularisation incomplète : jour, mois et année sur quatre chiffres, ou champs vides (pas de régularisation).";
         foreach (var (id, date, prov) in _listesChamps)
             if (DateIllisible(date)) return $"Date de régularisation « {ListesCharges.Nom(id)} » incomplète : jour, mois et année sur quatre chiffres, ou champs vides (pas de régularisation).";
@@ -1599,6 +1846,7 @@ public class RevisionPanel : MonoBehaviour
             t.text = !_loc.LoyerInitialise ? "Initialiser" : reinit ? "Réinitialiser" : "Modifier";
         // Renégociation en cours de bail : le nouveau loyer ne vaut qu'à partir de l'avenant.
         SetGO(_avenantBlockGO, reinit);
+        RefreshAvenantPeriodicite();   // Revue 17 (lot 15) : la date d'effet proposée suit l'avenant de loyer (case, date)
     }
 
     // Habillage : Indice garde le thème (dû → terracotta / sinon prune) ;
@@ -1643,6 +1891,36 @@ public class RevisionPanel : MonoBehaviour
         bool etaitInitialise = _loc.LoyerInitialise;
         bool reinit = !etaitInitialise || ChangementStructurant();
 
+        // Revue 17 (avenant de périodicité, lot 15 ; décision du 05/11) : la périodicité ou les mois changent alors qu'un loyer est
+        // déjà facturé : la date d'effet est demandée, et refusée au centre AVANT toute écriture (EnregistrerAvenant, plus bas,
+        // écrit déjà l'historique des loyers). Elle est le jour de demande du loyer d'un mois, après la dernière période facturée
+        // (la reprise choisie à l'écran comprise) : aucun mois facturé n'est reproposé, aucun loyer émis ne change de période.
+        DateTime? effetPeriodicite = null;
+        if (AvenantPeriodiciteDemande())
+        {
+            string saisie = DateSaisie(_avenantPerToggle, _avenantPerDate);
+            if (string.IsNullOrEmpty(saisie))
+            { ConfirmDialog.Erreur("Saisissez la date à partir de laquelle la nouvelle périodicité s'applique (« Nouvelle périodicité à compter du »)."); return; }
+            effetPeriodicite = Iso(saisie);
+            if (Loyers.RefusAvenantPeriodicite(_loc, effetPeriodicite.Value, JourSaisi(), RepriseChoisie()) is string refusPeriodicite)
+            { ConfirmDialog.Erreur(refusPeriodicite); return; }
+        }
+
+        // Revue 17 (D7b-17, lot D) : « Modifier » la périodicité ou les mois d'un locataire à paliers est refusé si un palier ne finirait
+        // plus la veille d'un début de période (copie de la fiche avec les nouvelles modalités) ; la saisie reste à l'écran.
+        if (!reinit && type == TypeRevision.Paliers)
+        {
+            var perChoisie = (Periodicite)periodiciteDropdown.value;
+            var moisChoisis = Enumerable.Range(1, 12).Where(k => _moisState[k - 1]).ToList();
+            if (CalendrierChange(_loc.periodiciteLoyer, _loc.moisFacturationLoyer, perChoisie, moisChoisis)
+                && Loyers.PaliersDesalignesApres(_loc, perChoisie, moisChoisis, effetPeriodicite))
+            {
+                ConfirmDialog.Erreur("Avec cette périodicité, un palier ne finirait plus la veille d'un début de période de facturation : "
+                                     + "adaptez d'abord les paliers (bouton « Paliers » de la fiche), puis changez la périodicité.");
+                return;
+            }
+        }
+
         // Avenant : l'ancien loyer reste dû jusqu'à la veille (prorata de la période).
         string avenant = reinit && etaitInitialise ? DateSaisie(_avenantToggle, _avenantDate) : "";
         if (avenant == null) { ConfirmDialog.Erreur("Date de l'avenant invalide."); return; }
@@ -1656,6 +1934,12 @@ public class RevisionPanel : MonoBehaviour
             Loyers.EnregistrerAvenant(_loc, Iso(avenant));
         }
 
+        // Revue 17 (avenant de périodicité, lot 15) : la périodicité et les mois encore en place passent dans l'historique jusqu'à
+        // la veille du mois d'effet : avant EcrireModalites, qui les remplace.
+        if (effetPeriodicite.HasValue) Loyers.EnregistrerAvenantPeriodicite(_loc, effetPeriodicite.Value);
+        string infoPeriodicite = effetPeriodicite.HasValue
+            ? $" Nouvelle périodicité à compter du {effetPeriodicite.Value:dd/MM/yyyy} : les loyers d'avant gardent l'ancienne." : "";
+
         EcrireModalites();
         _loc.loyerDepart = loyer;
         _loc.debutFacturationISO = franchise;
@@ -1664,7 +1948,7 @@ public class RevisionPanel : MonoBehaviour
         if (!reinit)
         {
             _onSaved?.Invoke();
-            UndoToast.Instance?.ShowInfo("Modalités du loyer enregistrées");
+            UndoToast.Instance?.ShowInfo(effetPeriodicite.HasValue ? "Modalités du loyer enregistrées." + infoPeriodicite : "Modalités du loyer enregistrées");
             gameObject.SetActive(false);
             return;
         }
@@ -1680,14 +1964,20 @@ public class RevisionPanel : MonoBehaviour
         switch (type)
         {
             case TypeRevision.Aucune:
-                UndoToast.Instance?.ShowInfo("Loyer initialisé, sans révision.");
+                UndoToast.Instance?.ShowInfo("Loyer initialisé, sans révision." + infoPeriodicite);
                 gameObject.SetActive(false);
                 break;
             case TypeRevision.Paliers:
+                // Revue 17 (avenant de périodicité, finitions) : la date d'effet enregistrée est dite ici aussi (PaliersPanel ne
+                // dira ensuite que « Paliers enregistrés »).
+                if (effetPeriodicite.HasValue) UndoToast.Instance?.ShowInfo("Modalités du loyer enregistrées." + infoPeriodicite);
                 PaliersPanel.Open(_loc, _onSaved, this);   // avant de masquer : il cherche le canvas depuis ce panneau
                 gameObject.SetActive(false);
                 break;
             default:
+                // Revue 17 (avenant de périodicité, finitions) : la date d'effet enregistrée est dite ici aussi, comme dans les
+                // autres branches (avant : la fenêtre se rouvrait sur l'indice sans rien dire de la nouvelle périodicité).
+                if (effetPeriodicite.HasValue) UndoToast.Instance?.ShowInfo("Modalités du loyer enregistrées." + infoPeriodicite);
                 Open(_loc, _onSaved, Volet.Indice);   // l'indice vient d'être vidé : mode initialisation
                 break;
         }
@@ -1741,20 +2031,71 @@ public class RevisionPanel : MonoBehaviour
         for (int i = 0; i < 12; i++) if (_moisState[i]) _loc.moisFacturationLoyer.Add(i + 1);
 
         // Reprise de facturation (dernière période déjà facturée → échéance).
-        if (_repriseDD != null)
+        // Revue 16c (D7b-04) : la même échéance que les lignes du suivi (mois cochés, écrits juste avant), sinon la dernière
+        // période déclarée facturée restait « À faire » puis « Impayé ». Revue 17 (lot 15) : lue par RepriseChoisie, dans le plan
+        // qui vient d'être écrit (FacturationSuivi.EcheanceLoyer(_loc, y, per)) ; une période d'avant la date d'effet y garde son rang.
+        if (RepriseChoisie() is string reprise) _loc.repriseFacturationISO = reprise;
+    }
+
+    // ── Avenant de périodicité : la date d'effet (Revue 17, lot 15 ; décision du 05/11) ──
+
+    /// Les mois de facturation EFFECTIFS d'une périodicité : les mois cochés, sinon ceux d'office (MoisStandard) ; aucun en mensuel
+    /// (ils sont ignorés). C'est eux qu'on compare, pas la liste enregistrée : à l'ouverture, CocherMoisStandard coche janvier,
+    /// avril, juillet et octobre sur une fiche trimestrielle qui n'a aucun mois enregistré.
+    public static List<int> MoisEffectifs(Periodicite p, IEnumerable<int> coches)
+    {
+        if (p == Periodicite.mensuel) return new List<int>();
+        var tries = (coches ?? Enumerable.Empty<int>()).Where(m => m >= 1 && m <= 12).Distinct().OrderBy(m => m).ToList();
+        return tries.Count > 0 ? tries : MoisStandard(p);
+    }
+
+    /// Le calendrier des loyers change : une autre périodicité, ou d'autres mois de facturation effectifs.
+    public static bool CalendrierChange(Periodicite avant, IEnumerable<int> moisAvant, Periodicite apres, IEnumerable<int> moisApres)
+        => avant != apres || !MoisEffectifs(avant, moisAvant).SequenceEqual(MoisEffectifs(apres, moisApres));
+
+    // Le jour de demande saisi, tel qu'EcrireModalites va l'enregistrer.
+    int JourSaisi()
+    {
+        int.TryParse(_jourDemande != null ? _jourDemande.text : "", out int j);
+        return Mathf.Clamp(j, 0, 31);
+    }
+
+    /// La date d'effet est demandée : le calendrier des loyers change à l'écran, et la fiche a un passé de facturation (loyer déjà
+    /// facturé, reprise, périodicité déjà changée à une date). Sinon « Modifier » vaut pour tout le bail, sans date, comme avant.
+    bool AvenantPeriodiciteDemande()
+        => _loc != null && _volet == Volet.Initialisation
+           && CalendrierChange(_loc.periodiciteLoyer, _loc.moisFacturationLoyer, (Periodicite)periodiciteDropdown.value,
+                               Enumerable.Range(1, 12).Where(m => _moisState[m - 1]))
+           && Loyers.DateAvenantRequise(_loc);
+
+    /// Montre le bloc « Nouvelle périodicité à compter du » quand la date est demandée, et la propose : le jour de demande du loyer
+    /// du mois qui suit la dernière période facturée (Loyers.PremiereDateAvenant), ou d'après l'avenant de loyer saisi à côté. Le
+    /// champ suit la proposition (jour de demande ou avenant de loyer retouchés) tant qu'il n'a pas été retouché lui-même.
+    void RefreshAvenantPeriodicite()
+    {
+        if (_avenantPerBlockGO == null || _loc == null) return;
+        bool etait = _avenantPerBlockGO.activeSelf, demande = AvenantPeriodiciteDemande();
+        SetGO(_avenantPerBlockGO, demande);
+        if (!demande) return;
+
+        bool avecLoyer = _avenantBlockGO != null && _avenantBlockGO.activeSelf && _avenantToggle.isOn;
+        // Revue 17 (avenant de périodicité, finitions) : la reprise CHOISIE à l'écran, comme le refus de « Modifier » (avant : celle
+        // enregistrée ; une reprise plus tardive choisie au même écran faisait refuser la date proposée). Le menu de reprise rappelle
+        // cette méthode. « Aucune » choisie et rien d'autre de facturé : pas de proposition, la dernière reste suivie.
+        string reprise = RepriseChoisie();
+        var propose = Loyers.PremiereDateAvenant(_loc, JourSaisi(), avecLoyer && _avenantDate.LireDate(out var al) ? al : (DateTime?)null, reprise);
+        bool suit = ((!etait || _avenantPerAuto == null) && _avenantPerDate.Vide())   // jamais proposée : un champ vide n'a pas été retouché
+                    || (_avenantPerDate.LireDate(out var saisie) && saisie.ToString("yyyy-MM-dd") == _avenantPerAuto);
+        if (propose.HasValue) _avenantPerAuto = propose.Value.ToString("yyyy-MM-dd");
+        if (suit && propose.HasValue && !(_avenantPerDate.LireDate(out var deja) && deja == propose.Value))
         {
-            string id = _repriseDD.SelectedId;
-            if (string.IsNullOrEmpty(id)) _loc.repriseFacturationISO = "";
-            else
-            {
-                var parts = id.Split('-');   // « 2026-P2 »
-                if (parts.Length == 2 && int.TryParse(parts[0], out int y)
-                    && int.TryParse(parts[1].TrimStart('P', 'p'), out int per))
-                    // Revue 16c (D7b-04) : la même échéance que les lignes du suivi (mois cochés, écrits juste avant), sinon
-                    // la dernière période déclarée facturée restait « À faire » puis « Impayé ».
-                    _loc.repriseFacturationISO = FacturationSuivi.EcheanceLoyer(_loc, y, per).ToString("yyyy-MM-dd");
-            }
+            _avenantPerDate.ApplyDate(propose.Value);
+            _avenantPerDate.ModifyDate();
         }
+        _avenantPerAide.text = (Loyers.FactureJusquAu(_loc, out var ligne, reprise) is DateTime fin
+                ? $"Le loyer est déjà facturé jusqu'au {fin:dd/MM/yyyy} ({(ligne != null ? $"« {ligne.libelle} »" : "reprise de facturation")}) : "
+                  + "la nouvelle périodicité commence après. " : "")
+            + "Saisissez le jour de demande du loyer du mois où elle commence. Les loyers d'avant gardent l'ancienne périodicité.";
     }
 
     // Nombre max de mois sélectionnables selon la périodicité.
@@ -1811,7 +2152,50 @@ public class RevisionPanel : MonoBehaviour
         }
         for (int i = 0; i < 12; i++) RefreshChip(i);
         RefreshMoisVisibility();
-        RefreshRepriseOptions();
+        // Revue 17 (avenant de périodicité, lot 15) : une fiche qui a un passé de facturation propose les périodes de son plan
+        // enregistré, quelle que soit la périodicité à l'écran : rien à reconstruire (et la reprise choisie n'est pas perdue).
+        if (!Loyers.DateAvenantRequise(_loc)) RefreshRepriseOptions();
+        RefreshAvenantPeriodicite();
+        ConvertirProvisions();
+    }
+
+    // ── Provisions converties avec la périodicité (Revue 17, avenant de périodicité, lot 16 ; décision du 05/11) ──
+
+    /// La périodicité change à l'écran : la provision générale et celle de chaque liste, saisies « par période », sont converties
+    /// d'office (100 € par mois → 300 € par trimestre), d'après la valeur et la périodicité ENREGISTRÉES (Loyers.ProvisionConvertie),
+    /// pas d'après le champ affiché : les allers-retours dériveraient (100 € par trimestre → 33,33 € → 99,99 €). Un champ retouché
+    /// à la main n'est pas converti ; tous restent modifiables avant « Modifier ». Avant : montant gardé tel quel, soit 100 € par
+    /// trimestre au lieu de 300 €, vu seulement à la régularisation.
+    void ConvertirProvisions()
+    {
+        if (_loc == null) return;
+        var choisie = (Periodicite)periodiciteDropdown.value;
+        // Le champ à côté de la case garde son format d'ouverture (ToString simple) : revenu à la périodicité enregistrée, il retrouve son texte.
+        // Revue 17 (avenant de périodicité, finitions) : caché dès qu'une liste de charges existe (RefreshRegulVisibility), ce champ suit
+        // toujours la conversion : il ne compte pour le toast que s'il est à l'écran (avant : toast même quand rien de visible ne bougeait).
+        bool change = SuivreProvision(provisionValue, ProvCase,
+            Loyers.ProvisionConvertie(_loc.provisionPourChargeValue, _loc.periodiciteLoyer, choisie).ToString()) && ProvContainer().activeSelf;
+        foreach (var (id, _, prov) in _listesChamps)
+            change |= SuivreProvision(prov, id, TexteProvision(id == "" ? _loc.provisionPourChargeValue : ListesCharges.De(_loc, id)?.provision ?? 0f));
+        if (change && toggleProvisions.isOn)
+            UndoToast.Instance?.ShowInfo("Provisions pour charges converties à la nouvelle périodicité : vérifiez-les, elles restent modifiables.");
+    }
+
+    // Le champ suit la proposition tant qu'il la porte encore (pas retouché à la main). Vrai si son texte a changé.
+    bool SuivreProvision(TMP_InputField champ, string cle, string propose)
+    {
+        bool suit = champ != null && _provAuto.TryGetValue(cle, out string auto) && champ.text == auto && auto != propose;
+        if (suit) champ.text = propose;
+        _provAuto[cle] = propose;
+        return suit;
+    }
+
+    // Le texte d'une provision de liste pour la périodicité choisie à l'écran, d'après la valeur enregistrée ; vide à zéro, comme avant.
+    string TexteProvision(float enregistree)
+    {
+        float v = _loc == null ? enregistree
+                : Loyers.ProvisionConvertie(enregistree, _loc.periodiciteLoyer, (Periodicite)periodiciteDropdown.value);
+        return v > 0f ? v.ToString("0.##", CultureInfo.InvariantCulture) : "";
     }
 
     GameObject BuildMoisChips(Transform parent)
@@ -1839,6 +2223,7 @@ public class RevisionPanel : MonoBehaviour
                     if (c >= MaxMois()) return;   // limite atteinte pour cette périodicité
                 }
                 _moisState[idx] = !_moisState[idx]; RefreshChip(idx);
+                RefreshAvenantPeriodicite();   // Revue 17 (lot 15) : d'autres mois facturés, c'est un autre calendrier
             });
             _moisChips[idx] = b;
         }
@@ -1861,7 +2246,6 @@ public class RevisionPanel : MonoBehaviour
         loyer = 0f;
         bool ok = !string.IsNullOrWhiteSpace(loyerDepart.text)
                   && SaisieNumerique.TryParse(loyerDepart.text, out loyer);
-        if (!ok) statusText.text = "Loyer de départ invalide";
-        return ok;
+        return ok;   // Revue 17 (D7b-06, lot D) : le refus est dit au centre par l'appelant
     }
 }

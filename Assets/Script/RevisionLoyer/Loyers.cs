@@ -81,16 +81,22 @@ public static class Loyers
     /// Loyer annuel HT en vigueur à cette date : avant un avenant, le loyer de
     /// l'historique ; ensuite le palier qui la contient (le premier avant le début, le
     /// dernier après la fin — tacite prolongation), sinon le loyer courant.
-    public static float LoyerAnnuelA(Locataire loc, DateTime date)
+    public static float LoyerAnnuelA(Locataire loc, DateTime date) => LoyerAnnuelA(loc, date, PaliersTries(loc));
+
+    // Revue 17 (D7b-16, lot D) : les paliers triés par fin (null : pas de paliers en vigueur), une fois par MontantPeriode et non
+    // plus une fois par jour (tri et lecture des dates, 365 fois par locataire et par année du tableau de rentabilité).
+    static List<PalierLoyer> PaliersTries(Locataire loc)
+        => loc != null && loc.typeRevision == TypeRevision.Paliers && loc.paliers != null && loc.paliers.Count > 0
+            ? loc.paliers.OrderBy(Fin).ToList() : null;
+
+    static float LoyerAnnuelA(Locataire loc, DateTime date, List<PalierLoyer> tries)
     {
         if (loc == null) return 0f;
         if (Date(loc.debutConditionsISO, out var avenant) && date.Date < avenant.Date && loc.historiqueLoyers != null)
             foreach (var h in loc.historiqueLoyers)
                 if ((!Date(h.debutISO, out var hd) || hd.Date <= date.Date) && Date(h.finISO, out var hf) && date.Date <= hf.Date)
                     return h.loyer;
-        if (loc.typeRevision != TypeRevision.Paliers || loc.paliers == null || loc.paliers.Count == 0)
-            return loc.loyerAnnuel;
-        var tries = loc.paliers.OrderBy(Fin).ToList();
+        if (tries == null) return loc.loyerAnnuel;
         return tries[IndexEnVigueur(tries, date)].loyer;
     }
 
@@ -115,19 +121,25 @@ public static class Loyers
     /// entièrement non facturable (avant le bail, en franchise, après le départ).
     /// Au jour et non au mois (choix de l'utilisatrice, 01/10 : plus juste) — un mois
     /// de franchise sur un trimestre laisse donc 59/90 et non 2/3.
+    /// Revue 17 (avenant de périodicité, lot 14) : la période est celle du PLAN de l'année (FacturationSuivi.Periode) : ses bornes
+    /// facturées et SA périodicité, pas celle d'aujourd'hui. Coupée par un avenant de périodicité, elle est au prorata des MOIS
+    /// (décision du 05/11 : 2 mois sur 3 d'un trimestre à 3 000 € = 2 000 €), pour que l'année du changement fasse exactement le
+    /// loyer annuel ; départ, franchise et avenant de loyer restent au jour, à l'intérieur des mois facturés.
     public static float MontantPeriode(Locataire loc, int year, int periode)
     {
         if (loc == null) return 0f;
-        FacturationSuivi.PeriodeBornes(loc, year, periode, out var debut, out var fin);
+        var pp = FacturationSuivi.Periode(loc, year, periode);
+        DateTime debut = pp.debut, fin = pp.fin;
         var d0 = DebutFacturation(loc);
         if (d0 < debut) d0 = debut;
         var d1 = FinFacturation(loc);
         if (d1 > fin) d1 = fin;
         if (d0 > d1) return 0f;
-        int n = LoyerSummaryUI.NbPeriodes(loc.periodiciteLoyer);
+        int n = LoyerSummaryUI.NbPeriodes(pp.periodicite);
         double somme = 0;
-        for (var d = d0; d <= d1; d = d.AddDays(1)) somme += LoyerAnnuelA(loc, d);
-        return (float)Math.Round(somme / n / ((fin - debut).TotalDays + 1), 2);
+        var tries = PaliersTries(loc);   // Revue 17 (D7b-16, lot D) : triés une fois pour la période
+        for (var d = d0; d <= d1; d = d.AddDays(1)) somme += LoyerAnnuelA(loc, d, tries);
+        return (float)Math.Round(somme / n / ((fin - debut).TotalDays + 1) * pp.Part, 2);   // Part = 1 pour une période entière
     }
 
     /// Vrai si une facture est attendue pour la période : au moins un jour de loyer
@@ -141,12 +153,6 @@ public static class Loyers
         return fin >= depuis && debut <= FinFacturation(loc);
     }
 
-    /// Nombre de périodes de l'année qui reçoivent une facture. Chacune appelle la
-    /// provision ENTIÈRE (même partielle) : c'est ce que la régul déduit — départ le
-    /// 15/05 au trimestre → T1 et T2 = 2 provisions, et non 4.
-    public static int PeriodesFacturees(Locataire loc, int annee)
-        => Enumerable.Range(1, LoyerSummaryUI.NbPeriodes(loc.periodiciteLoyer)).Count(p => PeriodeFacturable(loc, annee, p));
-
     /// Vrai si la franchise couvre le début de la période (loyer nul ou partiel).
     public static bool EnFranchise(Locataire loc, int year, int periode)
     {
@@ -159,14 +165,69 @@ public static class Loyers
     /// pendant la franchise.
     public static bool AppelleProvisions(Locataire loc) => ListesCharges.ProvisionTotale(loc) > 0f;
 
-    /// Vrai si la date est le 1er jour d'une période de facturation du locataire.
-    public static bool EstDebutPeriode(Locataire loc, DateTime date)
+    // ── Provisions pour charges et périodicité (Revue 17, avenant de périodicité, lot 16) ──
+
+    /// La provision se saisit « par période de loyer » : d'une périodicité à l'autre elle garde la même somme par an (100 € par
+    /// mois → 300 € par trimestre → 600 € par semestre), au centime. Même périodicité : le montant tel quel.
+    public static float ProvisionConvertie(float montant, Periodicite de, Periodicite vers)
+        => de == vers ? montant
+         : (float)Math.Round(Tva.Centimes(montant) * LoyerSummaryUI.NbPeriodes(de) / LoyerSummaryUI.NbPeriodes(vers), 2, MidpointRounding.AwayFromZero);
+
+    /// La provision qu'une période de loyer appelle pour une liste de charges ("" : la générale), d'après la fiche : celle de la
+    /// fiche, qui vaut par période de la périodicité ACTUELLE, ramenée à la périodicité de la PÉRIODE (celle de sa tranche dans le
+    /// plan) : après un passage au trimestriel à 300 €, mai, encore mensuel, appelle 100 €. Une période coupée par l'avenant appelle
+    /// la provision ENTIÈRE de sa périodicité, comme une arrivée ou un départ (la régularisation corrige). Sans avenant de
+    /// périodicité : la provision de la fiche, comme avant.
+    public static float ProvisionPeriode(Locataire loc, int annee, int periode, string listeId)
+        => loc == null ? 0f
+         : ProvisionConvertie(ListesCharges.Provision(loc, listeId), loc.periodiciteLoyer, FacturationSuivi.PeriodiciteDe(loc, annee, periode));
+
+    /// Les provisions RÉELLEMENT appelées pour une liste ("" : la générale) sur une année : la somme, pour chaque période du plan
+    /// qui reçoit une facture (PeriodeFacturable), du montant imprimé sur son loyer quand il est connu (FactureEtat.provisionsConnues,
+    /// D6-07), sinon de celui de la fiche ramené à la périodicité de la période (ProvisionPeriode). C'est ce que la régularisation
+    /// déduit (D6-N5). Avant : provision de la fiche × nombre de périodes, soit 300 × 8 = 2 400 € l'année d'un passage du mensuel
+    /// (100 €) au trimestriel (300 €) au 1er juillet, pour 1 200 € appelés ; et une provision changée en cours d'année était
+    /// recomptée sur toute l'année.
+    /// ponytail: un loyer émis hors du plan (fiche changée sans date d'effet avant le lot 14) n'est pas compté ; le montant
+    /// proposé reste modifiable dans le formulaire.
+    public static float ProvisionsAppelees(Locataire loc, int annee, string listeId)
     {
-        if (date.Day != 1) return false;
-        int n = LoyerSummaryUI.NbPeriodes(loc.periodiciteLoyer);
-        for (int p = 1; p <= n; p++)
-            if (FacturationSuivi.MoisEcheance(loc, p) == date.Month) return true;
-        return false;
+        if (loc == null) return 0f;
+        decimal total = 0m;
+        for (int p = 1, n = FacturationSuivi.Plan(loc, annee).Count; p <= n; p++)
+        {
+            if (!PeriodeFacturable(loc, annee, p)) continue;
+            string cle = $"loyer-{annee}-P{p}";
+            var ligne = loc.facturesEtat?.Find(x => x != null && x.key == cle);
+            total += Tva.Centimes(ligne != null && ligne.provisionsConnues ? ProvisionImprimee(ligne, listeId) : ProvisionPeriode(loc, annee, p, listeId));
+        }
+        return (float)total;
+    }
+
+    // La provision imprimée sur un loyer pour une liste : la générale dans `provision`, les autres dans `provisionsListes`.
+    static float ProvisionImprimee(FactureEtat ligne, string listeId)
+        => string.IsNullOrEmpty(listeId) ? ligne.provision
+         : ligne.provisionsListes?.Find(m => m != null && m.listeId == listeId)?.montant ?? 0f;
+
+    /// Vrai si la date est le 1er jour d'une période de facturation du locataire.
+    /// Revue 17 (avenant de périodicité, lot 14) : une période du plan de cette année-là (la périodicité qui valait alors).
+    public static bool EstDebutPeriode(Locataire loc, DateTime date)
+        => date.Day == 1 && FacturationSuivi.Plan(loc, date.Year).Any(p => p.debut == date.Date);
+
+    /// Revue 17 (D7b-17, lot D) : avec cette périodicité et ces mois (et la date d'effet d'un avenant de périodicité ; null sans),
+    /// une fin de palier autre que la fin du bail ne serait plus la veille d'un début de période : la période serait à cheval sur
+    /// deux paliers (prorata au jour) et le formulaire du palier ne retrouverait plus sa fin. Calculé sur une copie : la fiche ne
+    /// change pas.
+    public static bool PaliersDesalignesApres(Locataire loc, Periodicite periodicite, List<int> mois, DateTime? effet)
+    {
+        if (loc?.paliers == null || loc.paliers.Count == 0) return false;
+        var copie = UnityEngine.JsonUtility.FromJson<Locataire>(UnityEngine.JsonUtility.ToJson(loc));
+        if (effet.HasValue) EnregistrerAvenantPeriodicite(copie, effet.Value);
+        copie.periodiciteLoyer = periodicite;
+        copie.moisFacturationLoyer = new List<int>(mois ?? new List<int>());
+        var finBail = Date(copie.dateFinBailISO, out var fb) ? fb.Date : DateTime.MaxValue;
+        return copie.paliers.Any(p => Date(p?.finISO, out var f) && f.Year < 9999 && f.Date != finBail
+                                      && !EstDebutPeriode(copie, f.Date.AddDays(1)));
     }
 
     // ── Paliers ────────────────────────────────────────────────────────────────
@@ -341,6 +402,141 @@ public static class Loyers
             });
 
         loc.debutConditionsISO = Iso(effet);
+    }
+
+    /// Revue 17 (avenant de périodicité, lot 14) : avenant de périodicité à la date `effet`, le jour de demande du loyer d'un mois
+    /// (décision du 05/11) : la nouvelle périodicité vaut à partir du 1er de ce mois. La périodicité et les mois cochés en vigueur
+    /// jusqu'à la veille passent dans l'historique (Locataire.historiquePeriodicites), comme le loyer dans EnregistrerAvenant : un
+    /// historique qui débordait (avenant antidaté) est recoupé, une tranche vide (bail pas encore commencé, conditions actuelles
+    /// entièrement après la date) est ignorée. À appeler AVANT d'écrire la nouvelle périodicité et les nouveaux mois cochés (on
+    /// lit ici ceux encore en place), et APRÈS les refus de l'écran : une date d'effet ne passe jamais avant une période déjà
+    /// facturée, sinon des rangs de clés déjà utilisés changeraient de sens (FacturationSuivi.Plan).
+    public static void EnregistrerAvenantPeriodicite(Locataire loc, DateTime effet)
+    {
+        if (loc == null) return;
+        var veille = new DateTime(effet.Year, effet.Month, 1).AddDays(-1);
+        DateTime FinDe(PeriodiciteAnterieure t) => Date(t.finISO, out var f) ? f.Date : DateTime.MaxValue;
+
+        var garde = new List<PeriodiciteAnterieure>();
+        bool couverte = false;   // la veille tombe déjà dans une tranche de l'historique
+        foreach (var h in (loc.historiquePeriodicites ?? new List<PeriodiciteAnterieure>())
+                          .Where(x => x != null && Date(x.finISO, out _)).OrderBy(x => FinDe(x)).ToList())
+        {
+            if (couverte) break;                                                   // tranche entièrement après l'avenant : retirée
+            if (FinDe(h) >= veille) { h.finISO = Iso(veille); couverte = true; }   // avenant antidaté : tranche recoupée
+            garde.Add(h);
+        }
+        // Les conditions encore en place valaient depuis la fin de la dernière tranche (ou depuis toujours) jusqu'à la veille.
+        // Tranche vide : la veille est déjà couverte (elles commençaient après), ou le bail n'avait pas commencé.
+        bool avantLeBail = DebutPremierBail(loc, out var bail) && bail.Date > veille;
+        // Revue 17 (avenant de périodicité, finitions) : les tranches gardées finissent toutes au plus tard la veille : si le bail
+        // commence après, aucune n'a jamais valu. Avant, la tranche recoupée d'un avenant antidaté jusqu'au premier mois du bail
+        // restait, et le plan n'était pas celui d'un avenant saisi directement à cette date.
+        if (avantLeBail) garde.Clear();
+        if (!couverte && !avantLeBail)
+            garde.Add(new PeriodiciteAnterieure
+            {
+                finISO = Iso(veille),
+                periodicite = loc.periodiciteLoyer,
+                mois = new List<int>(loc.moisFacturationLoyer ?? new List<int>()),
+            });
+        loc.historiquePeriodicites = garde;
+    }
+
+    // ── Avenant de périodicité : la date d'effet (Revue 17, lot 15 ; décision du 05/11) ──
+
+    /// Jusqu'où le loyer est déjà facturé : la fin de la dernière période de loyer touchée, et sa ligne (null : la reprise de
+    /// facturation). Touchée = une facture de CIPL (numéro et PDF, même remise en automatique) ou un état posé (« Payé » mis à la
+    /// main, en attente d'envoi, bloquée « À faire ») : l'état STOCKÉ, pas l'état calculé, que le menu de la pastille peut défaire.
+    /// La reprise de facturation compte : ses périodes ont été facturées hors de CIPL (`repriseISO` : celle choisie à l'écran,
+    /// "" = aucune ; null = celle de la fiche). La période se lit dans le plan en place, AVANT le changement ; une ligne émise sous
+    /// une autre périodicité que celle de sa période (fiche changée sans date, D4-04) se lit sur elle-même : sa périodicité, à
+    /// partir du mois de son échéance (mars émis en mensuel n'est pas le 3e trimestre). Null : rien n'est facturé.
+    public static DateTime? FactureJusquAu(Locataire loc, out FactureEtat ligne, string repriseISO = null)
+    {
+        ligne = null;
+        if (loc == null) return null;
+        DateTime? fin = null;
+        foreach (var l in loc.facturesEtat ?? new List<FactureEtat>())
+        {
+            if (l == null || !DepartLocataire.LirePeriode(l.key, out int annee, out int periode) || annee < 2 || annee > 9998) continue;   // « loyer-2026-P3 »
+            if (string.IsNullOrEmpty(l.statut) && (string.IsNullOrEmpty(l.numero) || string.IsNullOrEmpty(l.pdfPath))) continue;
+            DateTime f;
+            // ponytail: le mois de l'échéance imprimée tient lieu de début de période ; une échéance retapée dans un autre mois
+            // décale d'autant (cas des seules fiches changées sans date). À lire sur le libellé si cela arrive.
+            if (!string.IsNullOrEmpty(l.periodicite) && l.periodicite != FacturationSuivi.PeriodiciteDe(loc, annee, periode).ToString()
+                && Enum.TryParse(l.periodicite, out Periodicite sienne) && Date(l.echeanceISO, out var ech))
+                f = new DateTime(ech.Year, ech.Month, 1).AddMonths(12 / LoyerSummaryUI.NbPeriodes(sienne)).AddDays(-1);
+            else FacturationSuivi.PeriodeBornes(loc, annee, periode, out _, out f);
+            if (fin == null || f > fin.Value) { fin = f; ligne = l; }
+        }
+        if (Date(repriseISO ?? loc.repriseFacturationISO, out var reprise))
+            for (int y = reprise.Year; y >= reprise.Year - 1; y--)   // l'an d'avant : une période à cheval sur le 1er janvier
+                foreach (var p in FacturationSuivi.Plan(loc, y))
+                    if (p.debut <= reprise.Date && reprise.Date <= p.fin && (fin == null || p.fin > fin.Value)) { fin = p.fin; ligne = null; }
+        return fin;
+    }
+
+    /// La date d'effet d'un changement de périodicité est demandée : un loyer est déjà facturé (FactureJusquAu), ou la périodicité
+    /// a déjà changé à une date (les périodes d'avant sont figées). Sinon le changement vaut pour tout le bail, sans date, comme avant.
+    public static bool DateAvenantRequise(Locataire loc)
+        => FactureJusquAu(loc, out _) != null || FinHistoriquePeriodicites(loc) != null;
+
+    static DateTime? FinHistoriquePeriodicites(Locataire loc)
+    {
+        DateTime? fin = null;
+        foreach (var h in loc?.historiquePeriodicites ?? new List<PeriodiciteAnterieure>())
+            if (h != null && Date(h.finISO, out var f) && (fin == null || f.Date > fin.Value)) fin = f.Date;
+        return fin;
+    }
+
+    // Le jour de demande du loyer dans le mois de `mois` (« Loyer demandé le 5 du mois » → le 5 ; le 31 en février : le 28 ou le 29).
+    static DateTime JourDemande(DateTime mois, int jour)
+        => new DateTime(mois.Year, mois.Month, Math.Min(Math.Max(jour, 1), DateTime.DaysInMonth(mois.Year, mois.Month)));
+
+    /// La date d'effet proposée (décision du 05/11) : le jour de demande du loyer (`jour`) du mois qui suit la dernière période
+    /// facturée (à défaut, la dernière périodicité d'avant). `avenantLoyer` : la date d'un avenant de loyer saisi en même temps :
+    /// son mois s'il commence le 1er, sinon le mois suivant (la périodicité change par mois entiers), quand c'est plus tard.
+    /// Null : pas de date à demander (DateAvenantRequise faux).
+    /// Revue 17 (avenant de périodicité, finitions) : `repriseISO` : la reprise choisie à l'écran (voir FactureJusquAu), comme le
+    /// refus. Avant, la date proposée lisait la reprise enregistrée : une reprise plus tardive choisie au même écran la faisait refuser.
+    public static DateTime? PremiereDateAvenant(Locataire loc, int jour, DateTime? avenantLoyer = null, string repriseISO = null)
+    {
+        var fin = FactureJusquAu(loc, out _, repriseISO) ?? FinHistoriquePeriodicites(loc);
+        if (fin == null) return null;
+        var d = JourDemande(fin.Value.AddDays(1), jour);
+        if (avenantLoyer is DateTime a)
+        {
+            var da = JourDemande(a.Day == 1 ? a : a.AddMonths(1), jour);
+            if (da > d) d = da;
+        }
+        return d;
+    }
+
+    /// Refus d'une date d'effet (décision du 05/11), ou null. Son mois vient après la dernière période déjà facturée (aucun mois
+    /// facturé n'est reproposé, et aucun rang de clé « loyer-{année}-P{n} » déjà utilisé ne change de sens : FacturationSuivi.Plan),
+    /// et elle est le jour de demande du loyer de ce mois (`jour` : celui de l'écran, qui va être enregistré). `repriseISO` : la
+    /// reprise choisie à l'écran (voir FactureJusquAu). À appeler AVANT toute écriture (EnregistrerAvenantPeriodicite compris).
+    public static string RefusAvenantPeriodicite(Locataire loc, DateTime effet, int jour, string repriseISO = null)
+    {
+        effet = effet.Date;
+        if (FactureJusquAu(loc, out var ligne, repriseISO) is DateTime fin && new DateTime(effet.Year, effet.Month, 1) <= fin)
+        {
+            bool aLaMain = ligne != null && (string.IsNullOrEmpty(ligne.numero) || string.IsNullOrEmpty(ligne.pdfPath));
+            // Revue 17 (avenant de périodicité, finitions) : un loyer seulement PRÉPARÉ (numéro et PDF, pas encore parti : en attente
+            // d'envoi, bloqué « À faire » ou remis en automatique) repousse aussi la date : « déjà facturé » surprenait, le refus dit
+            // quoi comprendre. Pas un loyer parti puis retiré du suivi (retireApresEnvoi) : lui a été reçu.
+            bool prepare = ligne != null && !aLaMain && !ligne.retireApresEnvoi
+                           && (string.IsNullOrEmpty(ligne.statut) || ligne.statut == "AttenteEnvoi" || ligne.statut == "AFaire");
+            return $"Le loyer est déjà facturé jusqu'au {fin:dd/MM/yyyy} ({(ligne != null ? $"« {ligne.libelle} »" : "reprise de facturation")}) : "
+                 + $"la nouvelle périodicité peut commencer le {JourDemande(fin.AddDays(1), jour):dd/MM/yyyy} ou après."
+                 + (aLaMain ? " Cet état a été mis à la main : pour libérer la ligne, rallumez son bouton « Auto » dans le suivi." : "")
+                 + (prepare ? " Ce loyer est déjà préparé : il garde sa période, la nouvelle périodicité commence après lui." : "");
+        }
+        var attendu = JourDemande(effet, jour);
+        return effet == attendu ? null
+             : $"La nouvelle périodicité commence le jour où le loyer est demandé (le {(jour <= 1 ? "1er" : jour.ToString())} du mois) : "
+             + $"saisissez le {attendu:dd/MM/yyyy}.";
     }
 
     // ── Loyer selon le chiffre d'affaires ─────────────────────────────────────

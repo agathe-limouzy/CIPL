@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Threading.Tasks;
@@ -21,25 +22,24 @@ public static class CloudClient
     {
         public string access_token;
         public string refresh_token;
-        public long expires_at;          // secondes Unix
+        public long expires_in;          // secondes de validité à la réception
         public Utilisateur user;
 
-        public DateTime ExpireLe => DateTimeOffset.FromUnixTimeSeconds(expires_at).LocalDateTime;
+        // Revue 17 (D1-10) : l'expiration est calculée à la réception avec l'horloge de CE PC (maintenant + expires_in),
+        // plus avec expires_at (horloge du serveur) : un PC en retard de 5 min présentait un jeton expiré à chaque heure.
+        // Sans réception (session reprise hors ligne) : valeur minimale, le jeton est renouvelé au premier appel.
+        [NonSerialized] public DateTime ExpireLe;
         public bool Valide => !string.IsNullOrEmpty(access_token) && user != null && !string.IsNullOrEmpty(user.id);
     }
 
-    /// Réponse de essai_prendre_verrou : qui détient la fiche, et si c'est nous.
+    /// Réponse de prendre_verrou : qui détient la fiche, et si c'est nous.
     [Serializable] public class Verrou { public bool obtenu; public string nom, motif, pris_le, expire_le; }
-
-    /// Ligne de la table essai_fiches (essai technique seulement).
-    [Serializable] public class FicheEssai { public string id; public double loyer; public string maj_par; public int version; }
 
     public class Reponse { public bool Ok; public long Code; public string Corps = ""; public string Erreur = ""; }
 
     [Serializable] class Identifiants { public string email, password; }
     [Serializable] class Renouvellement { public string refresh_token; }
     [Serializable] class ErreurApi { public string msg, message, error_description, error; }
-    [Serializable] class Fiches { public FicheEssai[] items; }
 
     // ── Appels ─────────────────────────────────────────────────────────────────
 
@@ -121,8 +121,10 @@ public static class CloudClient
 
     /// Étape 16b : fonction serveur qui répond par un fichier (l'image d'une carte). Les octets sont
     /// rendus aussi quand elle répond un refus en JSON avec un statut 200.
+    /// Revue 17 (D1-17, lot D) : `fonction: true`, comme FonctionServeur : un délai dépassé (carte lente, envoi Super PDP
+    /// de plus de 120 s) n'est pas une panne du cloud, CIPL ne passe pas « Hors ligne ».
     public static Task<(Reponse rep, byte[] octets)> FonctionBrute(string url, string cle, string jeton, string nom, string corpsJson) =>
-        EnvoyerBrut("POST", url + "/functions/v1/" + nom, cle, jeton, Encoding.UTF8.GetBytes(corpsJson));
+        EnvoyerBrut("POST", url + "/functions/v1/" + nom, cle, jeton, Encoding.UTF8.GetBytes(corpsJson), fonction: true);
 
     /// Même chose avec des paramètres déjà en JSON (quand l'un d'eux est un objet JSON de CIPL).
     public static Task<Reponse> FonctionJson(string url, string cle, string jeton, string nom, string corpsJson) =>
@@ -134,6 +136,92 @@ public static class CloudClient
                                       string filtre, string corpsJson = null) =>
         Envoyer(methode, url + "/rest/v1/" + table + (string.IsNullOrEmpty(filtre) ? "" : "?" + filtre),
                 cle, jeton, corpsJson, "return=representation");
+
+    // ── Revue 17 (D2-06, lot D) : lire une table en entier, page après page ────
+    // Une lecture seule est plafonnée par le serveur (« Max rows », 1 000 lignes par défaut sur Supabase), sans le dire :
+    // au-delà, la liste des documents était tronquée, des suppressions étaient défaites et des documents n'arrivaient jamais.
+
+    const int PageTable = 1000;
+
+    /// Toutes les lignes d'une table. Même `filtre` que Table("GET", …) ; il DOIT porter un `order=` total (clé unique),
+    /// sans quoi deux pages peuvent se recouvrir ou sauter une ligne. L'offset avance du nombre de lignes RÉELLEMENT
+    /// reçues (le plafond du serveur peut être plus bas que la page demandée) ; la lecture s'arrête sur une page vide.
+    /// La lecture n'est pas instantanée, même avec un ordre total : une ligne insérée par un collègue entre deux pages,
+    /// rangée avant la fin, fait revenir une ligne déjà lue (doublon). L'APPELANT DÉDOUBLE PAR CLÉ. Une ligne supprimée
+    /// entre deux pages pleines peut en faire sauter une (jamais pour documents : aucune ligne n'y est supprimée).
+    /// Rend Ok avec Corps = un seul tableau JSON. Une page en échec ou illisible : la réponse est en échec, JAMAIS une
+    /// liste partielle (elle ferait croire que le serveur n'a plus des documents, ou qu'un collègue a supprimé des fiches).
+    public static async Task<Reponse> TableTout(string url, string cle, string jeton, string table, string filtre)
+    {
+        var pages = new List<string>();
+        int offset = 0;
+        // ponytail: 10 000 pages au plus (un serveur qui ignorerait l'offset tournerait sans fin) ; au-delà, échec.
+        for (int page = 0; page < 10000; page++)
+        {
+            var r = await Table("GET", url, cle, jeton, table, filtre + "&limit=" + PageTable + "&offset=" + offset);
+            if (!r.Ok) return r;
+            int n = CompterElements(r.Corps);
+            if (n < 0) return new Reponse { Ok = false, Code = r.Code, Corps = r.Corps, Erreur = "liste illisible (réponse inattendue du serveur)" };
+            if (n == 0)
+            {
+                string tout = FusionnerPages(pages);
+                return tout != null ? new Reponse { Ok = true, Code = r.Code, Corps = tout }
+                                    : new Reponse { Ok = false, Code = r.Code, Erreur = "liste illisible (réponse inattendue du serveur)" };
+            }
+            pages.Add(r.Corps);
+            offset += n;
+        }
+        return new Reponse { Ok = false, Code = 200, Erreur = "liste trop longue (lecture abandonnée)" };
+    }
+
+    /// Nombre d'éléments d'un tableau JSON, sans le décoder en objets (les chaînes et leurs échappements sont respectés :
+    /// une virgule ou un crochet dans un nom de fichier ne compte pas) ; -1 si le texte n'est pas un tableau JSON entier.
+    public static int CompterElements(string json)
+    {
+        if (json == null) return -1;
+        int i = 0, fin = json.Length;
+        while (i < fin && char.IsWhiteSpace(json[i])) i++;
+        if (i >= fin || json[i] != '[') return -1;
+        int profondeur = 0, virgules = 0;
+        bool chaine = false, contenu = false;
+        for (; i < fin; i++)
+        {
+            char c = json[i];
+            if (chaine)
+            {
+                if (c == '\\') i++;            // le caractère échappé (« \" », « \\ ») ne ferme rien
+                else if (c == '"') chaine = false;
+                continue;
+            }
+            if (c == '"') { chaine = true; contenu = true; }
+            else if (c == '[' || c == '{') { if (profondeur++ > 0) contenu = true; }
+            else if (c == ']' || c == '}')
+            {
+                if (--profondeur > 0) continue;
+                for (i++; i < fin; i++) if (!char.IsWhiteSpace(json[i])) return -1;   // rien après le tableau
+                return c == ']' ? virgules + (contenu ? 1 : 0) : -1;
+            }
+            else if (c == ',') { if (profondeur == 1) virgules++; }
+            else if (!char.IsWhiteSpace(c)) contenu = true;
+        }
+        return -1;   // tableau ou chaîne jamais fermé (réponse coupée)
+    }
+
+    /// Plusieurs tableaux JSON en un seul, dans l'ordre ; null si une page n'est pas un tableau (jamais de liste partielle).
+    public static string FusionnerPages(IEnumerable<string> pages)
+    {
+        var sb = new StringBuilder("[");
+        foreach (var p in pages)
+        {
+            string t = (p ?? "").Trim();
+            if (t.Length < 2 || t[0] != '[' || t[t.Length - 1] != ']') return null;
+            t = t.Substring(1, t.Length - 2).Trim();
+            if (t.Length == 0) continue;
+            if (sb.Length > 1) sb.Append(',');
+            sb.Append(t);
+        }
+        return sb.Append(']').ToString();
+    }
 
     /// Insère des lignes (tableau JSON) ; une ligne déjà présente (même clé) est laissée
     /// telle quelle. Un import interrompu peut ainsi être relancé sans doublon.
@@ -163,11 +251,15 @@ public static class CloudClient
     public static Task<Reponse> Sonder(string url, string cle, int timeout = 15) => Envoyer("GET", url + "/auth/v1/health", cle, null, null, timeout: timeout);
 
     /// « Se déconnecter » (revue 16c, D3-13) : la session est aussi close côté serveur ; résultat ignoré.
-    public static Task<Reponse> Deconnecter(string url, string cle, string jeton) => Envoyer("POST", url + "/auth/v1/logout", cle, jeton, null);
+    /// Revue 17 (D1-03) : `scope=local`, la session de CE PC seulement ; sans lui, Supabase fermait celles de tous les PC
+    /// de la personne, qui ne l'apprenaient que par des « HTTP 401 » en chaîne.
+    public static Task<Reponse> Deconnecter(string url, string cle, string jeton) => Envoyer("POST", url + "/auth/v1/logout?scope=local", cle, jeton, null);
 
     static Reponse SansReseau() => new Reponse { Ok = false, Code = 0, Erreur = "Serveur injoignable (hors ligne simulé)" };
 
-    static async Task<(Reponse rep, byte[] octets)> EnvoyerBrut(string methode, string adresse, string cle, string jeton, byte[] corps)
+    /// `fonction` (Revue 17, D1-17, lot D) : même drapeau que dans Envoyer (D1-12 de la 16c), il manquait ici.
+    static async Task<(Reponse rep, byte[] octets)> EnvoyerBrut(string methode, string adresse, string cle, string jeton, byte[] corps,
+                                                                bool fonction = false)
     {
         if (HorsLigne.Simulee) { HorsLigne.Constater(false, 0); return (SansReseau(), null); }
         using (var r = new UnityWebRequest(adresse, methode) { downloadHandler = new DownloadHandlerBuffer() })
@@ -187,7 +279,7 @@ public static class CloudClient
 
             var rep = new Reponse { Code = r.responseCode, Ok = r.result == UnityWebRequest.Result.Success };
             if (!rep.Ok) { rep.Corps = r.downloadHandler?.text ?? ""; rep.Erreur = LireErreur(r.responseCode, rep.Corps, r.error); }
-            HorsLigne.Constater(rep.Ok, rep.Code);
+            HorsLigne.Constater(rep.Ok, rep.Code, fonction);
             return (rep, rep.Ok ? r.downloadHandler?.data : null);
         }
     }
@@ -226,20 +318,19 @@ public static class CloudClient
 
     public static Session LireSession(string json)
     {
-        try { var s = JsonUtility.FromJson<Session>(json); return s != null && s.Valide ? s : null; }
+        try
+        {
+            var s = JsonUtility.FromJson<Session>(json);
+            if (s == null || !s.Valide) return null;
+            s.ExpireLe = DateTime.Now.AddSeconds(s.expires_in);   // Revue 17 (D1-10)
+            return s;
+        }
         catch { return null; }
     }
 
     public static Verrou LireVerrou(string json)
     {
         try { return JsonUtility.FromJson<Verrou>(json); }
-        catch { return null; }
-    }
-
-    /// PostgREST renvoie un tableau ; JsonUtility ne lit qu'un objet, d'où l'enveloppe.
-    public static FicheEssai[] LireFiches(string jsonTableau)
-    {
-        try { return JsonUtility.FromJson<Fiches>("{\"items\":" + jsonTableau + "}")?.items; }
         catch { return null; }
     }
 

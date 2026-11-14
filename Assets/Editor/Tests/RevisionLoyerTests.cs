@@ -277,7 +277,7 @@ public class RevisionLoyerTests
     // ── Suivi ──────────────────────────────────────────────────────────────────
 
     static FacturationSuivi.Etat EtatLoyer(Locataire loc, int year, int p)
-        => FacturationSuivi.EtatDe(FacturationSuivi.Lignes(loc, year).Find(x => x.key == $"loyer-{year}-P{p}"));
+        => FacturationSuivi.EtatDe(FacturationSuivi.Lignes(loc, year).Find(x => x.key == $"loyer-{year}-P{p}"), null);
 
     [Test]
     public void Les_periodes_en_franchise_sont_grisees_Franchise()
@@ -327,7 +327,7 @@ public class RevisionLoyerTests
 
         Assert.That(ligne, Is.Not.Null);
         Assert.That(ligne.montant, Is.EqualTo(3000f));
-        Assert.That(FacturationSuivi.EtatDe(ligne), Is.EqualTo(FacturationSuivi.Etat.Envoye));
+        Assert.That(FacturationSuivi.EtatDe(ligne, null), Is.EqualTo(FacturationSuivi.Etat.Envoye));
     }
 
     [Test]
@@ -336,7 +336,7 @@ public class RevisionLoyerTests
         var loc = Bail();
         FacturationSuivi.AjouterDepotInitial(loc, 3000f, "", DateTime.Today);
         var ligne = FacturationSuivi.Lignes(loc, DateTime.Today.Year).Find(x => x.key == FacturationSuivi.CleDepotInitial);
-        Assert.That(FacturationSuivi.EtatDe(ligne), Is.EqualTo(FacturationSuivi.Etat.AFaire));
+        Assert.That(FacturationSuivi.EtatDe(ligne, null), Is.EqualTo(FacturationSuivi.Etat.AFaire));
     }
 
     // ── Loyer selon le chiffre d'affaires (01/10) ─────────────────────────────

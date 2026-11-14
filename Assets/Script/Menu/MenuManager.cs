@@ -161,6 +161,7 @@ public class MenuManager : MonoBehaviour
       
 
         var prefab = BatimentManager.Instance.AddBatiment(true);
+        if (prefab == null) return;   // Revue 17 (D7a-18, lot D) : refusé hors ligne ou en lecture seule, message déjà au centre
         CreateTab(prefab);
         OnSelect(prefab, true);
 
@@ -181,6 +182,7 @@ public class MenuManager : MonoBehaviour
 
     public void CreateTab(PrefabBatLoc prefabBatLoc)
     {
+        if (prefabBatLoc == null) return;   // Revue 17 (D7a-18, lot D) : un ajout refusé (AddBatiment rend null), aussi depuis l'accueil
 
         var go = Instantiate(tabItemPrefab, ContentItem.transform);
         var tab = go.GetComponent<MenuItem>();
@@ -196,6 +198,7 @@ public class MenuManager : MonoBehaviour
 
     public void OnSelect(PrefabBatLoc prefabSelected, bool needToModify = false)
     {
+        if (prefabSelected == null) return;   // Revue 17 (D7a-18, lot D) : voir CreateTab
         if (IsMenuBatiment)
         {
             // Cache le menu général si visible

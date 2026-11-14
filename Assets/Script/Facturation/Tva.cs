@@ -31,6 +31,43 @@ public static class Tva
         return r != null && r.tauxTva > 0f ? r.tauxTva : TauxDefaut;
     }
 
+    /// Revue 17 (D5-08, lot 10) : la ligne visée est une facture PARTIE (envoyée, impayée ou payée : le test de
+    /// FactureLoyerPanel.ProvisionProposee) : le formulaire la corrige, et ce qu'il propose vient d'elle.
+    public static bool FacturePartie(FactureEtat ligne)
+    {
+        if (ligne == null) return false;
+        var e = FacturationSuivi.EtatDe(ligne, null);   // sans locataire (D4-05) : « Envoyé » ou « Impayé », la réponse est la même
+        // Finitions de la vague 3 (10/11) : un état « Payé », « Envoyé » ou « Impayé » posé à la main, sans PDF, n'est pas une facture :
+        // l'émission en fera une facture neuve (FacturationSuivi.EstDejaEmise). Avant : son taux d'office (20 %) était proposé, même sur un bail exonéré.
+        return (e == FacturationSuivi.Etat.Envoye || e == FacturationSuivi.Etat.Impaye || e == FacturationSuivi.Etat.Paye) && !string.IsNullOrEmpty(ligne.pdfPath);
+    }
+
+    /// Revue 17 (D5-08, lot 10 ; D5-N7) : le taux que propose un formulaire : pour la correction d'une facture partie, celui imprimé
+    /// sur sa dernière version (ligne.tauxTva, 0 compris : une facture exonérée se corrige exonérée, et un bail devenu exonéré ne
+    /// force plus 0) ; sinon Taux(loc, f). Avant : le taux du jour, sans le dire (rectificative à 10 % sur une période taxée à 20 %).
+    public static float TauxPropose(Locataire loc, FactureInfo f, FactureEtat ligneCiblee, ReglageData r = null)
+        => FacturePartie(ligneCiblee) ? ligneCiblee.tauxTva : Taux(loc, f, r);
+
+    /// Revue 17 (D5-17, coutures) : les taux de TVA courants : 20, 10, 5,5 et 2,1 (métropole), 8,5 (taux normal des DOM) ; 0 = sans TVA.
+    /// Un autre taux n'est pas refusé (Corse, cas particuliers) : il se confirme (ConfirmerTaux).
+    public static bool TauxConnu(float t) => Array.Exists(new[] { 0f, 20f, 10f, 8.5f, 5.5f, 2.1f }, x => Mathf.Abs(x - t) < 0.001f);
+
+    /// Le taux saisi est-il à confirmer ? Un taux inhabituel (« 2 » tapé pour « 20 »), sauf s'il est déjà en place (`enPlace` : le taux
+    /// enregistré, ou celui que le formulaire proposait) : il a déjà été confirmé. Avant : tout nombre positif passait sans un mot.
+    public static bool TauxAConfirmer(float taux, float enPlace) => !TauxConnu(taux) && Mathf.Abs(taux - enPlace) > 0.001f;
+
+    /// La même règle aux trois niveaux (entreprise : Réglages ; bail : Gestion du loyer ; facture : loyer, régularisation, refacturation) :
+    /// un taux à confirmer ouvre une confirmation, et `suite` s'exécute au « Confirmer ce taux » ; « Annuler » laisse l'écran ouvert avec
+    /// la saisie, rien n'est enregistré ni émis. Sinon `suite` tout de suite.
+    public static void ConfirmerTaux(float taux, float enPlace, Action suite)
+    {
+        if (!TauxAConfirmer(taux, enPlace) || ConfirmDialog.Instance == null) { suite(); return; }
+        ConfirmDialog.Instance.Show("Taux de TVA inhabituel",
+            $"Le taux de TVA saisi est de {taux.ToString("0.##", FacturePdfService.FrCulture)} %. Les taux courants sont 20, 10, 8,5, 5,5 et 2,1 %.\n\n"
+            + "Confirmez ce taux, ou annulez pour le corriger.",
+            suite, "Confirmer ce taux");
+    }
+
     /// Revue 17 (D5-03) : la TVA se calcule en décimal, arrondie au centime « au plus loin », exactement comme le XML de la
     /// plateforme (FactureEn16931) : en float, un demi-centime s'arrondissait au pair (1 234,45 € à 10 % : 123,44 € sur le PDF,
     /// 123,45 € dans le XML).

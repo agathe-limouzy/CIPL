@@ -11,8 +11,37 @@ public static class RegleVersion
     public enum Etat { AJour, Proposee, Obligatoire }
 
     /// version.json. `mac` : le lien de la version Mac, vide tant qu'elle n'existe pas (étape 15b).
+    /// Revue 17 (D8-11, lot D) : `sha256` : l'empreinte de l'installeur Windows, écrite par ConstruireInstalleur ; absente des
+    /// version.json publiés avant.
     [Serializable]
-    public class Fichier { public string version, minimale, windows, mac; }
+    public class Fichier { public string version, minimale, windows, mac, sha256; }
+
+    // ── Revue 17 (D8-11, lot D) : l'installeur téléchargé est contrôlé avant d'être lancé, puis effacé ──
+
+    const string PrefixeInstalleur = "CIPL-installation-";
+
+    /// Le nom de l'installeur téléchargé dans le dossier temporaire, et le motif de ceux qu'un lancement de CIPL y efface
+    /// (chaque mise à jour laissait le sien : l'application entière à chaque version).
+    public static string NomInstalleur(string version) => PrefixeInstalleur + version + ".exe";
+    public const string MotifInstalleurs = PrefixeInstalleur + "*.exe";
+
+    /// SHA-256 en hexadécimal ; par flux : l'installeur n'est pas chargé en mémoire.
+    public static string Empreinte(System.IO.Stream contenu)
+    {
+        using (var sha = System.Security.Cryptography.SHA256.Create())
+            return BitConverter.ToString(sha.ComputeHash(contenu)).Replace("-", "").ToLowerInvariant();
+    }
+
+    /// Une réponse « 200 » qui n'est pas l'installeur (proxy d'entreprise, portail Wi-Fi) était lancée, échouait, et le lancement
+    /// suivant accusait Windows. Empreinte absente de version.json (publié avant ce contrôle) : accepté ; présente et différente : refusé.
+    public static bool InstalleurValide(string empreinte, string attendue) =>
+        string.IsNullOrWhiteSpace(attendue) || string.Equals(empreinte, attendue.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    public const string TexteInstalleurRefuse = "Le fichier téléchargé n'est pas l'installeur attendu. Réessayez plus tard.";
+
+    /// Revue 17 (D8-17, lot D) : le texte de la fenêtre « Mise à jour nécessaire ». Installeur déjà téléchargé (la garde de fermeture a
+    /// été refusée, puis la version est devenue obligatoire) : elle dit qu'il est prêt, au lieu de proposer un bouton qui ne fait rien.
+    public static string TexteFenetre(bool prete, string actuelle, string derniere) => prete ? TextePret : TexteObligatoire(actuelle, derniere);
 
     static readonly Regex Forme = new Regex(@"^\d+(\.\d+){0,3}$");
 

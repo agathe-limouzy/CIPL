@@ -23,8 +23,13 @@ public class TileLoader : MonoBehaviour
     [Header("UI")]
     public RawImage targetImage;
 
+    /// Revue 17 (D7b-18, lot D) : vrai si le dernier LoadMapAt a posé une image (faux hors cloud ou après un refus) :
+    /// MapController écrit alors « Carte indisponible » et ne marque pas l'adresse affichée.
+    public bool ImagePosee { get; private set; }
+
     public IEnumerator LoadMapAt(double centerLat, double centerLon, double pinLat, double pinLon)
     {
+        ImagePosee = false;
         if (!SessionCloud.Active) { Debug.LogWarning("[Cartes] Hors cloud : pas de carte (la clé Google est sur le serveur)."); yield break; }
 
         var t = Image(centerLat, centerLon, zoomLevel + DecalageZoom, imageWidth, imageHeight, pinLat, pinLon);
@@ -42,6 +47,7 @@ public class TileLoader : MonoBehaviour
             if (targetImage.texture is Texture2D ancienne && ancienne != tex && !MapThumbnailService.EstEnCache(ancienne)) Destroy(ancienne);
             targetImage.texture = tex;
             targetImage.color = Color.white;
+            ImagePosee = true;
         }
     }
 
@@ -84,6 +90,7 @@ public class TileLoader : MonoBehaviour
               code == 0 ? "Serveur de CIPL injoignable : vérifiez la connexion internet."
             : refus == "config" ? "Les cartes ne sont pas encore réglées sur le serveur (Supabase › Edge Functions › Secrets : GOOGLE_MAPS_KEY)."
             : refus == "acces" ? "Cette entreprise ne vous est pas ouverte."
+            : refus == "quota" ? "Limite de cartes du jour atteinte pour cette entreprise : réessayez demain."   // Revue 17 (D1-10) : plafond par entreprise
             : refus == "google" && (codeGoogle == 429 || e.IndexOf("quota", StringComparison.OrdinalIgnoreCase) >= 0)
                 ? "Limite de cartes du jour atteinte : réessayez demain."
             : refus == "google" && codeGoogle == 403 ? "Google refuse la carte : la clé de CIPL est refusée, ou l'API Maps Static n'est pas activée."

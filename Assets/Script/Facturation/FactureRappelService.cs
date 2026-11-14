@@ -43,7 +43,9 @@ public static class FactureRappelService
     }
 
     /// Revue 16c (D4-10) : l'adresse mémorisée sur la facture (compta@…) d'abord, sinon celle de la fiche, comme l'envoi.
-    public static string Adresse(Locataire loc, FactureEtat l) => FactureEnvoiAuto.Destinataire(loc, l?.type);
+    /// Revue 17 (D4-01, lot 6 ; D4-N4) : avec la ligne : le rappel d'un impayé du cédant va au cédant (l'adresse gardée sur sa
+    /// facture), plus au cessionnaire.
+    public static string Adresse(Locataire loc, FactureEtat l) => FactureEnvoiAuto.Destinataire(loc, l?.type, l);
 
     /// Le brouillon, d'après le modèle de Réglages › Facturation › Modèles d'e-mail (décision du 31/10).
     /// Paiement partiel (08/10) : le rappel réclame le reste, pas le total ({reste}).

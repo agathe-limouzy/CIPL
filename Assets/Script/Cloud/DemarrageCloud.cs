@@ -48,37 +48,75 @@ public static class DemarrageCloud
     public static void MenuCompte() =>
         EcransCloud.MenuCompte(Canvas, ChangerEntreprise, SeDeconnecter);
 
+    // Revue 17 (D2-04, lot D) : rien n'est arrêté avant d'avoir une entreprise à ouvrir. Avant, le direct (changements des collègues,
+    // présence, documents) et les écrans étaient coupés dès le clic : sans réseau, la liste des entreprises ne se lisait pas, on restait
+    // sur l'entreprise ouverte, modifiable, mais sans aucune synchronisation jusqu'au prochain lancement. C'est Ouvrir qui arrête et ferme.
     public static async void ChangerEntreprise()
     {
-        DirectCloud.Arreter();
-        EcritureCloud.FermerEcrans();
+        // Revue 17 (D2-04, lot D) : le direct tourne pendant le choix ; un retrait par un admin (Exclu, puis ChangerEntreprise au OK)
+        // ouvrait une seconde fenêtre de choix par-dessus la première. La fenêtre déjà ouverte suffit.
+        if (_choix) return;
+        _choix = true;
         try { await OuvrirUneEntreprise(forcerChoix: true); }
         catch (Exception e) { Debug.LogException(e); ConfirmDialog.Erreur("Changement d'entreprise impossible : " + e.Message); }
+        finally { _choix = false; }
+    }
+
+    static bool _choix;        // un choix d'entreprise (ChangerEntreprise) attend déjà
+    static int _ouvertures;    // ouvertures (Ouvrir) en cours : chacune relit tout
+
+    /// Revue 16c (D2-06, D2-07) : un envoi de factures en cours finit d'abord (son statut « Envoyé » se pose sur la fiche d'avant), et
+    /// la file des enregistrements se vide, avant que les fiches ne soient fermées ou remplacées. Revue 17 (D2-09, lot D) : la même
+    /// attente pour toute ouverture (Ouvrir : changement d'entreprise, rechargement), le retrait par un admin et la déconnexion ; avant,
+    /// pour le rechargement seulement : l'e-mail partait, « Envoyé » ne s'enregistrait nulle part, et la facture repartait au lancement suivant.
+    static async Task FinDesEnvois()
+    {
+        for (int i = 0; i < 120 && EcritureCloud.EnvoiEnCours; i++) await Task.Delay(500);
+        try { await EcritureCloud.Attendre(); } catch (Exception) { /* déjà signalé */ }
+    }
+
+    static bool _sortie;   // un retrait ou une déconnexion attend déjà la fin d'un envoi
+
+    /// Faux : une sortie attend déjà (second clic, second refus de présence) : l'appelant ne fait rien.
+    static async Task<bool> SortieApresLesEnvois()
+    {
+        if (_sortie) return false;
+        _sortie = true;
+        try { await FinDesEnvois(); }
+        finally { _sortie = false; }
+        return true;
     }
 
     /// Étape 9b : un admin m'a retiré de l'entreprise ouverte (ma présence est refusée). On la
     /// ferme, on efface sa copie locale, et on propose les autres entreprises (s'il y en a).
-    public static void Exclu()
+    public static async void Exclu()
     {
         var e = SessionCloud.Entreprise;
         if (e == null || _bm == null) return;
+        if (!await SortieApresLesEnvois()) return;   // Revue 17 (D2-09, lot D)
+        if (SessionCloud.Entreprise != e || _bm == null) return;   // une autre entreprise ouverte, ou Play arrêté, pendant l'attente
         Debug.Log($"[Cloud] Retiré(e) de « {e.nom} » par un administrateur");
         DirectCloud.Arreter();
         EcritureCloud.FermerEcrans();
         _bm.Vider();
         EcransCloud.Pastille(Canvas, null);
         CopieLocale.Effacer(e.id);   // D2-13 : seulement celle-ci, les autres restent ouvrables hors ligne
+        ReglageService.EffacerCopie(e.id);   // Revue 17 (D2-21, lot D) : ses Réglages (RIB en clair) et ses secrets (mot de passe SMTP) aussi
         SessionCloud.Entreprise = null;
         ConfirmDialog.Erreur($"Vous n'avez plus accès à « {e.nom} » : un administrateur vous a retiré(e) de l'entreprise.",
                              ChangerEntreprise);
     }
 
-    public static void SeDeconnecter()
+    public static async void SeDeconnecter()
     {
+        // Revue 17 (D2-09, lot D) : la garde (ConfirmerPerteSaisies) a prévenu ; « Continuer quand même » laisse finir la facture en train de partir.
+        if (EcritureCloud.EnvoiEnCours) UndoToast.Instance?.ShowInfo("Envoi de factures en cours : déconnexion à la fin de l'envoi…");
+        if (!await SortieApresLesEnvois()) return;
         DirectCloud.Arreter();   // avant Oublier : il signale mon départ avec le jeton
         EcritureCloud.FermerEcrans();
         SessionCloud.Oublier();
         CopieLocale.Effacer();   // étape 8b : plus rien de lisible sur ce PC sans connexion
+        ReglageService.EffacerCopie();   // Revue 17 (D2-21, lot D) : ni les Réglages ni les secrets des entreprises du cloud
         _bm.Vider();
         EcransCloud.Pastille(Canvas, null);
         Lancer(_bm);
@@ -91,6 +129,9 @@ public static class DemarrageCloud
             var (liste, erreur) = await DonneesCloud.MesEntreprises();
             if (liste == null) { Debug.LogWarning("[Cloud] Entreprises : " + erreur); ConfirmDialog.Erreur("Impossible de lire vos entreprises : " + erreur); return; }
             Debug.Log($"[Cloud] {liste.Count} entreprise(s) : {string.Join(", ", liste.Select(x => x.nom))}");
+            // Revue 17 (D2-19, lot D) : chacune de mes entreprises marque le dossier local qu'elle a déjà sur ce PC, avant qu'une
+            // entreprise de même nom, ouverte ici pour la première fois, ne prenne ce dossier sans repère pour le sien.
+            foreach (var mienne in liste) MarquerDossierRetenu(mienne);
 
             // Import proposé si le cloud est vide, ou si un import précédent est à reprendre.
             var sources = ImportLocal.EntreprisesDuPC()
@@ -163,15 +204,24 @@ public static class DemarrageCloud
 
     static async Task Ouvrir(EntrepriseCloud e)
     {
-        SessionCloud.Entreprise = e;
         // BH3 (02/11) : un voile bloque l'écran pendant les lectures (les boutons de l'accueil répondaient encore, alors que
         // CIPL avait déjà basculé d'entreprise) ; retiré au succès comme à l'échec.
         var attente = _bm != null ? EcransCloud.Attente(Canvas, $"Ouverture de {e.nom}…") : null;
+        _ouvertures++;   // Revue 17 (D2-09, lot D) : voir Recharger
         try
         {
+            await FinDesEnvois();   // Revue 17 (D2-09, lot D) : sous le voile, et tant que l'entreprise d'avant est encore l'entreprise ouverte
+            // Revue 17 (D2-04, lot D) : c'est ici, une entreprise à ouvrir en main, que l'ancienne s'arrête : ses écrans se ferment et
+            // rendent leurs verrous (avant de changer d'entreprise : Liberer les rend à l'entreprise ouverte), puis son direct s'arrête.
+            if (_bm != null) EcritureCloud.FermerEcrans();
+            DirectCloud.Arreter();
+            // Revue 17 (D2-20, lot D) : l'état connu du serveur (cache, copie à écrire) est celui de l'entreprise d'avant : sans cela, le
+            // gardien écrivait la copie locale de la nouvelle entreprise avec les fiches de l'ancienne jusqu'à la fin de la lecture.
+            if (SessionCloud.Entreprise?.id != e.id) EcritureCloud.Oublier();
+            SessionCloud.Entreprise = e;
             // BH3 (02/11) : dès le changement, plus rien de l'ancienne entreprise à l'écran (une saisie pendant l'attente serait
             // enregistrée sous la nouvelle), un état visible le temps des lectures, et une sonde de 5 s avant de lire.
-            if (_bm != null) { EcritureCloud.FermerEcrans(); _bm.Vider(); _bm.menuManager.OpenGeneralMenu(); EcransCloud.Pastille(Canvas, $"Ouverture de {e.nom}…"); }
+            if (_bm != null) { _bm.Vider(); _bm.menuManager.OpenGeneralMenu(); EcransCloud.Pastille(Canvas, $"Ouverture de {e.nom}…"); }
             var sonde = await CloudClient.Sonder(SessionCloud.Url, SessionCloud.Cle, timeout: 5);
             if (HorsLigne.Panne(sonde.Ok, sonde.Code)) { EchecLecture(e, "pas de connexion"); return; }
 
@@ -200,7 +250,7 @@ public static class DemarrageCloud
             EcritureCloud.GarderCopie(maintenant: true);
             UndoToast.Instance?.ShowInfo($"{e.nom} : {bats.Count} bâtiment(s) lu(s) depuis le cloud.");
         }
-        finally { if (attente != null) UnityEngine.Object.Destroy(attente.gameObject); }
+        finally { _ouvertures--; if (attente != null) UnityEngine.Object.Destroy(attente.gameObject); }
     }
 
     /// Revue 16c (D3-10) : lecture impossible à l'ouverture : l'écran ne garde pas les fiches de l'entreprise d'avant sous
@@ -257,6 +307,9 @@ public static class DemarrageCloud
             await Ouvrir(e);
             if (_bm == null) return;
             FactureEnvoiAuto.ProposerAuDemarrage(_bm.BatimentPrefab);
+            // Revue 17 (D5-05, lot 12) : l'état de Super PDP est relu, comme à une ouverture normale (puis la tournée de ce qui attend) : sans
+            // cela, Active restait faux toute la session après un démarrage hors ligne, et toute facture due à la plateforme était refusée ou retenue.
+            FactureElectronique.Demarrer(e);
         }
         catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Relecture de l'entreprise impossible : " + ex.Message); }
     }
@@ -277,8 +330,35 @@ public static class DemarrageCloud
 
     /// « Dans CIPL » : Documents\CIPL\<entreprise>, créé sans question (§13). Jamais la racine par
     /// défaut : c'est celle d'une autre entreprise (« Mon entreprise »).
+    /// Revue 17 (D2-19, lot D) : ni le dossier d'une autre entreprise de même nom (« nom (2) » alors : DossierEntreprise.DossierLibre).
     public static string DossierLocal(EntrepriseCloud e) =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "CIPL", DossiersDonnees.NomDossier(e.nom));
+        DossierEntreprise.DossierLibre(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "CIPL"),
+                                       DossiersDonnees.NomDossier(e.nom), e.id, ImportLocal.LireRepere);
+
+    /// Revue 17 (D2-19, lot D) : le repère CIPL_entreprise.json dit à quelle entreprise est ce dossier local. Déposé à sa création, et à
+    /// l'ouverture s'il manque (dossier d'avant la correction). Un repère déjà là n'est jamais remplacé (import, Drive partagé). Il reste à
+    /// la racine du dossier : la synchronisation des documents ne le voit pas (SyncDocuments.Partage : Batiment/, Logo/, Anciens documents/).
+    static void DeposerRepere(EntrepriseCloud e, string dossier)
+    {
+        var r = ImportLocal.LireRepere(dossier);
+        if (r != null)
+        {
+            // Deux entreprises de même nom partageaient déjà ce dossier avant la correction : le dossier retenu ne change pas tout seul.
+            if (r.id != e.id) Debug.LogWarning($"[Cloud] Le dossier de « {e.nom} » ({dossier}) porte le repère de « {r.nom} » : dossier partagé par deux entreprises.");
+            return;
+        }
+        if (!ImportLocal.EcrireRepere(dossier, new ImportLocal.Repere { id = e.id, nom = e.nom, projet = SessionCloud.Url, complet = true, local = true }, out string err))
+            Debug.LogWarning($"[Cloud] Repère non écrit dans {dossier} : {err}. Une entreprise de même nom pourrait prendre ce dossier.");
+    }
+
+    /// Le dossier local que cette entreprise a déjà sur ce PC reçoit son repère s'il manque (mode « Dans CIPL » seulement).
+    static void MarquerDossierRetenu(EntrepriseCloud e)
+    {
+        if (e == null || e.ModeDrive) return;
+        string dossier = PlayerPrefs.GetString(ClePrefsDossier(e.id), "");
+        if (DossierEntreprise.DecisionLocal(dossier, Directory.Exists(dossier), TypeDossier(e.id)) == DossierEntreprise.Local.Garder)
+            DeposerRepere(e, dossier);
+    }
 
     static string ChoisirDossier(string titre)
     {
@@ -301,13 +381,28 @@ public static class DemarrageCloud
 
         if (!e.ModeDrive)
         {
-            // Retour « Dans CIPL » : on quitte le Drive, où N copies reçues du cloud se battraient.
-            if (!existe || dansDrive)
+            var quoi = DossierEntreprise.DecisionLocal(dossier, existe, type);
+            // Revue 17 (D2-12, lot D) : le dossier retenu sur ce PC manque (disque externe ou NAS pas monté) : avant, Documents\CIPL le
+            // remplaçait sans le dire et pour toujours, tout était retéléchargé, et l'ancien dossier n'était plus jamais utilisé.
+            // On demande ; le nouveau dossier n'est retenu que sur « Utiliser Documents\CIPL ».
+            DateTime? essai = null;   // retour de BW18 (14/11) : l'heure du dernier « Réessayer », dite dans la fenêtre suivante
+            while (quoi == DossierEntreprise.Local.Demander)
+            {
+                Debug.LogWarning($"[Cloud] Dossier des documents de « {e.nom} » introuvable : {dossier}");
+                bool reessayer = await EcransCloud.DossierLocalIntrouvable(Canvas, e.nom, dossier, essai);
+                quoi = reessayer
+                    ? DossierEntreprise.DecisionLocal(dossier, Directory.Exists(dossier), type)   // « Réessayer »
+                    : DossierEntreprise.Local.Nouveau;
+                if (reessayer) essai = DateTime.Now;
+            }
+            // Jamais ouverte sur ce PC, ou retour « Dans CIPL » : on quitte le Drive, où N copies reçues du cloud se battraient.
+            if (quoi == DossierEntreprise.Local.Nouveau)
             {
                 dossier = DossierLocal(e);
                 Directory.CreateDirectory(dossier);
                 Retenir(e.id, dossier, "");
             }
+            DeposerRepere(e, dossier);   // Revue 17 (D2-19, lot D)
             return (dossier, true);
         }
 
@@ -345,6 +440,10 @@ public static class DemarrageCloud
                     string parent = ChoisirDossier($"Où ranger les documents de {e.nom} sur cet ordinateur ?");
                     if (parent == null) continue;
                     string local = DossierEntreprise.Cible(parent, e.id, e.nom);
+                    // Revue 17 (D2-19, lot D) : comme ChangerDossierLocal : le dossier local d'une entreprise de même nom porte son repère ;
+                    // le prendre enverrait ses documents sur le cloud de celle-ci au premier passage.
+                    var autre = ImportLocal.LireRepere(local);
+                    if (autre != null && autre.id != e.id) { refus = $"Ce dossier est celui de « {autre.nom} », pas de « {e.nom} »."; continue; }
                     Directory.CreateDirectory(local);
                     Retenir(e.id, local, DossierEntreprise.HorsDrive);
                     return (local, true);
@@ -521,14 +620,12 @@ public static class DemarrageCloud
     {
         var e = SessionCloud.Entreprise;
         if (e == null || _bm == null) return;
-        try
-        {
-            // Revue 16c (D2-06, D2-07) : un envoi de factures en cours finit d'abord (son statut « Envoyé » se pose sur
-            // la fiche d'avant), et la file des enregistrements se vide, avant que les fiches ne soient remplacées.
-            for (int i = 0; i < 120 && EcritureCloud.EnvoiEnCours; i++) await Task.Delay(500);
-            try { await EcritureCloud.Attendre(); } catch (Exception) { /* déjà signalé */ }
-            await Ouvrir(e);
-        }
+        // Revue 16c (D2-06, D2-07) : l'envoi de factures en cours et la file des enregistrements finissent d'abord : Ouvrir les attend
+        // (FinDesEnvois ; Revue 17, D2-09, lot D : pour toute ouverture, plus seulement ici).
+        // Revue 17 (D2-09, lot D) : une ouverture en cours peut attendre la fin d'un envoi (FinDesEnvois) alors que l'entreprise ouverte
+        // est encore celle d'avant : relancer Ouvrir ici rouvrirait l'ancienne par-dessus la nouvelle. Celle en cours relit tout.
+        if (_ouvertures > 0) return;
+        try { await Ouvrir(e); }
         catch (Exception ex) { Debug.LogException(ex); ConfirmDialog.Erreur("Rechargement impossible : " + ex.Message); }
     }
 }

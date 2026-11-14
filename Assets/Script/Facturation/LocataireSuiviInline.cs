@@ -262,7 +262,7 @@ public class LocataireSuiviInline : MonoBehaviour
         bool impaye = false, autre = false;
         foreach (var l in FacturationSuivi.LignesAffichees(_loc, y))
         {
-            var e = FacturationSuivi.EtatDe(l);
+            var e = FacturationSuivi.EtatDe(l, _loc);   // Revue 17 (D4-05, coutures) : avec les délais propres du locataire, comme la pastille d'état
             if (e == FacturationSuivi.Etat.Impaye) impaye = true;
             else if (e == FacturationSuivi.Etat.AFaire || e == FacturationSuivi.Etat.AttenteEnvoi) autre = true;
         }
@@ -330,7 +330,9 @@ public class LocataireSuiviInline : MonoBehaviour
         int i = 0;
         foreach (var l in lignes)
         {
-            var etat = FacturationSuivi.EtatDe(l);
+            // Revue 17 (D4-05, coutures) : l'état qui décide des boutons (« Rappel »…) lit les délais propres du locataire, comme la
+            // pastille (EtatAffiche) : avant, pastille « Envoyé » et bouton « Rappel » sur la même ligne.
+            var etat = FacturationSuivi.EtatDe(l, _loc);
             bool clot = FacturationSuivi.EstGrisee(etat);   // reprise, franchise, hors bail → grisée
             var couleurs = new SuiviRowUI.Couleurs(
                 clot ? Hex("#F0EEE8") : ((i % 2 == 0) ? UITheme.Carte : Hex("#F6F4EC")),
@@ -350,7 +352,11 @@ public class LocataireSuiviInline : MonoBehaviour
                 FacturationSuivi.EtatLibelle(affiche), EtatBg(affiche), EtatFg(affiche),
                 // Ligne grisée (reprise, franchise, hors bail) : pastille statique, aucune action.
                 !clot, () => OpenStatutMenu(lgn, (RectTransform)row.pastille.transform),
-                Actions(l, etat));
+                Actions(l, etat),
+                // Revue 17 (2c, décisions du 06/11, retours de BP1) : le bouton « Auto » à côté de la pastille, sur une ligne pas encore
+                // partie ni grisée : allumé, CIPL gère la ligne ; éteint, elle est bloquée « À faire ».
+                FacturationSuivi.AvecBoutonAuto(_loc, l) ? FacturationSuivi.AutoAllume(l) : (bool?)null,
+                () => BasculerAuto(lgn));
         }
     }
 
@@ -370,15 +376,17 @@ public class LocataireSuiviInline : MonoBehaviour
         if (genere)
         {
             a.Add(("PDF", () => DocumentsCloud.Ouvrir(pdfAbs)));
-            // Facture déjà émise → « Corriger » (crée une version corrigée, même numéro) ;
-            // sinon « Refaire » (regénère). Correction câblée pour le loyer.
+            // Facture déjà partie → « Corriger » (crée une version corrigée, même numéro) ;
+            // sinon « Refaire » (regénère).
             // La ligne est TOUJOURS transmise : elle désigne la période à ouvrir.
             // Sans elle, « Refaire » ouvrait le panneau sur la dernière période
             // mémorisée — on croyait refaire mars et on éditait avril.
             // Correction ou simple remplacement, c'est FactureEmission.Preparer qui
             // tranche, d'après le statut réel de la facture.
-            bool corrigeable = l.type == "Loyer"
-                && (etat == FacturationSuivi.Etat.Envoye || etat == FacturationSuivi.Etat.Impaye);
+            // Revue 17 (D4-10, coutures) : la règle de l'émission elle-même, pour tous les types. Avant : « Corriger » pour un loyer
+            // envoyé ou impayé seulement ; un loyer payé, une régularisation, une refacturation ou un dépôt partis affichaient
+            // « Refaire » alors qu'une « corrigée(X) » allait partir. Un état posé à la main, sans PDF, n'arrive pas ici (`genere`).
+            bool corrigeable = FactureEmission.SeraUneCorrection(_loc, l.key);
             a.Add((corrigeable ? "Corriger" : "Refaire", () => OuvrirGeneration(l.type, l)));
         }
         // La ligne désigne la période à ouvrir : cliquer « Générer » sur le loyer
@@ -443,16 +451,8 @@ public class LocataireSuiviInline : MonoBehaviour
                 ConfirmDialog.Erreur($"Il reste {Montant(aRendre)} à rembourser au locataire : enregistrez d'abord le remboursement (« Remboursé… »).");
                 return;
             }
-            // Le bâtiment porte les charges : sans lui, marquer « payé » ne les
-            // encaisserait pas.
-            FacturationSuivi.SetStatut(_loc, ligne, statut,
-                _fiche.batimentPrefabOrigin != null ? _fiche.batimentPrefabOrigin.getBatiment() : null);
-            _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
-            FactureElectronique.Rattraper(_fiche.batimentPrefabOrigin, _loc);   // étape 18b : « Encaissée »
-            Destroy(scrim.gameObject);
-            RebuildTable();
-            _fiche.RefreshParcours();   // « Payé » peut faire avancer le départ (archivage)
-            _fiche.RafraichirAlertesFacturation();
+            if (scrim != null) Destroy(scrim.gameObject);   // D4-02 : déjà fermé par la confirmation du départ
+            AppliquerStatut(ligne, statut);
         };
         MenuItem(vlg.transform, "Payé", () => set("Paye"));
         // Retour BN17 (décisions du 04/11) : ce que nous devons au locataire (trop-perçu, avoir) se rembourse avant « Payé ».
@@ -468,7 +468,7 @@ public class LocataireSuiviInline : MonoBehaviour
                 });
             });
         // Paiement partiel (08/10) : les versements d'une facture émise.
-        var etatLigne = FacturationSuivi.EtatDe(ligne);
+        var etatLigne = FacturationSuivi.EtatDe(ligne, _loc);
         FacturationSuivi.Solde(_loc, ligne.key, out float total, out float paye);
         if (total > 0f && FacturationSuivi.Porteuse(_loc, ligne.key) != null
             && (etatLigne == FacturationSuivi.Etat.Envoye || etatLigne == FacturationSuivi.Etat.Impaye
@@ -485,11 +485,61 @@ public class LocataireSuiviInline : MonoBehaviour
             });
         MenuItem(vlg.transform, "Impayé", () => set("Impaye"));
         MenuItem(vlg.transform, "Envoyé", () => set("Envoye"));
-        MenuItem(vlg.transform, "À faire", () => set("AFaire"));
-        MenuItem(vlg.transform, "Automatique", () => set(""));
+        // Revue 17 (D4-02, décision du 05/11 ; 2c, décisions du 06/11) : le menu ne dit que les faits. « À faire » et
+        // « Automatique » sont devenus le bouton « Auto », à côté de la pastille, sur une ligne pas encore partie (BasculerAuto).
+        // Une facture partie ne se dé-émet pas ; un « Payé » cliqué par erreur se défait par « Envoyé ». Seule sortie : le loyer
+        // d'une période entièrement après le départ, parti, préparé ou mis à la main, se retire du suivi (DepartLocataire.Retirable,
+        // relecture du 07/11) ; s'il est parti, la confirmation rappelle l'avoir à envoyer, selon ce qui a été réglé.
+        if (DepartLocataire.Retirable(_loc, ligne))
+            MenuItem(vlg.transform, "Retirer du suivi…", () =>
+            {
+                Destroy(scrim.gameObject);
+                ConfirmDialog.Instance?.Show("Retirer ce loyer du suivi ?", DepartLocataire.ConfirmationRetrait(_loc, ligne),
+                    () => set(""), "Retirer du suivi");
+            });
 
         // Placement intelligent : sous l'ancre, ou au-dessus s'il manque de place en bas.
         UIFactory.PlacePopup(lrt, anchor);
+    }
+
+    // Écrit un statut choisi à la main (menu de la pastille, bouton « Auto »), enregistre et redessine le suivi.
+    void AppliquerStatut(FactureEtat ligne, string statut)
+    {
+        // Le bâtiment porte les charges : sans lui, marquer « payé » ne les encaisserait pas.
+        FacturationSuivi.SetStatut(_loc, ligne, statut,
+            _fiche.batimentPrefabOrigin != null ? _fiche.batimentPrefabOrigin.getBatiment() : null);
+        _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
+        FactureElectronique.Rattraper(_fiche.batimentPrefabOrigin, _loc);   // étape 18b : « Encaissée »
+        RebuildTable();
+        _fiche.RefreshParcours();   // « Payé » peut faire avancer le départ (archivage)
+        _fiche.RafraichirAlertesFacturation();
+    }
+
+    // Revue 17 (2c, décisions du 06/11, retours de BP1) : clic sur le bouton « Auto ». Éteint, la ligne est bloquée « À faire » :
+    // une facture préparée n'est plus proposée à l'envoi. Rallumé, CIPL reprend la main : une facture préparée repart en attente
+    // d'envoi, sinon l'état suit les dates (FacturationSuivi.StatutApresBoutonAuto).
+    void BasculerAuto(FactureEtat ligne)
+    {
+        var rec = _loc.facturesEtat?.FirstOrDefault(x => x.key == ligne.key);
+        string avant = rec?.statut;
+        bool preparee = rec != null && !string.IsNullOrEmpty(rec.numero) && !string.IsNullOrEmpty(rec.pdfPath);
+        string statut = FacturationSuivi.StatutApresBoutonAuto(_loc, rec);
+        AppliquerStatut(ligne, statut);
+        // Revue 17 (2c, relecture du 07/11) : le message dit ce qui s'est passé, d'après l'état d'avant le clic.
+        string facture = $"La facture « {ligne.libelle} »";
+        if (statut == "AttenteEnvoi")
+        {
+            var envoi = FacturationSuivi.DateEnvoi(rec.type, rec.echeanceISO, _loc);
+            string quand = envoi.HasValue && envoi.Value > DateTime.Today ? $"le {envoi.Value:dd/MM/yyyy}" : "au prochain lancement de CIPL";
+            UndoToast.Instance?.ShowInfo(rec.plateformeEtat == "refusee"
+                ? $"{facture} repart en attente d'envoi, mais la plateforme l'a refusée : refaites-la avant l'envoi."
+                : $"{facture} repart en attente d'envoi : elle vous sera proposée à l'envoi {quand}.");
+        }
+        else if (statut == "AFaire" && avant == "AttenteEnvoi")
+            UndoToast.Instance?.ShowInfo($"{facture} est bloquée « À faire » : elle ne sera pas proposée à l'envoi.");
+        else if (string.IsNullOrEmpty(statut) && avant == "AFaire" && preparee)
+            UndoToast.Instance?.ShowInfo($"{facture} ne correspond plus à ce qui est dû (départ, montant ou périodicité changés) : "
+                + "refaites-la (« Refaire », même numéro) pour l'envoyer.");
     }
 
     void MenuItem(Transform parent, string label, Action onClick)
@@ -503,6 +553,9 @@ public class LocataireSuiviInline : MonoBehaviour
         // Parcours : aucune facture tant que général, bail, loyer et dépôt manquent.
         string bloque = ParcoursLocataire.FacturationBloquee(_loc);
         if (bloque != null) { ConfirmDialog.Erreur(bloque); return; }
+        // Revue 17 (lot 6b, décision du 09/11) : un loyer parti puis retiré du suivi (départ annulé ou repoussé : « Refaire » revient)
+        // ne se refait pas, son numéro et le PDF reçu seraient écrasés : il se remet « Envoyé » ou « Payé » par son état.
+        if (FactureEmission.RefusRetire(ligneCiblee) is string retire) { ConfirmDialog.Erreur(retire); return; }
         switch (type)
         {
             case "Loyer": FactureLoyerPanel.OpenLoyer(_fiche, ligneCiblee); break;
@@ -522,6 +575,14 @@ public class LocataireSuiviInline : MonoBehaviour
     /// d'envoi, calculée sur l'ancienne échéance, semblait fausse.
     string Libelle(FactureEtat l)
     {
+        // Revue 17 (D4-01, décision du 05/11, lot 6) : un loyer préparé au nom d'un autre que le titulaire de sa période (cession
+        // saisie après) est retenu à l'envoi : la ligne le dit, et « Refaire » le refait au même numéro au nom du titulaire.
+        if (l.statut == "AttenteEnvoi" && Cessions.HorsTitulaire(_loc, l))
+            return $"{l.libelle}  <color=#854F0B>(préparé au nom de {l.acheteur}, la période est à {Cessions.Titulaire(_loc, l)} : à refaire)</color>";
+        // Revue 17 (coutures, reste du lot 12) : retenue au lancement (préparée sans facture électronique alors qu'elle doit partir par
+        // la plateforme le jour de son départ : FactureEnvoiAuto.Retenue) : la ligne le dit aussi, pas seulement le message du lancement.
+        if (FactureEnvoiAuto.Retenue(_loc, l, DateTime.Today))
+            return $"{l.libelle}  <color=#854F0B>(préparée sans facture électronique, elle doit partir par Super PDP : à refaire)</color>";
         var attendue = FacturationSuivi.EcheanceAttendue(_loc, l);
         return attendue.HasValue
             ? $"{l.libelle}  <color=#854F0B>(modalités : {attendue.Value:dd/MM} — refaire ?)</color>"

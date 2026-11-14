@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using UnityEngine;
 using UnityEngine.UI;
@@ -65,7 +66,9 @@ public class BatimentManager : MonoBehaviour
 
     public BatimentPrefab AddBatiment(bool needToModify)
     {
-
+        // Revue 17 (D7a-18, lot D) : refusé avant la saisie, pas à l'enregistrement ; les appelants (onglet « + », accueil) ne font
+        // rien d'un null (MenuManager.CreateTab et OnSelect l'ignorent).
+        if (RefuserAjout()) return null;
         var data = new Batiment();
         var prefab = SpawnPrefabInPanel(data, menuManager.ContentPrefab.transform, needToModify);
         BatimentPrefab.Add(prefab);
@@ -76,6 +79,20 @@ public class BatimentManager : MonoBehaviour
         return prefab;
       
         
+    }
+
+    /// Revue 17 (D7a-18, lot D) : « + Ajouter » (locataire ou bâtiment) refusé tout de suite hors ligne et en lecture seule, avec les
+    /// messages de la suppression (BatimentPrefab.DeleteLocataire). Avant, la fiche s'ouvrait et le refus n'arrivait qu'à
+    /// l'enregistrement, après toute la saisie, ensuite perdue sans avertissement. Null : l'ajout est permis.
+    public static string RefusAjout(bool cloud, bool horsLigne, bool lectureSeule)
+        => !cloud ? null : horsLigne ? HorsLigne.Refus : lectureSeule ? AbonnementCloud.Refus : null;
+
+    /// Le refus au centre ; vrai si l'ajout est refusé.
+    public static bool RefuserAjout()
+    {
+        string refus = RefusAjout(SessionCloud.Active, HorsLigne.Actif, AbonnementCloud.LectureSeule);
+        if (refus != null) ConfirmDialog.Erreur(refus);
+        return refus != null;
     }
 
     // ── Suppression ──────────────────────────────────────────────────────────
@@ -174,6 +191,9 @@ public class BatimentManager : MonoBehaviour
             string dest = Path.Combine(DossierCorbeilleBatiments,
                 Guid.NewGuid().ToString("N") + "_" + new DirectoryInfo(source).Name);
             Directory.Move(source, dest);
+            // Revue 17 (contrat C2, lot D) : un retrait voulu dans CIPL, pas une disparition. APRÈS le déplacement réussi,
+            // comme DossiersDonnees : un déplacement échoué (PDF ouvert) ne doit pas faire taire le fusible des suppressions.
+            DocumentsCloud.RetraitVoulu(source);
             return dest;
         }
         catch (Exception e)
@@ -392,18 +412,119 @@ public class BatimentManager : MonoBehaviour
     /// Revue 16c (D2-02) : sur le cloud, une cession datée s'applique à l'ouverture, comme une action en un clic : la
     /// fiche renommée est enregistrée tout de suite (refusée si elle est prise ou dépassée : elle réessaie à l'ouverture
     /// suivante) et sa fiche à l'écran est reconstruite sur les données à jour. (LoadAll fait de même hors cloud.)
-    public void AppliquerCessionsDues()
+    /// Revue 17 (D7a-04, lot D) : sur le cloud, ni le dossier ni l'écran ne bougent avant l'accord du serveur. Les locataires tenus
+    /// par un collègue sont sautés (ils réessaient à l'ouverture suivante). Chaque cession part seule, en écriture de fond
+    /// (silencieuse), sur une COPIE du bâtiment : refusée, rien n'a changé ici (mémoire, écran, disque) ; acceptée, le dossier est
+    /// renommé, puis la fiche affichée prend la copie. Avant : dossier renommé d'abord, enregistrement refusé (fiche prise), fiche
+    /// relue sous l'ancien nom : les documents disparaissaient du dossier chez tout le monde.
+    public async void AppliquerCessionsDues()
     {
         if (HorsLigne.Actif || AbonnementCloud.LectureSeule) return;
-        foreach (var bat in new List<Batiment>(_batiments))
+        var aujourdhui = DateTime.Today;
+        if (!SessionCloud.Active)
         {
-            bool cede = false;
-            foreach (var loc in bat.locataireDuBatiment ?? new List<Locataire>())
-                if (loc != null) cede |= EffectuerCession(bat, loc);
-            if (!cede) continue;
-            SaveBatiment(bat);
-            BatimentPrefab.Find(p => p != null && p.getID() == bat.id)?.InitializeBatiment(bat, false);
+            foreach (var bat in new List<Batiment>(_batiments))
+            {
+                bool cede = false;
+                foreach (var loc in bat.locataireDuBatiment ?? new List<Locataire>())
+                    if (loc != null) cede |= EffectuerCession(bat, loc);
+                if (!cede) continue;
+                SaveBatiment(bat);
+                BatimentPrefab.Find(p => p != null && p.getID() == bat.id)?.InitializeBatiment(bat, false);
+            }
+            return;
         }
+
+        if (CessionsAAppliquer(_batiments, null, aujourdhui).Count == 0) return;   // rien de dû : pas d'appel au serveur
+        var e = SessionCloud.Entreprise;
+        var libre = await EcritureCloud.LocatairesLibres();   // comme la tournée de l'annuaire (DemarrageCloud)
+        if (libre == null) { Debug.LogWarning("[Cession] Verrous illisibles : cessions reportées à la prochaine ouverture."); return; }
+        var refus = new List<string>();
+        foreach (var (batLu, locLu) in CessionsAAppliquer(_batiments, libre, aujourdhui))
+        {
+            if (!SessionCloud.Active || SessionCloud.Entreprise != e) return;
+            var bat = _batiments.Find(b => b.id == batLu.id);   // la plus récente : une cession du même bâtiment vient peut-être de passer
+            var p = Cessions.Due(locLu, aujourdhui);
+            if (bat == null || p == null || EcritureCloud.Perime(bat)) continue;
+            string ancien = locLu.Name, nouveau = p.nom;
+            if (bat.locataireDuBatiment.Exists(l => l != null && l.id != locLu.id && DossiersDonnees.MemeDossier(l.Name, nouveau)))
+            { refus.Add($"« {ancien} » n'est pas cédé à « {nouveau} » : un autre locataire de « {bat.Name} » porte déjà ce nom."); continue; }
+            string dossierPris = DossierDeCessionPris(bat.Name, ancien, nouveau);
+            if (dossierPris != null) { refus.Add(dossierPris); continue; }
+            var fiche = BatimentPrefab.Find(x => x != null && x.getID() == bat.id);
+            if (fiche != null && (fiche.EnEdition || fiche.dictionnairelocataire.Values.Any(l => l != null && l.EnEdition)))
+            { Debug.LogWarning($"[Cession] « {ancien} » → « {nouveau} » : fiche en saisie ici, reportée à la prochaine ouverture."); continue; }
+
+            var copie = JsonUtility.FromJson<Batiment>(JsonUtility.ToJson(bat));
+            var loc = copie.locataireDuBatiment.Find(l => l != null && l.id == locLu.id);
+            if (loc == null || !Cessions.Effectuer(loc, aujourdhui)) continue;
+            EcritureCloud.Enregistrer(copie, silencieux: true);
+            await EcritureCloud.Attendre();
+            if (SessionCloud.Entreprise != e) return;
+            if (!EcritureCloud.AJour(copie))
+            {
+                // Refusée (fiche prise entre-temps, version, réseau) : la copie ne repart jamais (une panne la mettait en attente).
+                EcritureCloud.Perimer(copie);
+                Debug.LogWarning($"[Cession] « {ancien} » → « {nouveau} » : non acceptée par le serveur, reportée à la prochaine ouverture.");
+                continue;
+            }
+            if (!DossiersDonnees.RenommerLocataire(bat.Name, ancien, nouveau, out string err))
+                refus.Add($"La cession de « {ancien} » à « {nouveau} » est enregistrée, mais son dossier n'a pas pu être renommé ({err}) : "
+                          + $"renommez à la main le dossier « {DossiersDonnees.NomDossier(ancien)} » du bâtiment « {bat.Name} » en « {DossiersDonnees.NomDossier(nouveau)} ».");
+            AfficherCession(bat, copie);
+        }
+        if (refus.Count > 0) ConfirmDialog.Erreur(string.Join("\n", refus));   // dit une fois, avec le nom du locataire
+    }
+
+    /// Revue 17 (D7a-04, lot D) : les cessions arrivées à leur jour qu'on peut tenter maintenant : `libre` dit si personne d'autre ne
+    /// tient la fiche du locataire (null : tous). Pure, testée.
+    public static List<(Batiment bat, Locataire loc)> CessionsAAppliquer(IEnumerable<Batiment> bats, Func<string, bool> libre, DateTime aujourdhui)
+    {
+        var res = new List<(Batiment bat, Locataire loc)>();
+        foreach (var bat in bats ?? new List<Batiment>())
+        {
+            if (bat?.locataireDuBatiment == null) continue;
+            foreach (var loc in bat.locataireDuBatiment)
+                if (loc != null && Cessions.Due(loc, aujourdhui) != null && (libre == null || libre(loc.id))) res.Add((bat, loc));
+        }
+        return res;
+    }
+
+    /// Le refus quand le dossier ne pourra pas suivre le nouveau nom (un dossier à ce nom existe déjà : RenommerLocataire refuserait).
+    /// Vu AVANT l'envoi : sinon le serveur prenait le nouveau nom et les documents restaient sous l'ancien.
+    static string DossierDeCessionPris(string nomBat, string ancien, string nouveau)
+    {
+        if (DossiersDonnees.MemeDossier(ancien, nouveau)) return null;
+        return Directory.Exists(DossiersDonnees.DossierLocataire(nomBat, ancien)) && DossierAvecFichiers(DossiersDonnees.DossierLocataire(nomBat, nouveau))
+            ? $"« {ancien} » n'est pas cédé à « {nouveau} » : un dossier « {DossiersDonnees.NomDossier(nouveau)} » existe déjà dans « {nomBat} ». "
+              + $"Rangez ses documents dans celui de « {DossiersDonnees.NomDossier(ancien)} », supprimez-le, puis rouvrez CIPL : la cession se fera alors."
+            : null;
+    }
+
+    /// Revue 17 (D7a-04, lot D) : même règle que DossiersDonnees.RenommerLocataire (DestinationOccupee) : un dossier d'arrivée sans
+    /// aucun fichier n'empêche pas le renommage (il est retiré) ; illisible, il est compté comme occupé.
+    public static bool DossierAvecFichiers(string dossier)
+    {
+        try { return Directory.Exists(dossier) && Directory.EnumerateFiles(dossier, "*", SearchOption.AllDirectories).Any(); }
+        catch (Exception) { return true; }
+    }
+
+    /// Après l'accord du serveur : la liste et la fiche affichée prennent la copie cédée. Une saisie commencée pendant l'envoi n'est
+    /// pas détruite : sa fiche est périmée (son enregistrement sera refusé, au lieu de défaire la cession) et relue ensuite.
+    void AfficherCession(Batiment avant, Batiment copie)
+    {
+        int idx = _batiments.IndexOf(avant);
+        if (idx < 0) { DirectCloud.ARelire(copie.id); return; }   // relue entre-temps
+        _batiments[idx] = copie;
+        var fiche = BatimentPrefab.Find(x => x != null && x.getID() == copie.id);
+        if (fiche == null) return;
+        if (fiche.EnEdition || fiche.dictionnairelocataire.Values.Any(l => l != null && l.EnEdition))
+        {
+            EcritureCloud.Perimer(fiche.getBatiment());
+            DirectCloud.ARelire(copie.id);
+            return;
+        }
+        fiche.InitializeBatiment(copie, false);
     }
 
     static bool EffectuerCession(Batiment bat, Locataire loc)
@@ -416,6 +537,8 @@ public class BatimentManager : MonoBehaviour
         if (pris || !DossiersDonnees.RenommerLocataire(bat.Name, loc.Name, p.nom, out err))
         {
             Debug.LogWarning($"[Cession] « {loc.Name} » → « {p.nom} » reportée au prochain lancement : {err}");
+            // Revue 17 (D7a-04, lot D) : dit au centre, avec le nom du locataire, plus seulement au journal.
+            ConfirmDialog.Erreur($"Cession de « {loc.Name} » à « {p.nom} » reportée au prochain lancement : {err}.");
             return false;
         }
         return Cessions.Effectuer(loc, DateTime.Today);

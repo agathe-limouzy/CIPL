@@ -98,3 +98,54 @@ Avec le même détecteur, d'après l'« Inventaire des écrans » et les points 
 6. Documents du bail, objectifs, rentabilité, mode « Modifier » des fiches.
 
 Précautions apprises : ne jamais chercher un bouton « × » dans tout l'écran (c'est aussi la croix « Quitter » de l'application, `BtnQuitter`) ; fermer chaque fenêtre par son propre bouton, cherché dans la fenêtre ; remettre le zoom d'origine à la fin (`UIZoom.Facteur` est enregistré dans les préférences).
+
+## Reprise du 09/11/2026 (Fable)
+
+Même détecteur (classe `Audit` de `audit_ui_play.cs`, posée dans `.ai-game-dev/snippets/audit_ui.cs`, hors de git, avec deux parcours prêts : `Mesurer` une racine affichée, `Parcourir` des fenêtres par le libellé de leur bouton), SCI (JBC), 1920 × 1080, zooms 1 · 1,25 · 1,5 · 1,75, captures `revue17b_<écran>_<zoom>.png` dans le dossier de données ; plus l'accueil, le bâtiment, le locataire et les Réglages en 1366 × 768 à 100 et 125 % (`revue17b_1366_*.png`, taille de la vue Game changée puis remise). L'essai de SCI (JBC) avait expiré le 08/11 : prolongé au 09/12 par SQL pour mesurer les formulaires (en lecture seule, ils refusent de s'ouvrir).
+
+Écrans faits : choix de l'entreprise ; accueil ; Compte ; Calcul rapide ; Consulter le PLU ; Réglages (six onglets) ; « Choisir l'abonnement » ; fiche du bâtiment « Immeuble BI2 » et sa fiche complète ; historique des charges, achats et travaux, et leurs trois formulaires (« Nouvelle charge », « Nouvel achat », « Nouveaux travaux ») ; Photos ; Lots ; fiche de « Locataire BJ6 » en lecture et en saisie (« Modifier » puis « Sauvegarder » à valeurs identiques) ; suivi 2026 et 2027 ; les quatre formulaires de facture ; Départ du locataire (simple et « Cession du bail ») ; Gestion du loyer (« Modalités », « Réviser ») ; Réviser le dépôt ; menu de la pastille du suivi ; « Paiement partiel… » ; nouvel objectif ; filtre « Tous les locataires » des Créances ; inscription et mot de passe (fenêtres ouvertes par leur fonction, rien envoyé). Rien n'a été enregistré ni envoyé, sauf un « Sauvegarder » de la fiche BJ6 à valeurs inchangées.
+
+### Défauts du 03/11 revus
+- Toujours présents : **B-01** (le « + » de la barre des bâtiments hors écran dès 125 %, même en 1366 × 768 ; à 175 % la croix « Quitter » recouvre le dernier onglet), **B-02** (montants au format anglais sur l'accueil : « 199,419 € », « 5,306,500 € », « 3.3 % », « 31,082 €/an », alors que les Créances sont en français), **B-03** (« Ajuster » sur trois lignes dans les quatre formulaires), **B-07** (textes d'aide coupés : phrase de règlement dès 100 %, « Texte / N° interne » et « Provisions déjà versées » à 150 %), **B-08** (adresse du bâtiment dans une zone de 6 px), **B-09** (barres de défilement sur le contenu dès 125 %), **B-10** (avertissement de surfaces à l'ouverture de SCI (JBC), puis de nouveau au retour à l'accueil après le gardien d'inactivité), **B-11** (pastille « SCI (JBC) · cloud » par-dessus le contenu), **B-13** (Gestion du loyer : le cadre de la fenêtre sort de l'écran à 150 % et plus, 144 px à 150 %), **B-15** (boutons de « Compte » : 41, 118 et 100 px pour 59, 168 et 143), **B-16** (« Loyer annuel (€) » : 131 px pour 120), **B-17** (noms des charges sur le montant).
+- Non mesurables par le détecteur, à revoir à l'œil : B-12 (exemples du calendrier des Réglages), B-14 (carré gris sous « Provisions »).
+
+### Nouveaux constats (09/11)
+
+### B-18 · Majeur · Le formulaire « Nouvelle charge » sort de l'écran à 150 % et plus (D10-01 confirmé)
+- Où : `ChargePanel` (`ChargeScrim/ChargeCard`). Mesure : à 150 %, la carte va de y −105 à 1 185 pour un écran de 1 080 ; la rangée `Actions` (« Annuler », « Enregistrer ») est à y −80..−14, sous le bord ; même chose à 175 %. À 100 et 125 % : rien.
+- Correction proposée : plafonner la hauteur de la carte à celle de l'écran (en tenant compte du zoom) et faire défiler son corps, avec le pied (« Annuler », « Enregistrer ») fixe, comme les Réglages.
+- Contrôle en Play : « + Charges » › « + Ajouter une charge » à 150 % : les deux boutons du bas visibles.
+
+### B-19 · Mineur · Les menus flottants ne sont pas ramenés dans l'écran quand le zoom les pousse à droite
+- Où : `UIFactory.PlacePopup` (menu de la pastille du suivi, `StatutScrim/StatutList` : à 125 % et plus, x 1 773..2 010 pour 1 920 ; à 100 % il tient) et la liste des menus déroulants (`UIDropdown`, `DDScrim/DDList` du filtre « Tous les locataires » des Créances : à 150 % et plus, x 1 846..2 161). Le placement ne borne que verticalement (« au-dessus s'il manque de place en bas »).
+- Correction proposée : après le placement, ramener le rectangle dans l'écran sur les deux axes (décalage à gauche de ce qui dépasse), dans `PlacePopup` et dans l'ouverture de `UIDropdown`.
+- Contrôle en Play : à 150 %, Créances › « Tous les locataires » : la liste entière visible ; suivi › pastille d'une ligne de droite : le menu visible.
+
+### B-20 · Mineur · Le compteur de la pastille « À traiter » déborde de son rond
+- Où : `A Traiter/Header/NbBadge/Nb` : « 12 » mesure 24 × 22 pour une zone de 18 × 20, à tous les zooms et en 1366 × 768 (visible sur la capture : les chiffres sortent du rond rouge). Un chiffre tient, deux débordent.
+- Correction proposée : rond à largeur préférée (texte + marges) ou taille 11 pour deux chiffres ; `ContentSizeFitter` sur la pastille.
+
+### B-21 · Mineur · Fiche du locataire à 175 % : trois boutons de facturation trop étroits
+- Où : `FacturationActions/FactRow1` : « Régularisation des charges », « Refacturation d'une charge », « Révision du dépôt (facture) » ont 221 px pour 248 à 250 de texte à 175 % (le 03/11, la mesure avait été écartée parce que le formulaire du loyer était ouvert par-dessus ; ici la fiche est seule). Rien à 150 %.
+- Correction proposée : retour à la ligne autorisé sur ces boutons (deux lignes à 175 %), ou une rangée qui passe sur deux lignes au-delà d'une largeur.
+
+### B-22 · Mineur · Quelques pixels hors écran à 175 %
+- Où : fenêtre des lots (`LotsScrim/LotsCard` : y −20..1 100), formulaire d'achat (`Achat from panel/Achat` : y −8..1 000), Gestion du loyer › « Réviser » (`Loyer/Content` : y −10). Sans conséquence visible sur les captures, mais les cadres touchent les bords.
+
+### B-23 · Mineur · Texte d'aide « Réf. cadastrale (ex. AB 142) » coupé en mode saisie à 150 %
+- Où : `Cadastral/InputField to modify/Text Area/Placeholder` : 252 px pour 191 à 150 % (fiche du locataire, « Modifier »). Correction : « Réf. cadastrale ».
+
+### Écartés après vérification (09/11)
+- `FacturationActions/FactRow1/Button/Text <> Rappel` (16 × 20 px à tous les zooms) : c'est la petite pastille « ! » posée au bord droit du bouton « Facturer le loyer », qui recouvre la zone du texte mais pas ses lettres (capture `revue17b_Menu_pastille_1.00.png`).
+- `Content Prefab <> VueLocataire` à 150 % : la vue du locataire se pose sur la fiche du bâtiment, comme voulu (déjà écarté le 03/11).
+- Menu de la pastille hors écran quand la ligne du suivi n'est pas à l'écran : artefact du clic simulé (l'utilisatrice fait défiler avant de cliquer).
+- Propres à tous les zooms : Réglages (six onglets), « Choisir l'abonnement », inscription, mot de passe, PLU, fiche complète du bâtiment, photos, nouveaux travaux, départ (simple et cession), réviser le dépôt, « Paiement partiel… », nouvel objectif, menu de la pastille à 100 %.
+
+### Non mesuré
+- Paliers : aucun locataire de SCI (JBC) n'est au type « Paliers ». Documents du bail (« Ajouter le bail » ouvre une boîte de fichiers de Windows). Pappers (appel au serveur). Créances avec un nom de 50 caractères (D10-05) : aucun locataire de ce nom. Lisibilité en 1366 × 768 (D10-03) : le détecteur ne la mesure pas ; captures `revue17b_1366_*.png` à regarder.
+
+### Précautions apprises (09/11)
+- Le gardien d'inactivité (« Toujours là ? ») se déclenche pendant un long balayage : les clics simulés ne comptent pas comme une activité ; au bout du compte à rebours, les saisies sont annulées, la fiche libérée et l'application revient à l'accueil (l'avertissement de surfaces revient avec). Faire des passes courtes, ou bouger la souris entre deux.
+- Une fenêtre peut s'ouvrir après le délai d'attente (départ : voile apparu après 1,5 s) ; la repérer par son nom (`DepartScrim`, `StatutScrim`, `VersementsScrim`, `ChargeScrim`, `LotsScrim`, `DDScrim`, `CloudVoile`, `Facture…Panel`) plutôt que par la différence des objets. Les formulaires de facture restent empilés s'ils ne sont pas refermés par « ← Retour ».
+- En mode saisie de la fiche, il n'y a pas de bouton « Annuler » : la sortie est « Sauvegarder » (le bouton `Save` de la fiche, pas celui du bâtiment, qui répond « Enregistrez d'abord la fiche de … »).
+- `VersementsPanel` est une classe statique : sa fenêtre est `VersementsScrim`.

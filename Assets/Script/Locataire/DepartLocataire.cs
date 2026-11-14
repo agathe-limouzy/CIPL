@@ -102,12 +102,27 @@ public static class DepartLocataire
     public static bool DecompteFait(Locataire loc)
         => loc != null && (loc.depotDeGarantie <= 0f || FacturationSuivi.DejaTraite(loc, CleDecompte));
 
-    /// Les régul de l'année du départ sont faites (une par liste), ou sans objet.
+    /// Les régul de toutes les années du bail sont faites (une par liste et par année), ou sans objet.
+    /// Revue 17 (D7a-20, lot D) : toutes les années du bail, pas seulement celle du départ (la régul de l'année d'avant compte).
     public static bool RegulsDeSortieFaites(Locataire loc)
     {
         if (loc == null || !loc.provisionPourCharges || !Sortie(loc, out var s)) return true;
-        return ListesCharges.DuLocataire(loc).All(id => FacturationSuivi.DejaTraite(loc, ListesCharges.Cle(id, s.Year)));
+        return LignesDuBail(loc, s).Where(l => l.type == "Regul").All(l => RegulFaite(loc, l));
     }
+
+    /// Revue 17 (D7a-20, lot D) : les lignes du suivi de toutes les années du bail, du premier bail (sinon l'année d'avant le
+    /// départ) à l'année du départ, dans l'ordre. Avant : l'année du départ seule ; un loyer ou une régul de l'année d'avant restés
+    /// « À faire » ne bloquaient rien, et l'archivage éteignait ensuite leurs alertes.
+    static IEnumerable<FactureEtat> LignesDuBail(Locataire loc, DateTime s)
+    {
+        int premiere = Loyers.DebutPremierBail(loc, out var d) ? Math.Min(d.Year, s.Year) : s.Year - 1;
+        for (int annee = premiere; annee <= s.Year; annee++)
+            foreach (var l in FacturationSuivi.Lignes(loc, annee)) yield return l;
+    }
+
+    // Une régul partie (envoyée, impayée, payée), ou d'une période reprise (« Clôturée », avant la reprise de facturation).
+    static bool RegulFaite(Locataire loc, FactureEtat l)
+        => FacturationSuivi.DejaTraite(loc, l.key) || FacturationSuivi.EtatDe(l, loc) == FacturationSuivi.Etat.Cloture;
 
     /// Parti, derniers loyers facturés, dépôt rendu, régul de sortie faite, plus aucune
     /// facture due (un avoir non remboursé compte : on doit encore quelque chose) →
@@ -124,11 +139,12 @@ public static class DepartLocataire
         if (!Sortie(loc, out var s)) { r.Add("aucun départ saisi"); return r; }
         if (!loc.EstParti) r.Add($"le locataire n'est pas encore parti (dernier jour le {s:dd/MM/yyyy})");
 
-        foreach (var l in FacturationSuivi.Lignes(loc, s.Year))
+        foreach (var l in LignesDuBail(loc, s))   // Revue 17 (D7a-20, lot D) : toutes les années du bail
         {
             if (l.type != "Loyer") continue;
-            var e = FacturationSuivi.EtatDe(l);
-            if (LoyerACorriger(loc, l)) r.Add($"« {l.libelle} » à corriger : il ne correspond plus au départ");
+            var e = FacturationSuivi.EtatDe(l, loc);   // Revue 17 (D4-05, coutures) : avec le locataire, comme partout
+            // Revue 17 (D4-02, relecture du 05/11) : une période après le départ ne se corrige pas (« Corriger » à 0 € est refusé).
+            if (LoyerACorriger(loc, l)) r.Add(PeriodeApresDepart(loc, l) ? ARetirer(l) : $"« {l.libelle} » à corriger : il ne correspond plus au départ");
             else if (e == FacturationSuivi.Etat.AFaire || e == FacturationSuivi.Etat.AVenir) r.Add($"« {l.libelle} » à facturer");
             else if (e == FacturationSuivi.Etat.AttenteEnvoi) r.Add($"« {l.libelle} » à envoyer");
         }
@@ -137,12 +153,19 @@ public static class DepartLocataire
             r.Add(FacturationSuivi.EstDejaEmise(loc, CleDecompte, out _) ? "décompte de sortie à envoyer" : "décompte de sortie à faire");
 
         if (!RegulsDeSortieFaites(loc))
-            foreach (var l in FacturationSuivi.Lignes(loc, s.Year).Where(x => x.type == "Regul" && !FacturationSuivi.DejaTraite(loc, x.key)))
+            foreach (var l in LignesDuBail(loc, s).Where(x => x.type == "Regul" && !RegulFaite(loc, x)))
                 r.Add(FacturationSuivi.TryEcheance(l.echeanceISO, out var ech) && ech.Date > DateTime.Today
                     ? $"« {l.libelle} » à faire à partir du {ech:dd/MM/yyyy}" : $"« {l.libelle} » à faire");
 
         foreach (var d in FacturationSuivi.DuesDe(loc))
         {
+            // Revue 17 (D4-02) : un loyer dont la période commence après le départ n'est pas « non payé » : rien n'y est dû, même
+            // d'une autre année que le départ (janvier parti avant un départ au 31/12) ; sa sortie, dite une seule fois.
+            if (d.type == "Loyer" && PeriodeApresDepart(loc, d))
+            {
+                if (!r.Contains(ARetirer(d))) r.Add(ARetirer(d));
+                continue;
+            }
             string quoi = $"{(string.IsNullOrEmpty(d.numero) ? "" : $"n° {d.numero} ")}« {d.libelle} »";
             string montant = Math.Abs(d.montant).ToString("N2", FacturePdfService.FrCulture) + " €";
             r.Add(d.montant < 0f
@@ -161,9 +184,13 @@ public static class DepartLocataire
     /// que le départ soit saisi) → « Montant à corriger (départ) » dans le suivi.
     /// Avec le HT mémorisé : comparé au montant de la période. Sans (anciennes lignes) :
     /// seule une période entièrement après le départ est repérée.
+    /// Revue 17 (2c, relecture du 07/11) : aussi un loyer d'une période après le départ qui porte un statut (préparé, bloqué, mis à
+    /// la main) : il est à retirer du suivi (Retirable) ; le bandeau, l'archivage et l'alerte le disent.
     public static bool LoyerACorriger(Locataire loc, FactureEtat l)
     {
         if (l == null || l.type != "Loyer" || !Sortie(loc, out _)) return false;
+        // La ligne donnée porte un statut (une ligne « non émise » passée seule ne compte pas, même si sa clé est enregistrée).
+        if (!string.IsNullOrEmpty(l.statut) && Retirable(loc, l)) return true;
         if (!FacturationSuivi.EstDejaEmise(loc, l.key, out _)) return false;
         if (!LirePeriode(l.key, out int annee, out int periode)) return false;
         float du = Loyers.MontantPeriode(loc, annee, periode);
@@ -171,6 +198,86 @@ public static class DepartLocataire
         // après un dernier loyer au prorata laisse la fin de la période à facturer (avant : seul un loyer trop fort était vu).
         if (l.loyerHT > 0f) return Math.Abs(l.loyerHT - du) > 0.01f;
         return du <= 0f && l.montant > 0.005f;
+    }
+
+    /// Revue 17 (D4-02, décision du 05/11) : loyer d'une période qui commence après le départ (saisi après son envoi) : rien n'y
+    /// est dû, la ligne est « Hors bail » une fois retirée du suivi. Seule facture partie qui garde une sortie (« Retirer du suivi… ») :
+    /// « Corriger » à 0 € est refusé, et sans cette sortie l'archivage resterait bloqué pour toujours (LoyerACorriger). Émise
+    /// sous une autre périodicité, sa clé ne désigne pas cette période (D4-04) : non.
+    public static bool PeriodeApresDepart(Locataire loc, FactureEtat l)
+    {
+        if (l == null || !Sortie(loc, out var s) || !LirePeriode(l.key, out int annee, out int periode)) return false;
+        // Revue 17 (avenant de périodicité, lot 14) : comparée à la périodicité de SA période dans le plan de l'année, pas à celle
+        // d'aujourd'hui (après un changement daté, un loyer mensuel d'avant désigne toujours son mois).
+        if (!string.IsNullOrEmpty(l.periodicite) && l.periodicite != FacturationSuivi.PeriodiciteDe(loc, annee, periode).ToString()) return false;
+        FacturationSuivi.PeriodeBornes(loc, annee, periode, out var debut, out _);
+        return debut > s;
+    }
+
+    /// Revue 17 (2c, relecture du 07/11) : « Retirer du suivi… » dans le menu de la pastille : un loyer d'une période entièrement
+    /// après le départ qui porte un statut (facture partie, préparée ou bloquée, ou état mis à la main). Retiré, il repasse « Hors
+    /// bail » : rien n'y est dû, il n'est plus proposé à l'envoi. Avant, seule une facture partie avait cette sortie.
+    public static bool Retirable(Locataire loc, FactureEtat ligne)
+    {
+        var rec = ligne == null ? null : loc?.facturesEtat?.FirstOrDefault(x => x.key == ligne.key);
+        return rec != null && !string.IsNullOrEmpty(rec.statut) && PeriodeApresDepart(loc, rec);
+    }
+
+    /// Revue 17 (D4-02, relecture du 05/11) : la sortie d'un tel loyer, pour le bandeau, l'archivage et l'alerte (avant : « corrigez-le »).
+    public static string ARetirer(FactureEtat l)
+        => $"« {l.libelle} » commence après le départ : rien n'y est dû ; dans le suivi, cliquez son état puis « Retirer du suivi »";
+
+    /// Revue 17 (D4-02, relecture du 05/11) : texte de la confirmation « Retirer ce loyer du suivi ? ». L'avoir suit ce qui a
+    /// été réglé : payé, l'avoir puis le remboursement ; impayé, l'avoir annule la dette et il n'y a rien à rendre (repris coché
+    /// au décompte de sortie, il rendrait un loyer jamais payé). Retirée, la ligne garde son numéro et son PDF sans statut, avec le
+    /// marqueur `retireApresEnvoi` (lot 6b, décision du 09/11) : si le départ est ensuite annulé ou repoussé, « Refaire » est refusé
+    /// (FactureEmission.RefusRetire) ; elle se remet dans son état par le menu de la pastille. L'avoir qui la cite ne rend que ce
+    /// qui a été versé sur elle (FacturationSuivi.ARembourser) : rien pour un loyer impayé, le versé pour un loyer payé en partie.
+    public static string ConfirmationRetrait(Locataire loc, FactureEtat l)
+    {
+        string Eur(float v) => v.ToString("N2", FacturePdfService.FrCulture) + " €";
+        Sortie(loc, out var s);
+        // Revue 17 (2c, relecture du 07/11) : un loyer préparé, bloqué ou mis à la main, qui n'est pas parti : pas d'avoir.
+        if (!FacturationSuivi.Partie(loc, l.key))
+            return $"« {l.libelle} »{(string.IsNullOrEmpty(l.numero) ? "" : $" (n° {l.numero})")} n'est pas parti chez le locataire, et sa "
+                + $"période commence après le départ (dernier jour de location : {s:dd/MM/yyyy}) : rien n'y est dû. Il repassera "
+                + "« Hors bail » et ne sera pas proposé à l'envoi.";
+        FacturationSuivi.Solde(loc, l.key, out float total, out float paye);
+        // Relecture du lot 6b (09/11) : l'avoir ne rend que ce qui a été versé sur la facture qu'il cite : il faut la choisir.
+        string avoir = $"un avoir de {Eur(total)} (Refacturation, « Avoir sur la facture n° {l.numero} » : choisissez-la, c'est elle qui dit ce qu'il y a à rendre)";
+        string reglement = l.statut == "Paye" || paye >= total - 0.005f
+            ? $"Il l'a payé : envoyez-lui {avoir}, puis remboursez-le (« Remboursé… » sur l'avoir, ou au décompte de sortie)."
+            : paye > 0.005f
+            ? $"Il en a payé {Eur(paye)} : envoyez-lui {avoir} ; l'avoir, qui cite cette facture, ne rendra que {Eur(paye)} "
+              + "(« Remboursé… » sur l'avoir, ou au décompte de sortie)."
+            : $"Il ne l'a pas payé : envoyez-lui {avoir}, qui l'annule ; il n'y a rien à lui rendre : l'avoir restera « Envoyé » "
+              + "et ne sera pas repris au décompte de sortie.";
+        return $"« {l.libelle} » (n° {l.numero}) est déjà parti chez le locataire, mais sa période commence après le départ "
+            + $"(dernier jour de location : {s:dd/MM/yyyy}) : rien n'y est dû. Il repassera « Hors bail » et sortira des créances.\n\n"
+            + reglement
+            + "\n\nSi ensuite le départ est annulé ou repoussé et que ce loyer revient dans le suivi, cliquez son état et remettez-le "
+            + $"« {(l.statut == "Paye" ? "Payé" : "Envoyé")} » : « Refaire » sera refusé, il garde son numéro et le PDF reçu par le locataire.";
+    }
+
+    /// Revue 17 (D7a-09, décision du 09/11 : critique) : un locataire dont une facture est partie chez lui (envoyée, impayée ou payée)
+    /// ne se supprime pas : sa fiche porte le registre des factures (numéros, statuts, versements, identifiants de la plateforme),
+    /// que le serveur effacerait pour de bon passé le « Annuler ». Le chemin prévu : « Départ du locataire », puis « Archiver ».
+    /// Une fiche sans facture partie (doublon, essai, factures seulement préparées) reste supprimable. Null = permis.
+    public static string RefusSuppression(Locataire loc)
+    {
+        if (loc?.facturesEtat == null || !loc.facturesEtat.Any(r => FacturationSuivi.Partie(loc, r.key))) return null;
+        return $"« {loc.Name} » a des factures parties chez le locataire : sa fiche et son suivi doivent être gardés. "
+             + "Saisissez son départ (bouton « Départ du locataire »), puis archivez-le.";
+    }
+
+    /// Même garde pour un bâtiment : ses locataires, archivés compris, partent avec lui.
+    public static string RefusSuppression(Batiment bat)
+    {
+        var factures = bat?.locataireDuBatiment?.Where(l => RefusSuppression(l) != null).ToList();
+        if (factures == null || factures.Count == 0) return null;
+        string qui = factures.Count == 1 ? $"« {factures[0].Name} » a" : $"« {factures[0].Name} » et {factures.Count - 1} autre(s) locataire(s) ont";
+        return $"« {bat.Name} » ne peut pas être supprimé : {qui} des factures parties chez le locataire, et leur registre doit être gardé. "
+             + "Le bâtiment se conserve ; archivez les locataires partis.";
     }
 
     // ── Parcours de départ (maquettes validées le 02/10) ───────────────────────
@@ -200,7 +307,7 @@ public static class DepartLocataire
 
             case Etape.DernierLoyer:
             {
-                var loyers = FacturationSuivi.Lignes(loc, s.Year).Where(l => l.type == "Loyer").ToList();
+                var loyers = LignesDuBail(loc, s).Where(l => l.type == "Loyer").ToList();   // Revue 17 (D7a-20, lot D)
                 if (loyers.Any(l => LoyerACorriger(loc, l))) return Statut.AFaire;
                 bool faisable = false;
                 foreach (var l in loyers)
@@ -226,7 +333,7 @@ public static class DepartLocataire
             case Etape.Regul:
             {
                 if (RegulsDeSortieFaites(loc)) return Statut.Faite;
-                foreach (var l in FacturationSuivi.Lignes(loc, s.Year).Where(l => l.type == "Regul"))
+                foreach (var l in LignesDuBail(loc, s).Where(l => l.type == "Regul" && !RegulFaite(loc, l)))   // Revue 17 (D7a-20, lot D)
                 {
                     var et = FacturationSuivi.EtatDe(l, loc);
                     if (et == FacturationSuivi.Etat.AFaire || et == FacturationSuivi.Etat.AttenteEnvoi) return Statut.AFaire;
@@ -285,16 +392,19 @@ public static class DepartLocataire
 
     static string LoyerACorrigerLibelle(Locataire loc, DateTime s)
     {
-        var l = FacturationSuivi.Lignes(loc, s.Year).FirstOrDefault(x => LoyerACorriger(loc, x));
-        return l == null ? null : $"Étape 2 — Dernier loyer : « {l.libelle} » ne correspond plus au départ : corrigez-le.";
+        var l = LignesDuBail(loc, s).FirstOrDefault(x => LoyerACorriger(loc, x));   // Revue 17 (D7a-20, lot D)
+        if (l == null) return null;
+        // Revue 17 (D4-02, relecture du 05/11) : une période après le départ ne se corrige pas, elle se retire du suivi.
+        return PeriodeApresDepart(loc, l) ? $"Étape 2 — Dernier loyer : {ARetirer(l)}."
+            : $"Étape 2 — Dernier loyer : « {l.libelle} » ne correspond plus au départ : corrigez-le.";
     }
 
     /// Ligne du suivi à ouvrir pour l'étape « Dernier loyer » : celle à corriger, sinon
-    /// la première encore à facturer de l'année du départ. Null si rien.
+    /// la première encore à facturer du bail (Revue 17, D7a-20, lot D : la plus ancienne, années d'avant comprises). Null si rien.
     public static FactureEtat LigneDernierLoyer(Locataire loc)
     {
         if (!Sortie(loc, out var s)) return null;
-        var loyers = FacturationSuivi.Lignes(loc, s.Year).Where(l => l.type == "Loyer").ToList();
+        var loyers = LignesDuBail(loc, s).Where(l => l.type == "Loyer").ToList();
         return loyers.FirstOrDefault(l => LoyerACorriger(loc, l))
             ?? loyers.FirstOrDefault(l =>
             {
@@ -303,10 +413,10 @@ public static class DepartLocataire
             });
     }
 
-    /// Ligne du suivi de la régul de sortie (la première pas encore traitée), ou null.
+    /// Ligne du suivi de la régul de sortie (la première pas encore traitée, années d'avant comprises : Revue 17, D7a-20), ou null.
     public static FactureEtat LigneRegulSortie(Locataire loc)
         => !Sortie(loc, out var s) ? null
-         : FacturationSuivi.Lignes(loc, s.Year).FirstOrDefault(l => l.type == "Regul" && !FacturationSuivi.DejaTraite(loc, l.key));
+         : LignesDuBail(loc, s).FirstOrDefault(l => l.type == "Regul" && !RegulFaite(loc, l));
 
     /// Prépare le locataire qui reprend le lot sans cession (décision du 06/10) : même lot,
     /// même surface, mêmes listes de charges, bail au lendemain du départ. Il reprend la
@@ -334,6 +444,52 @@ public static class DepartLocataire
                 c.locatairesConcernes.Add(nouveau.id);
         }
     }
+
+    /// Revue 17 (D7a-19, D7a-26, décision du 09/11, lot D) : le locataire qui reprend le lot de `ancien` au lendemain de
+    /// `ancienneSortie` : même lot déclaré, non archivé, premier jour du bail = ancienneSortie + 1 jour ; null sinon. Seules les
+    /// fiches inscrites dans le bâtiment comptent : un remplaçant créé mais jamais enregistré n'existe pas.
+    /// Revue 17 (D7a-19, reprise, lot D) : le début du bail COURANT (dateDebutBailISO), celui que la fiche modifie ; pas
+    /// DebutPremierBail : PreparerRemplacant remplit aussi dateDebutPremierBailISO, que la fiche ne déplace qu'avant toute
+    /// facture partie (PremierBailApres) : le refus « changez d'abord le début de son bail » doit toujours pouvoir être levé.
+    public static Locataire Remplacant(Locataire ancien, Batiment bat, DateTime ancienneSortie)
+    {
+        if (ancien == null || ancien.lotBatiment <= 0 || bat?.locataireDuBatiment == null) return null;
+        var lendemain = ancienneSortie.Date.AddDays(1);
+        return bat.locataireDuBatiment.FirstOrDefault(l => l != null && l.id != ancien.id && !l.archive
+            && l.lotBatiment == ancien.lotBatiment && FacturationSuivi.TryEcheance(l.dateDebutBailISO, out var d) && d.Date == lendemain);
+    }
+
+    /// Revue 17 (D7a-19, décision du 09/11, lot D) : le dernier jour change (ou le départ est annulé : `nouveauDernier` null) alors
+    /// qu'un remplaçant reprend le lot au lendemain de l'ancien : refus qui le nomme. Rien n'est ajusté (sa fiche n'est pas
+    /// réservée) ; avant, les deux étaient facturés la même période, ou personne. Null : permis.
+    public static string RefusRemplacant(Locataire ancien, Batiment bat, DateTime? nouveauDernier)
+    {
+        if (!Sortie(ancien, out var s) || (nouveauDernier.HasValue && nouveauDernier.Value.Date == s)) return null;
+        var b = Remplacant(ancien, bat, s);
+        if (b == null) return null;
+        // Retour de BW4 (12/11) : le refus dit pourquoi, et les solutions (supprimer le remplaçant seulement s'il n'a aucune facture partie).
+        string debut = $"« {b.Name} » reprend ce lot le {s.AddDays(1):dd/MM/yyyy} : ";
+        if (nouveauDernier.HasValue)
+            return debut + "avec un autre dernier jour, ce lot serait facturé à deux locataires, ou à personne.\n"
+                 + $"Gardez le dernier jour au {s:dd/MM/yyyy}, ou changez d'abord le début du bail de « {b.Name} » (« Modifier » sur sa fiche).";
+        debut += $"si le départ est annulé, « {ancien.Name} » et « {b.Name} » seraient facturés tous les deux pour ce lot.\n";
+        return RefusSuppression(b) == null
+            ? debut + "Avant d'annuler le départ, au choix :\n"
+                    + $"• supprimez la fiche de « {b.Name} » s'il ne vient plus (bouton « Supprimer » de sa fiche) ;\n"
+                    + "• ou changez le début de son bail (« Modifier » sur sa fiche)."
+            : debut + $"Avant d'annuler le départ, changez le début du bail de « {b.Name} » (« Modifier » sur sa fiche) : "
+                    + "il a des factures parties, sa fiche ne peut pas être supprimée.";
+    }
+
+    /// Revue 17 (D7a-19, suite du 12/11) : le début du bail est changé sur la fiche. Tant qu'aucune facture n'est partie et que
+    /// le premier bail est ce bail, c'est une CORRECTION (le remplaçant dont l'arrivée est décalée) : le premier bail suit, et
+    /// la facturation avec lui (Loyers.DebutPremierBail). Avec une facture partie, c'est un renouvellement : il est gardé.
+    /// Avant : le remplaçant restait facturé depuis l'ancien lendemain, même après « changez d'abord le début de son bail ».
+    /// Rend la valeur à écrire dans dateDebutPremierBailISO (inchangée, vide comprise, quand rien ne doit bouger).
+    public static string PremierBailApres(Locataire loc, DateTime nouveauDebut)
+        => loc == null || string.IsNullOrEmpty(loc.dateDebutPremierBailISO) || loc.dateDebutPremierBailISO != loc.dateDebutBailISO
+           || RefusSuppression(loc) != null   // une facture est partie chez le locataire
+            ? loc?.dateDebutPremierBailISO : nouveauDebut.ToString("yyyy-MM-dd");
 
     /// Annuler le départ : impossible une fois le décompte émis (il faudrait d'abord le
     /// traiter). Message de refus, ou null.

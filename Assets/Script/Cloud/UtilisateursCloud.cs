@@ -85,10 +85,14 @@ public static class UtilisateursCloud
                 ? $"{r.utilisees} licences sur {r.max} utilisées. Retirez quelqu'un ou augmentez l'abonnement."
                 : $"{r.nom} : {r.utilisees} licence{(r.utilisees > 1 ? "s" : "")} sur {r.max} utilisée{(r.utilisees > 1 ? "s" : "")}. " +
                   $"Ajoutez une licence à {r.nom} (Réglages › Abonnement) ou retirez-y quelqu'un.";
-            case "deja_membre": return "Cette personne fait déjà partie de l'entreprise.";
+            // Revue 17 (D3-10) : elle est membre du groupe ; l'accès à cette entreprise se donne par « Modifier ».
+            case "deja_membre": return "Cette personne fait déjà partie du groupe : donnez-lui l'accès à cette entreprise par « Modifier », dans Réglages › Utilisateurs.";
             case "email": return "Cette adresse e-mail n'est pas valide.";
             case "entreprises": return "Choisissez au moins une entreprise.";
-            case "dernier_admin": return "Il faut au moins un administrateur.";
+            // Revue 17 (D3-15) : le serveur nomme l'entreprise qui resterait sans administrateur y ayant accès.
+            case "dernier_admin": return string.IsNullOrEmpty(r.nom) ? "Il faut au moins un administrateur."
+                : $"« {r.nom} » n'aurait plus d'administrateur y ayant accès : donnez d'abord l'accès à un autre administrateur.";
+            case "membre": return "Cette personne ne fait pas partie du groupe.";   // Revue 17 (D1-14)
             case "soi_meme": return "Vous ne pouvez pas changer votre propre accès : demandez à un autre administrateur.";
             case "code": return "Ce code ne correspond à aucune invitation pour cette adresse e-mail.";
             case "expire": return "Cette invitation a expiré : demandez-en une nouvelle à l'administrateur.";
@@ -193,16 +197,12 @@ public static class UtilisateursCloud
     {
         string manque = EmailService.CeQuiManque();
         if (manque != null) return manque;
-        string qui = NomAdmin() ?? RegleVerrou.Prenom(SessionCloud.Session?.user?.email ?? "");
+        // Revue 17 (D3-20) : l'invitant est la personne (son nom saisi, sinon le prénom de son adresse), plus le nom
+        // d'expédition de l'entreprise (« SCI Rivoli vous invite à rejoindre SCI Rivoli »).
+        string qui = await EcritureCloud.MonNom();
+        if (string.IsNullOrWhiteSpace(qui)) qui = RegleVerrou.Prenom(SessionCloud.Session?.user?.email ?? "");
         var envoi = EmailService.Envoyer(email, ObjetEmail(entreprise), CorpsEmail(qui, entreprise, code, DateTime.Today.AddDays(7)));
         while (!envoi.Termine) await Task.Yield();
         return envoi.Succes ? null : envoi.Erreur;
-    }
-
-    /// Nom de l'admin pour l'e-mail : son nom d'expédition s'il est réglé.
-    static string NomAdmin()
-    {
-        string n = ReglageService.Current?.smtp?.fromName;
-        return string.IsNullOrWhiteSpace(n) ? null : n.Trim();
     }
 }
