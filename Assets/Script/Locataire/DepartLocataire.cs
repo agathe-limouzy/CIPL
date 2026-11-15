@@ -255,8 +255,26 @@ public static class DepartLocataire
         return $"« {l.libelle} » (n° {l.numero}) est déjà parti chez le locataire, mais sa période commence après le départ "
             + $"(dernier jour de location : {s:dd/MM/yyyy}) : rien n'y est dû. Il repassera « Hors bail » et sortira des créances.\n\n"
             + reglement
-            + "\n\nSi ensuite le départ est annulé ou repoussé et que ce loyer revient dans le suivi, cliquez son état et remettez-le "
+            + "\n\nSi ensuite le départ est annulé, ce loyer revient de lui-même dans son état (sauf si un avoir l'a annulé). "
+            + "S'il est repoussé et que ce loyer revient dans le suivi, cliquez son état et remettez-le "
             + $"« {(l.statut == "Paye" ? "Payé" : "Envoyé")} » : « Refaire » sera refusé, il garde son numéro et le PDF reçu par le locataire.";
+    }
+
+    /// Décision du 15/11 (BS9) : départ annulé : un loyer parti puis retiré du suivi (`retireApresEnvoi`) revient de lui-même dans son
+    /// état : « Payé » si ce qui a été versé le couvre, sinon « Envoyé ». Avant : « À faire », à remettre à la main par la pastille.
+    /// Sauf s'il est cité par un avoir (`factureCitee`) : l'avoir l'a annulé, il reste retiré. Rend le nombre de loyers remis.
+    public static int RemettreRetires(Locataire loc)
+    {
+        if (loc?.facturesEtat == null) return 0;
+        int n = 0;
+        foreach (var l in loc.facturesEtat.Where(x => x != null && x.retireApresEnvoi).ToList())
+        {
+            if (loc.facturesEtat.Any(a => a != null && a.factureCitee == l.key)) continue;
+            FacturationSuivi.Solde(loc, l.key, out float total, out float paye);
+            FacturationSuivi.SetStatut(loc, l, total > 0.005f && paye >= total - 0.005f ? "Paye" : "Envoye");
+            n++;
+        }
+        return n;
     }
 
     /// Revue 17 (D7a-09, décision du 09/11 : critique) : un locataire dont une facture est partie chez lui (envoyée, impayée ou payée)

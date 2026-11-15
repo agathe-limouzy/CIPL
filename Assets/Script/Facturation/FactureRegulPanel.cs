@@ -855,6 +855,10 @@ public class FactureRegulPanel : MonoBehaviour
         var d = BuildData();
         // Revue 17 (D6-19, coutures ; décision du 09/11) : un total nul est refusé, comme pour le loyer : rien à facturer (avant : émis, il
         // prenait un numéro). Revue 17 (D6-15) : sans RIB, le relevé d'identité bancaire serait vide. Les deux avant le PDF.
+        // Décision du 14/11 : une régularisation NEUVE à 0 € part comme un décompte par e-mail (montrer au locataire pourquoi rien n'est
+        // dû) : pas une facture (ni numéro, ni Super PDP), ses lignes soldées. La correction d'une facture partie à 0 € reste refusée
+        // (D6-19 : elle s'annule par un avoir).
+        if (Math.Abs(d.ttc) <= 0.004f && !emission.Correction) { EnvoyerDecompte(d); return; }
         if (FactureEmission.RefusTotalNul(d.ttc, d.subtitle) is string refusNul) { ConfirmDialog.Erreur(refusNul); return; }
         if (FactureEmission.RefusSansRib(ReglageService.GetRib(_ribDD?.SelectedId)) is string refusRib) { ConfirmDialog.Erreur(refusRib); return; }
 
@@ -999,6 +1003,73 @@ public class FactureRegulPanel : MonoBehaviour
         if (FactureEmission.FichePerdue(_bat, dest)) { Close(); yield break; }   // Revue 17 (D4-07, coutures) : fiche vidée pendant l'envoi : dit au centre, rien n'est écrit
         Finaliser(d, year, key, emission, correction, pdf, true, parPlateforme, $" et envoyée à {dest}", dest);
         if (_fermerApresEnvoi) Close();   // Revue 17 (D4-07, coutures) : la fermeture demandée pendant l'envoi, une fois la facture enregistrée
+    }
+
+    /// Décision du 14/11 : la régularisation à 0 € (provisions = charges) part comme un DÉCOMPTE par e-mail : le détail des charges et des
+    /// provisions, titré « DÉCOMPTE DE RÉGULARISATION », « Rien à régler ». Pas une facture : ni numéro, ni Super PDP, ni phrase de retard.
+    void EnvoyerDecompte(FacturePdfService.RegulData d)
+    {
+        if (_envoiEnCours) { UndoToast.Instance?.ShowInfo("Un envoi est déjà en cours."); return; }
+        int year = SelectedYear();
+        var listes = ListesSel();
+        d.decompte = true; d.numero = ""; d.retard = false;
+        d.sommePhrase = "Rien à régler : les provisions versées couvrent exactement les charges de l'année.";
+        string liste = listes.Count == 1 && listes[0] == "" ? "" : "-" + string.Join("+", listes.Select(ListesCharges.Nom));
+        string pdf = DossiersDonnees.CheminFacture(FactureDir(), Sanitize($"DecompteRegularisation-{_nom.text}-{year}{liste}") + ".pdf");
+        if (!FacturePdfService.GenerateRegulPdf(d, pdf, out string err)) { ConfirmDialog.Erreur("Échec génération PDF : " + err); return; }
+        string png = DossiersDonnees.Apercu("apercu_regul.png");
+        if (FacturePdfService.GenerateRegulPreviewPng(d, png, out _, 794, 2246)) ShowPreview(png);
+
+        string dest = (_emailEnvoi.text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(dest)) { ConfirmDialog.Erreur("Aucune adresse email pour ce locataire. Rien n'a été envoyé ; le décompte (PDF) est enregistré."); return; }
+        string manque = EmailService.CeQuiManque();
+        if (manque != null) { ConfirmDialog.Erreur(manque + " Le décompte (PDF) est enregistré."); return; }
+        if (ConfirmDialog.Instance == null) { ConfirmDialog.Erreur("Confirmation indisponible : rien n'a été envoyé. Le décompte (PDF) est enregistré."); return; }
+        string objet = $"Décompte de régularisation des charges {year}";
+        string corps = $"Bonjour,\n\nVeuillez trouver ci-joint le décompte de régularisation de vos charges {year}. Les provisions versées couvrent "
+                     + "exactement les charges de l'année : vous n'avez rien à régler, et rien ne vous est dû.\n\nCordialement.";
+        ConfirmDialog.Instance.Show("Envoyer le décompte par email ?",
+            $"Solde nul : ce n'est pas une facture (pas de numéro, rien à Super PDP).\nÀ : {dest}\nObjet : {objet}\nPièce jointe : {Path.GetFileName(pdf)}\n\n"
+            + "Le message part immédiatement et ne pourra pas être rappelé.",
+            () => StartCoroutine(EnvoyerDecompte(year, listes, pdf, dest, objet, corps)), "Envoyer");
+    }
+
+    /// N'enregistre que si l'e-mail est parti : les charges de l'année sont régularisées (plus proposées), chaque liste a sa ligne
+    /// « Payé » à 0 € avec le PDF du décompte, sans numéro.
+    /// ponytail: la ligne a un PDF et l'état « Payé » : « Corriger » la rouvre comme une facture partie ; le total y est nul, la
+    /// correction est donc refusée (avoir). Un champ « décompte » sur la ligne si ce cas gêne.
+    System.Collections.IEnumerator EnvoyerDecompte(int year, List<string> listes, string pdf, string dest, string objet, string corps)
+    {
+        FactureEmission.NoterEnvoi(ref _envoiEnCours, true);
+        UndoToast.Instance?.ShowInfo($"Envoi en cours vers {dest}…");
+        var envoi = EmailService.Envoyer(dest, objet, corps, new[] { pdf });
+        while (!envoi.Termine) yield return null;
+        FactureEmission.NoterEnvoi(ref _envoiEnCours, false);
+        if (!envoi.Succes)
+        {
+            ConfirmDialog.Erreur("Envoi échoué — " + envoi.Erreur + " Le décompte (PDF) est enregistré, rien n'est marqué envoyé : vous pouvez réessayer.");
+            if (_fermerApresEnvoi) Close();
+            yield break;
+        }
+        if (FactureEmission.FichePerdue(_bat, dest)) { Close(); yield break; }
+
+        string aujourdhui = DateTime.Today.ToString("yyyy-MM-dd");
+        foreach (var c in ChargesFor(year)) c.MarquerFacturee(_loc.id, aujourdhui);   // régularisées : plus proposées une seconde fois
+        _loc.facturesEtat = _loc.facturesEtat ?? new List<FactureEtat>();
+        foreach (var l in listes)
+        {
+            string k = ListesCharges.Cle(l, year);
+            var ligne = _loc.facturesEtat.Find(x => x.key == k);
+            if (ligne == null) { ligne = new FactureEtat { key = k, type = "Regul" }; _loc.facturesEtat.Add(ligne); }
+            ligne.libelle = ListesCharges.Libelle(l, year) + " (décompte, rien à régler)";
+            ligne.numero = ""; ligne.montant = 0f; ligne.pdfPath = pdf; ligne.dateEnvoiISO = aujourdhui;
+            ligne.statut = "Paye"; ligne.payeLeISO = aujourdhui;
+        }
+        _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();   // persiste locataire + charges
+        LocataireSuiviInline.RefreshFor(_fiche);
+        RefreshCharges();
+        UndoToast.Instance?.ShowInfo($"Décompte envoyé à {dest} : rien à régler, la régularisation {year} est soldée.");
+        if (_fermerApresEnvoi) Close();
     }
 
     /// Enregistrement du suivi, commun aux deux chemins (sans envoi, ou après succès).

@@ -227,7 +227,10 @@ public static class FactureEmission
             // Revue 16c (D4-04) : un ID saisi à la main plus grand que la séquence la fait avancer (sinon le numéro
             // suivant revenait en arrière, puis retombait sur un numéro déjà imprimé).
             loc.factureSeq = Mathf.Max(Mathf.Max(1, loc.factureSeq), NumeroSaisi(info?.numeroId)) + 1;
-            if (info != null) info.numeroId = "";
+            // Décision du 14/11 (BV8) : la séquence est commune aux quatre formulaires : l'ID mémorisé par un essai non émis dans un
+            // AUTRE formulaire (refus, envoi échoué) désigne maintenant un numéro pris (avant : « Le numéro … est déjà celui d'une autre
+            // facture »). Tous sont oubliés, pas seulement celui du formulaire qui émet.
+            foreach (var i in new[] { info, loc.factureLoyer, loc.factureRegul, loc.factureRefac, loc.factureDepot }) if (i != null) i.numeroId = "";
         }
 
         // Le message doit dire ce qui s'est RÉELLEMENT passé. Il était renvoyé à

@@ -827,4 +827,67 @@ public class CouturesTests
         StringAssert.Contains("if (l == Ligne.Facture) { var e = Lire(); if (e.admin && !e.rib) l = Ligne.Rib; }", commencer);
         Assert.That(commencer.IndexOf("l = Ligne.Rib;", StringComparison.Ordinal), Is.LessThan(commencer.IndexOf("var avant = Maintenant();", StringComparison.Ordinal)), "avant d'ouvrir l'écran");
     }
+
+    // ── Décisions du 14/11 (tests en Play des coutures) ──
+
+    /// Décision du 14/11 : une régularisation neuve à 0 € part comme un décompte : titre « DÉCOMPTE DE RÉGULARISATION », sans numéro,
+    /// avant le refus du total nul (qui reste pour la correction d'une facture partie).
+    [Test]
+    public void Une_regularisation_a_zero_part_comme_un_decompte()
+    {
+        var html = FacturePdfService.BuildRegulHtml(new FacturePdfService.RegulData { decompte = true, numero = "", soldeHT = 0f });
+        StringAssert.Contains("DÉCOMPTE DE RÉGULARISATION", html);
+        StringAssert.DoesNotContain("FACTURE :", html);
+        StringAssert.Contains("FACTURE : 2026/11001", FacturePdfService.BuildRegulHtml(new FacturePdfService.RegulData { numero = "2026/11001", soldeHT = 200f }), "une facture garde son titre");
+        var sauver = Corps(Src("Facturation/FactureRegulPanel.cs"), "void SauvegarderEtEnvoyer()");
+        int decompte = sauver.IndexOf("if (Math.Abs(d.ttc) <= 0.004f && !emission.Correction) { EnvoyerDecompte(d); return; }", StringComparison.Ordinal);
+        Assert.That(decompte, Is.GreaterThan(0));
+        Assert.That(decompte, Is.LessThan(sauver.IndexOf("FactureEmission.RefusTotalNul(d.ttc", StringComparison.Ordinal)), "avant le refus du total nul");
+    }
+
+    /// Décision du 15/11 (vu en jouant BT39) : la correction d'un loyer émis avant D6-07 (provision imprimée inconnue) retrouve sa
+    /// provision à partir du montant imprimé, au lieu de la provision mémorisée par la dernière utilisation du formulaire (210 € d'un
+    /// trimestre de 2027 sur le loyer de mai de sephora : la correction partait à 1 252 € au lieu de 1 000 €).
+    [Test]
+    public void La_correction_d_un_ancien_loyer_retrouve_sa_provision_imprimee()
+    {
+        var mai = new FactureEtat { key = "loyer-2026-P5", type = "Loyer", statut = "Envoye", pdfPath = "mai.pdf", montant = 999.996f, tauxTva = 20f };
+        Assert.That(FactureLoyerPanel.ProvisionDeduite(mai, 833.33f, 0f), Is.EqualTo(0f), "1 000 € TTC = 833,33 € de loyer : aucune provision");
+        Assert.That(FactureLoyerPanel.ProvisionDeduite(new FactureEtat { montant = 1084f, tauxTva = 20f }, 833.33f, 0f), Is.EqualTo(70f).Within(0.005f));
+        Assert.That(FactureLoyerPanel.ProvisionDeduite(new FactureEtat { montant = 903.33f, tauxTva = 0f }, 833.33f, 20f), Is.EqualTo(50f).Within(0.005f), "moins les listes");
+        Assert.That(FactureLoyerPanel.ProvisionDeduite(new FactureEtat { montant = 500f, tauxTva = 20f }, 833.33f, 0f), Is.Zero, "jamais négative");
+        var memo = new FactureInfo { saved = true, provisionMontant = 210f };
+        Assert.That(FactureLoyerPanel.ProvisionProposee(memo, 70f, mai, 0f), Is.EqualTo(0f), "pas la provision mémorisée d'une autre période");
+        Assert.That(FactureLoyerPanel.ProvisionProposee(memo, 70f, mai), Is.EqualTo(210f), "sans déduction, comme avant (appels existants)");
+        var defaut = Corps(Src("Facturation/FactureLoyerPanel.cs"), "string DefaultProvision(string listeId)");
+        StringAssert.Contains("var memos = corrigee == null || inconnue ? null : corrigee.provisionsListes;", defaut, "les listes non plus");
+    }
+
+    /// Décision du 15/11 (BS9) : départ annulé : un loyer parti puis retiré du suivi revient de lui-même dans son état (« Payé » si ce
+    /// qui a été versé le couvre, sinon « Envoyé »), sauf s'il est cité par un avoir. Avant : « À faire », à remettre à la main.
+    [Test]
+    public void Un_depart_annule_remet_les_loyers_retires_dans_leur_etat()
+    {
+        FactureEtat Retire(string key, string numero) => new FactureEtat { key = key, type = "Loyer", libelle = key, numero = numero, pdfPath = key + ".pdf",
+                                                                     montant = 1200f, echeanceISO = "2026-12-01", retireApresEnvoi = true };
+        var impaye = Retire("loyer-2026-P12", "COUT/12003");
+        var paye = Retire("loyer-2026-P11", "COUT/11003");
+        paye.versements.Add(new Versement { dateISO = "2026-11-02", montant = 1200f });
+        var annule = Retire("loyer-2026-P10", "COUT/10003");
+        var avoir = new FactureEtat { key = "refac-avoir", type = "Refac", numero = "COUT/11009", pdfPath = "avoir.pdf", statut = "Envoye", montant = -1200f, factureCitee = "loyer-2026-P10" };
+        var loc = LocA2("COUT-BS9-LOC");
+        loc.facturesEtat = new List<FactureEtat> { impaye, paye, annule, avoir };
+        Assert.That(DepartLocataire.RemettreRetires(loc), Is.EqualTo(2));
+        Assert.That((impaye.statut, impaye.retireApresEnvoi), Is.EqualTo(("Envoye", false)), "impayé : « Envoyé »");
+        Assert.That((paye.statut, paye.retireApresEnvoi), Is.EqualTo(("Paye", false)), "réglé : « Payé »");
+        Assert.That((annule.statut ?? "", annule.retireApresEnvoi), Is.EqualTo(("", true)), "annulé par un avoir : reste retiré");
+        StringAssert.Contains("int remis = DepartLocataire.RemettreRetires(loc);", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "Locataire", "DepartLocataireUI.cs")));
+    }
+
+    /// Décision du 14/11 (BV8) : la séquence est commune aux quatre formulaires : quand un numéro est pris, l'ID mémorisé de TOUS est
+    /// oublié. Avant : l'ID « 001 » gardé par un loyer refusé revenait après une régularisation émise sous 2026/11001.
+    [Test]
+    public void Un_numero_pris_fait_oublier_l_id_memorise_des_quatre_formulaires()
+        => Assert.That(Fois(Src("Facturation/FactureEmission.cs"),
+               "foreach (var i in new[] { info, loc.factureLoyer, loc.factureRegul, loc.factureRefac, loc.factureDepot }) if (i != null) i.numeroId = \"\";"), Is.EqualTo(1));
 }

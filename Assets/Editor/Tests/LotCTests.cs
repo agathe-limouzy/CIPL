@@ -1153,7 +1153,8 @@ public class LotCTests
             Assert.That(transmettre, Is.GreaterThan(decision).And.LessThan(confirmer), p + " : la branche « Transmettre ? » lit la décision prise une fois");
             Assert.That(confirmer, Is.LessThan(adresse), p + " : avant le contrôle de l'adresse e-mail (par la plateforme seule, pas besoin d'adresse)");
             StringAssert.Contains("true, parPlateforme, \"  Transmise par la plateforme agréée.\"));", s, p + " : Finaliser enregistre « Envoyé » sans e-mail");
-            Assert.That(s.Split(new[] { "EmailService.Envoyer(" }, StringSplitOptions.None).Length - 1, Is.EqualTo(1), p + " : un seul envoi d'e-mail, celui du PDF (EnvoyerPuisFinaliser)");
+            // Décision du 14/11 : la régularisation a un second envoi, celui du décompte à 0 € (EnvoyerDecompte, jamais par la plateforme).
+            Assert.That(s.Split(new[] { "EmailService.Envoyer(" }, StringSplitOptions.None).Length - 1, Is.EqualTo(p.Contains("Regul") ? 2 : 1), p + " : un seul envoi d'e-mail de facture, celui du PDF (EnvoyerPuisFinaliser)");
         }
         string regul = Src("Facturation/FactureRegulPanel.cs");
         Assert.That(regul.IndexOf("\"Remboursement au locataire\",", StringComparison.Ordinal),

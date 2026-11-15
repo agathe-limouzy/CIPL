@@ -325,11 +325,13 @@ public static class FacturePdfService
         public bool tvaDebit, retard;
         public string ribTitulaire, ribDomiciliation, ribNum, ribIban, ribBic;
         public string legal, escompte, foot1, foot2;   // escompte : la phrase des Réglages (04/11)
+        public bool decompte;   // décision du 14/11 : régularisation à 0 € : « DÉCOMPTE DE RÉGULARISATION », sans numéro (pas une facture)
     }
 
     public static string BuildRegulHtml(RegulData d)
     {
         string t = File.ReadAllText(RegulTemplatePath);
+        if (d.decompte) t = t.Replace("{{TITRE}} : {{NUMERO}}", "DÉCOMPTE DE RÉGULARISATION");
         return t
             .Replace("{{LOGO_SRC}}", LogoDataUri())
             .Replace("{{CLIENT_NOM}}", H(d.clientNom))

@@ -799,11 +799,17 @@ public class AvenantPeriodiciteTests
         Assert.That(Loyers.ProvisionPeriode(loc, 2026, 5, "tf"), Is.EqualTo(10f), "chaque liste aussi");
         Assert.That(Loyers.ProvisionPeriode(loc, 2026, 8, "tf"), Is.EqualTo(30f));
 
-        // Trimestriel à compter du 1er mai : le 2e trimestre ne facture que mai et juin, mais appelle la provision du trimestre.
+        // Trimestriel à compter du 1er mai : le 2e trimestre ne facture que mai et juin, et appelle sa provision au prorata des mois,
+        // comme le loyer (décision du 14/11 ; avant : 300 €, alors qu'avril avait déjà appelé la sienne).
         var coupe = Provisions(Bail(Periodicite.trimestriel, ("2026-04-30", Periodicite.mensuel)), 300f);
         Assert.That(FacturationSuivi.Plan(coupe, 2026)[4].Coupee, Is.True);
-        Assert.That(Loyers.ProvisionPeriode(coupe, 2026, 5, ""), Is.EqualTo(300f), "entière, comme une arrivée ou un départ");
+        Assert.That(Loyers.ProvisionPeriode(coupe, 2026, 5, ""), Is.EqualTo(200f), "2 mois sur 3 : 200 €");
         Assert.That(Loyers.ProvisionPeriode(coupe, 2026, 4, ""), Is.EqualTo(100f), "avril reste un mois");
+        Assert.That(Loyers.ProvisionsAppelees(coupe, 2026, ""), Is.EqualTo(1200f), "l'année appelle 4 × 100 + 200 + 2 × 300 = 1 200 €, comme douze mois à 100 €");
+        // Trimestriel au 1er décembre : décembre seul, le tiers du trimestre.
+        var decembre = Provisions(Bail(Periodicite.trimestriel, ("2026-11-30", Periodicite.mensuel)), 300f);
+        Assert.That(Loyers.ProvisionPeriode(decembre, 2026, 12, ""), Is.EqualTo(100f), "1 mois sur 3 : 100 €");
+        Assert.That(Loyers.ProvisionsAppelees(decembre, 2026, ""), Is.EqualTo(1200f));
 
         // Sans avenant de périodicité : la provision de la fiche, telle quelle.
         var sans = Provisions(Bail(Periodicite.trimestriel), 123.456f);
@@ -929,7 +935,7 @@ public class AvenantPeriodiciteTests
         string defaut = Corps(loyer, "string DefaultProvision(string listeId)");
         StringAssert.Contains("Loyers.ProvisionPeriode(_loc, PeriodeAnnee(), PeriodeChoisie(), listeId)", defaut, "la fiche ramenée à la périodicité de la période");
         StringAssert.Contains("var corrigee = Corrigee();", defaut, "la facture partie de la période affichée");
-        StringAssert.Contains("ProvisionProposee(f, fiche, corrigee)", defaut, "sa correction garde le montant imprimé (D6-07)");
+        StringAssert.Contains("ProvisionProposee(f, fiche, corrigee, deduite)", defaut, "sa correction garde le montant imprimé (D6-07), ou le retrouve (15/11)");
         // Finitions (FIN-6) : un état « Payé », « Envoyé » ou « Impayé » posé à la main (pas de PDF) n'est pas une facture à corriger
         // (Tva.FacturePartie, lue par Corrigee) : la période reçoit la provision de la fiche (charges générales et listes), et le taux du bail.
         StringAssert.Contains("return Tva.FacturePartie(ligne) ? ligne : null;", Corps(loyer, "FactureEtat Corrigee()"));

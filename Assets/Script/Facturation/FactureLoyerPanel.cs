@@ -790,13 +790,27 @@ public class FactureLoyerPanel : MonoBehaviour
     /// La provision proposée : celle de la fiche, sauf pour la correction d'une facture déjà partie, qui garde son
     /// montant imprimé (revue 16c, D6-04). Revue 17 (lot 16) : `provisionFiche` est celle de la fiche ramenée à la périodicité de
     /// la période affichée, et `ligneCiblee` la facture partie de cette période (DefaultProvision).
-    public static float ProvisionProposee(FactureInfo f, float provisionFiche, FactureEtat ligneCiblee)
+    /// Décision du 15/11 : pour une facture émise avant D6-07 (provision imprimée inconnue), `deduite` est la provision retrouvée à
+    /// partir de son montant imprimé (FactureLoyerPanel.ProvisionDeduite) ; avant, la provision mémorisée par la DERNIÈRE utilisation
+    /// du formulaire, d'une autre période (210 € au lieu de 0 sur le loyer de mai de sephora : la correction partait à 1 252 €).
+    public static float ProvisionProposee(FactureInfo f, float provisionFiche, FactureEtat ligneCiblee, float? deduite = null)
     {
         // Sans locataire (D4-05) : « Envoyé » ou « Impayé », la facture est partie dans les deux cas.
         var e = ligneCiblee != null ? FacturationSuivi.EtatDe(ligneCiblee, null) : FacturationSuivi.Etat.AFaire;
         bool partie = e == FacturationSuivi.Etat.Envoye || e == FacturationSuivi.Etat.Impaye || e == FacturationSuivi.Etat.Paye;
         if (partie && ligneCiblee.provisionsConnues) return ligneCiblee.provision;   // Revue 17 (D6-07) : celle de CETTE facture
+        if (partie && deduite.HasValue) return deduite.Value;
         return f != null && f.saved && partie ? f.provisionMontant : provisionFiche;
+    }
+
+    /// Décision du 15/11 : la provision générale d'une facture de loyer émise sans provision connue (avant D6-07), retrouvée à partir de
+    /// ce qu'elle a imprimé : son HT (montant TTC ÷ (1 + taux)) moins le loyer de sa période et les provisions des listes. Jamais négative.
+    /// ponytail: suppose que le loyer de la période n'a pas été retouché à la main sur la facture d'origine ; le champ reste modifiable.
+    public static float ProvisionDeduite(FactureEtat ligne, float loyerPeriode, float provisionsListes)
+    {
+        if (ligne == null) return 0f;
+        double ht = ligne.montant / (1.0 + Math.Max(0f, ligne.tauxTva) / 100.0);
+        return (float)Math.Max(0.0, Math.Round(ht - loyerPeriode - provisionsListes, 2, MidpointRounding.AwayFromZero));
     }
 
     // Charge l'image rendue dans le RawImage d'aperçu (ratio ajusté à l'image).
@@ -1057,10 +1071,19 @@ public class FactureLoyerPanel : MonoBehaviour
         float fiche = Loyers.ProvisionPeriode(_loc, PeriodeAnnee(), PeriodeChoisie(), listeId);
         var corrigee = Corrigee();   // finitions de la vague 3 : un état posé à la main, sans PDF, n'en est pas une (Tva.FacturePartie) : provision de la période
         float v;
-        if (listeId == "") v = ProvisionProposee(f, fiche, corrigee);
+        bool inconnue = corrigee != null && !corrigee.provisionsConnues;   // décision du 15/11 : émise avant D6-07
+        if (listeId == "")
+        {
+            float? deduite = null;
+            if (inconnue)
+                deduite = ProvisionDeduite(corrigee, Loyers.MontantPeriode(_loc, PeriodeAnnee(), PeriodeChoisie()),
+                    ListesCharges.Specifiques().Sum(l => Loyers.ProvisionPeriode(_loc, PeriodeAnnee(), PeriodeChoisie(), l.id)));
+            v = ProvisionProposee(f, fiche, corrigee, deduite);
+        }
         else
         {
-            var memos = corrigee == null ? null : corrigee.provisionsConnues ? corrigee.provisionsListes : f != null && f.saved ? f.provisionsListes : null;
+            // Décision du 15/11 : sans provision connue sur la facture, celle de la fiche (pas celle mémorisée d'une autre période).
+            var memos = corrigee == null || inconnue ? null : corrigee.provisionsListes;
             var memo = memos?.Find(m => m.listeId == listeId);
             v = memo != null ? memo.montant : fiche;
         }

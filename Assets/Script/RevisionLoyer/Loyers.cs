@@ -176,11 +176,15 @@ public static class Loyers
     /// La provision qu'une période de loyer appelle pour une liste de charges ("" : la générale), d'après la fiche : celle de la
     /// fiche, qui vaut par période de la périodicité ACTUELLE, ramenée à la périodicité de la PÉRIODE (celle de sa tranche dans le
     /// plan) : après un passage au trimestriel à 300 €, mai, encore mensuel, appelle 100 €. Une période coupée par l'avenant appelle
-    /// la provision ENTIÈRE de sa périodicité, comme une arrivée ou un départ (la régularisation corrige). Sans avenant de
-    /// périodicité : la provision de la fiche, comme avant.
+    /// sa provision au prorata des MOIS, comme le loyer (décision du 14/11 : trimestriel au 1er décembre, octobre et novembre déjà
+    /// appelés en mensuel : décembre seul appelle 100 €, pas 300 €). Sans avenant de périodicité : la provision de la fiche, comme avant.
     public static float ProvisionPeriode(Locataire loc, int annee, int periode, string listeId)
-        => loc == null ? 0f
-         : ProvisionConvertie(ListesCharges.Provision(loc, listeId), loc.periodiciteLoyer, FacturationSuivi.PeriodiciteDe(loc, annee, periode));
+    {
+        if (loc == null) return 0f;
+        float p = ProvisionConvertie(ListesCharges.Provision(loc, listeId), loc.periodiciteLoyer, FacturationSuivi.PeriodiciteDe(loc, annee, periode));
+        var per = FacturationSuivi.Periode(loc, annee, periode);
+        return per.Coupee ? (float)Math.Round(Tva.Centimes(p) * (decimal)per.Part, 2, MidpointRounding.AwayFromZero) : p;
+    }
 
     /// Les provisions RÉELLEMENT appelées pour une liste ("" : la générale) sur une année : la somme, pour chaque période du plan
     /// qui reçoit une facture (PeriodeFacturable), du montant imprimé sur son loyer quand il est connu (FactureEtat.provisionsConnues,

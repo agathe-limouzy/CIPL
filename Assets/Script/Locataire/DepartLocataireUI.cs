@@ -493,13 +493,16 @@ public static class DepartPanel
         if (refus != null) { ConfirmDialog.Erreur(refus); return; }
         ConfirmDialog.Instance?.Show("Annuler le départ",
             $"« {loc.Name} » reste dans les lieux : le dernier jour, l'état des lieux et le délai sont effacés. "
-            + "Les factures déjà émises restent dans le suivi.",
+            + "Les factures déjà émises restent dans le suivi ; un loyer parti puis retiré du suivi revient dans son état "
+            + "(sauf s'il a été annulé par un avoir).",
             () =>
             {
                 loc.dateSortieISO = ""; loc.dateEtatDesLieuxISO = ""; loc.etatDesLieux = "";
                 loc.delaiRestitutionMois = 0; loc.sansEtatDesLieux = false; loc.archive = false;
+                int remis = DepartLocataire.RemettreRetires(loc);   // décision du 15/11 (BS9) : avant, « À faire », à remettre à la main
                 fermer();
                 fiche.ApresDepart();
+                if (remis > 0) UndoToast.Instance?.ShowInfo($"{remis} loyer(s) retiré(s) du suivi remis dans leur état (« Envoyé » ou « Payé »).");
             }, "Annuler le départ");
     }
 
