@@ -148,4 +148,29 @@ public class CloudEcritureTests
         Assert.That(EcritureCloud.MotifRefus(version, "Volteo"),
             Is.EqualTo("« Volteo » a été modifié entre-temps par Paul Lefèvre : vos modifications ne sont pas enregistrées, la fiche est rechargée."));
     }
+
+    // Revue 17 (D9-04, lot E) : une relecture aux mêmes fiches et mêmes versions ne reconstruit rien.
+    [Test]
+    public void E_D9_04_relecture_inchangee_seulement_si_memes_fiches_et_versions()
+    {
+        EcritureCloud.Etat E(int v, string bat = null) => new EcritureCloud.Etat { Version = v, BatimentId = bat };
+        var connu = new Dictionary<string, EcritureCloud.Etat>
+        {
+            ["b:B1"] = E(3), ["l:L1"] = E(5, "B1"), ["l:L2"] = E(1, "B1"),
+            ["b:B2"] = E(9), ["l:L9"] = E(2, "B2"),   // un autre bâtiment ne compte pas
+        };
+        var relu = new Dictionary<string, EcritureCloud.Etat> { ["b:B1"] = E(3), ["l:L1"] = E(5, "B1"), ["l:L2"] = E(1, "B1") };
+        Assert.That(EcritureCloud.Inchange(connu, "B1", relu), Is.True, "mêmes fiches, mêmes versions : rien à reconstruire");
+
+        relu["l:L1"] = E(6, "B1");
+        Assert.That(EcritureCloud.Inchange(connu, "B1", relu), Is.False, "un locataire changé par un collègue");
+        relu["l:L1"] = E(5, "B1");
+        relu["l:L3"] = E(1, "B1");
+        Assert.That(EcritureCloud.Inchange(connu, "B1", relu), Is.False, "un locataire ajouté");
+        relu.Remove("l:L3"); relu.Remove("l:L2");
+        Assert.That(EcritureCloud.Inchange(connu, "B1", relu), Is.False, "un locataire supprimé");
+        Assert.That(EcritureCloud.Inchange(connu, "B3", new Dictionary<string, EcritureCloud.Etat> { ["b:B3"] = E(1) }), Is.False,
+                    "bâtiment inconnu ici : à installer");
+        Assert.That(EcritureCloud.Inchange(connu, "B1", null), Is.False);
+    }
 }

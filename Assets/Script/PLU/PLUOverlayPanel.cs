@@ -120,7 +120,8 @@ public class PLUOverlayPanel : MonoBehaviour
         // et numéro extraits de la référence cadastrale stockée sur le bâtiment.
         if (inputCommune != null)
         {
-            inputCommune.text = BuildingRowUI.Ville(adresse);   // estimation immédiate
+            string villeEstimee = BuildingRowUI.Ville(adresse);   // estimation immédiate
+            inputCommune.text = villeEstimee == "—" ? "" : villeEstimee;   // ville non reconnue : champ vide, pas un tiret (V-38)
             // Lancée sur CadastreService (toujours actif) : le panneau n'est pas
             // encore activé à ce stade, StartCoroutine dessus échouerait.
             if (CadastreService.Instance != null && !string.IsNullOrWhiteSpace(adresse))
@@ -211,16 +212,11 @@ public class PLUOverlayPanel : MonoBehaviour
     {
         if (b == null) return;
         var img = b.GetComponent<Image>();
-        if (img != null) img.color = active ? Hex("#534AB7") : Hex("#FCFBF8");
+        if (img != null) img.color = active ? UITheme.Hex("#534AB7") : UITheme.Carte;
         var txt = b.GetComponentInChildren<TMP_Text>(true);
-        if (txt != null) txt.color = active ? Hex("#EEEDFE") : Hex("#3C3489");
+        if (txt != null) txt.color = active ? UITheme.Hex("#EEEDFE") : UITheme.Hex("#3C3489");
     }
 
-    private static Color Hex(string h)
-    {
-        ColorUtility.TryParseHtmlString(h, out var c);
-        return c;
-    }
 
     /// Extrait section (ex. "AB", "0A") et numéro (ex. "142") d'une référence
     /// cadastrale saisie librement : "AB 142", "AB142", "0A-42", "AB/0142"…

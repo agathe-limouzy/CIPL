@@ -120,6 +120,7 @@ Bilan : 0 Critique, 2 Majeurs, 11 Mineurs.
 - Correction proposée : supprimer la ligne 146.
 - Test : compilation et suite EditMode.
 - Confiance : haute.
+- **16/11 (lot G)** : `rendNet`, `RevisionMode`, `Libelle` et `IsValid` retirés ; frais de notaire en double ; apport jamais négatif en « Comptant » ; `apportPersonnel` et `mensualiteCalculee` gardés (modèle des données).
 
 ---
 

@@ -36,8 +36,16 @@ public static class SaisieDate
     public static string Refus(string saisie, string quoi)
         => TryParse(saisie, out _) ? null
          : string.IsNullOrWhiteSpace(saisie) ? $"{quoi} : obligatoire."
+         : Incomplete(saisie) ? $"{quoi} : date incomplète, remplissez le jour, le mois et l'année."
          : BienFormee(saisie) ? $"{quoi} « {saisie.Trim()} » n'existe pas : vérifiez le jour et le mois."
          : $"{quoi} « {saisie.Trim()} » illisible : tapez-la sous la forme jj/mm/aaaa.";
+
+    /// Revue visuelle (V-17) : une des trois cases de `ChampDate` est vide (« 5//2026 ») : la date est incomplète, pas mal écrite.
+    static bool Incomplete(string saisie)
+    {
+        var p = (saisie ?? "").Split('/');
+        return p.Length == 3 && Array.Exists(p, string.IsNullOrWhiteSpace);
+    }
 
     /// Jour, mois et année en chiffres (« 31/02/2026 », « 31.13.2026 ») : la forme est bonne, c'est la date qui n'existe pas.
     static bool BienFormee(string saisie)

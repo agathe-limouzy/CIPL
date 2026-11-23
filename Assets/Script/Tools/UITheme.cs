@@ -20,7 +20,13 @@ public static class UITheme
     public static readonly Color Bordure         = Hex("#D3D1C7");
     // Texte d'exemple d'un champ vide (placeholder), en italique : il n'est jamais
     // enregistré, il doit donc se distinguer d'une valeur saisie au premier coup d'œil.
-    public static readonly Color TexteExemple    = Hex("#A8A69E");
+    // Revue 17 (D10-10 ; décision du 16/11, faite au lot G avec les prefabs et la scène, qui enregistrent aussi cette couleur :
+    // TexteExempleTests exige la même partout) : #8A8880, 3,5:1 sur blanc (avant : #A8A69E, 2,4:1).
+    public static readonly Color TexteExemple    = Hex("#8A8880");
+    // Revue 17 (D10-10, lot F ; décision du 16/11) : un TEXTE d'erreur (6,8:1 sur le fond crème ; « Alerte », 3,7:1, reste pour
+    // les liserés et les pastilles), et le bord d'un champ de saisie (3:1 ; « Bordure », 1,5:1, reste pour les cartes).
+    public static readonly Color Erreur          = Hex("#A32D2D");
+    public static readonly Color BordureChamp    = Hex("#949289");
 
     // ── Tailles de texte ────────────────────────────────────────────────────────
     //
@@ -88,7 +94,8 @@ public static class UITheme
         return meilleure;
     }
 
-    private static Color Hex(string hex)
+    /// Revue 17 (D8-13 / D10-09, lot G) : la seule lecture d'une couleur « #RRGGBB » (elle était recopiée dans une trentaine de fichiers).
+    public static Color Hex(string hex)
     {
         ColorUtility.TryParseHtmlString(hex, out var c);
         return c;

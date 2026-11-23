@@ -144,7 +144,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: 0, y: 0, z: 0, w: 0}
+  m_margin: {x: 10, y: 6, z: 10, w: 6}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   m_hasFontAssetChanged: 0
@@ -1122,8 +1122,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 12
-  m_fontSizeBase: 12
+  m_fontSize: 15
+  m_fontSizeBase: 15
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -1589,8 +1589,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 12
-  m_fontSizeBase: 12
+  m_fontSize: 15
+  m_fontSizeBase: 15
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -1861,7 +1861,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Loyer Actuel TTC
+  m_text: Loyer actuel TTC
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -2250,7 +2250,7 @@ MonoBehaviour:
   m_fontColor32:
     serializedVersion: 2
     rgba: 2150773298
-  m_fontColor: {r: 0.65882355, g: 0.6509804, b: 0.61960787, a: 1}
+  m_fontColor: {r: 0.5411765, g: 0.53333336, b: 0.5019608, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -2397,7 +2397,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "T\xE9l\xE9phone :"
+  m_text: "T\xE9l\xE9phone"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -2756,6 +2756,7 @@ GameObject:
   - component: {fileID: 809891114172925767}
   - component: {fileID: 6149242388483698052}
   - component: {fileID: 3060481155763521170}
+  - component: {fileID: 354854743900122355}
   m_Layer: 5
   m_Name: InputField to modify
   m_TagString: Untagged
@@ -2942,6 +2943,21 @@ MonoBehaviour:
   m_FlexibleWidth: 1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &354854743900122355
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1278912989362245434}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.827451, g: 0.81960785, b: 0.78039217, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!1 &1414053499889747347
 GameObject:
   m_ObjectHideFlags: 0
@@ -3008,7 +3024,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Loyer Actuel HT :'
+  m_text: Loyer actuel HT
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -4079,7 +4095,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: 0, y: 0, z: 0, w: 0}
+  m_margin: {x: 10, y: 6, z: 10, w: 6}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   m_hasFontAssetChanged: 0
@@ -4151,7 +4167,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Loyer Annuel TTC
+  m_text: Loyer annuel TTC
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -4807,8 +4823,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 12
-  m_fontSizeBase: 12
+  m_fontSize: 15
+  m_fontSizeBase: 15
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -4937,7 +4953,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Taille Batiment :'
+  m_text: Surface du lot
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -5929,7 +5945,7 @@ MonoBehaviour:
   m_fontColor32:
     serializedVersion: 2
     rgba: 2150773298
-  m_fontColor: {r: 0.65882355, g: 0.6509804, b: 0.61960787, a: 1}
+  m_fontColor: {r: 0.5411765, g: 0.53333336, b: 0.5019608, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -7221,8 +7237,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 12
-  m_fontSizeBase: 12
+  m_fontSize: 15
+  m_fontSizeBase: 15
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -7300,6 +7316,7 @@ GameObject:
   - component: {fileID: 3313955943898343543}
   - component: {fileID: 346962785948813100}
   - component: {fileID: 1363189616441557089}
+  - component: {fileID: 3211547381584049350}
   m_Layer: 5
   m_Name: InputField to modify
   m_TagString: Untagged
@@ -7505,6 +7522,21 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_HorizontalFit: 0
   m_VerticalFit: 2
+--- !u!114 &3211547381584049350
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3424304987552254931}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.827451, g: 0.81960785, b: 0.78039217, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!1 &3459074477469312273
 GameObject:
   m_ObjectHideFlags: 0
@@ -7699,6 +7731,7 @@ GameObject:
   - component: {fileID: 8648979497644838675}
   - component: {fileID: 1782611957865761809}
   - component: {fileID: 5334030606248205388}
+  - component: {fileID: 4255010291682888736}
   m_Layer: 5
   m_Name: InputField to modify
   m_TagString: Untagged
@@ -7885,6 +7918,21 @@ MonoBehaviour:
   m_FlexibleWidth: 0
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &4255010291682888736
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3509723193505180094}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.827451, g: 0.81960785, b: 0.78039217, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!1 &3514350899106860977
 GameObject:
   m_ObjectHideFlags: 0
@@ -8202,8 +8250,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 12
-  m_fontSizeBase: 12
+  m_fontSize: 15
+  m_fontSizeBase: 15
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -9673,7 +9721,7 @@ MonoBehaviour:
   m_fontColor32:
     serializedVersion: 2
     rgba: 2150773298
-  m_fontColor: {r: 0.65882355, g: 0.6509804, b: 0.61960787, a: 1}
+  m_fontColor: {r: 0.5411765, g: 0.53333336, b: 0.5019608, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -9905,7 +9953,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Loyer Annuel HT :'
+  m_text: Loyer annuel HT
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -10061,7 +10109,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Objectif
+  m_text: Objectifs
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -10465,7 +10513,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Bail :'
+  m_text: Bail
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -10931,8 +10979,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 12
-  m_fontSizeBase: 12
+  m_fontSize: 15
+  m_fontSizeBase: 15
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -12324,7 +12372,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Taux de rentabilit\xE9 :"
+  m_text: "Taux de rentabilit\xE9"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -12882,7 +12930,7 @@ MonoBehaviour:
   m_Spacing: 0
   m_ChildForceExpandWidth: 1
   m_ChildForceExpandHeight: 1
-  m_ChildControlWidth: 0
+  m_ChildControlWidth: 1
   m_ChildControlHeight: 0
   m_ChildScaleWidth: 0
   m_ChildScaleHeight: 0
@@ -14030,8 +14078,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 12
-  m_fontSizeBase: 12
+  m_fontSize: 15
+  m_fontSizeBase: 15
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -14455,7 +14503,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: General
+  m_text: "G\xE9n\xE9ral"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -16071,7 +16119,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Provision pour charges :'
+  m_text: Provision pour charges
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -17599,8 +17647,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 12
-  m_fontSizeBase: 12
+  m_fontSize: 15
+  m_fontSizeBase: 15
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -18262,7 +18310,7 @@ MonoBehaviour:
   m_fontColor32:
     serializedVersion: 2
     rgba: 2150773298
-  m_fontColor: {r: 0.65882355, g: 0.6509804, b: 0.61960787, a: 1}
+  m_fontColor: {r: 0.5411765, g: 0.53333336, b: 0.5019608, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -18317,7 +18365,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: 0, y: 0, z: 0, w: 0}
+  m_margin: {x: 10, y: 6, z: 10, w: 6}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   m_hasFontAssetChanged: 0
@@ -18436,8 +18484,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 12
-  m_fontSizeBase: 12
+  m_fontSize: 15
+  m_fontSizeBase: 15
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -18808,6 +18856,7 @@ GameObject:
   - component: {fileID: 2455004877590118264}
   - component: {fileID: 4804119018303536250}
   - component: {fileID: 7943030528036465960}
+  - component: {fileID: 3880572966179210228}
   m_Layer: 5
   m_Name: InputField to modify
   m_TagString: Untagged
@@ -18994,6 +19043,21 @@ MonoBehaviour:
   m_FlexibleWidth: 0
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &3880572966179210228
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7684194625007819221}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.827451, g: 0.81960785, b: 0.78039217, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!1 &7804127831557504578
 GameObject:
   m_ObjectHideFlags: 0
@@ -20610,6 +20674,7 @@ GameObject:
   - component: {fileID: 1426778954709087561}
   - component: {fileID: 2520780307943512169}
   - component: {fileID: 7999139678642576892}
+  - component: {fileID: 6778972819378625189}
   m_Layer: 5
   m_Name: InputField to modify
   m_TagString: Untagged
@@ -20796,6 +20861,21 @@ MonoBehaviour:
   m_FlexibleWidth: 1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &6778972819378625189
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8242698595240042894}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.827451, g: 0.81960785, b: 0.78039217, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!1 &8249221354856803476
 GameObject:
   m_ObjectHideFlags: 0
@@ -20889,8 +20969,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 12
-  m_fontSizeBase: 12
+  m_fontSize: 15
+  m_fontSizeBase: 15
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -21046,8 +21126,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 12
-  m_fontSizeBase: 12
+  m_fontSize: 15
+  m_fontSizeBase: 15
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -21439,7 +21519,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Loyer annuel precedent :'
+  m_text: "Loyer annuel pr\xE9c\xE9dent"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -21859,7 +21939,7 @@ MonoBehaviour:
   m_fontColor32:
     serializedVersion: 2
     rgba: 2150773298
-  m_fontColor: {r: 0.65882355, g: 0.6509804, b: 0.61960787, a: 1}
+  m_fontColor: {r: 0.5411765, g: 0.53333336, b: 0.5019608, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -22006,7 +22086,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Email :'
+  m_text: E-mail
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -22483,7 +22563,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3056295270345273476, guid: 6465d926287674646ab6cff7f2d11887, type: 3}
       propertyPath: m_text
-      value: Fin de bail
+      value: Fin du bail
       objectReference: {fileID: 0}
     - target: {fileID: 3056295270345273476, guid: 6465d926287674646ab6cff7f2d11887, type: 3}
       propertyPath: m_fontStyle
@@ -23233,7 +23313,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: 'Depot de garantie :'
+      value: "D\xE9p\xF4t de garantie"
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -23313,6 +23393,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       insertIndex: -1
       addedObject: {fileID: 224030896645289594}
+    - targetCorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1941138376325370987}
     - targetCorrespondingSourceObject: {fileID: 7357335640402016244, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       insertIndex: -1
       addedObject: {fileID: 4048449647793913663}
@@ -23438,6 +23521,21 @@ MonoBehaviour:
   m_FlexibleWidth: 1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &1941138376325370987
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 410821114638463061}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.827451, g: 0.81960785, b: 0.78039217, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!224 &2762461091579469182 stripped
 RectTransform:
   m_CorrespondingSourceObject: {fileID: 2160214344704405949, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
@@ -23723,7 +23821,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: 'Lot Batiment :'
+      value: Lot
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -23803,6 +23901,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       insertIndex: -1
       addedObject: {fileID: 5143586828209121118}
+    - targetCorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 7635875314289724742}
     - targetCorrespondingSourceObject: {fileID: 7357335640402016244, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       insertIndex: -1
       addedObject: {fileID: 3243469247654931847}
@@ -24019,6 +24120,21 @@ MonoBehaviour:
   m_FlexibleWidth: 1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &7635875314289724742
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9137535961079485388}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.827451, g: 0.81960785, b: 0.78039217, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!1001 &5649423947951082227
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -24106,6 +24222,18 @@ PrefabInstance:
     - target: {fileID: 374456374103682016, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
       propertyPath: m_Color.r
       value: 0.98039216
+      objectReference: {fileID: 0}
+    - target: {fileID: 459525748509010868, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
+      propertyPath: m_Color.b
+      value: 0.3529412
+      objectReference: {fileID: 0}
+    - target: {fileID: 459525748509010868, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
+      propertyPath: m_Color.g
+      value: 0.36862746
+      objectReference: {fileID: 0}
+    - target: {fileID: 459525748509010868, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
+      propertyPath: m_Color.r
+      value: 0.37254903
       objectReference: {fileID: 0}
     - target: {fileID: 542797516790720573, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
       propertyPath: m_Sprite
@@ -24242,6 +24370,22 @@ PrefabInstance:
     - target: {fileID: 1351320037537183944, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
       propertyPath: m_AnchoredPosition.y
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1537832499731842290, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.a
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1537832499731842290, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.b
+      value: 0.9098039
+      objectReference: {fileID: 0}
+    - target: {fileID: 1537832499731842290, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.g
+      value: 0.9372549
+      objectReference: {fileID: 0}
+    - target: {fileID: 1537832499731842290, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.r
+      value: 0.94509804
       objectReference: {fileID: 0}
     - target: {fileID: 1724873151874589391, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
       propertyPath: m_IsActive
@@ -24991,6 +25135,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 8411037376763427045, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
       insertIndex: -1
       addedObject: {fileID: 2995212231631039842}
+    - targetCorrespondingSourceObject: {fileID: 8411037376763427045, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1725549870151268106}
     - targetCorrespondingSourceObject: {fileID: 5878665055571606042, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
       insertIndex: -1
       addedObject: {fileID: 6717384160736422800}
@@ -25181,6 +25328,21 @@ MonoBehaviour:
   m_FlexibleWidth: 0
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &1725549870151268106
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4241485711094706710}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.5803922, g: 0.57254905, b: 0.5372549, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!1 &4310844545318439793 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 8481961864007729538, guid: 353fb64b4d9b93f4ab1fc2dc060ffaa8, type: 3}
@@ -25605,7 +25767,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: 'Nom du locataire :'
+      value: Nom du locataire
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -25685,6 +25847,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       insertIndex: -1
       addedObject: {fileID: 4320636563186540694}
+    - targetCorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 3924554539372471505}
     - targetCorrespondingSourceObject: {fileID: 7357335640402016244, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       insertIndex: -1
       addedObject: {fileID: 6832868132626013832}
@@ -25805,6 +25970,21 @@ MonoBehaviour:
   m_FlexibleWidth: 1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &3924554539372471505
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7709545523112698962}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.827451, g: 0.81960785, b: 0.78039217, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!1 &7967957155621790945 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 4211203775264414757, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
@@ -26099,7 +26279,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: 'Siret :'
+      value: SIRET
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -26182,6 +26362,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       insertIndex: -1
       addedObject: {fileID: 2191444276700616393}
+    - targetCorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 340844181962143144}
     - targetCorrespondingSourceObject: {fileID: 7357335640402016244, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       insertIndex: -1
       addedObject: {fileID: 6007787164333530036}
@@ -26247,6 +26430,21 @@ MonoBehaviour:
   m_FlexibleWidth: 1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &340844181962143144
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6002433653366682875}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.827451, g: 0.81960785, b: 0.78039217, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!1 &6278859575132091464 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 4211203775264414757, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
@@ -26624,7 +26822,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3056295270345273476, guid: 6465d926287674646ab6cff7f2d11887, type: 3}
       propertyPath: m_text
-      value: 'Date du debut de bail :'
+      value: "D\xE9but du bail"
       objectReference: {fileID: 0}
     - target: {fileID: 3056295270345273476, guid: 6465d926287674646ab6cff7f2d11887, type: 3}
       propertyPath: m_fontStyle
@@ -27330,7 +27528,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4985602194782189183, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_text
-      value: 'Type de Bail :'
+      value: Type de bail
       objectReference: {fileID: 0}
     - target: {fileID: 4985602194782189183, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_fontStyle
@@ -27368,21 +27566,49 @@ PrefabInstance:
       propertyPath: m_TextWrappingMode
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 6418132668752941198, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Color.b
+      value: 0.3529412
+      objectReference: {fileID: 0}
+    - target: {fileID: 6418132668752941198, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Color.g
+      value: 0.36862746
+      objectReference: {fileID: 0}
+    - target: {fileID: 6418132668752941198, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Color.r
+      value: 0.37254903
+      objectReference: {fileID: 0}
     - target: {fileID: 6570243807165861688, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_Sprite
       value: 
       objectReference: {fileID: 21300000, guid: ba4e9a2fa7fb0a84bb098f55849e6ffc, type: 3}
     - target: {fileID: 6570243807165861688, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_Color.b
-      value: 0.972549
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6570243807165861688, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_Color.g
-      value: 0.9843137
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6570243807165861688, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_Color.r
-      value: 0.9882353
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.a
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.b
+      value: 0.9098039
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.g
+      value: 0.9372549
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.r
+      value: 0.94509804
       objectReference: {fileID: 0}
     m_RemovedComponents:
     - {fileID: 4763491565771079778, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
@@ -27407,6 +27633,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 5210277693590452045, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       insertIndex: -1
       addedObject: {fileID: 3656919544126887773}
+    - targetCorrespondingSourceObject: {fileID: 5210277693590452045, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 5156635316983020112}
   m_SourcePrefab: {fileID: 100100000, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
 --- !u!114 &18461744554169133 stripped
 MonoBehaviour:
@@ -27469,6 +27698,21 @@ MonoBehaviour:
   m_FlexibleWidth: 1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &5156635316983020112
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4082254195436723415}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.5803922, g: 0.57254905, b: 0.5372549, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!1 &7160638070791601755 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 1420385508208989633, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
@@ -27768,7 +28012,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: 'Adresse du locataire :'
+      value: Adresse du locataire
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -27809,7 +28053,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 3362451488407840466}
   m_SourcePrefab: {fileID: 100100000, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
 --- !u!114 &1081603809148208631 stripped
 MonoBehaviour:
@@ -27822,6 +28069,26 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 98fc186491fab0549851b6338d0bc65d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!1 &5515868924003087992 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
+  m_PrefabInstance: {fileID: 8256063578997598958}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &3362451488407840466
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5515868924003087992}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.827451, g: 0.81960785, b: 0.78039217, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!224 &8028213434828856147 stripped
 RectTransform:
   m_CorrespondingSourceObject: {fileID: 2160214344704405949, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
@@ -28021,7 +28288,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: 'Code comptable :'
+      value: Code comptable
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -28101,6 +28368,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       insertIndex: -1
       addedObject: {fileID: 8252125631614025653}
+    - targetCorrespondingSourceObject: {fileID: 4476335702314900630, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 5000946385127660972}
     - targetCorrespondingSourceObject: {fileID: 7357335640402016244, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       insertIndex: -1
       addedObject: {fileID: 7553050802323004625}
@@ -28262,6 +28532,21 @@ MonoBehaviour:
   m_FlexibleWidth: 1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!114 &5000946385127660972
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5016931206272954096}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_EffectColor: {r: 0.827451, g: 0.81960785, b: 0.78039217, a: 1}
+  m_EffectDistance: {x: 1, y: -1}
+  m_UseGraphicAlpha: 1
 --- !u!224 &7384219226536887259 stripped
 RectTransform:
   m_CorrespondingSourceObject: {fileID: 2160214344704405949, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}

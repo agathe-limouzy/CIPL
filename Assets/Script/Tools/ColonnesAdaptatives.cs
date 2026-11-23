@@ -23,16 +23,20 @@ public class ColonnesAdaptatives : MonoBehaviour
     public event Action Change;
 
     readonly List<Transform> _descendues = new List<Transform>();
-    float _largeur = -1f;
+    float _largeur = -1f, _exigee = -1f;
+    HorizontalLayoutGroup _groupe;
 
     // La largeur change avec le zoom ou la fenêtre. Pas dans
     // OnRectTransformDimensionsChange : il est appelé en plein calcul de layout, où
     // déplacer un enfant déclenche des erreurs de reconstruction.
+    // 22/11 : aussi quand la largeur EXIGÉE change. Un Disposer appelé juste après avoir rempli une colonne (Refresh de l'accueil)
+    // lit encore sa largeur minimum d'avant (elle n'est recalculée qu'à la mise en page, en fin d'image) : « À traiter » vidée
+    // puis remplie à 175 % faisait remonter « Créances » à côté, hors de l'écran, sans jamais la redescendre.
     void LateUpdate()
     {
-        float offerte = LargeurOfferte();
-        if (Mathf.Approximately(offerte, _largeur)) return;
-        _largeur = offerte;
+        float offerte = LargeurOfferte(), exigee = LargeurExigee();
+        if (Mathf.Approximately(offerte, _largeur) && Mathf.Approximately(exigee, _exigee)) return;
+        _largeur = offerte; _exigee = exigee;
         Disposer();
     }
 
@@ -61,10 +65,20 @@ public class ColonnesAdaptatives : MonoBehaviour
     /// Largeur que la rangée exige pour garder ses colonnes côte à côte.
     public float LargeurExigee()
     {
-        var h = GetComponent<HorizontalLayoutGroup>();
-        var colonnes = Colonnes();
-        return colonnes.Sum(c => LayoutUtility.GetMinWidth((RectTransform)c))
-             + h.spacing * Mathf.Max(0, colonnes.Count - 1) + h.padding.horizontal;
+        // Lue à chaque image (LateUpdate) : sans liste ni énumérateur.
+        if (_groupe == null) _groupe = GetComponent<HorizontalLayoutGroup>();
+        float somme = 0f; int n = 0;
+        for (int i = 0; i < transform.childCount; i++)
+        {
+            var c = transform.GetChild(i);
+            if (c.gameObject.activeSelf) { somme += LayoutUtility.GetMinWidth((RectTransform)c); n++; }
+        }
+        for (int i = 0; i < _descendues.Count; i++)
+        {
+            var c = _descendues[i];
+            if (c != null && c.gameObject.activeSelf) { somme += LayoutUtility.GetMinWidth((RectTransform)c); n++; }
+        }
+        return somme + _groupe.spacing * Mathf.Max(0, n - 1) + _groupe.padding.horizontal;
     }
 
     public void Disposer()
@@ -98,14 +112,5 @@ public class ColonnesAdaptatives : MonoBehaviour
             _descendues.Clear();
         }
         Change?.Invoke();
-    }
-
-    // Les colonnes actives, qu'elles soient dans la rangée ou descendues.
-    List<Transform> Colonnes()
-    {
-        var l = new List<Transform>();
-        foreach (Transform c in transform) if (c.gameObject.activeSelf) l.Add(c);
-        l.AddRange(_descendues.Where(c => c != null && c.gameObject.activeSelf));
-        return l;
     }
 }

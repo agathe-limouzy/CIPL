@@ -103,6 +103,7 @@ public static class HorsLigne
         GameObject _vue;
         TMP_Text _texte;
         float _prochainEssai;
+        DateTime _texteDu = DateTime.MinValue;   // Revue 17 (D9-17, lot E) : le texte n'est refait que si la date change
 
         public static void Assurer()
         {
@@ -120,9 +121,9 @@ public static class HorsLigne
             bool montrer = Actif && SessionCloud.Entreprise != null;
             var barre = BarreOnglets();
             if (!montrer || barre == null) { if (_vue != null) _vue.SetActive(false); return; }
-            if (_vue == null) Construire(barre);
+            if (_vue == null) { Construire(barre); _texteDu = DateTime.MinValue; }
             _vue.SetActive(true);
-            _texte.text = Texte(AJourLe);
+            if (_texteDu != AJourLe) { _texteDu = AJourLe; _texte.text = Texte(AJourLe); }
 
             if (Time.realtimeSinceStartup >= _prochainEssai)
             {

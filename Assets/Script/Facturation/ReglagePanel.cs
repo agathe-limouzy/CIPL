@@ -16,10 +16,10 @@ public class ReglagePanel : MonoBehaviour
 
     // Couleurs de sections (accent, tint clair)
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
-    static readonly Color CoBleu = Hex("#2C3E5E"), CoBleuL = Hex("#DEE3EB");
-    static readonly Color CoAmbre = Hex("#854F0B"), CoAmbreL = Hex("#F6E6C8");
-    static readonly Color CoTaupe = Hex("#5F5E5A"), CoTaupeL = Hex("#E9E6DE");
-    static readonly Color CoPetrole = Hex("#16697A"), CoPetroleL = Hex("#D7E9EC");
+    static readonly Color CoBleu = UITheme.Hex("#2C3E5E"), CoBleuL = UITheme.Hex("#DEE3EB");
+    static readonly Color CoAmbre = UITheme.Hex("#854F0B"), CoAmbreL = UITheme.Hex("#F6E6C8");
+    static readonly Color CoTaupe = UITheme.TexteSecondaire, CoTaupeL = UITheme.Hex("#E9E6DE");
+    static readonly Color CoPetrole = UITheme.Hex("#16697A"), CoPetroleL = UITheme.Hex("#D7E9EC");
 
     // Références UI
     TMP_InputField _smtpHost, _smtpPort, _smtpFromEmail, _smtpFromName, _smtpPwd, _smtpUser,
@@ -141,6 +141,9 @@ public class ReglagePanel : MonoBehaviour
 
     public void Close() => gameObject.SetActive(false);
 
+    // Décision du 22/11 : fermés sans « Enregistrer », la taille d'affichage en aperçu est rendue (toutes les façons de fermer passent ici).
+    void OnDisable() { UIZoom.FinApercu(); RefreshTailles(); }
+
     /// Point d'entrée robuste : crée le panneau à la volée si besoin, puis l'ouvre.
     public static void OpenPanel()
     {
@@ -173,7 +176,7 @@ public class ReglagePanel : MonoBehaviour
         UIFactory.Border(back.gameObject);
         UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
         back.onClick.AddListener(Close);
-        var title = UIFactory.Text(header.transform, "Réglage", UITheme.Role.Page, UITheme.TextePrincipal, true);
+        var title = UIFactory.Text(header.transform, "Réglages", UITheme.Role.Page, UITheme.TextePrincipal, true);
         UIFactory.LE(title.gameObject, flexW: 1);
 
         // Onglets (étape 9c1), construits à chaque ouverture : ils dépendent du rôle
@@ -643,7 +646,7 @@ public class ReglagePanel : MonoBehaviour
             _testInfo.color = UITheme.Primaire;
             _testInfo.text = $"Envoyé à {destinataire}. Vérifie la réception — si le message n'arrive pas, "
                            + "regarde les indésirables avant de conclure à un échec.";
-            UndoToast.Instance?.ShowInfo("Email de test envoyé.");
+            UndoToast.Instance?.ShowInfo("E-mail de test envoyé.");
         }
         else Resultat(_testInfo, false, envoi.Erreur);
     }
@@ -661,6 +664,15 @@ public class ReglagePanel : MonoBehaviour
 
     TMP_Text _calendrierInfo;
 
+    /// Revue 17 (B-12, lot G) : les phrases d'exemple du calendrier, pour une échéance au 1er décembre.
+    public static string ExempleEnvoi(int jours) => $"Échéance le 1er décembre → envoi le {JourExemple(-jours)} ; l'alerte « à préparer » arrive une semaine avant.";
+    public static string ExempleImpaye(int jours) => $"Échéance le 1er décembre → impayé le {JourExemple(jours)}, et le bouton « Rappel » apparaît dans le suivi.";
+    static string JourExemple(int decalage)
+    {
+        var d = new DateTime(2026, 12, 1).AddDays(decalage);
+        return (d.Day == 1 ? "1er" : d.Day.ToString()) + " " + d.ToString("MMMM", FacturePdfService.FrCulture);
+    }
+
     void BuildCalendrier(Transform parent)
     {
         var body = UIFactory.Section(parent, "Calendrier des factures", CoVert, CoVertL);
@@ -668,11 +680,12 @@ public class ReglagePanel : MonoBehaviour
         UIFactory.Text(body.transform, "Le loyer est dû le jour choisi sur la fiche de chaque locataire (« Loyer demandé le 1 », "
             + "par exemple). Autour de cette échéance, CIPL applique trois délais :", UITheme.Role.Aide, UITheme.TexteSecondaire);
         _dEnvoiAvant = LabeledInput(body.transform, "La facture de loyer part … jours avant l'échéance", "15");
-        UIFactory.Text(body.transform, "Échéance le 1er décembre → envoi le 16 novembre ; l'alerte « à préparer » arrive une semaine avant.",
-            UITheme.Role.Aide, UITheme.TexteSecondaire);
+        var exEnvoi = UIFactory.Text(body.transform, ExempleEnvoi(15), UITheme.Role.Aide, UITheme.TexteSecondaire);
         _dImpayeApres = LabeledInput(body.transform, "Sans règlement, la facture passe « Impayé » … jours après l'échéance", "15");
-        UIFactory.Text(body.transform, "Échéance le 1er décembre → impayé le 16 décembre, et le bouton « Rappel » apparaît dans le suivi.",
-            UITheme.Role.Aide, UITheme.TexteSecondaire);
+        var exImpaye = UIFactory.Text(body.transform, ExempleImpaye(15), UITheme.Role.Aide, UITheme.TexteSecondaire);
+        // Revue 17 (B-12, lot G) : les deux exemples suivent le nombre tapé (avant : écrits pour 15 jours, faux avec 20).
+        _dEnvoiAvant.onValueChanged.AddListener(t => exEnvoi.text = ExempleEnvoi(FacturationSuivi.Jours(t, 15)));
+        _dImpayeApres.onValueChanged.AddListener(t => exImpaye.text = ExempleImpaye(FacturationSuivi.Jours(t, 15)));
         _dEcheanceAutres = LabeledInput(body.transform,
             "Les autres factures (charges, régularisation, dépôt) sont à payer … jours après leur date", "30");
         foreach (var f in new[] { _dEnvoiAvant, _dImpayeApres, _dEcheanceAutres })
@@ -988,12 +1001,12 @@ public class ReglagePanel : MonoBehaviour
         var debiteurs = ListesCharges.Debiteurs(bats, liste.id);
         if (debiteurs.Count > 0)
         {
-            ConfirmDialog.Instance.Show($"Impossible de supprimer « {liste.nom} »",
-                "Ces locataires doivent encore des charges de cette liste :\n"
+            // Revue 17 (D10-12, lot F) : un refus, au centre, avec un seul « OK » (avant : « Compris » et « Annuler » pour la même chose).
+            ConfirmDialog.Erreur($"Impossible de supprimer « {liste.nom} ».\n\n"
+                + "Ces locataires doivent encore des charges de cette liste :\n"
                 + string.Join("\n", debiteurs.Take(8).Select(d => $"• {d.loc.Name} ({d.bat.Name}) : {string.Join(", ", d.dues.Select(c => c.nom))}"))
                 + (debiteurs.Count > 8 ? "\n• …" : "")
-                + "\n\nFaites la régularisation de cette liste et attendez son paiement avant de la supprimer.",
-                () => { }, "Compris");
+                + "\n\nFaites la régularisation de cette liste et attendez son paiement avant de la supprimer.");
             return;
         }
 
@@ -1234,7 +1247,8 @@ public class ReglagePanel : MonoBehaviour
     {
         var body = UIFactory.Section(parent, "Taille de l'affichage", CoPetrole, CoPetroleL);
         UIFactory.Text(body.transform,
-            "Agrandit ou réduit toute l'interface : texte, champs et boutons ensemble.",
+            "Agrandit ou réduit toute l'interface : texte, champs et boutons ensemble. Un clic montre le résultat ; « Enregistrer » le garde, "
+            + "sinon l'ancienne taille revient à la fermeture des Réglages. Ce choix vaut pour ce PC seulement.",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         _taillesRow = UIFactory.HBox(body.transform, 8, false, "Tailles").transform;
@@ -1259,7 +1273,7 @@ public class ReglagePanel : MonoBehaviour
             UIFactory.LE(b.gameObject, flexW: 1);
 
             float valeur = p;   // capture par copie, sinon tous les boutons posent le dernier palier
-            b.onClick.AddListener(() => { UIZoom.Facteur = valeur; RefreshTailles(); });
+            b.onClick.AddListener(() => { UIZoom.Apercu(valeur); RefreshTailles(); });   // décision du 22/11 : aperçu, gardé par « Enregistrer »
         }
     }
 
@@ -1448,6 +1462,7 @@ public class ReglagePanel : MonoBehaviour
 
     void Enregistrer()
     {
+        UIZoom.Garder();   // décision du 22/11 : réglage de ce PC, gardé même si le serveur refuse le reste
         R.entrepriseNom = _entrepriseNom.text.Trim();
         EntrepriseService.Register(R.entrepriseNom, SaveLocationService.GetSaveRoot());
         if (Admin)   // étape 9a : envoi et secrets réglés par l'admin seulement
@@ -1481,13 +1496,12 @@ public class ReglagePanel : MonoBehaviour
         if (ReglageService.Save()) UndoToast.Instance?.ShowInfo("Réglages enregistrés");   // refusé : le motif est déjà affiché
     }
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
     // ── Petit système de modal générique ───────────────────────────────────────
 
     /// Ouvre une modale centrée. `builder` reçoit le corps (VBox) et renvoie
     /// l'action à exécuter sur « Valider ».
-    internal void Modal(string titre, Func<VerticalLayoutGroup, Action> builder, string valider = "Valider")
+    internal void Modal(string titre, Func<VerticalLayoutGroup, Action> builder, string valider = "Enregistrer")   // revue visuelle du 16/11 (V-06) : c'était « Valider »
     {
         var scrim = UIFactory.Rect("ModalScrim", transform.parent);
         UIFactory.Stretch(scrim);
@@ -1509,16 +1523,16 @@ public class ReglagePanel : MonoBehaviour
         vcsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         vcsf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
 
-        UIFactory.Text(v.transform, titre, UITheme.Role.Section, UITheme.TextePrincipal, true);
-        var onValidate = builder(v);
+        UIFactory.Bandeau(card, titre, UITheme.Primaire);   // revue visuelle du 16/11 (V-01)
+        // Revue 17 (D10-01, lot F) : les champs dans un corps qui défile si la fenêtre dépasse l'écran ; titre et boutons fixes.
+        var corps = UIFactory.VBox(v.transform, 10, 0, 0, 0, 0, "Corps");
+        var onValidate = builder(corps);
+        PlafondFenetre.Poser(card);
 
         var actions = UIFactory.HBox(v.transform, 10, false, "Actions");
         UIFactory.LE(actions.gameObject, minH: 46, prefH: 46);
-        var cancel = UIFactory.Button(actions.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
-        UIFactory.Border(cancel.gameObject); UIFactory.LE(cancel.gameObject, flexW: 1);
+        var (cancel, ok) = UIFactory.PiedFenetre(actions.transform, "Annuler", valider, UITheme.Primaire);   // revue visuelle du 16/11 (V-08)
         cancel.onClick.AddListener(() => Destroy(scrim.gameObject));
-        var ok = UIFactory.Button(actions.transform, valider, UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
-        UIFactory.LE(ok.gameObject, flexW: 1);
         ok.onClick.AddListener(() => { onValidate?.Invoke(); Destroy(scrim.gameObject); });
     }
 

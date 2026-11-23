@@ -194,7 +194,7 @@ public class CouturesAutourTests
             { ttc = 3600f, afficherMensuel = true, montantMensuel = 1200f, texteMensuel = "Pour Dupont & Fils <SARL> : {montant}" });
         StringAssert.Contains("<div class=\"mensuel\">Pour Dupont &amp; Fils &lt;SARL&gt; : <b>1", html, "le nom s'imprime en entier, le montant reste en gras");
         StringAssert.DoesNotContain("<SARL>", html);
-        StringAssert.Contains("le montant mensuel à régler est de: <b>1",
+        StringAssert.Contains("le montant mensuel à régler est de : <b>1",
             FacturePdfService.BuildHtml(new FacturePdfService.Data { ttc = 3600f, afficherMensuel = true, montantMensuel = 1200f }),
             "la phrase d'usine sort comme avant");
     }

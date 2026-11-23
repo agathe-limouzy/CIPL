@@ -609,7 +609,7 @@ public class LocatairePrefab : PrefabBatLoc
             if (string.IsNullOrWhiteSpace(tailleLotTxt.GetNewSave())) saisie = 0f;
             locataire.tailleLot = SurfaceAEnregistrer(locataire.tailleLot, saisie, batimentPrefabOrigin.TailleLotDisponible(locataire));
         }
-        batimentPrefabOrigin.RefreshTailleBatiment();
+        batimentPrefabOrigin.RefreshTailleBatiment(avertir: true);   // Revue 17 (B-10, lot F) : la surface du lot vient d'être enregistrée
 
         bailFields?.Save(locataire);
         // Revue 17 (D7a-19, suite du 12/11) : début corrigé avant toute facture partie : le premier bail suit, la facturation aussi.
@@ -862,6 +862,5 @@ public class LocatairePrefab : PrefabBatLoc
         return batimentPrefabOrigin.listLocataire.Find(b => b.id == id)?.id ?? "";
     }
 
-    void Start() { }
-    void Update() { }
+    // Revue 17 (D9-17 / D9-N11, lot E) : Start et Update vides retirés (Unity appelait Update à chaque image sur la fiche affichée).
 }

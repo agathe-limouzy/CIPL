@@ -84,7 +84,7 @@ public class BailFileUI : MonoBehaviour
         // noms de fichier s'alignent, et aucune étiquette ne déborde sur le nom.
         var etiquette = transform.Find("Label")?.GetComponent<TMP_Text>();
         float largeurEtiquette = etiquette != null ? etiquette.GetPreferredValues("État des lieux :").x : 0f;
-        Etiqueter(etiquette, "Bail :", largeurEtiquette);
+        Etiqueter(etiquette, "Bail", largeurEtiquette);   // revue visuelle du 16/11 (V-13) : libellés sans deux-points
 
         // Une ligne par avenant, puis l'état des lieux, clonées de celle du bail, dessous.
         foreach (var l in _lignesDocs) Destroy(l);

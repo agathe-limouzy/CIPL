@@ -64,7 +64,8 @@ public class QuickCalcInline : MonoBehaviour
             calcul = v => v[0] / 100f * v[1]
         },
         new Mode {
-            nom = "Rentabilité nette",
+            // Revue 17 (D8-07, lot G ; décision du 16/11) : « Rentabilité nette » ne retirait aucune charge : le nom dit ce qui est calculé.
+            nom = "Rentabilité frais inclus",
             labels = new[] { "Prix (€)", "Droits (%)", "Autres (%)", "Loyer annuel (€)" },
             unite = "%",
             calcul = v => {
@@ -80,10 +81,15 @@ public class QuickCalcInline : MonoBehaviour
         },
     };
 
-    private static readonly Color ActifBg   = Hex("#0F6E56");
-    private static readonly Color ActifTxt  = Hex("#E1F5EE");
+    /// Revue 17 (D8-19, lot G) : les formules, sans écran (tests). `valeurs` : les quatre cases, dans l'ordre des libellés.
+    public static int NbModes => Modes.Length;
+    public static string NomMode(int mode) => Modes[mode].nom;
+    public static float Resultat(int mode, float[] valeurs) => Modes[mode].calcul(valeurs);
+
+    private static readonly Color ActifBg   = UITheme.Primaire;
+    private static readonly Color ActifTxt  = UITheme.PrimaireClair;
     private static readonly Color InactifBg = Color.white;
-    private static readonly Color InactifTxt = Hex("#085041");
+    private static readonly Color InactifTxt = UITheme.Hex("#085041");
 
     private void Start()
     {
@@ -100,6 +106,13 @@ public class QuickCalcInline : MonoBehaviour
                 {
                     modeButtons[i].onClick.RemoveAllListeners();
                     modeButtons[i].onClick.AddListener(() => SetMode(idx));
+                    // Lot G (D8-07) : le nom de la pastille vient du mode (avant : écrit à part dans la scène).
+                    var nom = modeButtons[i].GetComponentInChildren<TMP_Text>(true);
+                    if (nom != null && i < Modes.Length) nom.text = Modes[i].nom;
+                    // La pastille prend la largeur de son nom (12 de marge de chaque côté) : « Rentabilité frais inclus » demandait 146
+                    // dans une pastille de 147, et les six tiennent ainsi dans la rangée (711 pour 728).
+                    var lePastille = modeButtons[i].GetComponent<LayoutElement>();
+                    if (nom != null && lePastille != null) lePastille.preferredWidth = nom.GetPreferredValues(nom.text).x + 24f;
                 }
             }
 
@@ -120,6 +133,9 @@ public class QuickCalcInline : MonoBehaviour
             if (used)
             {
                 if (slots[i].label != null) slots[i].label.text = m.labels[i];
+                // Lot G (B-16) : la case prend la largeur de son libellé (« Loyer annuel (€) » : 131 dans une case de 120).
+                var le = slots[i].root != null ? slots[i].root.GetComponent<LayoutElement>() : null;
+                if (le != null && slots[i].label != null) le.preferredWidth = Mathf.Max(120f, slots[i].label.GetPreferredValues(m.labels[i]).x + 4f);
                 if (slots[i].input != null) slots[i].input.text = "";
             }
         }
@@ -148,7 +164,7 @@ public class QuickCalcInline : MonoBehaviour
         if (txtResultat != null)
         {
             string fmt = m.unite == "%" ? "F2" : "N0";
-            txtResultat.text = $"{res.ToString(fmt, CultureInfo.InvariantCulture)} {m.unite}";
+            txtResultat.text = $"{res.ToString(fmt, FacturePdfService.FrCulture)} {m.unite}";
         }
     }
 
@@ -158,5 +174,4 @@ public class QuickCalcInline : MonoBehaviour
         return SaisieNumerique.Parse(field.text);
     }
 
-    private static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }

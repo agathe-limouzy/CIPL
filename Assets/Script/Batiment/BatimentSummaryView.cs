@@ -56,10 +56,9 @@ public class BatimentSummaryView : MonoBehaviour
     private bool _twoColBuilt;
     private GameObject _countBadge;
     private TMP_Text _countTxt;
-    static readonly Color NotesAccent = HexC("#5C6E85"), NotesClair = HexC("#E7ECF2");
-    static readonly Color IdentityAccent = HexC("#0F6E56"), IdentityClair = HexC("#D6ECE3");
+    static readonly Color NotesAccent = UITheme.Hex("#5C6E85"), NotesClair = UITheme.Hex("#E7ECF2");
+    static readonly Color IdentityAccent = UITheme.Primaire, IdentityClair = UITheme.Hex("#D6ECE3");
     bool _locBandBuilt;
-    static Color HexC(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
     public void Init(BatimentPrefab bp)
     {
@@ -84,7 +83,7 @@ public class BatimentSummaryView : MonoBehaviour
                     _bp.ShowLocataireView();
                     var prefab = _bp.Addlocataire(true);
                     _bp.menulocataire.CreateTab(prefab);
-                    _bp.menulocataire.OnSelect(prefab, true);
+                    _bp.menulocataire.OnSelect(prefab);
                 }
                 // Demande du 04/11 : un lot libre d'abord ; créé depuis le refus, la fiche s'ouvre ensuite (retour BM3).
                 if (_bp.RefuserAjoutSansLotLibre(Ajouter)) return;
@@ -114,7 +113,7 @@ public class BatimentSummaryView : MonoBehaviour
         Set(txtAdresse, string.IsNullOrEmpty(bat.adressBatiment) ? "Adresse non renseignée" : bat.adressBatiment);
 
         // Pilules
-        Set(txtPiluleSurface, $"{bat.tailleBatiment:F0} m²");
+        Set(txtPiluleSurface, $"{Montants.F(bat.tailleBatiment, "F0")} m²");
         int nbLots = LotsBatiment.Definis(bat) ? bat.lots.Count   // 04/11 : les lots déclarés
                      : BatimentPrefab.EnPlace(bat.locataireDuBatiment).Count();   // revue 16c, D7a-02
         Set(txtPiluleLots, nbLots > 1 ? $"{nbLots} lots" : $"{nbLots} lot");
@@ -122,15 +121,15 @@ public class BatimentSummaryView : MonoBehaviour
 
         // Grille d'infos
         Set(txtAcquis, DateAcquisition(bat));
-        Set(txtTerrain, bat.tailleTerrain > 0 ? $"{bat.tailleTerrain:F0} m²" : "—");
+        Set(txtTerrain, bat.tailleTerrain > 0 ? $"{Montants.F(bat.tailleTerrain, "F0")} m²" : "—");
         Set(txtTravaux, ResumeTravaux(bat));
         Set(txtObjectifs, ResumeObjectifs(bat));
 
         // Loyer /an mis en avant + pilule état
         float loyerTotal = _bp.GetLoyerTotal();
-        Set(txtLoyerAnnuel, loyerTotal > 0 ? $"{loyerTotal:N0} € / an" : "—");
+        Set(txtLoyerAnnuel, loyerTotal > 0 ? $"{Montants.F(loyerTotal, "N0")} € / an" : "—");
         if (txtLoyerAnnuel != null)
-            txtLoyerAnnuel.color = loyerTotal > 0 ? Col("#0F6E56") : Col("#5F5E5A");
+            txtLoyerAnnuel.color = loyerTotal > 0 ? UITheme.Primaire : UITheme.TexteSecondaire;
         Set(txtPiluleEtat, EtatPilule(bat, out bool occupe));
         if (txtPiluleEtat != null)
         {
@@ -147,7 +146,7 @@ public class BatimentSummaryView : MonoBehaviour
             }
         }
         Set(txtTitreLocataires,
-            $"Locataires   <size=70%><color=#5F5E5A>{nbLots} lot{(nbLots > 1 ? "s" : "")} · {loyerTotal:N0} € / an</color></size>");
+            $"Locataires   <size=70%><color=#5F5E5A>{nbLots} lot{(nbLots > 1 ? "s" : "")} · <nobr>{Montants.F(loyerTotal, "N0")} € / an</nobr></color></size>");   // BY3 (19/11) : « an » passait seul à la ligne à 175 %
 
         // Bande financière : loyers · cash flow · rendement
         CalculFinances(bat, loyerTotal, out double cashFlowMois, out double rendementNet, out bool aDesCredits, out double investTotal);
@@ -155,9 +154,9 @@ public class BatimentSummaryView : MonoBehaviour
         // Tuiles KPI (crème ambré, gros chiffres) + ligne d'infos secondaires.
         if (_tLoyer != null)
         {
-            _tLoyer.text = loyerTotal > 0 ? $"{loyerTotal:N0} €" : "—";
-            _tLoyer.color = loyerTotal > 0 ? Col("#0F6E56") : Col("#5F5E5A");
-            _tInvesti.text = investTotal > 0 ? $"{investTotal:N0} €" : "—";
+            _tLoyer.text = loyerTotal > 0 ? $"{Montants.F(loyerTotal, "N0")} €" : "—";
+            _tLoyer.color = loyerTotal > 0 ? UITheme.Primaire : UITheme.TexteSecondaire;
+            _tInvesti.text = investTotal > 0 ? $"{Montants.F(investTotal, "N0")} €" : "—";
 
             // Dépensé/an = service de la dette annuel (loyers − cash-flow annuel).
             // Total gagné = cash-flow net cumulé depuis l'acquisition.
@@ -167,39 +166,39 @@ public class BatimentSummaryView : MonoBehaviour
             double gagneTotal = cashFlowAn * annees;
             if (_tDepense != null)
             {
-                _tDepense.text = depenseAn > 0.5f ? $"{depenseAn:N0} €" : (loyerTotal > 0 ? "0 €" : "—");
-                _tDepense.color = Col("#D85A30");
+                _tDepense.text = depenseAn > 0.5f ? $"{Montants.F(depenseAn, "N0")} €" : (loyerTotal > 0 ? "0 €" : "—");
+                _tDepense.color = UITheme.Alerte;
             }
             if (_tGagne != null)
             {
-                _tGagne.text = annees > 0f ? $"{(gagneTotal >= 0 ? "+" : "")}{gagneTotal:N0} €" : "—";
-                _tGagne.color = gagneTotal >= 0 ? Col("#0F6E56") : Col("#D85A30");
+                _tGagne.text = annees > 0f ? $"{(gagneTotal >= 0 ? "+" : "")}{Montants.F(gagneTotal, "N0")} €" : "—";
+                _tGagne.color = gagneTotal >= 0 ? UITheme.Primaire : UITheme.Alerte;
             }
 
-            _tRend.text = rendementNet != 0 ? $"{rendementNet:F1} %" : "—";
+            _tRend.text = rendementNet != 0 ? $"{Montants.F(rendementNet, "F1")} %" : "—";
             _tRend.color = ColSign(rendementNet);
             _tCash.text = (aDesCredits || cashFlowMois != 0)
-                ? $"{(cashFlowMois >= 0 ? "+" : "")}{cashFlowMois:N0} €" : "—";
-            _tCash.color = cashFlowMois >= 0 ? Col("#0F6E56") : Col("#D85A30");
+                ? $"{(cashFlowMois >= 0 ? "+" : "")}{Montants.F(cashFlowMois, "N0")} €" : "—";
+            _tCash.color = cashFlowMois >= 0 ? UITheme.Primaire : UITheme.Alerte;
             _secInfo.text =
-                $"Acquis {DateAcquisition(bat)}    ·    Terrain {(bat.tailleTerrain > 0 ? $"{bat.tailleTerrain:F0} m²" : "—")}"
+                $"Acquis {DateAcquisition(bat)}    ·    Terrain {(bat.tailleTerrain > 0 ? $"{Montants.F(bat.tailleTerrain, "F0")} m²" : "—")}"
                 + $"    ·    Cadastre {(string.IsNullOrWhiteSpace(bat.cadastral) ? "—" : bat.cadastral)}"
                 + $"    ·    Travaux {ResumeTravaux(bat)}    ·    Objectifs {ResumeObjectifs(bat)}";
         }
 
         // Grille : investi · rendement · cadastre
-        Set(txtInvesti, investTotal > 0 ? $"{investTotal:N0} €" : "—");
-        Set(txtRendement, rendementNet != 0 ? $"{rendementNet:F1} %" : "—");
+        Set(txtInvesti, investTotal > 0 ? $"{Montants.F(investTotal, "N0")} €" : "—");
+        Set(txtRendement, rendementNet != 0 ? $"{Montants.F(rendementNet, "F1")} %" : "—");
         if (txtRendement != null)
             txtRendement.color = ColSign(rendementNet);
         Set(txtCadastre, string.IsNullOrWhiteSpace(bat.cadastral) ? "—" : bat.cadastral);
         string signe = cashFlowMois >= 0 ? "+" : "";
         string couleurCF = cashFlowMois >= 0 ? "#0F6E56" : "#D85A30";
-        string finances = $"Loyers  <b>{loyerTotal:N0} € / an</b>";
+        string finances = $"Loyers  <b>{Montants.F(loyerTotal, "N0")} € / an</b>";
         if (aDesCredits || cashFlowMois != 0)
-            finances += $"      Cash flow  <b><color={couleurCF}>{signe}{cashFlowMois:N0} € / mois</color></b>";
+            finances += $"      Cash flow  <b><color={couleurCF}>{signe}{Montants.F(cashFlowMois, "N0")} € / mois</color></b>";
         if (rendementNet > 0)
-            finances += $"      Rendement  <b>{rendementNet:F1} %</b>";
+            finances += $"      Rendement  <b>{Montants.F(rendementNet, "F1")} %</b>";
         Set(txtFinances, finances);
 
         EnlargeKpisOnce();
@@ -210,6 +209,7 @@ public class BatimentSummaryView : MonoBehaviour
         // ils placent leurs cartes par position (« après la carte identité »).
         BatimentExemple.Bandeau(Contenu, _bp);
         RefreshATraiter();
+        if (isActiveAndEnabled) StartCoroutine(RemplirLaVue());
 
         RefreshVignette();
     }
@@ -259,6 +259,7 @@ public class BatimentSummaryView : MonoBehaviour
         if (infoGrid != null) infoGrid.gameObject.SetActive(false);
 
         _secInfo = UIFactory.Text(carte, "", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        _secInfo.margin = new Vector4(18f, 0f, 18f, 12f);   // revue visuelle du 16/11 (V-30) : la marge de la rangée du haut (la photo), pas le bord de la carte
         _secInfo.transform.SetSiblingIndex(idx);
 
         // Rangée de tuiles KPI, insérée dans VueResume juste après la carte identité.
@@ -285,10 +286,12 @@ public class BatimentSummaryView : MonoBehaviour
         // du beige de la page (avant : crème #FBF5E8 quasi invisible sur le fond).
         // Root = liseré ambre ARRONDI (comme la carte « À traiter ») + fond crème
         // inséré de 4 px à gauche → le liseré épouse les coins arrondis du cadre.
-        var tile = UIFactory.Panel("Kpi", parent, Col("#BA7517"));
-        var brd = UIFactory.Border(tile.gameObject, Col("#C9A96A"));
+        var tile = UIFactory.Panel("Kpi", parent, UITheme.Hex("#BA7517"));
+        var brd = UIFactory.Border(tile.gameObject, UITheme.Hex("#C9A96A"));
         brd.effectDistance = new Vector2(1.5f, -1.5f);
-        UIFactory.LE(tile.gameObject, flexW: 1, minW: 0, minH: 66, prefH: 66);
+        // Revue visuelle du 16/11 (V-29) : largeur préférée nulle : les tuiles d'une rangée se partagent la place à parts égales
+        // (avant : chacune partait de la largeur de son texte, et la rangée était inégale).
+        UIFactory.LE(tile.gameObject, flexW: 1, minW: 0, prefW: 0, minH: 66, prefH: 66);
         var bg = UIFactory.Panel("CardBg", tile.transform, UITheme.Carte);
         bg.raycastTarget = false;
         bg.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;   // pas dans le VLG
@@ -304,7 +307,7 @@ public class BatimentSummaryView : MonoBehaviour
         v.padding = new RectOffset(14, 12, 8, 8); v.spacing = 3;
         v.childControlWidth = true; v.childControlHeight = true; v.childForceExpandWidth = true;
         v.childAlignment = TextAnchor.MiddleLeft;
-        var l = UIFactory.Text(v.transform, label, UITheme.Role.EnTete, Col("#8A5E14"));
+        var l = UIFactory.Text(v.transform, label, UITheme.Role.EnTete, UITheme.Hex("#8A5E14"));
         l.enableWordWrapping = false; l.overflowMode = TextOverflowModes.Ellipsis;
         var val = UIFactory.Text(v.transform, "—", UITheme.Role.ChiffreCle, UITheme.TextePrincipal, true);
         // Autosize plafonné au rôle : il ne sert qu'à rétrécir un montant trop long
@@ -423,6 +426,32 @@ public class BatimentSummaryView : MonoBehaviour
         LayoutRebuilder.MarkLayoutForRebuild((RectTransform)_aTraiterCard);
     }
 
+    /// Revue visuelle (V-32) : à 100 %, « À traiter » et « Locataires » s'arrêtaient 135 px au-dessus du bas de l'écran. Leur
+    /// rangée prend la hauteur qui reste dans la vue ; rien quand le contenu la dépasse déjà (la page défile, comme avant).
+    /// La hauteur gagnée va à la liste des locataires (flexible, voir EnsureTwoColRow).
+    public static float HauteurPourRemplir(float vue, float contenu, float rangee)
+        => contenu < vue - 1f ? rangee + (vue - contenu) : -1f;
+
+    System.Collections.IEnumerator RemplirLaVue()
+    {
+        yield return null; yield return null;   // après AjusterATraiter, qui mesure sa liste à l'image suivante
+        var contenu = Contenu as RectTransform;
+        var vue = contenu != null ? contenu.parent as RectTransform : null;
+        var rangee = contenu != null ? contenu.Find("RowTraiterLoc") as RectTransform : null;
+        if (vue == null || rangee == null) yield break;
+        var le = rangee.GetComponent<LayoutElement>() ?? rangee.gameObject.AddComponent<LayoutElement>();
+        le.minHeight = le.preferredHeight = -1f;   // d'abord la hauteur naturelle
+        LayoutRebuilder.ForceRebuildLayoutImmediate(contenu);
+        float h = HauteurPourRemplir(vue.rect.height, LayoutUtility.GetPreferredHeight(contenu), LayoutUtility.GetPreferredHeight(rangee));
+        le.minHeight = le.preferredHeight = h;
+        LayoutRebuilder.MarkLayoutForRebuild(contenu);
+    }
+
+    void OnEnable() { StartCoroutine(RemplirLaVue()); }
+
+    // La fenêtre change de taille (ou la taille de l'affichage) : la hauteur à remplir aussi.
+    void OnRectTransformDimensionsChange() { if (isActiveAndEnabled) StartCoroutine(RemplirLaVue()); }
+
     // « À traiter » (gauche) + « Locataires » (droite) sur une même rangée.
     void EnsureTwoColRow()
     {
@@ -524,17 +553,20 @@ public class BatimentSummaryView : MonoBehaviour
 
         var sp = UIFactory.Rect("Col", hb.transform);                 // aligne avec la pastille
         UIFactory.LE(sp.gameObject, minW: 4, prefW: 4, flexW: 0);
-        HeaderCol(hb.transform, "Type", 170, TextAlignmentOptions.Left);
-        HeaderCol(hb.transform, "Description", 0, TextAlignmentOptions.Left);   // flex
-        HeaderCol(hb.transform, "Locataire", 170, TextAlignmentOptions.Right);
+        HeaderCol(hb.transform, "Type", 170, 170, TextAlignmentOptions.Left);
+        HeaderCol(hb.transform, "Description", DescriptionMin, 0, TextAlignmentOptions.Left);   // flex
+        HeaderCol(hb.transform, "Locataire", LocataireMin, LocatairePref, TextAlignmentOptions.Right);   // mêmes largeurs que les lignes (BY3)
     }
 
-    void HeaderCol(Transform parent, string label, float w, TextAlignmentOptions align)
+    // BY3 (19/11) : largeurs des colonnes Description et Locataire d'« À traiter », en-tête et lignes.
+    public const float DescriptionMin = 80f, LocataireMin = 120f, LocatairePref = 350f;
+
+    void HeaderCol(Transform parent, string label, float min, float pref, TextAlignmentOptions align)
     {
         var t = UIFactory.Text(parent, label, UITheme.Role.EnTete, UITheme.TexteSecondaire, false, align);
         t.enableWordWrapping = false; t.overflowMode = TextOverflowModes.Ellipsis;
-        if (w > 0) UIFactory.LE(t.gameObject, minW: w, prefW: w, flexW: 0);
-        else UIFactory.LE(t.gameObject, flexW: 1, minW: 0);
+        if (pref > 0) UIFactory.LE(t.gameObject, minW: min, prefW: pref, flexW: 0);
+        else UIFactory.LE(t.gameObject, flexW: 1, minW: min);
     }
 
     static Sprite FindSprite(string spriteName)
@@ -575,6 +607,13 @@ public class BatimentSummaryView : MonoBehaviour
             {
                 ui.Setup(a, OuvrirAlerte);
                 if (ui.txtBatiment != null) ui.txtBatiment.gameObject.SetActive(false);   // colonne Bâtiment inutile
+                // Revue visuelle du 16/11 (V-36) : la place de la colonne masquée revient au nom du locataire (« Locataire BJ6 (révision… » était coupé à 170).
+                var celluleLoc = ui.txtLocataire != null ? ui.txtLocataire.GetComponent<LayoutElement>() ?? ui.txtLocataire.transform.parent.GetComponent<LayoutElement>() : null;
+                // BY3 (19/11) : 350 en minimum forçait la ligne à 566 dans une carte de 458 (175 %) : la description tombait à 0 sous la
+                // pastille et le nom sortait de la carte. 350 quand la place le permet, jusqu'à LocataireMin ; la description garde DescriptionMin.
+                if (celluleLoc != null && celluleLoc.preferredWidth > 0f) { celluleLoc.minWidth = LocataireMin; celluleLoc.preferredWidth = LocatairePref; }
+                var celluleRappel = ui.txtRappel != null ? ui.txtRappel.GetComponent<LayoutElement>() : null;
+                if (celluleRappel != null) celluleRappel.minWidth = Mathf.Max(celluleRappel.minWidth, DescriptionMin);
             }
             return;
         }
@@ -788,7 +827,6 @@ public class BatimentSummaryView : MonoBehaviour
 
     private static void Set(TMP_Text t, string v) { if (t != null) t.text = v; }
 
-    private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
     // Vert si positif, terracotta si négatif, gris si nul.
-    private static Color ColSign(double v) => v > 0 ? Col("#0F6E56") : v < 0 ? Col("#D85A30") : Col("#5F5E5A");
+    private static Color ColSign(double v) => v > 0 ? UITheme.Primaire : v < 0 ? UITheme.Alerte : UITheme.TexteSecondaire;
 }

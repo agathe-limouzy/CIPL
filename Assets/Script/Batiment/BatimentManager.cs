@@ -299,8 +299,11 @@ public class BatimentManager : MonoBehaviour
     // ── Cloud : vider l'écran et installer les bâtiments lus (étape 2) ─────────
 
     /// Retire toutes les fiches et onglets (changement d'entreprise, déconnexion).
+    int _installation;   // Revue 17 (D9-01, lot E) : un Vider pendant une installation progressive l'arrête
+
     public void Vider()
     {
+        _installation++;
         // Étape 5 : un écran resté ouvert sur ces fiches ne doit plus les enregistrer.
         foreach (var b in _batiments) EcritureCloud.Perimer(b);
         foreach (var prefab in BatimentPrefab)
@@ -321,10 +324,22 @@ public class BatimentManager : MonoBehaviour
 
     /// Crée les fiches et onglets des bâtiments lus sur le cloud, avec les mêmes mises à
     /// niveau en mémoire que LoadAll. Sans cession ni écriture : on est en lecture seule.
-    public void Installer(List<Batiment> batiments)
+    /// Revue 17 (D9-01, lot E ; décision du 16/11) : avec `avancement`, un bâtiment par image, l'avancement donné avant chacun
+    /// (fait, total, nom) : le voile d'ouverture montre une barre au lieu de figer l'écran (3,3 s pour SCI (JBC), 36 s pour
+    /// 300 locataires, mesuré le 16/11 ; au-delà de 5 s, Windows affichait « Ne répond pas »). Le temps total ne change pas.
+    /// Un Vider pendant l'installation l'arrête (une autre entreprise s'ouvre), comme l'arrêt du Play.
+    public async System.Threading.Tasks.Task Installer(List<Batiment> batiments, Action<int, int, string> avancement = null)
     {
-        foreach (var data in batiments)
+        int installation = _installation;
+        for (int n = 0; n < batiments.Count; n++)
         {
+            var data = batiments[n];
+            if (avancement != null)
+            {
+                avancement(n, batiments.Count, data?.Name);
+                await System.Threading.Tasks.Task.Yield();   // l'écran se redessine : la barre avance
+                if (this == null || installation != _installation) return;
+            }
             try
             {
                 MettreANiveau(data);
@@ -332,6 +347,10 @@ public class BatimentManager : MonoBehaviour
                 var prefab = SpawnPrefabInPanel(data, batimentsContainerPanel, false);
                 BatimentPrefab.Add(prefab);
                 menuManager.CreateTab(prefab);
+                // Revue 17 (D9-01, lot E) : caché aussitôt construit : sinon chaque image de l'installation progressive mettait en page
+                // et dessinait, sous le voile, tous les bâtiments déjà construits (ouverture de SCI (JBC) : 7 s au lieu de 3,3 s,
+                // mesuré le 16/11). OnSelect, à la fin, les cache tous puis montre le premier, comme avant.
+                if (avancement != null) prefab.gameObject.SetActive(false);
                 prefab.RefreshBatimentTabAlert();
             }
             catch (Exception e)
@@ -340,6 +359,7 @@ public class BatimentManager : MonoBehaviour
                 Debug.LogException(e);   // la pile : sans elle, la cause du 13/10 était introuvable
             }
         }
+        avancement?.Invoke(batiments.Count, batiments.Count, null);
         if (BatimentPrefab.Count > 0) menuManager.OnSelect(BatimentPrefab[0]);
         Debug.Log($"[BatimentManager] {_batiments.Count} bâtiment(s) installé(s) depuis le cloud");
     }

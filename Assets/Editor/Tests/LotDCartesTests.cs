@@ -158,7 +158,7 @@ public class LotDCartesTests
         foreach (var f in new[] { "Achat/AchatFormPanel.cs", "Travaux/TravauxFormPanel.cs" })
             StringAssert.Contains("\"Comptant\", \"Emprunt\"", Src(f), f);
         StringAssert.DoesNotContain("\"Compant\"", Src("Travaux/TravauxFormPanel.cs"));
-        StringAssert.Contains("statusText.text = \" Carte indisponible\";", Src("Maps/MapController.cs"));
+        StringAssert.Contains("statusText.text = \"Carte indisponible\";", Src("Maps/MapController.cs"));   // revue visuelle du 16/11 (V-25) : sans l'espace en tête
         StringAssert.Contains("if (_tileLoader.ImagePosee || !SessionCloud.Active) _adresseAffichee = address;", Src("Maps/MapController.cs"),
                               "hors cloud, l'adresse est marquée affichée : pas de regéocodage à chaque « Sauvegarder » (D9-19)");
     }

@@ -23,16 +23,16 @@ public class BuildingCard : MonoBehaviour
     {
         var data = batiment.getBatiment();
         // Revue 16c (D7a-02, vu en BJ7 le 02/11) : la carte compte les lots occupés, comme la fiche du bâtiment (partis et archivés exclus).
-        int nbLoc = System.Linq.Enumerable.Count(BatimentPrefab.EnPlace(batiment.listLocataire));
+        int nbLoc = batiment.NbEnPlace();
 
         if (txtNom != null)
             txtNom.text = string.IsNullOrEmpty(data.Name) ? "Sans nom" : data.Name;
 
         if (txtSousTitre != null)
-            txtSousTitre.text = $"{BuildingRowUI.Ville(data.adressBatiment)} · {nbLoc} lot{(nbLoc > 1 ? "s" : "")}";
+            txtSousTitre.text = BuildingRowUI.VilleEtLots(data.adressBatiment, nbLoc);
 
         if (txtLoyer != null)
-            txtLoyer.text = $"{batiment.GetLoyerTotal():N0} €/an";
+            txtLoyer.text = $"{Montants.F(batiment.GetLoyerTotal(), "N0")} €/an";
 
         if (pastille != null)
             pastille.color = BatimentEtatHelper.Couleur(BatimentEtatHelper.GetEtat(batiment));
@@ -42,7 +42,7 @@ public class BuildingCard : MonoBehaviour
         // des fiches ne sont pas actives).
         if (vignetteCarte != null)
         {
-            var coverTex = PhotoService.Charger(data.coverPhoto);
+            var coverTex = PhotoService.Charger(data.coverPhoto, PhotoService.CoteCarte);   // Revue 17 (D9-06, lot E)
             if (coverTex != null)
             {
                 // Photo de couverture : format conservé, recadrée au centre (cover).

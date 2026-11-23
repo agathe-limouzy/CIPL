@@ -33,14 +33,13 @@ public static class ATraiterFiltre
 {
     public enum Filtre { Tout, EnRetard, AVenir, Automatiques, Objectifs }
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
     public static readonly (Filtre f, string nom, Color fond, Color encre)[] Tuiles =
     {
-        (Filtre.Tout, "Tout", Hex("#ECEAE3"), Hex("#2C3E5E")),
-        (Filtre.EnRetard, "En retard", Hex("#FCEBEB"), Hex("#A32D2D")),
-        (Filtre.AVenir, "À venir", Hex("#FAEEDA"), Hex("#854F0B")),
-        (Filtre.Automatiques, "Automatiques", Hex("#F4E7CD"), Hex("#8A5A0C")),
-        (Filtre.Objectifs, "Objectifs", Hex("#F1EFE8"), Hex("#5F5E5A")),
+        (Filtre.Tout, "Tout", UITheme.Hex("#ECEAE3"), UITheme.Hex("#2C3E5E")),
+        (Filtre.EnRetard, "En retard", UITheme.Hex("#FCEBEB"), UITheme.Erreur),
+        (Filtre.AVenir, "À venir", UITheme.AttentionClair, UITheme.Hex("#854F0B")),
+        (Filtre.Automatiques, "Automatiques", UITheme.Hex("#F4E7CD"), UITheme.Hex("#8A5A0C")),
+        (Filtre.Objectifs, "Objectifs", UITheme.Fond, UITheme.TexteSecondaire),
     };
 
     /// Objectif : son échéance (en retard / proche). Rappel automatique (bail, révision,
@@ -204,34 +203,41 @@ public static class RappelsAuto
 
 public static class HomeAlertCollector
 {
-    private static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
     // Pastille « Type » — paires fond pastel / texte foncé (mêmes teintes que les badges d'objectifs)
-    private static readonly Color BgRevision = Hex("#F3D8E4");   // prune/rose (section financière)
-    private static readonly Color TxRevision = Hex("#8E3B5A");
-    private static readonly Color BgBail = Hex("#DEE3EB");       // bleu ardoise (section Bail)
-    private static readonly Color TxBail = Hex("#2C3E5E");
-    private static readonly Color BgMoney = Hex("#F4E7CD");      // ambre (facturation = argent)
-    private static readonly Color TxMoney = Hex("#8A5A0C");
+    private static readonly Color BgRevision = UITheme.Hex("#F3D8E4");   // prune/rose (section financière)
+    private static readonly Color TxRevision = UITheme.Hex("#8E3B5A");
+    private static readonly Color BgBail = UITheme.Hex("#DEE3EB");       // bleu ardoise (section Bail)
+    private static readonly Color TxBail = UITheme.Hex("#2C3E5E");
+    private static readonly Color BgMoney = UITheme.Hex("#F4E7CD");      // ambre (facturation = argent)
+    private static readonly Color TxMoney = UITheme.Hex("#8A5A0C");
 
     public static List<HomeAlert> Collect(IEnumerable<BatimentPrefab> batiments)
     {
         var alertes = new List<HomeAlert>();
-        var today = DateTime.Today;
+        foreach (var bp in batiments) Ajouter(alertes, bp.getName(), bp.getBatiment(), bp.listLocataire, bp);
+        return Trier(alertes);
+    }
 
-        foreach (var bp in batiments)
+    /// Tri STABLE par priorité : à priorité égale, l'ordre d'ajout (objectifs par date) est gardé.
+    public static List<HomeAlert> Trier(List<HomeAlert> alertes) => alertes.OrderBy(a => a.priorite).ToList();
+
+    /// Revue 17 (D8-19, lot G) : les alertes d'un bâtiment, lues sur les données : la fiche à l'écran (`bp`) ne sert qu'au clic.
+    /// Les règles de l'accueil (exclusions, priorités) se testent ainsi sans écran.
+    public static void Ajouter(List<HomeAlert> alertes, string nomBat, Batiment data, IEnumerable<Locataire> locataires, BatimentPrefab bp)
+    {
+        var today = DateTime.Today;
         {
-            string nomBat = bp.getName();
             if (string.IsNullOrEmpty(nomBat)) nomBat = "Bâtiment";
 
             // ── Fin de bail / renouvellement, et résiliation triennale ─────────
-            foreach (var loc in bp.listLocataire)
+            foreach (var loc in locataires)
             {
                 if (Locataire.ResiliationProche(loc, out var echeanceRes, out var limiteRes))
                     alertes.Add(new HomeAlert
                     {
                         kind = HomeAlert.Kind.BailResiliation,
                         typeTodo = "Résiliation",
-                        nomRappel = $"Congé possible jusqu'au {limiteRes:dd/MM/yyyy} (sortie le {echeanceRes:dd/MM/yyyy})",
+                        nomRappel = $"Congé avant le {limiteRes:dd/MM/yyyy}",   // Revue 17 (D8-15, lot F) : court ; la sortie ({echeanceRes:dd/MM/yyyy}) se lit sur la fiche
                         nomLocataire = string.IsNullOrEmpty(loc.Name) ? "Locataire" : loc.Name,
                         nomBatiment = nomBat,
                         priorite = 2,
@@ -250,7 +256,7 @@ public static class HomeAlertCollector
                 {
                     kind = HomeAlert.Kind.BailRenouvellement,
                     typeTodo = "Fin de bail",
-                    nomRappel = Locataire.TexteFinDeBail(loc, today),   // même texte que la pastille de la fiche
+                    nomRappel = Locataire.TexteFinDeBailCourt(loc, today),   // Revue 17 (D8-15, lot F) : la pastille de la fiche garde le texte complet
                     nomLocataire = nomLocBail,
                     nomBatiment = nomBat,
                     priorite = expire ? 0 : 1,
@@ -263,9 +269,9 @@ public static class HomeAlertCollector
             }
 
             // ── Révisions de loyer ────────────────────────────────────────────
-            foreach (var loc in bp.listLocataire)
+            foreach (var loc in locataires)
             {
-                if (!loc.RevisionIndiceSuivie) continue;   // paliers / sans révision : rien à réviser
+                if (!loc.RevisionAAnnoncer) continue;   // paliers / sans révision, ou parti avant la date (D8-06) : rien à réviser
 
                 int jours = (loc.MoisDeRevision - today).Days;
                 string nomLoc = string.IsNullOrEmpty(loc.Name) ? "Locataire" : loc.Name;
@@ -303,7 +309,7 @@ public static class HomeAlertCollector
             }
 
             // ── Facturation : envoi loyer / régul charges / révision dépôt ────
-            foreach (var loc in bp.listLocataire)
+            foreach (var loc in locataires)
             {
                 string nomLocF = string.IsNullOrEmpty(loc.Name) ? "Locataire" : loc.Name;
                 foreach (var fa in FacturationAlertes.Pour(loc))
@@ -339,12 +345,11 @@ public static class HomeAlertCollector
             }
 
             // ── Objectifs (bâtiment + locataires) ─────────────────────────────
-            var data = bp.getBatiment();
             if (data?.objectifs?.items != null)
                 foreach (var obj in ParDate(data.objectifs.items))
                     AjouteObjectif(alertes, obj, nomBat, "", bp, null);
 
-            foreach (var loc in bp.listLocataire)
+            foreach (var loc in locataires)
             {
                 if (loc.archive || loc.objectifs?.items == null) continue;   // archivé : plus rien à traiter
                 string nomLoc = string.IsNullOrEmpty(loc.Name) ? "Locataire" : loc.Name;
@@ -352,9 +357,6 @@ public static class HomeAlertCollector
                     AjouteObjectif(alertes, obj, nomBat, nomLoc, bp, loc);
             }
         }
-
-        // Tri STABLE par priorité : à priorité égale, l'ordre d'ajout (objectifs par date) est gardé.
-        return alertes.OrderBy(a => a.priorite).ToList();
     }
 
     private static List<Objective> ParDate(List<Objective> items)

@@ -63,13 +63,13 @@ public class LotsPanel : MonoBehaviour
         UIFactory.Border(cardImg.gameObject);
         var card = (RectTransform)cardImg.transform;
         card.anchorMin = card.anchorMax = card.pivot = new Vector2(.5f, .5f);
-        card.sizeDelta = new Vector2(780, 640);
+        card.sizeDelta = new Vector2(780, Mathf.Min(640f, _scrim.rect.height - 40f));   // Revue 17 (D10-01 / B-22, lot F)
         var cv = cardImg.gameObject.AddComponent<VerticalLayoutGroup>();
         cv.spacing = 10; cv.padding = new RectOffset(18, 18, 16, 16);
         cv.childControlWidth = true; cv.childControlHeight = true;
         cv.childForceExpandWidth = true; cv.childForceExpandHeight = false;
 
-        UIFactory.Text(cv.transform, $"Lots de « {bat.Name} »", UITheme.Role.Valeur, UITheme.TextePrincipal, true);
+        UIFactory.Bandeau(card, $"Lots de « {bat.Name} »", UITheme.Primaire);   // revue visuelle du 16/11 (V-01, V-02)
         UIFactory.Text(cv.transform, "Chaque locataire occupe un lot, qu'il choisit sur sa fiche. La surface du bâtiment est la somme "
             + "des lots ; un lot occupé garde son numéro.", UITheme.Role.Aide, UITheme.TexteSecondaire);
 
@@ -95,11 +95,8 @@ public class LotsPanel : MonoBehaviour
 
         var actions = UIFactory.HBox(cv.transform, 10, false, "Actions");
         UIFactory.LE(actions.gameObject, minH: 46, prefH: 46);
-        var annuler = UIFactory.Button(actions.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
-        UIFactory.Border(annuler.gameObject); UIFactory.LE(annuler.gameObject, flexW: 1);
+        var (annuler, ok) = UIFactory.PiedFenetre(actions.transform, "Annuler", "Enregistrer", UITheme.Primaire);   // revue visuelle du 16/11 (V-08)
         annuler.onClick.AddListener(() => Destroy(_scrim.gameObject));
-        var ok = UIFactory.Button(actions.transform, "Enregistrer", UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
-        UIFactory.LE(ok.gameObject, flexW: 1);
         ok.onClick.AddListener(Enregistrer);
         MajTotal();
     }
@@ -160,7 +157,7 @@ public class LotsPanel : MonoBehaviour
         var bat = _bp.getBatiment();
         var lots = Lire();
         int vides = lots.Count(x => LotsBatiment.Occupants(bat, x.numero).Count == 0);
-        _total.text = $"{lots.Count} lot{(lots.Count > 1 ? "s" : "")} · {lots.Sum(x => x.surface):0.##} m²"
+        _total.text = $"{lots.Count} lot{(lots.Count > 1 ? "s" : "")} · {Montants.F(lots.Sum(x => x.surface), "0.##")} m²"
                       + (vides > 0 ? $" · {vides} vide{(vides > 1 ? "s" : "")}" : "");
         var sans = LotsBatiment.Occupes(bat.locataireDuBatiment).Where(o => !lots.Any(x => x.numero > 0 && x.numero == o.lotBatiment)).ToList();
         _sansLot.text = sans.Count == 0 ? ""

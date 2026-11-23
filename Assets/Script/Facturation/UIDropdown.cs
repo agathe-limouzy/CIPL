@@ -14,6 +14,10 @@ public class UIDropdown : MonoBehaviour
     int _index = -1;
     Action<int> _onChange;
 
+    /// Lot F (relevé le 14/11) : appelé juste avant d'ouvrir la liste, pour recharger des options qui ont pu changer pendant que
+    /// le formulaire restait ouvert (« Avoir sur la facture n° » ne montrait pas la facture émise entre-temps).
+    public Action AvantOuverture;
+
     public int Index => _index;
     public string SelectedId => _index >= 0 && _index < _ids.Count ? _ids[_index] : null;
 
@@ -21,7 +25,7 @@ public class UIDropdown : MonoBehaviour
         int initial, Action<int> onChange, float height = 44)
     {
         var img = UIFactory.Panel("Dropdown", parent, Color.white);
-        UIFactory.Border(img.gameObject, UITheme.Bordure);
+        UIFactory.Border(img.gameObject, UITheme.BordureChamp);
         UIFactory.LE(img.gameObject, minH: height, prefH: height);
 
         var dd = img.gameObject.AddComponent<UIDropdown>();
@@ -34,7 +38,7 @@ public class UIDropdown : MonoBehaviour
         dd._label = UIFactory.Text(row.transform, "", UITheme.Role.Libelle, UITheme.TextePrincipal);
         dd._label.enableWordWrapping = false; dd._label.overflowMode = TMPro.TextOverflowModes.Ellipsis;
         UIFactory.LE(dd._label.gameObject, flexW: 1);
-        UIFactory.Text(row.transform, "v", UITheme.Role.Donnee, UITheme.TexteSecondaire);   // indicateur (police-sûr)
+        UIFactory.Chevron(row.transform);   // Revue visuelle (V-18) : un vrai chevron, comme les menus des prefabs (avant : la lettre « v »)
 
         var btn = img.gameObject.AddComponent<Button>();
         btn.onClick.AddListener(dd.OpenPopup);
@@ -61,6 +65,7 @@ public class UIDropdown : MonoBehaviour
 
     void OpenPopup()
     {
+        AvantOuverture?.Invoke();
         if (_labels.Count == 0) return;
         var canvas = GetComponentInParent<Canvas>();
         if (canvas == null) return;
@@ -107,6 +112,10 @@ public class UIDropdown : MonoBehaviour
         defil.horizontal = false; defil.movementType = ScrollRect.MovementType.Clamped;
         defil.scrollSensitivity = 30f;
 
+        // Revue 17 (D10-05, lot F) : une option tient sur une ligne (« … » au pire) et la liste prend la largeur du plus long
+        // libellé, bornée à l'écran. Avant : un nom de plus de 27 caractères passait sur deux ou trois lignes dans une case de 36
+        // et recouvrait ses voisines (filtre des locataires des Créances).
+        float largeur = myRT.rect.width;
         for (int i = 0; i < _labels.Count; i++)
         {
             int idx = i;
@@ -114,7 +123,11 @@ public class UIDropdown : MonoBehaviour
             var b = UIFactory.Button(vlg.transform, _labels[i], on ? UITheme.PrimaireClair : Color.white,
                 UITheme.TextePrincipal, HauteurLigne, UITheme.Role.Donnee, false);
             b.onClick.AddListener(() => { SetIndex(idx, true); Destroy(scrim.gameObject); });
+            var tt = b.GetComponentInChildren<TMP_Text>(true);
+            tt.enableWordWrapping = false; tt.overflowMode = TextOverflowModes.Ellipsis;
+            largeur = Mathf.Max(largeur, tt.GetPreferredValues(_labels[i]).x + 20f + 2f * Marge + 8f);
         }
+        lrt.sizeDelta = new Vector2(Mathf.Min(largeur, root.rect.width - 12f), lrt.sizeDelta.y);
 
         // Sous le champ, ou au-dessus s'il manque de place en bas.
         UIFactory.PlacePopup(lrt, myRT, 6f);

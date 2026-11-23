@@ -37,7 +37,7 @@ public class UndoToast : MonoBehaviour
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
 
-        if (btnAnnuler != null) btnAnnuler.gameObject.SetActive(true);
+        btnAnnuler.gameObject.SetActive(true);
         btnAnnuler.onClick.RemoveAllListeners();
         btnAnnuler.onClick.AddListener(() =>
         {

@@ -52,6 +52,10 @@ public static class DirectCloud
 
     /// Revue 17 (D2-22, lot D) : le canal est à relancer : jamais ouvert, coupé (connexion impossible, erreur de socket),
     /// fermé, arrêté, ou abonnement refusé. « connexion… » n'y est pas : TempsReel.Demarrer la borne à 10 s, puis « coupé ».
+    /// Revue 17 (D9-11, D9-12, lot E ; décision du 16/11) : le canal temps réel est ouvert et abonné : les changements des
+    /// collègues (documents, verrous) arrivent par lui ; les relectures de secours s'espacent (120 s et 60 s au lieu de 20 et 10).
+    public static bool Connecte => _canal != null && !_abonnementRefuse && _canal.Etat == "connecté";
+
     public static bool ARelancer(string etat, bool abonnementRefuse) =>
         abonnementRefuse || etat == null || etat.StartsWith("coupé") || etat.StartsWith("fermé") || etat == "arrêté";
 
@@ -218,6 +222,12 @@ public static class DirectCloud
 
             var bm = BatimentManager.Instance;
             if (bm == null) return;
+            // Revue 17 (D9-04, lot E) : mêmes fiches, mêmes versions que l'état connu, fiche affichée ici : rien à reconstruire.
+            if (b != null && bm.BatimentPrefab.Exists(p => p != null && p.getID() == id) && EcritureCloud.Inchange(id, etat))
+            {
+                Debug.Log($"[Direct] « {b.Name} » relu : inchangé, rien à reconstruire");
+                return;
+            }
             bool dire = !a.Silencieux && Affiche(id);
             string qui = a.Auteur ?? "un collègue";
             Debug.Log($"[Direct] « {b?.Name ?? id} » relu ({(b == null ? "supprimé" : "changé")} par {qui}{(a.Silencieux ? ", après reconnexion" : "")})");
@@ -295,58 +305,28 @@ public static class DirectCloud
     static void AfficherEnLigne(List<string> noms)
     {
         _enLigne = noms;
-        var mm = BatimentManager.Instance != null ? BatimentManager.Instance.menuManager : null;
-        if (mm == null || mm.tabScrollRect == null || mm.addTabButton == null) return;
-        var barre = (RectTransform)mm.tabScrollRect.transform.parent;
+        // Revue 17 (B-01 / B-11, lot F) : dans la zone d'état de la barre d'onglets (EcransCloud.ZoneEtat), qui lui fait sa place ;
+        // avant, le bloc était posé à la main entre « + » et la croix « Quitter », dans une barre aux largeurs fixes.
+        var zone = EcransCloud.ZoneEtat();
+        if (zone == null) return;
         if (_barre == null)
         {
-            var h = UIFactory.HBox(barre, 6, false, "EnLigne");
-            h.padding = new RectOffset(8, 8, 0, 0);
+            var h = UIFactory.HBox(zone, 6, false, "EnLigne");
             h.childAlignment = TextAnchor.MiddleCenter;
             h.childControlWidth = true; h.childControlHeight = true;
             h.childForceExpandWidth = false; h.childForceExpandHeight = false;
-            h.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
-            h.gameObject.AddComponent<ContentSizeFitter>().horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
-            var rt = (RectTransform)h.transform;
-            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(0, 36);
+            UIFactory.LE(h.gameObject, minH: 36, prefH: 36, flexW: 0);
             h.gameObject.AddComponent<Image>().color = new Color(0, 0, 0, 0);   // zone cliquable
             ObjectifsTableau.Cliquable(h.gameObject, () => Info("En ligne : " + string.Join(", ", _enLigne)));
             _barre = h.gameObject;
-
-            // « + » touchait le bouton Quitter : il ne contient qu'un signe, 60 px au lieu de 160
-            // libèrent la place (décision du 14/10). La barre ne dimensionne pas ses enfants.
-            var plus = (RectTransform)mm.addTabButton.transform;
-            plus.sizeDelta = new Vector2(60, plus.sizeDelta.y);
-            LayoutRebuilder.ForceRebuildLayoutImmediate(barre);
         }
+        _barre.transform.SetAsLastSibling();   // après le nom de l'entreprise
         foreach (Transform c in _barre.transform) { c.gameObject.SetActive(false); UnityEngine.Object.Destroy(c.gameObject); }   // hors mesure dès maintenant
         _barre.SetActive(noms.Count > 0);
         if (noms.Count == 0) return;
-        var libelle = UIFactory.Text(_barre.transform, "En ligne :", UITheme.Role.Aide, UITheme.PrimaireClair);
-        libelle.enableWordWrapping = false;
+        if (noms.Count <= 4)   // trop de monde : les initiales seules
+            UIFactory.Text(_barre.transform, "En ligne :", UITheme.Role.Aide, UITheme.PrimaireClair).enableWordWrapping = false;
         foreach (var n in noms) ObjectifsTableau.Pastille(_barre.transform, RegleVerrou.Initiales(n), UITheme.PrimaireClair, UITheme.Primaire);
-
-        // Espace libre : du bord droit de « + » au bord gauche du bouton Quitter (posé par-dessus la barre).
-        float gauche = Bord(barre, (RectTransform)mm.addTabButton.transform, droite: true) + 8;
-        var quitter = BatimentManager.Instance.transform.Find("BtnQuitter") as RectTransform;
-        float droite = quitter != null && quitter.gameObject.activeInHierarchy ? Bord(barre, quitter, droite: false) - 8 : barre.rect.xMax - 8;
-        var bloc = (RectTransform)_barre.transform;
-        LayoutRebuilder.ForceRebuildLayoutImmediate(bloc);
-        if (bloc.rect.width > droite - gauche)   // trop de monde : les initiales seules
-        {
-            libelle.gameObject.SetActive(false);
-            LayoutRebuilder.ForceRebuildLayoutImmediate(bloc);
-        }
-        bloc.anchoredPosition = new Vector2((gauche + droite) / 2f - barre.rect.center.x, 0);
-    }
-
-    /// Bord gauche ou droit d'un élément, dans le repère de la barre.
-    static float Bord(RectTransform barre, RectTransform rt, bool droite)
-    {
-        var coins = new Vector3[4];
-        rt.GetWorldCorners(coins);   // 0 : bas-gauche, 2 : haut-droit
-        return barre.InverseTransformPoint(droite ? coins[2] : coins[0]).x;
     }
 
     // ── Pompe : messages sur le fil principal, relectures, présence, entretien du canal ──

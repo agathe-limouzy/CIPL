@@ -93,8 +93,10 @@ public class LotBEcransTests
     [Test]
     public void D3_10_les_textes_de_l_etat_expire_ne_parlent_plus_de_l_essai()
     {
-        StringAssert.Contains("(etat == RegleAbonnement.Etat.Essai ? \" (3 pendant l'essai)\" : \"\")", Src("Cloud/SectionAbonnement.cs"),
-                              "« 3 pendant l'essai » seulement pendant l'essai");
+        // Décision du 23/11 : la phrase des licences est sous le titre (RegleAbonnement.AideChoix) ; l'essai n'y est cité que pendant l'essai.
+        StringAssert.Contains("Pendant l'essai, l'entreprise garde ses 2 licences", RegleAbonnement.AideChoix(RegleAbonnement.Etat.Essai), "2 licences (décision du 22/11 ; 3 avant)");
+        StringAssert.DoesNotContain("essai", RegleAbonnement.AideChoix(RegleAbonnement.Etat.Expire), "essai fini : plus un mot de l'essai");
+        StringAssert.Contains("RegleAbonnement.AideChoix(etat)", Src("Cloud/SectionAbonnement.cs"));
         StringAssert.Contains("expire = AbonnementCloud.Etat == RegleAbonnement.Etat.Expire", Src("Cloud/PremiersPas.cs"), "la carte sait que l'essai est fini");
         foreach (var f in new[] { "Cloud/PremiersPas.cs", "Cloud/SectionAbonnement.cs", "Cloud/RegleAbonnement.cs", "Cloud/EcransCloud.cs", "Facturation/ReglagePanel.cs" })
             StringAssert.DoesNotContain("Réglage ›", Src(f), f + " : l'écran s'appelle « Réglages »");

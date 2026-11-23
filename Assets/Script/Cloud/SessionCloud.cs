@@ -214,6 +214,9 @@ public static class SessionCloud
     {
         Session = null;
         EffacerFichier();
+        // BR13 (23/11) : le direct s'arrête tout de suite, sans attendre le « OK » : tant que le message restait à l'écran, il
+        // rouvrait son canal et signalait sa présence sans jeton (« Abonnement refusé », « Présence : HTTP 401 » en boucle au journal).
+        DirectCloud.Arreter();
         ConfirmDialog.Erreur(Fermee, DemarrageCloud.SeDeconnecter);
     }
 

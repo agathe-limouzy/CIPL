@@ -11,7 +11,7 @@ using UnityEngine.UI;
 /// chaque étape, consigne) sont dans DepartLocataire ; ici, seulement l'écran.
 public class ParcoursDepartUI : MonoBehaviour
 {
-    static readonly Color Ambre = Hex("#BA7517");
+    static readonly Color Ambre = UITheme.Hex("#854F0B");   // Revue 17 (D10-10, lot F) : texte blanc lisible (6,7:1 ; 3,7:1 sur #BA7517)
 
     LocatairePrefab _fiche;
     GameObject _bandeau;
@@ -26,8 +26,8 @@ public class ParcoursDepartUI : MonoBehaviour
         BoutonEntete();   // recâblé à chaque initialisation, comme « Transférer »
         if (_bandeau != null) return;
 
-        var fond = UIFactory.Panel("ParcoursDepart", fiche.transform, Hex("#F1EFE8"));
-        UIFactory.Border(fond.gameObject, Hex("#B4B2A9"));
+        var fond = UIFactory.Panel("ParcoursDepart", fiche.transform, UITheme.Fond);
+        UIFactory.Border(fond.gameObject, UITheme.Hex("#B4B2A9"));
         var header = fiche.transform.Find("HeaderLocataire");
         fond.transform.SetSiblingIndex(header != null ? header.GetSiblingIndex() + 1 : 0);
         var v = fond.gameObject.AddComponent<VerticalLayoutGroup>();
@@ -36,14 +36,18 @@ public class ParcoursDepartUI : MonoBehaviour
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
         _bandeau = fond.gameObject;
 
-        _titre = UIFactory.Text(fond.transform, "", UITheme.Role.Libelle, Hex("#444441"), true);
+        _titre = UIFactory.Text(fond.transform, "", UITheme.Role.Libelle, UITheme.Hex("#444441"), true);
 
         var etapes = UIFactory.HBox(fond.transform, 8, true, "Etapes");
+        // Revue 17 (D10-20, lot F ; décision du 16/11) : un libellé sur deux ou trois lignes (150-175 %) agrandit son bouton, et
+        // les six prennent la hauteur du plus haut. Avant : hauteur forcée à 34, le texte sortait du bouton (51 pour 34 à 175 %).
+        etapes.childForceExpandHeight = true;
+        _etapesHauteur = UIFactory.LE(etapes.gameObject, minH: 34, prefH: 34);   // posée par LateUpdate
         for (int i = 0; i < 6; i++)
         {
             int n = i;
             var b = UIFactory.Button(etapes.transform, DepartLocataire.Titres[i], UITheme.Carte, UITheme.TexteSecondaire, 34, UITheme.Role.Action);
-            UIFactory.LE(b.gameObject, minH: 34, prefH: 34, flexW: 1, minW: 0);
+            UIFactory.LE(b.gameObject, minH: 34, flexW: 1, minW: 0).preferredHeight = -1;   // la hauteur vient de la rangée
             UIFactory.Border(b.gameObject);
             b.onClick.AddListener(() => Ouvrir((DepartLocataire.Etape)n));   // une étape s'ouvre aussi hors de l'ordre
             _pastilles[i] = b.GetComponent<Image>();
@@ -52,7 +56,7 @@ public class ParcoursDepartUI : MonoBehaviour
         }
 
         var bas = UIFactory.HBox(fond.transform, 12, false, "Consigne");
-        _consigne = UIFactory.Text(bas.transform, "", UITheme.Role.Donnee, Hex("#444441"));
+        _consigne = UIFactory.Text(bas.transform, "", UITheme.Role.Donnee, UITheme.Hex("#444441"));
         _consigne.enableWordWrapping = true;
         UIFactory.LE(_consigne.gameObject, flexW: 1);
         _continuer = UIFactory.Button(bas.transform, "Continuer", Ambre, Color.white, 36, UITheme.Role.Action);
@@ -78,7 +82,7 @@ public class ParcoursDepartUI : MonoBehaviour
         _btnEntete.onClick = new Button.ButtonClickedEvent();
         _btnEntete.onClick.AddListener(SurBoutonEntete);
         var transferer = supprimer.transform.parent.Find("Transferer");
-        _btnEntete.transform.SetSiblingIndex((transferer != null ? transferer : supprimer.transform).GetSiblingIndex());
+        UIFactory.PlacerAvant(_btnEntete.transform, transferer != null ? transferer : supprimer.transform);   // revue visuelle du 17/11
         _btnEnteteTexte = _btnEntete.GetComponentInChildren<TMP_Text>(true);
         if (existant == null) { UIFactory.Border(_btnEntete.gameObject); UIFactory.LargeurDuTexte(_btnEntete); }
     }
@@ -129,6 +133,24 @@ public class ParcoursDepartUI : MonoBehaviour
         }
     }
 
+    // Revue 17 (D10-20, lot F) : la hauteur de la rangée des étapes est celle du libellé le plus haut (34 au moins), mesurée ici
+    // quand la largeur des boutons ou un libellé change. La mise en page seule gardait une hauteur calculée avant de connaître la
+    // largeur des boutons (48 au lieu de 34 à 100 %, mesuré le 16/11).
+    LayoutElement _etapesHauteur;
+    float _largeurMesuree = -1f;
+    int _versionTextes, _versionMesuree = -1;
+
+    void LateUpdate()
+    {
+        if (_etapesHauteur == null || _bandeau == null || !_bandeau.activeInHierarchy || _libelles[0] == null) return;
+        float largeur = _libelles[0].rectTransform.rect.width;
+        if (largeur <= 1f || (Mathf.Abs(largeur - _largeurMesuree) < 0.5f && _versionMesuree == _versionTextes)) return;
+        _largeurMesuree = largeur; _versionMesuree = _versionTextes;
+        float h = 34f;
+        foreach (var t in _libelles) h = Mathf.Max(h, t.GetPreferredValues(t.text, largeur, 0f).y + 8f);
+        _etapesHauteur.minHeight = _etapesHauteur.preferredHeight = h;
+    }
+
     public void Refresh(Locataire loc, bool enModification)
     {
         if (_bandeau == null || loc == null) return;
@@ -175,9 +197,9 @@ public class ParcoursDepartUI : MonoBehaviour
         _consigne.text = DepartLocataire.Consigne(loc, today);
         _continuer.gameObject.SetActive(prochaine != null && !enModification);
         _continuerTexte.text = prochaine == DepartLocataire.Etape.Archiver ? "Archiver" : "Continuer";
+        _versionTextes++;
     }
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }
 
 /// Fenêtre « Départ du locataire ». D'abord ce qui se passe (06/10, « c'est la même
@@ -187,7 +209,7 @@ public class ParcoursDepartUI : MonoBehaviour
 /// titulaire. Seul endroit où l'on saisit l'un ou l'autre (la section Bail les affiche).
 public static class DepartPanel
 {
-    static readonly Color Ambre = Hex("#BA7517");
+    static readonly Color Ambre = UITheme.Hex("#854F0B");   // Revue 17 (D10-10, lot F) : texte blanc lisible (6,7:1 ; 3,7:1 sur #BA7517)
 
     public static void Ouvrir(LocatairePrefab fiche)
     {
@@ -222,6 +244,7 @@ public static class DepartPanel
         v.childControlWidth = true; v.childControlHeight = true;
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
         cardImg.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        PlafondFenetre.Poser(card);   // Revue 17 (D10-01, lot F) : jamais plus haute que l'écran
 
         var titre = Entete(v.transform, $"Départ du locataire — {loc.Name}", Ambre);
 
@@ -229,7 +252,7 @@ public static class DepartPanel
         bool depart = DepartLocataire.Sortie(loc, out var s);
 
         // Type de départ (menu déroulant, retour du 06/10). Revue 17 (D7a-22, D7a-26, lot D) : les types viennent de TypesProposes.
-        UIFactory.Text(body.transform, "Type de départ", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Type de départ", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var bat = fiche.batimentPrefabOrigin != null ? fiche.batimentPrefabOrigin.getBatiment() : null;
         var remplacantExistant = depart ? DepartLocataire.Remplacant(loc, bat, s) : null;
         bool cessionPrevue = Cessions.Prevue(loc) != null;   // rouvrir = la retrouver
@@ -246,7 +269,7 @@ public static class DepartPanel
 
         // Dernier jour · délai de restitution, puis la date limite calculée.
         var ligne1 = UIFactory.HBox(blocDepart, 16, false, "Ligne1");
-        var jour = ChampDate(fiche, ligne1.transform, "Dernier jour de location", depart ? s : (DateTime?)null);
+        var jour = ChampDate.Colonne(ligne1.transform, "Dernier jour de location", depart ? s : (DateTime?)null);
         var delai = Champ(ligne1.transform, "Restitution du dépôt (mois)", DepartLocataire.DelaiRestitutionDefautMois.ToString(), 1f);
         delai.contentType = TMP_InputField.ContentType.IntegerNumber;
         delai.text = DepartLocataire.DelaiMois(loc).ToString();
@@ -257,25 +280,25 @@ public static class DepartPanel
             limite.text = jour.LireDate(out var j) && m > 0
                 ? $"Dépôt à restituer avant le {j.AddMonths(m):dd/MM/yyyy}." : "";
         };
-        foreach (var champ in new[] { jour.dayInput, jour.monthInput, jour.yearInput })
-            champ.onValueChanged.AddListener(_ => majLimite());
+        jour.onValueChanged.AddListener(_ => majLimite());
         delai.onValueChanged.AddListener(_ => majLimite());
         majLimite();
 
         // État des lieux : oui (date + PDF) / non.
-        UIFactory.Text(blocDepart, "État des lieux de sortie", UITheme.Role.Donnee, UITheme.TexteSecondaire);
-        var choix = UIFactory.HBox(blocDepart, 24, false, "ChoixEdl");
+        UIFactory.Text(blocDepart, "État des lieux de sortie", UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        var choix = UIFactory.HBox(blocDepart, 6, false, "ChoixEdl");
         var groupe = choix.gameObject.AddComponent<ToggleGroup>();
-        var oui = UIFactory.Toggle(choix.transform, "Oui", !loc.sansEtatDesLieux);
-        var non = UIFactory.Toggle(choix.transform, "Non, pas d'état des lieux", loc.sansEtatDesLieux);
+        // Revue 17 (D10-18, lot F) : deux boutons-pastilles (avant : deux cases carrées dont une seule pouvait être cochée).
+        var oui = UIFactory.TogglePastille(choix.transform, "Oui", !loc.sansEtatDesLieux);
+        var non = UIFactory.TogglePastille(choix.transform, "Non, pas d'état des lieux", loc.sansEtatDesLieux);
         oui.group = groupe; non.group = groupe; groupe.allowSwitchOff = false;
 
         var blocEdl = UIFactory.HBox(blocDepart, 16, false, "Edl");
-        var dateEdl = ChampDate(fiche, blocEdl.transform, "Date de l'état des lieux",
+        var dateEdl = ChampDate.Colonne(blocEdl.transform, "Date de l'état des lieux",
             FacturationSuivi.TryEcheance(loc.dateEtatDesLieuxISO, out var e) ? e : (DateTime?)null);
         var colPdf = UIFactory.VBox(blocEdl.transform, 4, name: "PdfEdl");
         UIFactory.LE(colPdf.gameObject, flexW: 1.4f);
-        UIFactory.Text(colPdf.transform, "Document (PDF)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(colPdf.transform, "Document (PDF)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var lignePdf = UIFactory.HBox(colPdf.transform, 8, false, "LignePdf");
         var nomPdf = UIFactory.Text(lignePdf.transform, "", UITheme.Role.Donnee, UITheme.TextePrincipal);
         UIFactory.LE(nomPdf.gameObject, flexW: 1);
@@ -312,7 +335,9 @@ public static class DepartPanel
         }
         var espace = UIFactory.Rect("Espace", pied.transform);
         UIFactory.LE(espace.gameObject, flexW: 1);
-        var btnFermer = UIFactory.Button(pied.transform, "Fermer", UITheme.Carte, UITheme.TextePrincipal, 40, UITheme.Role.Bouton, false);
+        // Revue visuelle du 16/11 (V-07 ; décision du 16/11) : « Annuler » à côté d'une action ; « Fermer » reste quand « Annuler le
+        // départ » est déjà dans la rangée (deux « Annuler » côte à côte se liraient mal).
+        var btnFermer = UIFactory.Button(pied.transform, depart ? "Fermer" : "Annuler", UITheme.Carte, UITheme.TextePrincipal, 40, UITheme.Role.Bouton, false);
         UIFactory.Border(btnFermer.gameObject);
         UIFactory.LargeurDuTexte(btnFermer);
         btnFermer.onClick.AddListener(() => fermer());
@@ -398,7 +423,7 @@ public static class DepartPanel
         var bp = fiche.batimentPrefabOrigin;
         var nouveau = prefab.GetLocataire();
         bp.menulocataire.CreateTab(prefab);
-        bp.menulocataire.OnSelect(prefab, true);
+        bp.menulocataire.OnSelect(prefab);
         prefab.InitializeLocataire(nouveau, true);   // affiche le lot et le début du bail repris
         UndoToast.Instance?.ShowInfo($"Départ de « {ancien.Name} » enregistré. Nouveau locataire du lot {nouveau.lotBatiment} : "
             + "saisissez son nom et la fin de son bail, puis « Sauvegarder ».");
@@ -429,35 +454,12 @@ public static class DepartPanel
     {
         var col = UIFactory.VBox(parent, 4, name: libelle);
         UIFactory.LE(col.gameObject, flexW: parts);
-        UIFactory.Text(col.transform, libelle, UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(col.transform, libelle, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         return UIFactory.Input(col.transform, placeholder);
     }
 
-    // Champ date cloné de la fin du bail de la fiche : même rendu et même saisie
-    // JJ / MM / AAAA que partout ailleurs (retour du 05/10), en saisie dès l'ouverture.
-    internal static DateInputController ChampDate(LocatairePrefab fiche, Transform parent, string titre, DateTime? valeur)
-    {
-        var bloc = UnityEngine.Object.Instantiate(fiche.dateFinBail.gameObject, parent);
-        bloc.name = titre;
-        bloc.SetActive(true);
-        var d = bloc.GetComponent<DateInputController>();
-        d.OnModify.RemoveAllListeners();
-        var t = bloc.transform.Find("Titre")?.GetComponent<TMP_Text>();
-        if (t != null) t.text = titre;
-        var le = bloc.GetComponent<LayoutElement>() ?? bloc.AddComponent<LayoutElement>();
-        le.flexibleWidth = 1;
-        if (valeur.HasValue) d.ApplyDate(valeur.Value);
-        else { d.dayInput.text = ""; d.monthInput.text = ""; d.yearInput.text = ""; }
-        d.ModifyDate();
-        return d;
-    }
-
-    static bool Vide(DateInputController d)
-        => string.IsNullOrWhiteSpace(d.dayInput.text) && string.IsNullOrWhiteSpace(d.monthInput.text)
-           && string.IsNullOrWhiteSpace(d.yearInput.text);
-
     /// Vérifie puis écrit la saisie. Message d'erreur, ou null si tout est enregistré.
-    static string Enregistrer(Locataire loc, Batiment bat, DateInputController jour, string delai, bool avecEdl, DateInputController dateEdl)
+    static string Enregistrer(Locataire loc, Batiment bat, ChampDate jour, string delai, bool avecEdl, ChampDate dateEdl)
     {
         if (!jour.LireDate(out var dernier))
             return "Dernier jour de location : saisissez une date (JJ/MM/AAAA).";
@@ -474,7 +476,7 @@ public static class DepartPanel
         if (delai != "" && (!int.TryParse(delai, out mois) || mois < 1 || mois > 24))
             return "Restitution du dépôt : un nombre de mois entre 1 et 24.";
         DateTime edl = default;
-        bool edlSaisi = avecEdl && !Vide(dateEdl);
+        bool edlSaisi = avecEdl && !dateEdl.Vide();
         if (edlSaisi && !dateEdl.LireDate(out edl))
             return "Date de l'état des lieux : date incomplète (JJ/MM/AAAA), ou laissez-la vide.";
 
@@ -506,7 +508,6 @@ public static class DepartPanel
             }, "Annuler le départ");
     }
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }
 
 /// Cession du bail (décision du 06/10), choisie dans la fenêtre « Départ du locataire » :
@@ -527,13 +528,13 @@ public static class CessionPanel
         // Cession déjà prévue : ses valeurs, pour la modifier ou l'annuler.
         var prevue = Cessions.Prevue(loc);
         var ligne = UIFactory.HBox(v.transform, 16, false, "Ligne");
-        var date = DepartPanel.ChampDate(fiche, ligne.transform, "Date de la cession",
+        var date = ChampDate.Colonne(ligne.transform, "Date de la cession",
             prevue != null && FacturationSuivi.TryEcheance(prevue.dateISO, out var dp) ? dp : (DateTime?)null);
         var nom = DepartPanel.Champ(ligne.transform, "Nouveau locataire (nom)", "ex. SARL Dupont", 1.4f);
         var ligne2 = UIFactory.HBox(v.transform, 16, false, "Ligne2");
         var siret = DepartPanel.Champ(ligne2.transform, "SIRET", "", 1f);
-        var email = DepartPanel.Champ(ligne2.transform, "Email", "", 1.4f);
-        UIFactory.Text(v.transform, "Adresse de facturation", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        var email = DepartPanel.Champ(ligne2.transform, "E-mail", "", 1.4f);
+        UIFactory.Text(v.transform, "Adresse de facturation", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var adresse = UIFactory.Input(v.transform, "Adresse (plusieurs lignes possibles)", 70, true);
         if (prevue != null)
         {
@@ -552,7 +553,7 @@ public static class CessionPanel
         return () => Enregistrer(fiche, loc, date, nom.text, siret.text, adresse.text, email.text);
     }
 
-    static string Enregistrer(LocatairePrefab fiche, Locataire loc, DateInputController date,
+    static string Enregistrer(LocatairePrefab fiche, Locataire loc, ChampDate date,
                               string nom, string siret, string adresse, string email)
     {
         if (!date.LireDate(out var d)) return "Date de la cession : saisissez une date (JJ/MM/AAAA).";

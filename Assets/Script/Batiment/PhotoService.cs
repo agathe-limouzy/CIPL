@@ -11,6 +11,14 @@ public static class PhotoService
     static readonly string[] Exts = { "jpg", "jpeg", "png" };
     static readonly Dictionary<string, Texture2D> _cache = new Dictionary<string, Texture2D>();
 
+    // Revue 17 (D9-06 / D7a-08, lot E ; décision du 16/11) : une photo chargée est réduite à 1 600 px de côté au plus (512 pour
+    // les cartes de l'accueil), sans copie lisible gardée, et 20 au plus restent en mémoire (la moins récemment vue est
+    // détruite ; un écran qui la remontre la recharge). Une photo de téléphone de 12 Mpx occupait ≈ 48 Mo, deux fois, et le
+    // cache ne se vidait qu'au changement d'entreprise. Le fichier sur le disque n'est jamais modifié.
+    public const int CotePhoto = 1600, CoteCarte = 512;
+    const int CacheMax = 20;
+    static readonly LinkedList<string> _recents = new LinkedList<string>();   // le plus récent en tête
+
     /// Ouvre le sélecteur de fichiers (multi-sélection), copie les images
     /// choisies dans le dossier du bâtiment et ajoute les chemins à
     /// batiment.photos. Retourne le nombre de photos réellement ajoutées.
@@ -79,6 +87,7 @@ public static class PhotoService
             else Object.DestroyImmediate(tex);
         }
         _cache.Clear();
+        _recents.Clear();
     }
 
     /// Corbeille des photos, à la racine de la sauvegarde. Les fichiers y patientent
@@ -103,7 +112,8 @@ public static class PhotoService
 
         batiment.photos.Remove(chemin);
         if (couverture) batiment.coverPhoto = "";
-        _cache.Remove(chemin);
+        Oublier(chemin);
+        Oublier(Cle(chemin, CoteCarte));
 
         // Le chemin stocké peut être relatif (nouveau format) ou absolu (ancien) :
         // on résout avant de toucher au disque.
@@ -208,29 +218,68 @@ public static class PhotoService
 
     /// Charge une image du disque en Texture2D (mise en cache). Null si absente.
     /// Accepte indifféremment un chemin relatif (nouveau format) ou absolu (ancien).
-    public static Texture2D Charger(string chemin)
+    public static Texture2D Charger(string chemin, int cote = CotePhoto)
     {
         if (string.IsNullOrEmpty(chemin)) return null;
-        if (_cache.TryGetValue(chemin, out var cached) && cached != null) return cached;
+        string cle = Cle(chemin, cote);
+        if (_cache.TryGetValue(cle, out var cached) && cached != null) { Vue(cle); return cached; }
 
         string absolu = DossiersDonnees.VersAbsolu(chemin);
         if (!File.Exists(absolu)) return null;
         try
         {
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (tex.LoadImage(File.ReadAllBytes(absolu)))
+            if (tex.LoadImage(File.ReadAllBytes(absolu), markNonReadable: true))
             {
+                tex = Reduire(tex, cote);
                 tex.wrapMode = TextureWrapMode.Clamp;
                 tex.filterMode = FilterMode.Bilinear;
-                _cache[chemin] = tex;
+                _cache[cle] = tex;
+                Vue(cle);
+                Borner();
                 return tex;
             }
+            Detruire(tex);
         }
         catch (System.Exception e)
         {
             Debug.LogError($"[Photo] Chargement échoué ({chemin}) : {e.Message}");
         }
         return null;
+    }
+
+    static string Cle(string chemin, int cote) => cote == CotePhoto ? chemin : chemin + "|" + cote;
+
+    static void Vue(string cle) { _recents.Remove(cle); _recents.AddFirst(cle); }
+
+    static void Oublier(string cle)
+    {
+        if (_cache.TryGetValue(cle, out var tex)) Detruire(tex);
+        _cache.Remove(cle);
+        _recents.Remove(cle);
+    }
+
+    static void Borner()
+    {
+        while (_recents.Count > CacheMax) Oublier(_recents.Last.Value);
+    }
+
+    static void Detruire(Texture2D tex)
+    {
+        if (tex == null) return;
+        if (Application.isPlaying) Object.Destroy(tex); else Object.DestroyImmediate(tex);
+    }
+
+    /// Réduite sur la carte graphique à `cote` px de côté au plus (proportions gardées) ; l'originale est détruite.
+    static Texture2D Reduire(Texture2D src, int cote)
+    {
+        float k = (float)cote / Mathf.Max(src.width, src.height);
+        if (k >= 1f) return src;
+        var dst = new Texture2D(Mathf.Max(1, Mathf.RoundToInt(src.width * k)), Mathf.Max(1, Mathf.RoundToInt(src.height * k)),
+                                TextureFormat.RGBA32, false);
+        if (!Graphics.ConvertTexture(src, dst)) { Detruire(dst); return src; }
+        Detruire(src);
+        return dst;
     }
 
     // L'ancien DossierPhotos (« Photos/<id> », rangé à part et nommé par GUID) a été

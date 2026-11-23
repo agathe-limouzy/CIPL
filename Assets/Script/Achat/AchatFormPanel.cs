@@ -31,7 +31,7 @@ public class AchatFormPanel : MonoBehaviour
 
     private static readonly int[] Durees = { 60, 84, 120, 180, 240, 300 };
     bool _ecouteursPoses;   // revue 16c (D7b-17)
-    private const float TAUX_FRAIS_AUTO = 0.08f;
+    private const double TAUX_FRAIS_AUTO = 0.08;   // Revue 17 (D7b-N9, lot G) : en double, comme le prix (en float : 7 999,99982 pour 100 000)
 
     private AchatFinancement _data;
     private Action<AchatFinancement> _onSave;
@@ -43,6 +43,7 @@ public class AchatFormPanel : MonoBehaviour
         _onSave = onSave;
         _onClose = onClose;
         gameObject.SetActive(true);
+        PlafondFenetre.Poser(transform.GetChild(0) as RectTransform, "Body/Bouton");   // BZ7 (22/11) : jamais plus haute que l'écran, boutons fixes
 
         InitDropdownDuree();
         ApplyToUI(_data);
@@ -121,6 +122,7 @@ public class AchatFormPanel : MonoBehaviour
         if (!_ecouteursPoses)
         {
             _ecouteursPoses = true;
+            if (toggleFraisAuto != null) UIFactory.CaseRonde(toggleFraisAuto);   // Revue visuelle (V-19) : la case ronde verte, comme partout
             toggleFraisAuto?.onValueChanged.AddListener(_ => RefreshCalculs());
             txtPrixAchat.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
             txtFraisNotaire.inputModify.onValueChanged.AddListener(_ => RefreshCalculs());
@@ -162,10 +164,10 @@ public class AchatFormPanel : MonoBehaviour
             ? RentabiliteCalculator.Mensualite(montant, taux, duree) : 0d;
         double coutCreditTotal = mens * duree;
 
-        if (txtApport != null) txtApport.text = double.IsNaN(apport) ? "—" : $"{System.Math.Max(0d, apport):N0} €";
-        if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? (double.IsNaN(mens) ? "—" : $"{mens:N0} € / mois") : "Comptant";
+        if (txtApport != null) txtApport.text = double.IsNaN(apport) ? "—" : $"{Montants.F(System.Math.Max(0d, apport), "N0")} €";
+        if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? (double.IsNaN(mens) ? "—" : $"{Montants.F(mens, "N0")} € / mois") : "Comptant";
         if (txtCoutTotal != null) txtCoutTotal.text = DropdownComptant.value == 1 && !double.IsNaN(coutCreditTotal)
-            ? $"{coutCreditTotal:N0} €" : "—";
+            ? $"{Montants.F(coutCreditTotal, "N0")} €" : "—";
     }
 
     private void Save()
@@ -206,7 +208,8 @@ public class AchatFormPanel : MonoBehaviour
         _data.mensualiteCalculee = _data.emprunt
             ? RentabiliteCalculator.Mensualite(_data.montantEmprunte, _data.tauxInteretAnnuel, _data.dureeMois)
             : 0f;
-        _data.apportPersonnel = prix + fraisNot + fraisAg - _data.montantEmprunte;
+        // Revue 17 (D7b-N9, lot G) : en « Comptant », le montant d'un ancien emprunt resté dans le champ caché rendait l'apport négatif.
+        _data.apportPersonnel = prix + fraisNot + fraisAg - (_data.emprunt ? _data.montantEmprunte : 0d);
 
         // Save() — convertir DateTime? → string (date contrôlée plus haut)
         _data.dateAchat = datePicker?.saveThedate().ToString("yyyy-MM-dd") ?? "";

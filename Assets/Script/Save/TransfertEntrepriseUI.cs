@@ -29,7 +29,7 @@ public static class TransfertEntrepriseUI
         b.name = "Transferer";
         b.onClick = new Button.ButtonClickedEvent();
         b.onClick.AddListener(() => onClick());
-        b.transform.SetSiblingIndex(supprimer.transform.GetSiblingIndex());
+        UIFactory.PlacerAvant(b.transform, supprimer.transform);   // revue visuelle du 17/11 : même place à chaque initialisation
         // Pas la couleur de « Supprimer » : un transfert ne détruit rien.
         if (b.TryGetComponent<Image>(out var img)) img.color = UITheme.Carte;
         foreach (var t in b.GetComponentsInChildren<TMP_Text>(true)) { t.text = "Transférer"; t.color = UITheme.TextePrincipal; }
@@ -159,7 +159,7 @@ public static class TransfertEntrepriseUI
             csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
 
-            UIFactory.Text(v.transform, titre, UITheme.Role.Section, UITheme.TextePrincipal, true);
+            UIFactory.Bandeau(card, titre, UITheme.Primaire);   // revue visuelle du 16/11 (V-01)
             UIFactory.Text(v.transform, "Vers quelle entreprise ?", UITheme.Role.Aide, UITheme.TexteSecondaire);
 
             foreach (var o in options)
@@ -170,8 +170,8 @@ public static class TransfertEntrepriseUI
                 b.onClick.AddListener(() => { UnityEngine.Object.Destroy(scrim.gameObject); o2.choix(); });
             }
 
-            var annuler = UIFactory.Button(v.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
-            UIFactory.Border(annuler.gameObject);
+            var pied = UIFactory.HBox(v.transform, 8, false, "Pied");   // revue visuelle du 16/11 (V-08) : compact, à droite
+            var (annuler, _) = UIFactory.PiedFenetre(pied.transform, "Annuler", null, UITheme.Primaire);
             annuler.onClick.AddListener(() => UnityEngine.Object.Destroy(scrim.gameObject));
         });
     }

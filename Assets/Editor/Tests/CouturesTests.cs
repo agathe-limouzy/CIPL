@@ -136,8 +136,8 @@ public class CouturesTests
         try { Assert.That(FactureEmission.FichePerdue(bat, "locataire@exemple.invalid"), Is.True, "fiche vidée : on s'arrête avant Finaliser"); }
         finally
         {
-            ((HashSet<Batiment>)typeof(EcritureCloud).GetField("_perimes", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
-                .GetValue(null)).Remove(bat);
+            ((System.Runtime.CompilerServices.ConditionalWeakTable<Batiment, object>)typeof(EcritureCloud)
+                .GetField("_perimes", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static).GetValue(null)).Remove(bat);   // Revue 17 (D9-09)
         }
         StringAssert.Contains("mais sa fiche a été fermée pendant l'envoi : elle n'est pas", Src("Facturation/FactureEmission.cs"), "le message dit que l'e-mail est parti");
         foreach (var p in QuatreFormulaires)
@@ -353,13 +353,13 @@ public class CouturesTests
         string loyer = Corps(Src("Facturation/FactureLoyerPanel.cs"), "void SauvegarderEtEnvoyer()");
         int nul = loyer.IndexOf(refus, StringComparison.Ordinal);
         Assert.That(nul, Is.GreaterThan(0), "loyer");
-        foreach (var apres in new[] { "FacturePdfService.GeneratePdf(d, pdf,", "if (sansEnvoi)", "PreparerPourEnvoi(d, key,", "FactureElectronique.ConfirmerTransmission(" })
+        foreach (var apres in new[] { "FacturePdfService.GeneratePdfAsync(d, pdf)", "if (sansEnvoi)", "PreparerPourEnvoi(d, key,", "FactureElectronique.ConfirmerTransmission(" })
             Assert.That(loyer.IndexOf(apres, StringComparison.Ordinal), Is.GreaterThan(nul), "loyer : le refus passe avant « " + apres + " »");
         string regul = Corps(Src("Facturation/FactureRegulPanel.cs"), "void SauvegarderEtEnvoyer()");
         Assert.That(regul.IndexOf(refus, StringComparison.Ordinal), Is.GreaterThan(0).And.LessThan(regul.IndexOf("Emettre(d, key, emission)", StringComparison.Ordinal)),
             "régularisation : avant la confirmation du remboursement et le PDF");
         string refac = Corps(Src("Facturation/FactureRefacPanel.cs"), "void SauvegarderEtEnvoyer()");
-        Assert.That(refac.IndexOf(refus, StringComparison.Ordinal), Is.GreaterThan(0).And.LessThan(refac.IndexOf("FacturePdfService.GeneratePdf(d, pdf,", StringComparison.Ordinal)),
+        Assert.That(refac.IndexOf(refus, StringComparison.Ordinal), Is.GreaterThan(0).And.LessThan(refac.IndexOf("FacturePdfService.GeneratePdfAsync(d, pdf)", StringComparison.Ordinal)),
             "refacturation : avant le PDF");
         StringAssert.DoesNotContain("RefusTotalNul(", Src("Facturation/FactureDepotPanel.cs"), "jamais pour le dépôt : un dépôt « à l'équilibre » est voulu");
     }
@@ -369,9 +369,9 @@ public class CouturesTests
     [Test]
     public void Reste_du_lot_11_les_refus_passent_avant_la_generation_du_PDF()
     {
-        foreach (var (p, methode, pdf) in new[] { ("FactureLoyerPanel", "void SauvegarderEtEnvoyer()", "FacturePdfService.GeneratePdf(d, pdf,"),
-                                                  ("FactureRegulPanel", "void Emettre(", "FacturePdfService.GenerateRegulPdf(d, pdf,"),
-                                                  ("FactureRefacPanel", "void SauvegarderEtEnvoyer()", "FacturePdfService.GeneratePdf(d, pdf,") })
+        foreach (var (p, methode, pdf) in new[] { ("FactureLoyerPanel", "void SauvegarderEtEnvoyer()", "FacturePdfService.GeneratePdfAsync(d, pdf)"),
+                                                  ("FactureRegulPanel", "void Emettre(", "FacturePdfService.GenerateRegulPdfAsync(d, pdf)"),
+                                                  ("FactureRefacPanel", "void SauvegarderEtEnvoyer()", "FacturePdfService.GeneratePdfAsync(d, pdf)") })
         {
             string corps = Corps(Src("Facturation/" + p + ".cs"), methode);
             int ecrit = corps.IndexOf(pdf, StringComparison.Ordinal);
@@ -395,11 +395,11 @@ public class CouturesTests
             StringAssert.Contains(garde, Corps(Src("Facturation/" + p + ".cs"), "void SauvegarderEtEnvoyer()"), p + " : refusé dès le clic, avant le PDF (écrit ici, ou dans Emettre)");
         string loyer = Corps(Src("Facturation/FactureLoyerPanel.cs"), "void SauvegarderEtEnvoyer()");
         int rib = loyer.IndexOf(garde, StringComparison.Ordinal);
-        Assert.That(rib, Is.LessThan(loyer.IndexOf("FacturePdfService.GeneratePdf(d, pdf,", StringComparison.Ordinal)), "loyer : avant le PDF");
+        Assert.That(rib, Is.LessThan(loyer.IndexOf("FacturePdfService.GeneratePdfAsync(d, pdf)", StringComparison.Ordinal)), "loyer : avant le PDF");
         Assert.That(rib, Is.LessThan(loyer.IndexOf("if (sansEnvoi)", StringComparison.Ordinal)), "loyer : avant la branche « premiers pas » (la facture émise sans envoi part plus tard)");
         StringAssert.Contains("if (!exemple && " + garde, loyer, "pas sur le bâtiment d'exemple : rien n'en part");
         string refac = Corps(Src("Facturation/FactureRefacPanel.cs"), "void SauvegarderEtEnvoyer()");
-        Assert.That(refac.IndexOf(garde, StringComparison.Ordinal), Is.LessThan(refac.IndexOf("FacturePdfService.GeneratePdf(d, pdf,", StringComparison.Ordinal)), "refacturation : avant le PDF");
+        Assert.That(refac.IndexOf(garde, StringComparison.Ordinal), Is.LessThan(refac.IndexOf("FacturePdfService.GeneratePdfAsync(d, pdf)", StringComparison.Ordinal)), "refacturation : avant le PDF");
     }
 
     /// Reste du lot 11 : la ligne « Envoi » juge le jour où la facture partira, comme la garde de l'émission (RefusObligation). Avant : le jour
@@ -637,9 +637,9 @@ public class CouturesTests
 
         const string pose = "if (citees != null) d.factureOrigine = FactureElectronique.NumerosCites(citees);";
         string loyer = Corps(Src("Facturation/FactureLoyerPanel.cs"), "void SauvegarderEtEnvoyer()");
-        Assert.That(loyer.IndexOf(pose, StringComparison.Ordinal), Is.GreaterThan(0).And.LessThan(loyer.IndexOf("FacturePdfService.GeneratePdf(d, pdf,", StringComparison.Ordinal)), "loyer : avant le PDF");
+        Assert.That(loyer.IndexOf(pose, StringComparison.Ordinal), Is.GreaterThan(0).And.LessThan(loyer.IndexOf("FacturePdfService.GeneratePdfAsync(d, pdf)", StringComparison.Ordinal)), "loyer : avant le PDF");
         string regul = Corps(Src("Facturation/FactureRegulPanel.cs"), "void Emettre(");
-        Assert.That(regul.IndexOf(pose, StringComparison.Ordinal), Is.GreaterThan(0).And.LessThan(regul.IndexOf("FacturePdfService.GenerateRegulPdf(d, pdf,", StringComparison.Ordinal)), "régularisation : avant le PDF");
+        Assert.That(regul.IndexOf(pose, StringComparison.Ordinal), Is.GreaterThan(0).And.LessThan(regul.IndexOf("FacturePdfService.GenerateRegulPdfAsync(d, pdf)", StringComparison.Ordinal)), "régularisation : avant le PDF");
     }
 
     /// D5-17 : un taux de TVA inhabituel (« 2 » tapé pour « 20 ») se confirme, aux trois niveaux (entreprise, bail, facture) ; un taux

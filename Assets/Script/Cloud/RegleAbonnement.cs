@@ -54,6 +54,19 @@ public static class RegleAbonnement
     /// Prix HT, TVA 20 % en plus.
     public static decimal Ttc(int ht) => Math.Round(ht * 1.2m, 2);
 
+    /// Décision du 22/11 : l'essai gratuit comprend UNE entreprise et LicencesEssai utilisateurs ; ajouter une entreprise demande un
+    /// abonnement (refus « essai » du serveur, Serveur/etape17d_supabase.sql ; le bouton refuse avant d'ouvrir le formulaire).
+    /// Avant : entreprises sans limite pendant l'essai, 3 licences chacune.
+    public const int LicencesEssai = 2;
+    public const string RefusAjoutEssai = "L'essai gratuit comprend une seule entreprise et 2 utilisateurs. Abonnez-vous "
+        + "(« Continuer vers le paiement », plus bas) pour en ajouter d'autres.";
+    public static bool AjoutRefuse(Etat e) => e == Etat.Essai;
+
+    /// Décision du 23/11 : sous le titre « Choisir l'abonnement », ce que valent les « - » et « + » : les licences de l'abonnement à
+    /// venir, pas celles de l'essai (on lisait « + » comme une troisième licence d'essai). Essai fini : plus un mot de l'essai (D3-10).
+    public static string AideChoix(Etat e) => "Les licences choisies ici seront celles de votre abonnement"
+        + (e == Etat.Essai ? $". Pendant l'essai, l'entreprise garde ses {LicencesEssai} licences." : " ; d'ici là, chaque entreprise garde les siennes.");
+
     static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
 
     /// « 102 € », « 135,60 € ».

@@ -30,6 +30,7 @@ public static class EcransCloud
         v.childControlWidth = true; v.childControlHeight = true;
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
         cardImg.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        PlafondFenetre.Poser(card);   // Revue 17 (D10-01, lot F) : jamais plus haute que l'écran
         DepartPanel.Entete(v.transform, titre, entete ?? UITheme.Primaire);
         return (voile, v);
     }
@@ -88,13 +89,13 @@ public static class EcransCloud
             if (champ == null) return;
             if (champ.TryGetComponent(out Outline bord))
             {
-                bord.effectColor = faute ? UITheme.Alerte : UITheme.Bordure;
+                bord.effectColor = faute ? UITheme.Erreur : UITheme.BordureChamp;
                 bord.effectDistance = faute ? new Vector2(2, -2) : new Vector2(1, -1);
             }
             // Le libellé : le texte juste au-dessus du champ (DepartPanel.Champ, ReglagePanel.ModalField).
             int i = champ.transform.GetSiblingIndex();
             var libelle = i > 0 ? champ.transform.parent.GetChild(i - 1).GetComponent<TMP_Text>() : null;
-            if (libelle != null) libelle.color = faute ? UITheme.Alerte : UITheme.TexteSecondaire;
+            if (libelle != null) libelle.color = faute ? UITheme.Erreur : UITheme.TexteSecondaire;
         }
     }
 
@@ -112,6 +113,7 @@ public static class EcransCloud
         var t = b.GetComponentInChildren<TMP_Text>(true);
         t.alignment = TextAlignmentOptions.Left;
         t.fontStyle = FontStyles.Underline;
+        UIFactory.Stretch((RectTransform)t.transform, 0, 0, 0, 0);   // revue visuelle du 16/11 (V-11) : aligné sur les textes voisins (10 de retrait)
         return b;
     }
 
@@ -273,8 +275,7 @@ public static class EcransCloud
         foreach (var g in second) g.SetActive(false);
 
         var pied = Pied(carte.transform);
-        var retourBtn = Bouton(pied.transform, "Retour", false);
-        retourBtn.transform.SetAsFirstSibling();
+        var retourBtn = Bouton(pied.transform, "Retour", false);   // revue visuelle (V-46) : à droite, avant l'action, comme les autres fenêtres
         retourBtn.onClick.AddListener(() => { UnityEngine.Object.Destroy(voile.gameObject); retour?.Invoke(email.text); });
         var principal = Bouton(pied.transform, "Envoyer le code", true);
         var libelle = principal.GetComponentInChildren<TMP_Text>(true);
@@ -342,7 +343,7 @@ public static class EcransCloud
         var (voile, carte) = Fenetre(canvas, "CIPL — Créer mon compte", 480, true);
         var corps = UIFactory.VBox(carte.transform, 10, 18, 18, 14, 6, "Corps");
 
-        UIFactory.Text(corps.transform, "Vous gérez des biens en tant que", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(corps.transform, "Vous gérez des biens en tant que", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var choix = UIFactory.HBox(corps.transform, 6, false, "Type");
         Button Choix(string texte)
         {
@@ -372,7 +373,7 @@ public static class EcransCloud
         var mdp2 = DepartPanel.Champ(ligneMdp.transform, "Confirmer", "", 1f);
         mdp2.contentType = TMP_InputField.ContentType.Password;
         mdp2.ForceLabelUpdate();
-        var aide = UIFactory.Text(corps.transform, "Essai gratuit de 14 jours, sans carte.", UITheme.Role.Aide, UITheme.TexteSecondaire);
+        var aide = UIFactory.Text(corps.transform, "Essai gratuit de 14 jours, sans carte : une entreprise, 2 utilisateurs.", UITheme.Role.Aide, UITheme.TexteSecondaire);
         var code = DepartPanel.Champ(corps.transform, "Code reçu par e-mail", "123456", 1f);
         code.contentType = TMP_InputField.ContentType.IntegerNumber;
         var renvoyer = Lien(corps.transform, "Renvoyer le code");
@@ -414,7 +415,7 @@ public static class EcransCloud
             var (data, _, introuvable) = await PapperService.Chercher(chiffres);
             if (infoAnnuaire == null || cherche != chiffres) return;   // fenêtre fermée, ou autre SIRET saisi depuis
             string refus = PappersResume.Refus(chiffres, data, introuvable);
-            if (refus != null) { infoAnnuaire.color = UITheme.Alerte; infoAnnuaire.text = refus; return; }
+            if (refus != null) { infoAnnuaire.color = UITheme.Erreur; infoAnnuaire.text = refus; return; }
             if (data == null) { infoAnnuaire.text = "Annuaire des entreprises injoignable : le SIRET n'a pas pu être vérifié."; return; }
             annuaire = data;
             infoAnnuaire.text = PappersResume.Description(data);
@@ -429,8 +430,7 @@ public static class EcransCloud
         Type(true);
 
         var pied = Pied(carte.transform);
-        var retourBtn = Bouton(pied.transform, "Retour", false);
-        retourBtn.transform.SetAsFirstSibling();
+        var retourBtn = Bouton(pied.transform, "Retour", false);   // revue visuelle (V-46) : à droite, avant l'action, comme les autres fenêtres
         retourBtn.onClick.AddListener(() => { UnityEngine.Object.Destroy(voile.gameObject); retour?.Invoke(email.text); });
         var principal = Bouton(pied.transform, "Recevoir le code", true);
         var libelle = principal.GetComponentInChildren<TMP_Text>(true);
@@ -563,6 +563,37 @@ public static class EcransCloud
         var corps = UIFactory.VBox(carte.transform, 8, 18, 18, 14, 14, "Corps");
         UIFactory.Text(corps.transform, "Lecture des données sur le cloud…", UITheme.Role.Aide, UITheme.TexteSecondaire);
         return voile;
+    }
+
+    /// Revue 17 (D9-01, lot E ; maquette validée le 16/11) : la barre d'avancement de l'installation des fiches, dans le voile
+    /// d'Attente : « Chargement des fiches : <bâtiment> », puis une barre et « 3 / 7 ». Null sans voile ; sans effet une fois le
+    /// voile détruit.
+    public static Action<int, int, string> Avancement(RectTransform voile)
+    {
+        var corps = voile != null ? voile.GetComponentsInChildren<RectTransform>(true).FirstOrDefault(t => t.name == "Corps") : null;
+        if (corps == null) return null;
+        TMP_Text texte = corps.GetComponentInChildren<TMP_Text>(true);
+        RectTransform plein = null;
+        TMP_Text compte = null;
+        return (fait, total, nom) =>
+        {
+            if (corps == null) return;
+            if (plein == null)
+            {
+                var ligne = UIFactory.HBox(corps, 10, false, "Avancement");
+                var fond = UIFactory.Panel("Barre", ligne.transform, UITheme.Bordure);
+                UIFactory.LE(fond.gameObject, minH: 12, prefH: 12, flexW: 1);
+                plein = UIFactory.Panel("Plein", fond.transform, UITheme.Primaire).rectTransform;
+                plein.anchorMin = Vector2.zero;
+                plein.pivot = new Vector2(0f, 0.5f);
+                compte = UIFactory.Text(ligne.transform, "", UITheme.Role.Aide, UITheme.TexteSecondaire, false, TextAlignmentOptions.Right);
+                UIFactory.LE(compte.gameObject, minW: 70, prefW: 70);
+            }
+            plein.anchorMax = new Vector2(total > 0 ? Mathf.Clamp01((float)fait / total) : 1f, 1f);
+            plein.offsetMin = plein.offsetMax = Vector2.zero;
+            compte.text = $"{fait} / {total}";
+            if (texte != null) texte.text = nom != null ? $"Chargement des fiches : {nom}" : "Chargement des fiches…";
+        };
     }
 
     // ── 2. Choisir l'entreprise ────────────────────────────────────────────────
@@ -729,7 +760,7 @@ public static class EcransCloud
         var corps = UIFactory.VBox(carte.transform, 8, 18, 18, 14, 6, "Corps");
         UIFactory.Text(corps.transform, $"Le dossier des documents ({chemin}) est introuvable.", UITheme.Role.Donnee, UITheme.TextePrincipal);
         if (TexteToujoursIntrouvable(dernierEssai) is string essai)
-            UIFactory.Text(corps.transform, essai, UITheme.Role.Donnee, UITheme.Alerte);
+            UIFactory.Text(corps.transform, essai, UITheme.Role.Donnee, UITheme.Erreur);
         UIFactory.Text(corps.transform, "S'il est sur un disque externe ou un lecteur réseau, rebranchez-le, puis « Réessayer ». " +
                        "« Utiliser Documents\\CIPL » : les documents sont téléchargés de nouveau depuis le cloud dans Documents\\CIPL, " +
                        "et l'ancien dossier n'est plus utilisé.", UITheme.Role.Aide, UITheme.TexteSecondaire);
@@ -802,21 +833,23 @@ public static class EcransCloud
                 SessionCloud.Retenir(SessionCloud.PremiersPasMasques, false);
                 GeneralMenuPanel.Instance?.Refresh();
             });
-        // Étape 15 (maquette 4 du 26/10) : la version installée, pour le support et les mises à jour.
-        UIFactory.Text(corps.transform, "CIPL version " + Application.version, UITheme.Role.Aide, UITheme.TexteSecondaire);
         // Revue 16c (D3-09) : rejoindre une entreprise de plus (seconde invitation) sans passer par l'écran de connexion.
         Lien(corps.transform, "J'ai reçu une invitation").onClick.AddListener(() =>
         {
             UnityEngine.Object.Destroy(voile.gameObject);
             AfficherCode(canvas, _ => FermetureGuard.ConfirmerPerteSaisies("Changer d'entreprise", changer));
         });
+        // Étape 15 (maquette 4 du 26/10) : la version installée, pour le support et les mises à jour.
+        // Revue visuelle du 16/11 (V-11) : après les liens (elle était posée entre deux d'entre eux).
+        UIFactory.Text(corps.transform, "CIPL version " + Application.version, UITheme.Role.Aide, UITheme.TexteSecondaire);
 
         var pied = UIFactory.HBox(carte.transform, 8, false, "Pied");
         pied.padding = new RectOffset(18, 18, 6, 16);
-        var fermer = Bouton(pied.transform, "Fermer", false);
+        // Revue visuelle du 16/11 (V-09 ; décision du 16/11) : le bouton mis en avant était « Se déconnecter ».
+        var deco = Bouton(pied.transform, "Se déconnecter", false);
         UIFactory.LE(UIFactory.Rect("Espace", pied.transform).gameObject, flexW: 1);
         var chg = Bouton(pied.transform, "Changer d'entreprise", false);
-        var deco = Bouton(pied.transform, "Se déconnecter", true);
+        var fermer = Bouton(pied.transform, "Fermer", true);
         Action fermerVoile = () => UnityEngine.Object.Destroy(voile.gameObject);
         fermer.onClick.AddListener(() => fermerVoile());
         // Revue 16c (D3-03) : une fiche en cours de modification serait fermée sans un mot (CONCEPTION §13 : FermetureGuard,
@@ -858,20 +891,44 @@ public static class EcransCloud
     public static void Pastille(Canvas canvas, string texte)
     {
         if (_pastille != null) UnityEngine.Object.Destroy(_pastille);
+        _pastille = null;
         if (string.IsNullOrEmpty(texte)) return;
-        var fond = UIFactory.Panel("CloudPastille", canvas.rootCanvas.transform, new Color32(0xFA, 0xEE, 0xDA, 0xF0));
-        fond.raycastTarget = false;
-        var rt = (RectTransform)fond.transform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0, 0);
-        rt.anchoredPosition = new Vector2(12, 12);
-        var h = fond.gameObject.AddComponent<HorizontalLayoutGroup>();
-        h.padding = new RectOffset(12, 12, 6, 6);
-        h.childControlWidth = true; h.childControlHeight = true;
-        var csf = fond.gameObject.AddComponent<ContentSizeFitter>();
-        csf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
-        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        var t = UIFactory.Text(fond.transform, texte, UITheme.Role.Aide, new Color32(0x63, 0x38, 0x06, 0xFF), true);
-        t.enableWordWrapping = false;
-        _pastille = fond.gameObject;
+        // Revue 17 (B-11, lot F ; décision du 16/11) : dans la barre d'onglets, à côté de « En ligne : … ». Avant : une pastille
+        // flottante en bas à gauche, par-dessus les cartes des bâtiments et, à 125-175 %, la liste « À traiter ».
+        var zone = ZoneEtat();
+        if (zone == null) return;
+        var t = UIFactory.Text(zone, texte, UITheme.Role.Aide, UITheme.PrimaireClair, true, TextAlignmentOptions.Right);
+        t.name = "CloudPastille";
+        t.enableWordWrapping = false; t.overflowMode = TextOverflowModes.Ellipsis;
+        UIFactory.LE(t.gameObject, minW: 80, flexW: 0);
+        t.transform.SetAsFirstSibling();
+        _pastille = t.gameObject;
+    }
+
+    /// Revue 17 (B-01 / B-11, lot F) : la zone d'état au bout de la barre d'onglets (entreprise ouverte, « En ligne : … »), créée à
+    /// la demande. La barre répartit désormais sa largeur : accueil, recherche, onglets (ce qui reste, 200 au moins), « + » (60),
+    /// zone d'état, puis la place de la croix « Quitter ». Avant, ses enfants avaient des largeurs fixes pour 1 920 : dès 125 %,
+    /// « + » sortait de l'écran. Null avant l'accueil.
+    public static RectTransform ZoneEtat()
+    {
+        var barre = HorsLigne.BarreOnglets();
+        if (barre == null) return null;
+        if (barre.Find("Etat") is RectTransform deja) return deja;
+        var mm = BatimentManager.Instance.menuManager;
+        var h = barre.GetComponent<HorizontalLayoutGroup>();
+        if (h != null)
+        {
+            h.childControlWidth = true; h.childForceExpandWidth = false;
+            h.padding = new RectOffset(h.padding.left, 56, h.padding.top, h.padding.bottom);   // la croix « Quitter » est posée par-dessus
+        }
+        UIFactory.LE(mm.tabScrollRect.gameObject, minW: 200, flexW: 1);
+        if (mm.addTabButton != null) UIFactory.LE(mm.addTabButton.gameObject, minW: 60, prefW: 60, flexW: 0);
+        var z = UIFactory.HBox(barre, 14, false, "Etat");
+        z.padding = new RectOffset(10, 4, 0, 0);
+        z.childAlignment = TextAnchor.MiddleRight;
+        var zone = (RectTransform)z.transform;
+        zone.sizeDelta = new Vector2(0, 50);   // la barre ne commande pas la hauteur de ses enfants
+        UIFactory.LE(zone.gameObject, flexW: 0);
+        return zone;
     }
 }

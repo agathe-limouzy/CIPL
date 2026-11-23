@@ -27,6 +27,6 @@ public static class FacturationBootstrap
         btn.onClick.AddListener(ReglagePanel.OpenPanel);
 
         var label = clone.GetComponentInChildren<TMP_Text>(true);
-        if (label != null) label.text = "Réglage";
+        if (label != null) label.text = "Réglages";
     }
 }

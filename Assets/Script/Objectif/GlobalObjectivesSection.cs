@@ -43,14 +43,13 @@ public class GlobalObjectivesSection : MonoBehaviour
     private readonly List<(Image fond, TMP_Text nombre, TMP_Text libelle, Objectifs.FiltreAvancement av)> _tuiles = new();
     private readonly List<(Button b, Objective.Importance? im)> _chips = new();
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
     static (Color fond, Color encre) CouleursTuile(Objectifs.FiltreAvancement av) => av switch
     {
-        Objectifs.FiltreAvancement.AFaire => (Hex("#F1EFE8"), Hex("#5F5E5A")),
-        Objectifs.FiltreAvancement.EnCours => (Hex("#E6F1FB"), Hex("#185FA5")),
-        Objectifs.FiltreAvancement.EnRetard => (Hex("#FCEBEB"), Hex("#A32D2D")),
-        Objectifs.FiltreAvancement.Faits => (Hex("#E1F5EE"), Hex("#0F6E56")),
-        _ => (Hex("#ECEAE3"), Hex("#2C3E5E"))
+        Objectifs.FiltreAvancement.AFaire => (UITheme.Fond, UITheme.TexteSecondaire),
+        Objectifs.FiltreAvancement.EnCours => (UITheme.Hex("#E6F1FB"), UITheme.Hex("#185FA5")),
+        Objectifs.FiltreAvancement.EnRetard => (UITheme.Hex("#FCEBEB"), UITheme.Erreur),
+        Objectifs.FiltreAvancement.Faits => (UITheme.PrimaireClair, UITheme.Primaire),
+        _ => (UITheme.Hex("#ECEAE3"), UITheme.Hex("#2C3E5E"))
     };
 
     private void Awake()
@@ -165,8 +164,8 @@ public class GlobalObjectivesSection : MonoBehaviour
         foreach (var (b, im) in _chips)
         {
             bool on = _importance == im;
-            Color f = im.HasValue ? ObjectiveItem.FondImportance(im.Value) : Hex("#ECEAE3");
-            Color encre = im.HasValue ? ObjectiveItem.TexteImportance(im.Value) : Hex("#2C3E5E");
+            Color f = im.HasValue ? ObjectiveItem.FondImportance(im.Value) : UITheme.Hex("#ECEAE3");
+            Color encre = im.HasValue ? ObjectiveItem.TexteImportance(im.Value) : UITheme.Hex("#2C3E5E");
             b.GetComponent<Image>().color = on ? encre : f;
             var t = b.GetComponentInChildren<TMP_Text>(true);
             if (t != null) t.color = on ? Color.white : encre;
@@ -261,9 +260,4 @@ public class GlobalObjectivesSection : MonoBehaviour
         });
     }
 
-    static void Libelle(Button b, string texte)
-    {
-        var t = b != null ? b.GetComponentInChildren<TMP_Text>(true) : null;
-        if (t != null) t.text = texte;
-    }
 }

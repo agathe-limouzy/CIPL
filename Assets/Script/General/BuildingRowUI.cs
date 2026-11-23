@@ -22,8 +22,8 @@ public class BuildingRowUI : MonoBehaviour
         if (pastille != null) pastille.color = BatimentEtatHelper.Couleur(etat);
         if (txtNom != null) txtNom.text = string.IsNullOrEmpty(data.Name) ? "Sans nom" : data.Name;
         if (txtVille != null) txtVille.text = Ville(data.adressBatiment);
-        if (txtLots != null) txtLots.text = bp.listLocataire.Count.ToString();
-        if (txtLoyer != null) txtLoyer.text = $"{bp.GetLoyerTotal():N0} €";
+        if (txtLots != null) txtLots.text = bp.NbEnPlace().ToString();   // Revue 17 (D7a-10, lot F) : comme la carte (partis et archivés exclus)
+        if (txtLoyer != null) txtLoyer.text = $"{Montants.F(bp.GetLoyerTotal(), "N0")} €";
         if (txtEtat != null)
         {
             txtEtat.text = LabelEtat(etat);
@@ -52,10 +52,23 @@ public class BuildingRowUI : MonoBehaviour
         if (string.IsNullOrEmpty(adresse)) return "—";
         var parts = adresse.Split(',');
         string derniere = parts[parts.Length - 1].Trim();
-        // Retire un éventuel code postal en tête
+        // Garde ce qui suit le code postal. Revue 17 (D8-19, lot G) : où qu'il soit : une adresse sans virgule
+        // (« 12 rue de Rivoli 75001 Paris ») donnait l'adresse entière.
         var mots = derniere.Split(' ');
-        if (mots.Length > 1 && mots[0].Length == 5 && int.TryParse(mots[0], out _))
-            return string.Join(" ", mots, 1, mots.Length - 1);
+        int cp = System.Array.FindIndex(mots, m => m.Length == 5 && int.TryParse(m, out _));
+        if (cp >= 0 && cp < mots.Length - 1)
+            return string.Join(" ", mots, cp + 1, mots.Length - cp - 1);
+        // Revue visuelle (V-38, décision du 17/11) : ni virgule ni code postal, et un numéro de rue ou plus de trois mots
+        // (« 56 rue des tourneurs toulouse ») : la ville ne se devine pas. Avant : l'adresse entière, coupée sur la carte.
+        if (parts.Length == 1 && derniere.Length > 0 && (mots.Length > 3 || char.IsDigit(derniere[0]))) return "—";
         return string.IsNullOrEmpty(derniere) ? "—" : derniere;
+    }
+
+    /// La ligne du bas de la carte d'un bâtiment : « Ville · N lots », ou « N lots » seul quand la ville n'est pas connue
+    /// (adresse vide, ou sans code postal ni virgule).
+    public static string VilleEtLots(string adresse, int lots)
+    {
+        string ville = Ville(adresse), n = $"{lots} lot{(lots > 1 ? "s" : "")}";
+        return ville == "—" ? n : $"{ville} · {n}";
     }
 }

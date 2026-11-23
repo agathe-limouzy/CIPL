@@ -48,7 +48,18 @@ public class TileLoader : MonoBehaviour
             targetImage.texture = tex;
             targetImage.color = Color.white;
             ImagePosee = true;
+            _derniere = tex;
         }
+    }
+
+    // Revue 17 (D9-09, lot E) : la carte créée par code est détruite avec sa fiche (Vider, Remplacer, Retirer la détruisent) ;
+    // avant, chaque fiche détruite laissait sa texture (≈ 1 Mo) en mémoire. Gardée en champ : à la destruction de la fiche,
+    // l'image peut déjà être détruite. Une vignette du cache partagé n'est pas détruite.
+    Texture2D _derniere;
+
+    void OnDestroy()
+    {
+        if (_derniere != null && !MapThumbnailService.EstEnCache(_derniere)) Destroy(_derniere);
     }
 
     /// Le corps envoyé à la fonction « cartes » (mêmes noms que dans Serveur/fonctions/cartes.ts).

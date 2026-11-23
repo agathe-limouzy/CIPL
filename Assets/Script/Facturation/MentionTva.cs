@@ -82,7 +82,7 @@ public static class MentionTva
     /// « encaissements » imprimerait le contraire de ce qui vient d'être choisi.
     public static UIDropdown Creer(Transform parent, out TMP_InputField phrase)
     {
-        UIFactory.Text(parent, "Mention TVA", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(parent, "Mention TVA", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         TMP_InputField p = null;
         var menu = UIDropdown.Create(parent, Libelles, null, Debits, choix =>
         {

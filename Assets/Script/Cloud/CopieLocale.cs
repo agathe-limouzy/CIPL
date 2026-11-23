@@ -81,11 +81,28 @@ public static class CopieLocale
         PlayerPrefs.Save();
     }
 
+    // Revue 17 (D9-10, lot E) : encodage et écriture en tâche de fond, une écriture après l'autre (dans l'ordre). Le fil
+    // principal ne prend qu'un instantané de l'état connu (ses Etat ne sont jamais modifiés, toujours remplacés) et le chemin
+    // (persistentDataPath ne se lit que sur lui). Avant : 22 ms sur le fil principal pour SCI (JBC), ≈ 300 ms prévus pour
+    // 300 locataires, quelques secondes après chaque enregistrement.
+    static System.Threading.Tasks.Task _ecriture = System.Threading.Tasks.Task.CompletedTask;
+
     public static void Garder(EntrepriseCloud e, CloudClient.Utilisateur u, DateTime aJour, IDictionary<string, EcritureCloud.Etat> etats)
     {
         if (e == null || etats == null || etats.Count == 0) return;
-        if (!AtomicFile.WriteAllText(Chemin(e.id), Ecrire(e, u, aJour, etats), out string erreur))
-            Debug.LogWarning("[Copie] Copie locale non écrite : " + erreur);
+        string chemin = Chemin(e.id);
+        var instantane = new Dictionary<string, EcritureCloud.Etat>(etats);
+        _ecriture = _ecriture.ContinueWith(_ =>
+        {
+            if (!AtomicFile.WriteAllText(chemin, Ecrire(e, u, aJour, instantane), out string erreur))
+                Debug.LogWarning("[Copie] Copie locale non écrite : " + erreur);
+        }, System.Threading.Tasks.TaskScheduler.Default);
+    }
+
+    /// À la fermeture : la dernière écriture finit avant que CIPL ne se ferme (5 s au plus).
+    public static void Terminer()
+    {
+        try { _ecriture.Wait(5000); } catch (Exception ex) { Debug.LogWarning("[Copie] Dernière écriture : " + ex.Message); }
     }
 
     public static bool Charger(string entrepriseId, out EntrepriseCloud e, out CloudClient.Utilisateur u, out DateTime aJour,

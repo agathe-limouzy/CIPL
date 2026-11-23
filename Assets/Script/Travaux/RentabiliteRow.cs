@@ -27,7 +27,7 @@ public class RentabiliteRow : MonoBehaviour
 
         if (txtCumulatif != null)
         {
-            txtCumulatif.text = (cumul >= 0f ? "+" : "") + $"{cumul:N0} €";
+            txtCumulatif.text = (cumul >= 0f ? "+" : "") + $"{Montants.F(cumul, "N0")} €";
             txtCumulatif.color = seuilAtteint ? Seuil : (cumul >= 0f ? Vert : Rouge);
         }
     }
@@ -38,7 +38,7 @@ public class RentabiliteRow : MonoBehaviour
         if (t == null) return;
         if (montant > 0f)
         {
-            t.text = (negatif ? "-" : "") + $"{montant:N0} €";
+            t.text = (negatif ? "-" : "") + $"{Montants.F(montant, "N0")} €";
             t.color = couleur;
         }
         else

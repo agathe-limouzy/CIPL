@@ -154,6 +154,12 @@ public class Locataire : Data
     public bool RevisionIndiceSuivie => (typeRevision == TypeRevision.Indice || typeRevision == TypeRevision.ChiffreAffaires)
                                         && IndiceInitialise && !EstParti;
 
+    /// Revue 17 (D8-06, lot G ; décision du 16/11) : la révision est à ANNONCER (accueil, état du bâtiment) : elle est suivie, et le
+    /// locataire sera encore là à sa date. Un départ saisi avant la date de révision l'éteint ; une révision déjà due avant le départ
+    /// reste. Avant : départ le 31/12, révision le 15/01 : « Révision · Dans 90 j » dès octobre, pour une révision qui n'aura jamais lieu.
+    public bool RevisionAAnnoncer => RevisionIndiceSuivie
+                                     && !(FacturationSuivi.TryEcheance(dateSortieISO, out var sortie) && sortie.Date < MoisDeRevision.Date);
+
     /// Le loyer est initialisé, quel que soit son type. Rien n'est stocké : des paliers
     /// qui ne couvrent plus le bail (fin prolongée) le repassent « à initialiser ».
     public bool LoyerInitialise
@@ -298,6 +304,17 @@ public class Locataire : Data
         if (CongeFinDeBailPossible(loc, aujourdhui, out var fin, out var limite))
             return $"À renouveler — fin le {fin:dd/MM/yyyy}, congé jusqu'au {limite:dd/MM/yyyy}";
         return FacturationSuivi.TryEcheance(loc.dateFinBailISO, out fin) ? $"À renouveler — fin le {fin:dd/MM/yyyy}" : "À renouveler";
+    }
+
+    /// Revue 17 (D8-15, lot F ; décision du 16/11) : le même rappel en court, pour la colonne « Rappel » de « À traiter » (le texte
+    /// complet, 57 à 76 caractères, y était coupé dès 100 %). La fiche garde le texte complet.
+    public static string TexteFinDeBailCourt(Locataire loc, DateTime aujourdhui)
+    {
+        RenouvellementProche(loc, aujourdhui, out int jours);
+        if (jours < 0) return PeriodeFermePossible(loc.typeDeBail) ? "Bail expiré · congé possible" : "Bail expiré · à renouveler";
+        if (CongeFinDeBailPossible(loc, aujourdhui, out var fin, out var limite))
+            return $"Fin le {fin:dd/MM/yyyy} · congé av. {limite:dd/MM/yyyy}";
+        return FacturationSuivi.TryEcheance(loc.dateFinBailISO, out fin) ? $"Fin le {fin:dd/MM/yyyy}" : "À renouveler";
     }
 
     // ── Résiliation triennale (bail commercial) ───────────────────────────────
@@ -491,12 +508,6 @@ public enum Periodicite
     trimestriel,
     BiAnnuel,
     Annuel
-}
-
-public enum RevisionMode
-{
-    NouveauBail,
-    BailEnCours
 }
 
 // Ordre figé (valeur stockée) : Indice = 0 pour les fiches antérieures.

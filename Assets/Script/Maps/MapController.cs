@@ -262,7 +262,7 @@ public class MapController : MonoBehaviour
         _adresseEnCours = address;   // Revue 17 (D9-19, lot D)
         if (searchButton.gameObject.activeSelf)
             searchButton.interactable = false;
-        statusText.text = "Recherche...";
+        statusText.text = "Recherche…";
 
         double resultLat = 0, resultLon = 0;
         bool success = false;
@@ -271,7 +271,7 @@ public class MapController : MonoBehaviour
         yield return StartCoroutine(_geocodingService.GeocodeAddress(
             address,
             onSuccess: (lat, lon) => { resultLat = lat; resultLon = lon; success = true; },
-            onError: (err) => { statusText.text = $" {err}"; }
+            onError: (err) => { statusText.text = err; }
         ));
 
         // Chargement carte (séquentiel, plus dans un callback)
@@ -298,7 +298,7 @@ public class MapController : MonoBehaviour
     {
         _isLoading = true;
         _tileLoader.zoomLevel = _currentZoom;
-        statusText.text = "Chargement...";
+        statusText.text = "Chargement…";
 
         // Centre bouge, pin reste fixe
         yield return StartCoroutine(_tileLoader.LoadMapAt(_centerLat, _centerLon, _pinLat, _pinLon));
@@ -306,11 +306,11 @@ public class MapController : MonoBehaviour
 
         // Revue 17 (D7b-18, lot D) : « Carte chargée » s'affichait aussi quand aucune image n'était posée.
         if (!_tileLoader.ImagePosee)
-            statusText.text = " Carte indisponible";
+            statusText.text = "Carte indisponible";
         else if (showDebugCoords)
-            statusText.text = $" lat={_pinLat:F6}  lon={_pinLon:F6}  zoom={_currentZoom}";
+            statusText.text = $"lat={_pinLat:F6}  lon={_pinLon:F6}  zoom={_currentZoom}";
         else
-            statusText.text = " Carte chargée";
+            statusText.text = "Carte chargée";   // revue visuelle du 16/11 (V-25) : sans l'espace en tête
         AdressUpdate.Invoke();
         searchButton.interactable = true;
         _isLoading = false;

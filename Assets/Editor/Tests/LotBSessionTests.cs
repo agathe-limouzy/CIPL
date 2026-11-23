@@ -33,6 +33,10 @@ public class LotBSessionTests
         StringAssert.DoesNotContain("(r.Code >= 400 && r.Code < 500)", src, "avant : un 429 au démarrage effaçait le jeton gardé et la copie hors ligne");
         Assert.That(SessionCloud.Fermee, Is.EqualTo("Votre connexion a été fermée sur le serveur : reconnectez-vous."));
         StringAssert.Contains("ConfirmDialog.Erreur(Fermee, DemarrageCloud.SeDeconnecter)", src, "au centre, puis l'écran de connexion");
+        // BR13 (23/11) : le direct est arrêté dès la perte, avant le message (il bouclait sans jeton jusqu'au « OK »).
+        string perdue = src.Substring(src.IndexOf("static void Perdue()", StringComparison.Ordinal));
+        Assert.That(perdue.IndexOf("DirectCloud.Arreter();", StringComparison.Ordinal),
+                    Is.InRange(0, perdue.IndexOf("ConfirmDialog.Erreur(Fermee", StringComparison.Ordinal)), "le direct s'arrête avant le message");
         string jeton = src.Substring(src.IndexOf("Task<string> Jeton()", StringComparison.Ordinal));
         StringAssert.Contains("else if (Session == avant && RefusDefinitif(r.Code)) { Perdue(); return null; }", jeton,
                               "avant : le jeton périmé était rendu tel quel, « HTTP 401 » à chaque appel");

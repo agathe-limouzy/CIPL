@@ -16,8 +16,8 @@ public class ChargePanel : MonoBehaviour
 {
     public static ChargePanel Instance { get; private set; }
 
-    static readonly Color Accent = Hex("#7A5AA6");      // violet — charges
-    static readonly Color AccentClair = Hex("#ECE4F5");
+    static readonly Color Accent = UITheme.Hex("#7A5AA6");      // violet — charges
+    static readonly Color AccentClair = UITheme.Hex("#ECE4F5");
 
     BatimentPrefab _bp;
     Action _onSaved;
@@ -42,7 +42,7 @@ public class ChargePanel : MonoBehaviour
     Button _chipAnnee, _chipPonctuelle;
     bool _fPonctuelle;
     TMP_Text _aidePeriode;
-    TMP_InputField _fDate;
+    ChampDate _fDate;
     TMP_Text _fDetail;   // retour BL8 (04/11) : jours de présence et part du propriétaire, sous les montants
 
     Batiment Bat => _bp != null ? _bp.getBatiment() : null;
@@ -106,13 +106,14 @@ public class ChargePanel : MonoBehaviour
         UIFactory.Border(cardImg.gameObject);
         var card = (RectTransform)cardImg.transform;
         card.anchorMin = card.anchorMax = card.pivot = new Vector2(.5f, .5f);
-        card.sizeDelta = new Vector2(660, 860);
+        // Revue 17 (D10-01 / B-18, lot F) : jamais plus haute que l'écran (860 pour 720 à 150 % : titre et boutons hors écran) ; le corps défile déjà.
+        card.sizeDelta = new Vector2(660, Mathf.Min(860f, scrim.rect.height - 40f));
         var cv = cardImg.gameObject.AddComponent<VerticalLayoutGroup>();
         cv.spacing = 10; cv.padding = new RectOffset(18, 18, 16, 16);
         cv.childControlWidth = true; cv.childControlHeight = true;
         cv.childForceExpandWidth = true; cv.childForceExpandHeight = false;
 
-        UIFactory.Text(cv.transform, _isNew ? "Nouvelle charge" : "Modifier la charge", UITheme.Role.Valeur, UITheme.TextePrincipal, true);
+        UIFactory.Bandeau(card, _isNew ? "Nouvelle charge" : "Modifier la charge", Accent);   // revue visuelle du 16/11 (V-01, V-02)
 
         var body = MakeScroll(cv.transform);   // corps défilable
         UIFactory.LE(((Transform)body.parent.parent).gameObject, flexH: 1);
@@ -124,8 +125,8 @@ public class ChargePanel : MonoBehaviour
         SaisieNumerique.Montant(fCout);   // retour BN2 (04/11) : la virgule aussi
         _fCout = fCout;
         fCout.onValueChanged.AddListener(_ => MajMontants());
-        var fDate = LabeledInput(body, "Date", "JJ/MM/AAAA",
-            DateTime.TryParse(_edit.dateISO, out var de) ? de.ToString("dd/MM/yyyy") : "");
+        var fDate = ChampDate.Avec(body, "Date", UITheme.Role.Libelle);   // Revue visuelle (V-17) : trois cases, comme les fiches
+        fDate.text = DateTime.TryParse(_edit.dateISO, out var de) ? de.ToString("dd/MM/yyyy") : "";
         _fDate = fDate;   // ponctuelle « Tous » : la date décide de qui la paie
         fDate.onValueChanged.AddListener(_ => { MajAidePeriode(); if (_fPonctuelle && _fTous.isOn) RebuildRatio(); else MajMontants(); });
 
@@ -187,11 +188,8 @@ public class ChargePanel : MonoBehaviour
         // Actions
         var actions = UIFactory.HBox(cv.transform, 10, false, "Actions");
         UIFactory.LE(actions.gameObject, minH: 46, prefH: 46);
-        var cancel = UIFactory.Button(actions.transform, "Annuler", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
-        UIFactory.Border(cancel.gameObject); UIFactory.LE(cancel.gameObject, flexW: 1);
+        var (cancel, ok) = UIFactory.PiedFenetre(actions.transform, "Annuler", "Enregistrer", Accent);   // revue visuelle du 16/11 (V-08)
         cancel.onClick.AddListener(() => Destroy(scrim.gameObject));
-        var ok = UIFactory.Button(actions.transform, "Enregistrer", Accent, Color.white, 44, UITheme.Role.Bouton);
-        UIFactory.LE(ok.gameObject, flexW: 1);
         ok.onClick.AddListener(() =>
         {
             if (Refus(fNom.text, fCout.text, fDate.text) is string refus) { ConfirmDialog.Erreur(refus); return; }   // la fenêtre reste ouverte, avec la saisie
@@ -287,7 +285,7 @@ public class ChargePanel : MonoBehaviour
                 var inp = UIFactory.Input(row.transform, "0", 38);
                 SaisieNumerique.Montant(inp);   // retour BN2 (04/11) : la virgule aussi
                 UIFactory.LE(inp.gameObject, prefW: 120, flexW: 0);
-                inp.text = manualInit[i].ToString("0.###", CultureInfo.InvariantCulture);
+                inp.text = manualInit[i].ToString("0.###", FacturePdfService.FrCulture);
                 inp.interactable = !isLast;         // dernier = reste (auto)
                 _fRatio[l.id] = inp;
                 if (isLast) _manualLast = inp;
@@ -296,7 +294,7 @@ public class ChargePanel : MonoBehaviour
             else
             {
                 string txt = _fType == "Surface"
-                    ? $"{Surface(l):0.##} m²"
+                    ? $"{Montants.F(Surface(l), "0.##")} m²"
                     : $"1/{n}";
                 var val = UIFactory.Text(row.transform, txt, UITheme.Role.Donnee, UITheme.TextePrincipal, true,
                     TextAlignmentOptions.Right);
@@ -411,7 +409,7 @@ public class ChargePanel : MonoBehaviour
         float sum = 0f;
         foreach (var inp in _manualEditable) sum += ParseFloat(inp.text);
         float rest = Mathf.Clamp(1f - sum, 0f, 1f);
-        _manualLast.SetTextWithoutNotify(rest.ToString("0.###", CultureInfo.InvariantCulture));
+        _manualLast.SetTextWithoutNotify(rest.ToString("0.###", FacturePdfService.FrCulture));
     }
 
     // Valeurs initiales Manuel (fractions sommant à 1) : reprend les ratios existants
@@ -586,7 +584,6 @@ public class ChargePanel : MonoBehaviour
     static float ParseFloat(string s) => SaisieNumerique.Parse(s);
 
     static ChargeBatiment Clone(ChargeBatiment c) => JsonUtility.FromJson<ChargeBatiment>(JsonUtility.ToJson(c));
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
     // Parse une date saisie au format français JJ/MM/AAAA (sans ambiguïté mois/jour).
     // Revue 17 (D6-05) : la lecture commune des formulaires (SaisieDate : « 31.12.2026 », « 31-12-2026 » aussi), comme le refus

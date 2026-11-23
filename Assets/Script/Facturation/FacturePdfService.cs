@@ -36,7 +36,7 @@ public static class FacturePdfService
 
     /// `{montant}` est remplacé par le montant mensuel, en gras.
     public const string MensuelDefaut =
-        "Suite à votre demande, le montant mensuel à régler est de: {montant}";
+        "Suite à votre demande, le montant mensuel à régler est de : {montant}";
 
     /// Lieu d'émission (« {lieu}, le {date} »). Réglage d'entreprise, sans remplacement par facture. La valeur d'usine est
     /// celle des Réglages d'avant le multi-entreprise (la ville de CIPL) ; une entreprise inscrite ou ajoutée part sans ville
@@ -221,20 +221,49 @@ public static class FacturePdfService
         return i < 0 ? html : html.Insert(i + "<head>".Length, "<title>" + H(Path.GetFileNameWithoutExtension(chemin)) + "</title>");
     }
 
+    // Revue 17 (D9-07, lot E ; décision du 16/11) : un rendu se fait en deux temps. Sur le fil principal (Preparer) : Edge
+    // trouvé, page HTML écrite (Plateforme lit l'API Unity). Puis Edge, lancé et attendu (Executer), sans aucune API Unity :
+    // les versions « Async » l'attendent en tâche de fond, l'écran reste vivant (1,4 à 2 s par rendu, mesuré le 16/11 ;
+    // « Sauvegarder et envoyer » figeait CIPL ≈ 3 s). Les versions synchrones restent pour les envois sans fenêtre.
+    sealed class Rendu { public string Edge, HtmlPath, Url, OutPath; public string[] Args; }
+
+    static Rendu Preparer(string html, string[] outputArgs, string outPath, out string error)
+    {
+        error = null;
+        string edge = FindEdge();
+        if (edge == null) { error = Plateforme.Mac ? SansNavigateurMac : "Microsoft Edge introuvable (rendu de la facture)."; return null; }
+        string htmlPath = Path.Combine(Path.GetTempPath(), "cipl_facture_" + Guid.NewGuid().ToString("N") + ".html");
+        try { File.WriteAllText(htmlPath, AvecTitre(html, outPath), new System.Text.UTF8Encoding(false)); }
+        catch (Exception e) { error = e.Message; return null; }
+        return new Rendu { Edge = edge, HtmlPath = htmlPath, Url = Plateforme.UrlFichier(htmlPath), OutPath = outPath, Args = outputArgs };
+    }
+
     // Lance Edge headless sur `html` avec `outputArgs` (print-to-pdf ou screenshot) et
     // vérifie que `outPath` a bien été produit. Factorisé pour loyer ET régularisation.
     static bool RunEdge(string html, string[] outputArgs, string outPath, out string error)
     {
-        error = null;
-        string htmlPath = null, udd = null;
+        var r = Preparer(html, outputArgs, outPath, out error);
+        if (r == null) return false;
+        error = Executer(r);
+        return error == null;
+    }
+
+    static async System.Threading.Tasks.Task<string> RunEdgeAsync(string html, string[] outputArgs, string outPath, bool pdf)
+    {
+        var r = Preparer(html, outputArgs, outPath, out string error);
+        if (r == null) return error;
+        error = await System.Threading.Tasks.Task.Run(() => Executer(r));
+        if (pdf && error == null) DocumentsCloud.Bientot();   // suite de l'await : fil principal (comme PdfEcrit)
+        return error;
+    }
+
+    /// Edge lancé, attendu, fichier vérifié ; null si réussi, sinon l'erreur. Aucune API Unity : n'importe quel fil.
+    static string Executer(Rendu r)
+    {
+        string htmlPath = r.HtmlPath, udd = null, outPath = r.OutPath, edge = r.Edge;
+        string[] outputArgs = r.Args;
         try
         {
-            string edge = FindEdge();
-            if (edge == null) { error = Plateforme.Mac ? SansNavigateurMac : "Microsoft Edge introuvable (rendu de la facture)."; return false; }
-
-            htmlPath = Path.Combine(Path.GetTempPath(), "cipl_facture_" + Guid.NewGuid().ToString("N") + ".html");
-            File.WriteAllText(htmlPath, AvecTitre(html, outPath), new System.Text.UTF8Encoding(false));
-
             Directory.CreateDirectory(Path.GetDirectoryName(outPath));
             // Purge de l'ancien PDF avant régénération. Un échec silencieux laissait
             // le fichier PÉRIMÉ en place, présenté ensuite comme la nouvelle facture.
@@ -263,16 +292,16 @@ public static class FacturePdfService
             psi.ArgumentList.Add("--disable-gpu");
             psi.ArgumentList.Add("--user-data-dir=" + udd);
             foreach (string a in outputArgs) psi.ArgumentList.Add(a);
-            psi.ArgumentList.Add(Plateforme.UrlFichier(htmlPath));
+            psi.ArgumentList.Add(r.Url);
             using (var proc = Process.Start(psi))
             {
-                if (!proc.WaitForExit(30000)) { try { proc.Kill(); } catch { } error = "Edge : délai dépassé."; return false; }
+                if (!proc.WaitForExit(30000)) { try { proc.Kill(); } catch { } return "Edge : délai dépassé."; }
             }
 
-            if (!File.Exists(outPath)) { error = "Le fichier n'a pas été généré."; return false; }
-            return true;
+            if (!File.Exists(outPath)) return "Le fichier n'a pas été généré.";
+            return null;
         }
-        catch (Exception e) { error = e.Message; return false; }
+        catch (Exception e) { return e.Message; }
         finally
         {
             try { if (htmlPath != null) File.Delete(htmlPath); } catch { }
@@ -287,6 +316,52 @@ public static class FacturePdfService
     {
         if (!File.Exists(TemplatePath)) { error = "Template introuvable : " + TemplatePath; return false; }
         return RunEdge(BuildHtml(d), ScreenshotArgs(pngPath, width, height, scale), pngPath, out error);
+    }
+
+    // ── Revue 17 (D9-07, lot E) : les mêmes rendus, Edge attendu en tâche de fond (null si réussi, sinon l'erreur) ──
+
+    public static System.Threading.Tasks.Task<string> GeneratePdfAsync(Data d, string pdfPath) =>
+        !File.Exists(TemplatePath) ? System.Threading.Tasks.Task.FromResult("Template introuvable : " + TemplatePath)
+        : RunEdgeAsync(BuildHtml(d), new[] { "--print-to-pdf=" + pdfPath }, pdfPath, true);
+
+    public static System.Threading.Tasks.Task<string> GeneratePreviewPngAsync(Data d, string pngPath, int width = 794, int height = 1123, int scale = 2) =>
+        !File.Exists(TemplatePath) ? System.Threading.Tasks.Task.FromResult("Template introuvable : " + TemplatePath)
+        : RunEdgeAsync(BuildHtml(d), ScreenshotArgs(pngPath, width, height, scale), pngPath, false);
+
+    public static System.Threading.Tasks.Task<string> GenerateRegulPdfAsync(RegulData d, string pdfPath) =>
+        !File.Exists(RegulTemplatePath) ? System.Threading.Tasks.Task.FromResult("Template régul. introuvable : " + RegulTemplatePath)
+        : RunEdgeAsync(BuildRegulHtml(d), new[] { "--print-to-pdf=" + pdfPath }, pdfPath, true);
+
+    public static System.Threading.Tasks.Task<string> GenerateRegulPreviewPngAsync(RegulData d, string pngPath, int width = 794, int height = 1123, int scale = 2) =>
+        !File.Exists(RegulTemplatePath) ? System.Threading.Tasks.Task.FromResult("Template régul. introuvable : " + RegulTemplatePath)
+        : RunEdgeAsync(BuildRegulHtml(d), ScreenshotArgs(pngPath, width, height, scale), pngPath, false);
+
+    /// Revue 17 (D9-07, lot E ; décision du 16/11) : pendant un rendu, les boutons de la fenêtre sont grisés et le bouton cliqué
+    /// (par défaut, celui qui vient d'être cliqué) affiche « Création du PDF… » ; tout revient à la fin (Dispose). Un double clic
+    /// ne lance plus deux rendus.
+    public static IDisposable Occuper(Component fenetre, UnityEngine.UI.Button clique = null)
+    {
+        if (clique == null && UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject != null)
+            clique = UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject.GetComponent<UnityEngine.UI.Button>();
+        var boutons = new System.Collections.Generic.List<UnityEngine.UI.Button>();
+        if (fenetre != null)
+            foreach (var b in fenetre.GetComponentsInChildren<UnityEngine.UI.Button>(true))
+                if (b.interactable) { b.interactable = false; boutons.Add(b); }
+        var t = clique != null ? clique.GetComponentInChildren<TMPro.TMP_Text>(true) : null;
+        string avant = t != null ? t.text : null;
+        if (t != null) t.text = "Création du PDF…";
+        return new Fin(() =>
+        {
+            foreach (var b in boutons) if (b != null) b.interactable = true;
+            if (t != null) t.text = avant;
+        });
+    }
+
+    sealed class Fin : IDisposable
+    {
+        readonly Action _a;
+        public Fin(Action a) => _a = a;
+        public void Dispose() => _a();
     }
 
     // ── Régularisation des charges ─────────────────────────────────────────────

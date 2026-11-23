@@ -20,7 +20,7 @@ public static class FactureVariables
         new("{loc.adresse}",     "Adresse du locataire",    "Locataire"),
         new("{loc.siret}",       "SIRET locataire",         "Locataire"),
         new("{loc.code}",        "Code comptable",          "Locataire"),
-        new("{loc.email}",       "Email locataire",         "Locataire"),
+        new("{loc.email}",       "E-mail locataire",         "Locataire"),
         new("{loc.tel}",         "Téléphone locataire",     "Locataire"),
         new("{loc.lot}",         "N° de lot",               "Locataire"),
         new("{loc.taille}",      "Surface du lot",          "Locataire"),

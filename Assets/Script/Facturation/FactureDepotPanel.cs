@@ -11,7 +11,7 @@ using UnityEngine.UI;
 /// Facture le COMPLÉMENT de dépôt (nouveau dépôt − dépôt déjà versé) quand le loyer
 /// a été indexé. Sans TVA. « Sauvegarder et envoyer » produit le PDF et avance le
 /// numéro — il NE modifie PAS le montant du dépôt ni la date de révision (ça reste
-/// au bouton « Révision dépôt de garantie » de la fiche). Aucun envoi réel ici.
+/// au bouton « Réviser » de la carte Dépôt de la fiche). Aucun envoi réel ici.
 public class FactureDepotPanel : MonoBehaviour
 {
     // Revue 16c (D6-06) : les montants en écriture française (« 1 234,56 »), comme le PDF et Créances, quelle que
@@ -21,12 +21,12 @@ public class FactureDepotPanel : MonoBehaviour
     public static FactureDepotPanel Instance { get; private set; }
 
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
-    static readonly Color CoBleu = Hex("#2C3E5E"), CoBleuL = Hex("#DEE3EB");
-    static readonly Color CoDepot = Hex("#2A6F82"), CoDepotL = Hex("#E2EFF2");
+    static readonly Color CoBleu = UITheme.Hex("#2C3E5E"), CoBleuL = UITheme.Hex("#DEE3EB");
+    static readonly Color CoDepot = UITheme.Hex("#2A6F82"), CoDepotL = UITheme.Hex("#E2EFF2");
     // Couleurs de cartes. `CoContenu` et `CoReglement` portent le même rôle — donc la
     // même teinte — dans les quatre panneaux ; seule la carte du type change de couleur.
-    static readonly Color CoContenu   = Hex("#5F5E5A"), CoContenuL   = Hex("#E9E6DE");
-    static readonly Color CoReglement = Hex("#854F0B"), CoReglementL = Hex("#F6E6C8");
+    static readonly Color CoContenu   = UITheme.TexteSecondaire, CoContenuL   = UITheme.Hex("#E9E6DE");
+    static readonly Color CoReglement = UITheme.Hex("#854F0B"), CoReglementL = UITheme.Hex("#F6E6C8");
 
     // Source unique : FactureNumerotation (les quatre panneaux dupliquaient ces listes).
     static List<string> NumFmtLabels => FactureNumerotation.Labels;
@@ -36,7 +36,8 @@ public class FactureDepotPanel : MonoBehaviour
 
     TMP_Text _titre, _entetePreview, _modeInfo, _previewHint, _tNouveau, _tAncien, _tComplement, _perLine;
     Button _btnSauver;   // décision du 11/11 : « Corriger et envoyer » pendant une correction
-    TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _nbPeriodes, _ancien, _emailEnvoi;
+    TMP_InputField _nom, _adresse, _siret, _numeroId, _refInterne, _sommePhrase, _nbPeriodes, _ancien, _emailEnvoi;
+    ChampDate _date, _echeance;   // Revue visuelle (V-17) : trois cases, lues « jj/mm/aaaa » comme l'ancien champ unique
     TMP_InputField _depotRappel, _depotDu, _depotRembourse, _depotEquilibre;
     TMP_InputField _texteTvaDebit;
     TMP_InputField _emailObjet, _emailCorps;
@@ -205,7 +206,7 @@ public class FactureDepotPanel : MonoBehaviour
         var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(back.gameObject); UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
         back.onClick.AddListener(Retour);
-        _titre = UIFactory.Text(header.transform, "Information Facture — Révision du dépôt", UITheme.Role.Page, UITheme.TextePrincipal, true);
+        _titre = UIFactory.Text(header.transform, "Révision du dépôt", UITheme.Role.Page, UITheme.TextePrincipal, true);
         UIFactory.LE(_titre.gameObject, flexW: 1);
 
         var main = UIFactory.HBox(col.transform, 16, false, "Main");
@@ -220,7 +221,7 @@ public class FactureDepotPanel : MonoBehaviour
 
         var d = UIFactory.Section(content, "Destinataire", CoVert, CoVertL);
         _nom = Labeled(d, "Nom");
-        UIFactory.Text(d.transform, "Adresse", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(d.transform, "Adresse", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _adresse = UIFactory.Input(d.transform, "Adresse (plusieurs lignes possibles)", 88, true);
         _siret = Labeled(d, "SIRET");
 
@@ -231,19 +232,19 @@ public class FactureDepotPanel : MonoBehaviour
 
         // ── 1. En-tête du document ──
         var e = UIFactory.Section(content, "En-tête du document", CoBleu, CoBleuL);
-        _date = Labeled(e, "Date");
+        _date = ChampDate.Avec(e.transform, "Date");
         _date.onValueChanged.AddListener(_ => { RefreshNumero(); SuivreEcheance(); });
         _refInterne = Labeled(e, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
         _refInterne.onValueChanged.AddListener(_ => RefreshEntetePreview());
-        UIFactory.Text(e.transform, "Format du n° de facture", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(e.transform, "Format du n° de facture", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _numeroFormatDD = UIDropdown.Create(e.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
         BuildNumeroRow(e);
 
         // ── 2. Contenu ──
         var c = UIFactory.Section(content, "Contenu", CoContenu, CoContenuL);
-        UIFactory.Text(c.transform, "Texte de présentation (entête / paragraphe)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(c.transform, "Texte de présentation (entête / paragraphe)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _enteteDD = BuildEnteteDropdown(c.transform);
-        UIFactory.Text(c.transform, "Aperçu (variables remplacées) :", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(c.transform, "Aperçu (variables remplacées) :", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var pv = UIFactory.Panel("Preview", c.transform, Color.white);
         UIFactory.Border(pv.gameObject);
         var pvv = pv.gameObject.AddComponent<VerticalLayoutGroup>();
@@ -287,20 +288,20 @@ public class FactureDepotPanel : MonoBehaviour
             + "HTML simple accepté (<b>gras</b>).",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
 
-        UIFactory.Text(g.transform, "Rappel du montant requis", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(g.transform, "Rappel du montant requis", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         // Revue 17 (D6-08) : les {depot.*} ne sont proposés que dans ces quatre phrases, les seules qui les remplacent.
         _depotRappel = UIFactory.Input(g.transform, "Je vous rappelle qu'il doit correspondre à…", 70, true);
         SlashAutocomplete.Attach(_depotRappel, "Explication dépôt");
 
-        UIFactory.Text(g.transform, "Le locataire nous doit un complément", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(g.transform, "Le locataire nous doit un complément", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _depotDu = UIFactory.Input(g.transform, "…vous nous devez…", 70, true);
         SlashAutocomplete.Attach(_depotDu, "Explication dépôt");
 
-        UIFactory.Text(g.transform, "Nous devons un remboursement au locataire", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(g.transform, "Nous devons un remboursement au locataire", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _depotRembourse = UIFactory.Input(g.transform, "…nous vous devons…", 70, true);
         SlashAutocomplete.Attach(_depotRembourse, "Explication dépôt");
 
-        UIFactory.Text(g.transform, "Dépôt déjà au bon montant (rien à régler)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(g.transform, "Dépôt déjà au bon montant (rien à régler)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _depotEquilibre = UIFactory.Input(g.transform, "…aucun ajustement n'est nécessaire.", 70, true);
         SlashAutocomplete.Attach(_depotEquilibre, "Explication dépôt");
         for (int i = debutExplication; i < g.transform.childCount; i++) _explication.Add(g.transform.GetChild(i).gameObject);
@@ -314,14 +315,14 @@ public class FactureDepotPanel : MonoBehaviour
         _depotDetenu.onValueChanged.AddListener(_ => RefreshTotaux());
 
         UIFactory.Text(s.transform, "Retenues (remise en état, réparations…) — montant HT, TVA si cochée",
-            UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _retenuesBox = UIFactory.VBox(s.transform, 6, 0, 0, 0, 0, "Retenues").transform;
         var plus = UIFactory.Button(s.transform, "+ Ajouter une retenue", UITheme.Carte, UITheme.TextePrincipal, 36, UITheme.Role.Action, false);
         UIFactory.Border(plus.gameObject);
         plus.onClick.AddListener(() => { AjouterRetenue(new RetenueSortie()); RefreshTotaux(); });
 
         UIFactory.Text(s.transform, "Sommes dues reprises — cochées : soldées par le dépôt (passent « Payé » à l'émission)",
-            UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _creancesBox = UIFactory.VBox(s.transform, 4, 0, 0, 0, 0, "Creances").transform;
 
         _tRetenues   = MontRow(s, "Retenues");
@@ -337,11 +338,11 @@ public class FactureDepotPanel : MonoBehaviour
         // voit, d'où la mention « (défaut de la phrase de règlement) » retirée du
         // libellé de l'échéance — elle ne servait qu'à compenser l'éloignement.
         var p = UIFactory.Section(content, "Règlement", CoReglement, CoReglementL);
-        _echeance = Labeled(p, "Date d'échéance");
+        _echeance = ChampDate.Avec(p.transform, "Date d'échéance");
         _echeance.onValueChanged.AddListener(_ => { RefreshSommeDefault(); RefreshEntetePreview(); });   // coutures (10/11) : l'aperçu de l'entête suit l'échéance ({echeance})
         _sommePhrase = Labeled(p, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
         SlashAutocomplete.Attach(_sommePhrase);
-        UIFactory.Text(p.transform, "RIB CIPL", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(p.transform, "RIB CIPL", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _ribDD = BuildRibDropdown(p.transform);
         _retard = UIFactory.Toggle(p.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
 
@@ -349,18 +350,18 @@ public class FactureDepotPanel : MonoBehaviour
         _modeInfo = UIFactory.Text(o.transform, "", UITheme.Role.Donnee, UITheme.TexteSecondaire);
 
         // Message d'accompagnement. Il appartient bien à l'envoi, donc à cette carte.
-        UIFactory.Text(o.transform, "Objet du message", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(o.transform, "Objet du message", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _emailObjet = UIFactory.Input(o.transform, EmailService.ObjetDefaut);
         SlashAutocomplete.Attach(_emailObjet);
-        UIFactory.Text(o.transform, "Corps du message", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(o.transform, "Corps du message", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _emailCorps = UIFactory.Input(o.transform, EmailService.CorpsDefaut, 110, true);
         SlashAutocomplete.Attach(_emailCorps);
         UIFactory.Text(o.transform,
             "« / » ouvre la liste des variables. La facture est jointe en PDF automatiquement.",
             UITheme.Role.Aide, UITheme.TexteSecondaire);
-        _emailEnvoi = Labeled(o, "Email d'envoi");
+        _emailEnvoi = Labeled(o, "E-mail d'envoi");
         UIFactory.Text(o.transform,
-            "Note : cette facture ne modifie pas le montant du dépôt (voir le bouton « Révision dépôt de garantie »). Rien n'est émis pour l'instant.",
+            "Note : cette facture ne modifie pas le montant du dépôt (pour le changer : carte Dépôt, « Réviser »). Rien n'est émis pour l'instant.",   // revue visuelle (V-44) : le vrai nom du bouton
             UITheme.Role.Aide, UITheme.Alerte);
 
         var gen = UIFactory.Button(left.transform, "Générer facture", UITheme.Primaire, Color.white, 46, UITheme.Role.Bouton);
@@ -372,7 +373,7 @@ public class FactureDepotPanel : MonoBehaviour
         right.childForceExpandHeight = false;
         UIFactory.Text(right.transform, "Facture générée", UITheme.Role.Section, UITheme.TextePrincipal, true);
 
-        var backdrop = UIFactory.Panel("PvBackdrop", right.transform, Hex("#D2D0CB"));
+        var backdrop = UIFactory.Panel("PvBackdrop", right.transform, UITheme.Hex("#D2D0CB"));
         UIFactory.Border(backdrop.gameObject);
         UIFactory.LE(backdrop.gameObject, flexH: 1);
         var backRT = (RectTransform)backdrop.transform;
@@ -380,7 +381,7 @@ public class FactureDepotPanel : MonoBehaviour
         backdrop.gameObject.AddComponent<RectMask2D>();
 
         _previewHint = UIFactory.Text(backdrop.transform,
-            "Clique sur « Générer facture »\npour afficher l'aperçu ici.", UITheme.Role.Aide, UITheme.TexteSecondaire, false,
+            "Cliquez sur « Générer facture »\npour afficher l'aperçu ici.", UITheme.Role.Aide, UITheme.TexteSecondaire, false,   // revue visuelle du 16/11 (V-21) : vouvoiement
             TextAlignmentOptions.Center);
         _previewHint.raycastTarget = false;
         var hintRT = (RectTransform)_previewHint.transform;
@@ -399,11 +400,14 @@ public class FactureDepotPanel : MonoBehaviour
         var zbarRT = (RectTransform)zbar.transform;
         zbarRT.anchorMin = zbarRT.anchorMax = new Vector2(1, 1); zbarRT.pivot = new Vector2(1, 1);
         zbarRT.anchoredPosition = new Vector2(-10, -10);
+        // Revue 17 (B-03, lot F) : la barre prend la largeur de ses boutons (sans taille, elle serrait « Ajuster » sur trois lignes).
+        var zfit = zbar.gameObject.AddComponent<ContentSizeFitter>();
+        zfit.horizontalFit = zfit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         ZoomBtn(zbar.transform, "−", () => _viewer.ZoomBy(1f / 1.25f));
         ZoomBtn(zbar.transform, "Ajuster", () => _viewer.Fit(), 84);
         ZoomBtn(zbar.transform, "+", () => _viewer.ZoomBy(1.25f));
 
-        var save = UIFactory.Button(right.transform, "Sauvegarder et envoyer", Hex("#854F0B"), Color.white, 46, UITheme.Role.Bouton);
+        var save = UIFactory.Button(right.transform, "Sauvegarder et envoyer", UITheme.Hex("#854F0B"), Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(save.gameObject, minH: 56, flexH: 0);
         _btnSauver = save;
         save.onClick.AddListener(SauvegarderEtEnvoyer);
@@ -546,7 +550,7 @@ public class FactureDepotPanel : MonoBehaviour
         UIFactory.LE(ht.gameObject, flexW: 1, minH: 40);
         ht.text = r.ht != 0f ? r.ht.ToString("0.00", CultureInfo.InvariantCulture) : "";
         ht.onValueChanged.AddListener(_ => RefreshTotaux());
-        var tva = UIFactory.Toggle(row.transform, $"TVA {Tva.Taux(_loc):0.##} %", r.tva && Tva.Soumis(_loc));   // Revue 17 (D6-06) : au taux du bail
+        var tva = UIFactory.Toggle(row.transform, $"TVA {Montants.F(Tva.Taux(_loc), "0.##")} %", r.tva && Tva.Soumis(_loc));   // Revue 17 (D6-06) : au taux du bail
         tva.gameObject.SetActive(Tva.Soumis(_loc));
         tva.onValueChanged.AddListener(_ => RefreshTotaux());
         var moins = UIFactory.Button(row.transform, "−", UITheme.Carte, UITheme.TextePrincipal, 36, UITheme.Role.Action, false);
@@ -598,7 +602,7 @@ public class FactureDepotPanel : MonoBehaviour
             return;
         }
         float per = CurrentPeriode();
-        _perLine.text = $"Loyer : {per:0.00} € / période {(_ttcToggle != null && _ttcToggle.isOn ? "TTC" : "HT")}";
+        _perLine.text = $"Loyer : {Montants.F(per, "0.00")} € / période {(_ttcToggle != null && _ttcToggle.isOn ? "TTC" : "HT")}";
         float nouveau = Cents(Nouveau()), ancien = Cents(ParseF(_ancien.text));
         float complement = Cents(nouveau - ancien);
         _tNouveau.text    = $"{N2(nouveau)} €";
@@ -841,7 +845,7 @@ public class FactureDepotPanel : MonoBehaviour
         public string Sujet;
         public float Montant;
         public float Taux;   // Revue 17 (D4-08, coutures) : le taux de TVA du document (0 : sans TVA), gardé sur la ligne du suivi
-        public Func<string, string> Pdf, Apercu;   // chemin → erreur, ou null si réussi
+        public Func<string, System.Threading.Tasks.Task<string>> Pdf, Apercu;   // chemin → erreur, ou null si réussi (Revue 17, D9-07 : Edge en tâche de fond)
     }
 
     Document DocumentAEmettre()
@@ -852,27 +856,29 @@ public class FactureDepotPanel : MonoBehaviour
             return new Document
             {
                 Sujet = d.subtitle, Montant = d.ttc, Taux = d.masquerTva ? 0f : Tva.Taux(_loc),   // un décompte aux retenues soumises : le taux du bail
-                Pdf = p => FacturePdfService.GeneratePdf(d, p, out var e) ? null : e,
-                Apercu = p => FacturePdfService.GeneratePreviewPng(d, p, out var e) ? null : e,
+                Pdf = p => FacturePdfService.GeneratePdfAsync(d, p),
+                Apercu = p => FacturePdfService.GeneratePreviewPngAsync(d, p),
             };
         }
         var r = BuildData();
         return new Document
         {
             Sujet = r.subtitle, Montant = r.soldeHT,
-            Pdf = p => FacturePdfService.GenerateRegulPdf(r, p, out var e) ? null : e,
-            Apercu = p => FacturePdfService.GenerateRegulPreviewPng(r, p, out var e) ? null : e,
+            Pdf = p => FacturePdfService.GenerateRegulPdfAsync(r, p),
+            Apercu = p => FacturePdfService.GenerateRegulPreviewPngAsync(r, p),
         };
     }
 
-    void GenererApercu()
+    async void GenererApercu()
     {
         // Revue 17 (D6-05) : une date vide ou illisible est refusée au centre, le formulaire reste ouvert avec la saisie. Avant,
         // SaveFromUI l'enregistrait vide : document daté du jour (et son année dans la clé « depot-AAAA »), échéance du jour.
         if (SaisieDate.RefusFacture(_date.text, _echeance.text) is string refusDate) { ConfirmDialog.Erreur(refusDate); return; }
         SaveFromUI();
         string png = DossiersDonnees.Apercu("apercu_depot.png");
-        string err = DocumentAEmettre().Apercu(png);
+        string err;
+        using (FacturePdfService.Occuper(this)) err = await DocumentAEmettre().Apercu(png);   // Revue 17 (D9-07, lot E)
+        if (this == null || !isActiveAndEnabled) return;   // Revue 17 (D9-07, lot E) : fenêtre fermée pendant le rendu : rien de plus
         if (err == null) ShowPreview(png);
         else ConfirmDialog.Erreur("Échec de l'aperçu : " + err);
     }
@@ -915,7 +921,7 @@ public class FactureDepotPanel : MonoBehaviour
     /// pouvoir être repris après une confirmation (voir le cas du remboursement).
     /// Revue 17 (D4-09, coutures) : la clé et la décision de SauvegarderEtEnvoyer suivent jusqu'ici, comme pour le loyer et la
     /// refacturation. Avant : un second Preparer, dont le refus n'était pas lu.
-    void Emettre(Document d, string key, FactureEmission.Decision emission)
+    async void Emettre(Document d, string key, FactureEmission.Decision emission)
     {
         // L'envoi est asynchrone : sans cette garde, un double clic partirait deux fois.
         if (_envoiEnCours) { UndoToast.Instance?.ShowInfo("Un envoi est déjà en cours."); return; }
@@ -928,15 +934,21 @@ public class FactureDepotPanel : MonoBehaviour
         string fname = Sanitize($"{(_sortie ? "DecompteSortie" : _initial ? "DepotGarantie" : "RevisionDepot")}-{emission.NumeroFichier}-{_nom.text}-{year}{emission.SuffixeFichier}") + ".pdf";
         string pdf = DossiersDonnees.CheminFacture(dir, fname);
 
-        string err = d.Pdf(pdf);
+        // Revue 17 (D9-07, lot E) : Edge attendu en tâche de fond.
+        string err, png = DossiersDonnees.Apercu("apercu_depot.png");
+        bool apercu = false;
+        using (FacturePdfService.Occuper(this, _btnSauver))
+        {
+            err = await d.Pdf(pdf);
+            if (err == null) apercu = await d.Apercu(png) == null;
+        }
+        if (this == null || !isActiveAndEnabled) return;   // Revue 17 (D9-07, lot E) : fenêtre fermée pendant le rendu : rien de plus
         if (err != null)
         {
             ConfirmDialog.Erreur("Échec génération PDF : " + err);
             return;
         }
-
-        string png = DossiersDonnees.Apercu("apercu_depot.png");
-        if (d.Apercu(png) == null) ShowPreview(png);
+        if (apercu) ShowPreview(png);
 
 
         // Refus AVANT la confirmation si quelque chose manque.
@@ -989,7 +1001,7 @@ public class FactureDepotPanel : MonoBehaviour
         if (!envoi.Succes)
         {
             ConfirmDialog.Erreur("Envoi échoué — " + envoi.Erreur
-                + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : tu peux réessayer.");
+                + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : vous pouvez réessayer.");
             if (_fermerApresEnvoi) Close();   // D4-07 : la fermeture demandée pendant l'envoi
             yield break;
         }
@@ -1187,8 +1199,8 @@ public class FactureDepotPanel : MonoBehaviour
 
     TMP_InputField Labeled(VerticalLayoutGroup body, string label)
     {
-        UIFactory.Text(body.transform, label, UITheme.Role.Donnee, UITheme.TexteSecondaire);
-        return UIFactory.Input(body.transform, label);
+        UIFactory.Text(body.transform, label, UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        return UIFactory.Input(body.transform, "");   // Revue 17 (B-07, lot F) : pas de libellé répété dans le champ
     }
 
     TMP_Text MontRow(VerticalLayoutGroup body, string label)
@@ -1206,7 +1218,6 @@ public class FactureDepotPanel : MonoBehaviour
     // espaces de milliers acceptes (cette copie locale ne gerait que la virgule).
     static float ParseF(string s) => SaisieNumerique.Parse(s);
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
     static bool TryDate(string s, out DateTime d) => SaisieDate.TryParse(s, out d);
 }

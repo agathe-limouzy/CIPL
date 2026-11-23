@@ -67,6 +67,11 @@ public class TvaTests
             StringAssert.DoesNotContain("* .2f", s, p + " : plus de 20 % en dur");
             StringAssert.DoesNotContain("* 1.2f", s, p + " : plus de 20 % en dur");
             StringAssert.DoesNotContain("/ 1.2f", s, p + " : plus de 20 % en dur");
+            // Revue 17 (D8-18, lot G) : toute écriture d'un 20 % en dur, pas seulement ces trois formes (« * 1.20f », « / 1.2 » ou
+            // « (1 + 0.2f) » passaient). Les commentaires sont retirés d'abord. Le calcul lui-même est tenu par Les_montants_et_les_libelles.
+            var enDur = System.Text.RegularExpressions.Regex.Match(System.Text.RegularExpressions.Regex.Replace(s, @"//[^\n]*", ""),
+                @"[*/+]\s*\(?\s*(1\s*\+\s*)?[01]?\.20?[fdm]?\b");
+            Assert.That(enDur.Success, Is.False, p + " : 20 % en dur : « " + enDur.Value + " »");
         }
         StringAssert.Contains("Tva.Taux(loc)", src("RevisionLoyer/LoyerSummaryUI.cs"), "carte Loyer");
         StringAssert.Contains("bail exonéré de TVA", src("Facturation/FactureElectronique.cs"), "ligne d'envoi");

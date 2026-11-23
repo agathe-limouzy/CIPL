@@ -221,12 +221,25 @@ public static class Messagerie
                 return (null, RefusFenetre(fournisseur, e, p.TryGetValue("error_description", out var d) ? d : ""));
             if (!p.TryGetValue("state", out var s) || s != cle || !p.TryGetValue("code", out var code))
                 return (null, "Réponse inattendue de la fenêtre de connexion : recommencez.");
+            // Lot F (relevé le 14/11, décision du 16/11) : Google laisse décocher « Envoyer des e-mails en votre nom » ; l'adresse
+            // était reliée quand même et le premier envoi échouait (403 « insufficient authentication scopes »). Les permissions
+            // accordées reviennent avec le code (paramètre « scope ») : sans celle d'envoi, rien n'est relié.
+            if (PermissionEnvoiManquante(fournisseur, p.TryGetValue("scope", out var accorde) ? accorde : null))
+                return (null, RefusPermissionEnvoi);
             var r = await Appeler(new Demande { action = "relier", fournisseur = fournisseur, code = code, verifier = verificateur, redirect = redirection });
             _jeton = null;
             return r.ok ? (r.adresse, null) : (null, Motif(r, fournisseur));
         }
         finally { foreach (var l in ecoutes) l.Stop(); }
     }
+
+    public const string RefusPermissionEnvoi = "Google n'a pas autorisé CIPL à envoyer des e-mails : rien n'est relié.\n"
+        + "Recommencez « Se connecter avec Google » et cochez la case « Envoyer des e-mails en votre nom » dans la fenêtre de Google.";
+
+    /// Vrai si Google a rendu ses permissions sans celle d'envoi. Sans paramètre « scope » au retour (Microsoft, ou Google qui
+    /// ne le donne pas) : on ne sait pas, on laisse passer comme avant. Pure, testée.
+    public static bool PermissionEnvoiManquante(string fournisseur, string scopeAccorde) =>
+        fournisseur == Google && !string.IsNullOrWhiteSpace(scopeAccorde) && !scopeAccorde.Contains("gmail.send");
 
     /// Le refus rapporté par la fenêtre (« error=access_denied »…). Constaté le 28/10 avec @cipl.fr : tant
     /// que CIPL n'a pas d'éditeur vérifié (étape 17), un compte Microsoft 365 qui n'est pas administrateur
@@ -275,6 +288,10 @@ public static class Messagerie
     public static string Motif(Reponse r, string fournisseur = null)
     {
         string nom = Nom(string.IsNullOrEmpty(r?.fournisseur) ? fournisseur : r.fournisseur);
+        // Lot F (relevé le 14/11) : sans fournisseur connu (la réponse du serveur n'en porte pas toujours), le message disait
+        // « L'autorisation de  a expiré ».
+        if (nom == "") nom = "la messagerie";
+        string Nom1 = char.ToUpper(nom[0]) + nom.Substring(1);
         string detail = string.IsNullOrEmpty(r?.erreur) ? "" : "\nDétail technique : " + r.erreur;
         switch (r?.refus)
         {
@@ -283,10 +300,10 @@ public static class Messagerie
             case "acces": return "Cette entreprise ne vous est pas ouverte.";
             case "admin": return "Seul un administrateur peut relier ou délier l'adresse d'envoi.";
             case "config": return $"La connexion avec {nom} n'est pas encore réglée sur le serveur (Supabase › Edge Functions › Secrets).";
-            case "echange": return $"{nom} n'a pas donné d'autorisation durable : recommencez « Se connecter avec {nom} »." + detail;
+            case "echange": return $"{Nom1} n'a pas donné d'autorisation durable : recommencez « Se connecter avec {nom} »." + detail;
             case "non_relie": return "Aucune adresse d'envoi n'est reliée : l'admin doit la relier (Réglages → Intégrations → E-mail).";
             case "retire": return $"L'autorisation de {nom} a expiré ou a été retirée : l'admin doit relier de nouveau l'adresse (Réglages → Intégrations → E-mail).";
-            case "jeton": return $"{nom} refuse de renouveler l'autorisation." + detail;
+            case "jeton": return $"{Nom1} refuse de renouveler l'autorisation." + detail;
             default: return "La fonction « messagerie » du serveur n'a pas pu répondre." + (detail == "" ? "\nDétail technique : " + r.refus : detail);
         }
     }
@@ -297,12 +314,12 @@ public static class Messagerie
     static DateTime _jetonFin;
 
     /// Un jeton d'une heure, gardé en mémoire tant qu'il vaut (deux minutes de marge).
-    static async Task<(string jeton, string refus)> Jeton()
+    static async Task<(string jeton, string refus)> Jeton(string fournisseur = null)
     {
         string e = SessionCloud.Entreprise?.id;
         if (_jeton != null && _jetonEntreprise == e && DateTime.UtcNow < _jetonFin) return (_jeton, null);
         var r = await Appeler(new Demande { action = "jeton" });
-        if (!r.ok) return (null, Motif(r));
+        if (!r.ok) return (null, Motif(r, fournisseur));   // lot F : le fournisseur de l'adresse reliée, pour le message
         _jeton = r.access_token;
         _jetonEntreprise = e;
         _jetonFin = DateTime.UtcNow.AddSeconds(Math.Max(60, r.expire_dans - 120));
@@ -317,7 +334,7 @@ public static class Messagerie
         try
         {
             var pieces = fichiers.Select(f => (Path.GetFileName(f), File.ReadAllBytes(f))).ToList();
-            var (jeton, refus) = await Jeton();
+            var (jeton, refus) = await Jeton(fournisseur);
             if (refus != null) { envoi.Echoue(refus); return; }
             var (code, rep, erreur) = fournisseur == Google
                 ? await Requete("POST", "https://gmail.googleapis.com/gmail/v1/users/me/messages/send", jeton,
@@ -359,6 +376,10 @@ public static class Messagerie
             : c.Contains("Mail service not enabled")
                 ? "Google n'a pas de boîte Gmail pour cette adresse (elle sert peut-être seulement d'identifiant Google) : "
                   + "« Se déconnecter », puis reliez-la avec Microsoft, ou réglez-la en SMTP (Réglages → Intégrations → E-mail)."
+            // Lot F (relevé le 14/11) : adresse reliée sans la permission d'envoi (case décochée dans la fenêtre de Google).
+            : c.Contains("insufficient authentication scopes") || c.Contains("ACCESS_TOKEN_SCOPE_INSUFFICIENT")
+                ? "Google n'a pas autorisé CIPL à envoyer des e-mails : l'admin doit relier de nouveau l'adresse (Réglages → Intégrations → E-mail) "
+                  + "en cochant « Envoyer des e-mails en votre nom » dans la fenêtre de Google."
             : code == 401 ? $"L'autorisation de {nom} n'est plus valable : l'admin doit relier de nouveau l'adresse (Réglages → Intégrations → E-mail)."
             : c.Contains("dailyLimitExceeded") || c.Contains("Daily user sending limit") ? "Limite d'envois du jour atteinte chez Google : réessayez demain."
             : code == 429 || c.Contains("rateLimitExceeded") ? $"Trop d'envois d'un coup chez {nom} : réessayez dans une minute."

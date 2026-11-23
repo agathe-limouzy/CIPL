@@ -88,7 +88,7 @@ public class MenuManager : MonoBehaviour
         dictionnaryMenu.Remove(ancien);
         dictionnaryMenu[nouveau] = tab;
         tab._BatLocLinked = nouveau;
-        tab.UpdateLabel(TruncateLabel(nouveau.getName()));
+        tab.UpdateLabel(nouveau.getName());   // Revue 17 (D8-10, lot F) : MenuItem gère déjà la largeur et « … »
         bool montre = _activePrefab == ancien;
         if (montre) _activePrefab = nouveau;
         nouveau.gameObject.SetActive(montre);
@@ -156,6 +156,9 @@ public class MenuManager : MonoBehaviour
 
   
 
+    /// Revue 17 (D8-13, lot G) : le « + » de la barre et « Nouveau bâtiment » de l'accueil passent par ici (c'était écrit deux fois).
+    public void NouveauBatiment() => OnAddTabBatiment();
+
     private void OnAddTabBatiment()
     {
       
@@ -163,7 +166,7 @@ public class MenuManager : MonoBehaviour
         var prefab = BatimentManager.Instance.AddBatiment(true);
         if (prefab == null) return;   // Revue 17 (D7a-18, lot D) : refusé hors ligne ou en lecture seule, message déjà au centre
         CreateTab(prefab);
-        OnSelect(prefab, true);
+        OnSelect(prefab);
 
     }
     private void OnAddTabLocataire()
@@ -174,7 +177,7 @@ public class MenuManager : MonoBehaviour
         if (batimentPrefabOwned.RefuserAjoutSansLotLibre(OnAddTabLocataire)) return;
         var prefab = batimentPrefabOwned.Addlocataire(true);
         CreateTab(prefab);
-        OnSelect(prefab, true);
+        OnSelect(prefab);
 
     }
    
@@ -196,7 +199,7 @@ public class MenuManager : MonoBehaviour
 
     }
 
-    public void OnSelect(PrefabBatLoc prefabSelected, bool needToModify = false)
+    public void OnSelect(PrefabBatLoc prefabSelected)
     {
         if (prefabSelected == null) return;   // Revue 17 (D7a-18, lot D) : voir CreateTab
         if (IsMenuBatiment)
@@ -218,10 +221,10 @@ public class MenuManager : MonoBehaviour
             ScrollToTab(selectedTab);
 
         // Affiche le prefab correspondant
-        ShowBatimentPrefab(prefabSelected, needToModify);
+        ShowBatimentPrefab(prefabSelected);
     }
 
-    private void ShowBatimentPrefab(PrefabBatLoc prefabBatLoc, bool needToModify)
+    private void ShowBatimentPrefab(PrefabBatLoc prefabBatLoc)
     {
         // Cache tous les prefabs du pool
         foreach (var prefabBatiment in dictionnaryMenu.Keys)
@@ -297,10 +300,8 @@ public class MenuManager : MonoBehaviour
                 tab = dictionnaryMenu[key];
             }
         }
-        tab?.UpdateLabel(TruncateLabel(newLabel));
+        tab?.UpdateLabel(newLabel);
     }
 
-    private string TruncateLabel(string label) =>
-    label.Length > 20 ? label.Substring(0, 20) + "..." : label;
 
 }

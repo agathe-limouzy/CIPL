@@ -18,8 +18,7 @@ public class AppSectionColors : MonoBehaviour
     public float interval = 0.5f;
     float _timer;
 
-    struct Fam { public Color accent, clair; public Fam(string a, string c) { accent = Hex(a); clair = Hex(c); } }
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+    struct Fam { public Color accent, clair; public Fam(string a, string c) { accent = UITheme.Hex(a); clair = UITheme.Hex(c); } }
 
     static readonly Fam Identity = new Fam("#0F6E56", "#D6ECE3"); // identité / contrat
     static readonly Fam Money    = new Fam("#A9741C", "#F4E7CD"); // argent
@@ -36,22 +35,30 @@ public class AppSectionColors : MonoBehaviour
         { "Commentaire", Notes }, { "Objectif", Notes }, { "Objectifs", Notes },
     };
 
-    void OnEnable() { Apply(); }
+    // Revue 17 (D9-02, lot E) : le passage périodique ne visite que les objets affichés, dans un tampon réutilisé. Mesuré le
+    // 16/11 : 105 ms toutes les 0,5 s pour SCI (JBC), 1,1 s pour 300 locataires, en balayant aussi les fiches cachées. Les
+    // fiches sont colorées une fois à leur construction (Styler) ; les fenêtres de la scène, au lancement (OnEnable).
+    static readonly List<RectTransform> _tampon = new List<RectTransform>();
+
+    void OnEnable() { Parcourir(transform, true); }
 
     void Update()
     {
         _timer += Time.unscaledDeltaTime;
         if (_timer < interval) return;
         _timer = 0f;
-        Apply();
+        Parcourir(transform, false);
     }
 
-    void Apply()
+    /// Colore tout ce qui est sous `racine`, objets cachés compris (fiche qui vient d'être construite).
+    public static void Styler(Transform racine) { if (racine != null) Parcourir(racine, true); }
+
+    static void Parcourir(Transform racine, bool inactifs)
     {
-        var rects = GetComponentsInChildren<RectTransform>(true);
-        for (int i = 0; i < rects.Length; i++)
+        racine.GetComponentsInChildren(inactifs, _tampon);
+        for (int i = 0; i < _tampon.Count; i++)
         {
-            var rt = rects[i];
+            var rt = _tampon[i];
             var rootImg = rt.GetComponent<Image>();
             if (rootImg == null) continue;                 // une carte de section a une Image (liseré)
             var titre = rt.Find("titre");
@@ -77,6 +84,7 @@ public class AppSectionColors : MonoBehaviour
                 if (t != null) { t.color = fam.accent; break; }
             }
         }
+        _tampon.Clear();
     }
 
     static bool ApproxEq(Color a, Color b) =>

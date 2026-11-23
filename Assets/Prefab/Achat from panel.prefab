@@ -266,7 +266,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Cout total du cr\xE9dit"
+  m_text: "Co\xFBt total du cr\xE9dit"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -432,10 +432,10 @@ MonoBehaviour:
     m_Alignment: 0
     m_AlignByGeometry: 0
     m_RichText: 1
-    m_HorizontalOverflow: 0
+    m_HorizontalOverflow: 1
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: Frais auto (8 %)
+  m_Text: "Frais de notaire calcul\xE9s (8 %)"
 --- !u!1 &577250454437693455
 GameObject:
   m_ObjectHideFlags: 0
@@ -466,8 +466,8 @@ RectTransform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 6519369026751601057}
   - {fileID: 1269287831430623874}
+  - {fileID: 6519369026751601057}
   m_Father: {fileID: 1834818645850916922}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
@@ -575,7 +575,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Apport :'
+  m_text: Apport
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -1039,9 +1039,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_IgnoreLayout: 0
   m_MinWidth: 100
-  m_MinHeight: 42
+  m_MinHeight: 40
   m_PreferredWidth: -1
-  m_PreferredHeight: 42
+  m_PreferredHeight: 40
   m_FlexibleWidth: -1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
@@ -1653,8 +1653,8 @@ MonoBehaviour:
   m_Padding:
     m_Left: 22
     m_Right: 16
-    m_Top: 15
-    m_Bottom: 15
+    m_Top: 4
+    m_Bottom: 4
   m_ChildAlignment: 3
   m_Spacing: 0
   m_ChildForceExpandWidth: 0
@@ -1716,9 +1716,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_IgnoreLayout: 0
   m_MinWidth: -1
-  m_MinHeight: 54
+  m_MinHeight: 52
   m_PreferredWidth: -1
-  m_PreferredHeight: -1
+  m_PreferredHeight: 52
   m_FlexibleWidth: -1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
@@ -2377,7 +2377,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 0, g: 0, b: 0, a: 0.42}
+  m_Color: {r: 0, g: 0, b: 0, a: 0.45}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -2774,9 +2774,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_IgnoreLayout: 0
   m_MinWidth: 120
-  m_MinHeight: 42
+  m_MinHeight: 40
   m_PreferredWidth: -1
-  m_PreferredHeight: 42
+  m_PreferredHeight: 40
   m_FlexibleWidth: -1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
@@ -2845,7 +2845,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Sauvegarder
+  m_text: Enregistrer
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -3624,7 +3624,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: 'Frais de notaire :'
+      value: Frais de notaire
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -4100,7 +4100,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: 'Montant emprunt :'
+      value: "Montant emprunt\xE9"
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -4516,6 +4516,10 @@ PrefabInstance:
       value: Mode de financement
       objectReference: {fileID: 0}
     - target: {fileID: 4985602194782189183, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_fontStyle
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4985602194782189183, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_fontColor.b
       value: 0.3529412
       objectReference: {fileID: 0}
@@ -4543,6 +4547,18 @@ PrefabInstance:
       propertyPath: m_VerticalAlignment
       value: 4096
       objectReference: {fileID: 0}
+    - target: {fileID: 6418132668752941198, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Color.b
+      value: 0.3529412
+      objectReference: {fileID: 0}
+    - target: {fileID: 6418132668752941198, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Color.g
+      value: 0.36862746
+      objectReference: {fileID: 0}
+    - target: {fileID: 6418132668752941198, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Color.r
+      value: 0.37254903
+      objectReference: {fileID: 0}
     - target: {fileID: 6570243807165861688, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_Sprite
       value: 
@@ -4558,6 +4574,22 @@ PrefabInstance:
     - target: {fileID: 6570243807165861688, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_Color.r
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.a
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.b
+      value: 0.9098039
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.g
+      value: 0.9372549
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.r
+      value: 0.94509804
       objectReference: {fileID: 0}
     m_RemovedComponents:
     - {fileID: 4763491565771079778, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
@@ -4690,7 +4722,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_EffectColor: {r: 0.81, g: 0.8, b: 0.75, a: 1}
+  m_EffectColor: {r: 0.5803922, g: 0.57254905, b: 0.5372549, a: 1}
   m_EffectDistance: {x: 1, y: -1}
   m_UseGraphicAlpha: 1
 --- !u!1 &8388377000345156878 stripped
@@ -4932,7 +4964,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: 'Frais d''agence :'
+      value: Frais d'agence
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -5405,7 +5437,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: 'Description Achat :'
+      value: Description de l'achat
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -5821,6 +5853,10 @@ PrefabInstance:
       value: "Dur\xE9e"
       objectReference: {fileID: 0}
     - target: {fileID: 4985602194782189183, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_fontStyle
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4985602194782189183, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_fontColor.b
       value: 0.3529412
       objectReference: {fileID: 0}
@@ -5848,6 +5884,18 @@ PrefabInstance:
       propertyPath: m_VerticalAlignment
       value: 4096
       objectReference: {fileID: 0}
+    - target: {fileID: 6418132668752941198, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Color.b
+      value: 0.3529412
+      objectReference: {fileID: 0}
+    - target: {fileID: 6418132668752941198, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Color.g
+      value: 0.36862746
+      objectReference: {fileID: 0}
+    - target: {fileID: 6418132668752941198, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Color.r
+      value: 0.37254903
+      objectReference: {fileID: 0}
     - target: {fileID: 6570243807165861688, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_Sprite
       value: 
@@ -5863,6 +5911,22 @@ PrefabInstance:
     - target: {fileID: 6570243807165861688, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
       propertyPath: m_Color.r
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.a
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.b
+      value: 0.9098039
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.g
+      value: 0.9372549
+      objectReference: {fileID: 0}
+    - target: {fileID: 8117770906674591927, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.r
+      value: 0.94509804
       objectReference: {fileID: 0}
     m_RemovedComponents:
     - {fileID: 4763491565771079778, guid: de4ceeb5a86506848a158b81e3294cda, type: 3}
@@ -5973,7 +6037,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e19747de3f5aca642ab2be37e372fb86, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_EffectColor: {r: 0.81, g: 0.8, b: 0.75, a: 1}
+  m_EffectColor: {r: 0.5803922, g: 0.57254905, b: 0.5372549, a: 1}
   m_EffectDistance: {x: 1, y: -1}
   m_UseGraphicAlpha: 1
 --- !u!114 &2373586754570002301 stripped
@@ -6237,7 +6301,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: Taux d'interet
+      value: "Taux d'int\xE9r\xEAt"
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -6710,7 +6774,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_text
-      value: 'Prix de l''achat :'
+      value: Prix de l'achat
       objectReference: {fileID: 0}
     - target: {fileID: 8062642371065592079, guid: f8640407022162f41ac89d5ecd6fec0c, type: 3}
       propertyPath: m_fontStyle
@@ -7184,6 +7248,14 @@ PrefabInstance:
     - target: {fileID: 2870913014551147273, guid: 6465d926287674646ab6cff7f2d11887, type: 3}
       propertyPath: m_AnchoredPosition.y
       value: -17.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 3056295270345273476, guid: 6465d926287674646ab6cff7f2d11887, type: 3}
+      propertyPath: m_text
+      value: Date de l'achat
+      objectReference: {fileID: 0}
+    - target: {fileID: 3056295270345273476, guid: 6465d926287674646ab6cff7f2d11887, type: 3}
+      propertyPath: m_fontStyle
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 3056295270345273476, guid: 6465d926287674646ab6cff7f2d11887, type: 3}
       propertyPath: m_fontColor.b

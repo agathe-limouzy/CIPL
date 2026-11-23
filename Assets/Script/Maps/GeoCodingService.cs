@@ -245,7 +245,7 @@ public class GeoCodingService : MonoBehaviour
                 || !double.TryParse(response.results[0].lat, flottant, inv, out lat)
                 || !double.TryParse(response.results[0].lon, flottant, inv, out lon))
             {
-                onError?.Invoke("Adresse introuvable. Vérifiez le format (ex: 12 rue de la Paix, Paris)");
+                onError?.Invoke("Adresse introuvable. Vérifiez le format (ex.\u00A0: 12 rue de la Paix, Paris)");
                 yield break;
             }
 

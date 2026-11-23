@@ -304,10 +304,7 @@ public static class FactureElectronique
     /// refac partaient par e-mail sans un mot, le loyer prévenait après l'e-mail. Une SCI non reliée ne corrige donc plus une facture transmise.
     public static string RefusCorrection(FactureEtat avant, float ttc, string sujet, bool parPlateforme = true, string raison = null) =>
         string.IsNullOrEmpty(avant?.plateformeId) ? null
-        : !string.IsNullOrEmpty(avant.plateformeOrigine)
-          ? $"« {sujet} » a été transmise à Super PDP par {avant.plateformeOrigine} : elle ne se corrige pas par la plateforme depuis cette " +
-            "entreprise. Rien n'a été émis. Laissez-la telle quelle et émettez la différence à part (Refacturation, « Avoir sur la facture n° … »)."
-        : !parPlateforme
+        : RefusOrigine(avant, sujet) ?? (!parPlateforme
           ? $"« {sujet} » a été transmise à Super PDP : sa correction doit y partir aussi, et elle ne le peut pas en ce moment : " +
             $"{raison ?? "Super PDP n'est pas actif pour la SCI, ou le locataire n'est plus concerné"}. Rien n'a été émis. " +
             "Recommencez quand la ligne « Envoi » annonce Super PDP."
@@ -315,7 +312,15 @@ public static class FactureElectronique
           ? $"« {sujet} » a été transmise à Super PDP : sa correction ne peut pas partir en avoir (la plateforme garderait " +
             "les deux documents). Rien n'a été émis. Laissez-la telle quelle et émettez la différence à part (Refacturation, " +
             "« Avoir sur la facture n° … »)."
-          : null;
+          : null);
+
+    /// D5-20, décision du 17/11 (essai D5-N2 au bac à sable) : le refus d'une facture transmise par une AUTRE entreprise, seul. Il ne dépend
+    /// ni du montant ni de l'état de Super PDP : lu dès le clic sur « Corriger » du suivi (le formulaire ne s'ouvre pas), et dans les trois
+    /// formulaires avant le refus « Aucun RIB ». Null : jamais transmise, ou transmise par l'entreprise ouverte.
+    public static string RefusOrigine(FactureEtat avant, string sujet) =>
+        string.IsNullOrEmpty(avant?.plateformeId) || string.IsNullOrEmpty(avant.plateformeOrigine) ? null
+        : $"« {sujet} » a été transmise à Super PDP par {avant.plateformeOrigine} : elle ne se corrige pas par la plateforme depuis cette " +
+          "entreprise. Rien n'a été émis. Laissez-la telle quelle et émettez la différence à part (Refacturation, « Avoir sur la facture n° … »).";
 
     /// Revue 17 (D6-03) : un acheteur professionnel (SIREN connu) : pénalités de retard et indemnité de 40 € obligatoires
     /// (art. L441-9 du Code de commerce) ; la case « phrase de retard » est cochée et grisée, comme pour la plateforme.
@@ -444,7 +449,9 @@ public static class FactureElectronique
     public static (float montant, string dateISO) Encaissement(Locataire loc, FactureEtat r)
     {
         var lignes = FacturationSuivi.MemeFacture(loc, r.key).DefaultIfEmpty(r).ToList();
-        float montant = lignes.Sum(x => x.montant);
+        // Lot G (16/11) : somme en décimal, arrondie au centime. Avant : en float, trois lignes de 333,332 donnaient 999,996, enregistré tel
+        // quel dans encaisseeMontant (le montant déclaré à Super PDP, lui, passait déjà par Montant() : « 1000.00 »).
+        float montant = (float)Math.Round(lignes.Sum(x => (decimal)(double)x.montant), 2, MidpointRounding.AwayFromZero);
         // Retour BN17 : un remboursement (versement négatif) ne déplace pas la date d'une facture : celle du dernier paiement reçu.
         var verses = lignes.SelectMany(x => x.versements ?? new List<Versement>()).Where(v => montant < 0f || v.montant > 0f).ToList();
         string date = verses.Select(v => v.dateISO).Where(d => !string.IsNullOrEmpty(d)).OrderBy(d => d).LastOrDefault();
@@ -452,7 +459,11 @@ public static class FactureElectronique
         // le jour du clic. Avant : acompte du 05/09, « Payé » cliqué le 30/09, « Encaissée » déclarée au 05/09.
         string paye = lignes.Select(x => x.payeLeISO).Where(d => !string.IsNullOrEmpty(d)).Max();
         if (!string.IsNullOrEmpty(paye) && (string.IsNullOrEmpty(date) || Math.Abs(verses.Sum(v => v.montant)) < Math.Abs(montant) - 0.005f)) date = paye;   // D5-12 : le jour du « Payé »
-        return (montant, string.IsNullOrEmpty(date) ? DateTime.Today.ToString("yyyy-MM-dd") : date);
+        // Revue 17 (D5-11, lot 8 ; décision du 09/11) : l'« Encaissée » d'un avoir part en POSITIF, comme l'avoir lui-même (type 381,
+        // montants positifs). Chez Super PDP, un montant négatif veut dire « annulation d'un encaissement déclaré » : c'est ce que
+        // l'annulation envoie (Traiter). Avant : −297,60 € pour un avoir de 297,60 €, et son annulation en positif. Le signe sert encore
+        // au-dessus, pour dater un avoir par son dernier remboursement.
+        return (Math.Abs(montant), string.IsNullOrEmpty(date) ? DateTime.Today.ToString("yyyy-MM-dd") : date);
     }
 
     static string Montant(float v) => v.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
@@ -747,7 +758,9 @@ public static class FactureElectronique
             {
                 // Revue 16c (D5-12, décision du 31/10) : la facture a quitté « Payé » : l'encaissement déclaré est annulé par un
                 // second 212 du même montant en négatif (cas d'usage officiel « annulation d'encaissement »), daté du jour.
-                float montant = r.encaisseeMontant > 0f ? r.encaisseeMontant : Encaissement(loc, r).montant;
+                // Lot 8 (D5-11) : l'opposé de ce qui a été déclaré, quel que soit son signe : un avoir déclaré en négatif avant le
+                // 17/11 s'annule encore en positif. Sans montant gardé (ligne ancienne) : celui d'aujourd'hui.
+                float montant = Math.Abs(r.encaisseeMontant) > 0.005f ? r.encaisseeMontant : Encaissement(loc, r).montant;
                 if (SessionCloud.Entreprise != e) return (envoyees, encaissees, annulees, change, Changee, auNomDe);
                 var rep = await Appeler(new Demande { action = "encaisser", entreprise = r.plateformeOrigineId, id = r.plateformeId, montant = Montant(-montant), date = DateTime.Today.ToString("yyyy-MM-dd") });
                 if (!rep.ok) { if (RefusNomme(loc, r, rep, "annulation de l'encaissement refusée") is Reponse ro) { refus = Cumul(refus, ro); continue; } return (envoyees, encaissees, annulees, change, rep, auNomDe); }

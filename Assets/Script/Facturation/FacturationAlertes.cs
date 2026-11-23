@@ -113,9 +113,10 @@ public static class FacturationAlertes
         }
 
         // ── Départ du locataire (décisions du 01/10) ──
-        if (DepartLocataire.DepartProche(loc, today))
+        // Lot F (décision du 16/11) : elle ne cite que ce qui reste, et se tait quand le décompte est fait et l'état des lieux réglé.
+        if (DepartLocataire.DepartProche(loc, today) && DepartLocataire.ResteAvantDepart(loc) is string reste)
             res.Add(new Alerte { niveau = Niveau.Attention, type = AlerteType.Depart,
-                message = $"Départ le {sortie:dd/MM/yyyy} : état des lieux et décompte de sortie à prévoir." });
+                message = $"Départ le {sortie:dd/MM/yyyy} : {reste} à prévoir." });
 
         // Restitution du dépôt : Attention 15 j avant la date limite, URGENT ensuite.
         if (avecSortie && today > sortie && !DepartLocataire.DecompteFait(loc)

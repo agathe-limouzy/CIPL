@@ -76,7 +76,7 @@ public static class LotsBatiment
     public static string Libelle(Batiment bat, LotBatiment lot)
     {
         var occ = Occupants(bat, lot.numero);
-        return $"Lot {lot.numero} · {lot.surface:0.##} m²"
+        return $"Lot {lot.numero} · {Montants.F(lot.surface, "0.##")} m²"
                + (string.IsNullOrWhiteSpace(lot.designation) ? "" : " · " + lot.designation.Trim())
                + " · " + (occ.Count == 0 ? "vide" : string.Join(", ", occ.Select(NomOccupant)));
     }

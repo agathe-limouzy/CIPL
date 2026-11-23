@@ -23,22 +23,30 @@ public class AppIconResizer : MonoBehaviour
 
     float _timer;
 
-    void OnEnable() { Apply(); }
+    // Revue 17 (D9-02, lot E) : comme AppSectionColors, le passage périodique ne visite que les objets affichés (31 ms toutes
+    // les 0,5 s pour SCI (JBC), 0,34 s pour 300 locataires, mesuré le 16/11) ; les fiches sont traitées à leur construction.
+    static AppIconResizer _instance;
+    static readonly System.Collections.Generic.List<RectTransform> _tampon = new System.Collections.Generic.List<RectTransform>();
+
+    void OnEnable() { _instance = this; Parcourir(transform, true); }
 
     void Update()
     {
         _timer += Time.unscaledDeltaTime;
         if (_timer < interval) return;
         _timer = 0f;
-        Apply();
+        Parcourir(transform, false);
     }
 
-    void Apply()
+    /// Met les icônes de tout ce qui est sous `racine` à la taille, objets cachés compris (fiche qui vient d'être construite).
+    public static void Styler(Transform racine) { if (racine != null && _instance != null) _instance.Parcourir(racine, true); }
+
+    void Parcourir(Transform racine, bool inactifs)
     {
-        var rects = GetComponentsInChildren<RectTransform>(true);
-        for (int i = 0; i < rects.Length; i++)
+        racine.GetComponentsInChildren(inactifs, _tampon);
+        for (int i = 0; i < _tampon.Count; i++)
         {
-            var rt = rects[i];
+            var rt = _tampon[i];
             if (rt.name != "Icon") continue;
 
             var parent = rt.parent;
@@ -53,6 +61,7 @@ public class AppIconResizer : MonoBehaviour
             le.minHeight = iconSize; le.preferredHeight = iconSize;
             rt.sizeDelta = new Vector2(iconSize, iconSize);
         }
+        _tampon.Clear();
     }
 
     static bool IsBand(string n)

@@ -80,6 +80,8 @@ public class RevisionPanel : MonoBehaviour
     const float LargeurFormulaire = 560f, LargeurRevision = 900f;
     LayoutElement _leFenetre, _leTitre;
     ScrollRect _scroll; LayoutElement _leScroll; RectTransform _fenetre;   // BI2 (02/11) : corps défilant, fenêtre plafonnée à l'écran
+    RectTransform _pied;         // Revue 17 (B-13, lot G) : la rangée des boutons, sortie du défilement
+    TMP_Text _libelleProvisions; // Revue visuelle (V-19) : le libellé à côté de la case « Provisions », comme les autres cases
 
     // ── Champs facturation ajoutés par code (jour de demande, mois, régularisation) ──
     TMP_InputField _jourDemande, _dEnvoi, _dImpaye, _dAutres;
@@ -267,7 +269,7 @@ public class RevisionPanel : MonoBehaviour
         // Infos
         txtIndiceDepart.text = string.IsNullOrEmpty(loc.indiceImmoAuDepart) ? "—" : loc.indiceImmoAuDepart;
         txtIndiceActuel.text = string.IsNullOrEmpty(loc.indiceImmoActuel) ? "—" : loc.indiceImmoActuel;
-        txtLoyerCalcule.text = $"{loc.loyerAnnuel:N2} €";
+        txtLoyerCalcule.text = $"{Montants.F(loc.loyerAnnuel, "N2")} €";
         statusText.text = "";
         // Le statut peut être long (« … loyer révisé : X € (prochaine révision …) ») :
         // sans retour à la ligne il débordait du cadre → on force le wrap.
@@ -280,7 +282,7 @@ public class RevisionPanel : MonoBehaviour
         if (txtVariation != null) txtVariation.text = "—";
         if (txtLoyerPrecedent != null)
             txtLoyerPrecedent.text = loc.loyerAnnuelPrecedent > 0f
-                ? $"{loc.loyerAnnuelPrecedent:N2} €" : "—";
+                ? $"{Montants.F(loc.loyerAnnuelPrecedent, "N2")} €" : "—";
 
         // Actions
         btnInitialiser.onClick.RemoveAllListeners();
@@ -307,15 +309,15 @@ public class RevisionPanel : MonoBehaviour
 
     // ── Thème dynamique : couleur de la modale = état de la révision ──────────
     // Due -> terracotta (comme le bouton Réviser en alerte), sinon -> prune.
-    private static Color s_accent      = Hex("#8E3B5A");
-    private static Color s_accentDark  = Hex("#5E2438");
-    private static Color s_accentLight = Hex("#F6E5EB");
+    private static Color s_accent      = UITheme.Hex("#8E3B5A");
+    private static Color s_accentDark  = UITheme.Hex("#5E2438");
+    private static Color s_accentLight = UITheme.Hex("#F6E5EB");
 
     private void ApplyTheme(bool due)
     {
-        s_accent      = Hex(due ? "#D85A30" : "#8E3B5A");
-        s_accentDark  = Hex(due ? "#712B13" : "#5E2438");
-        s_accentLight = Hex(due ? "#FAECE7" : "#F6E5EB");
+        s_accent      = UITheme.Hex(due ? "#D85A30" : "#8E3B5A");
+        s_accentDark  = UITheme.Hex(due ? "#712B13" : "#5E2438");
+        s_accentLight = UITheme.Hex(due ? "#FAECE7" : "#F6E5EB");
 
         var header = transform.Find("Content/titre")?.GetComponent<Image>();
         if (header != null) header.color = s_accent;
@@ -369,9 +371,9 @@ public class RevisionPanel : MonoBehaviour
     {
         if (b == null) return;
         var img = b.GetComponent<Image>();
-        if (img != null) img.color = active ? s_accentLight : Hex("#FCFBF8");
+        if (img != null) img.color = active ? s_accentLight : UITheme.Carte;
         var txt = b.GetComponentInChildren<TMP_Text>(true);
-        if (txt != null) txt.color = active ? s_accentDark : Hex("#888780");
+        if (txt != null) txt.color = active ? s_accentDark : UITheme.Hex("#888780");
     }
 
     private void SetMode(bool init)
@@ -389,14 +391,9 @@ public class RevisionPanel : MonoBehaviour
         var img = b.GetComponent<Image>();
         if (img != null) img.color = active ? s_accent : new Color(0, 0, 0, 0);
         var txt = b.GetComponentInChildren<TMP_Text>(true);
-        if (txt != null) txt.color = active ? Color.white : Hex("#5F5E5A");
+        if (txt != null) txt.color = active ? Color.white : UITheme.TexteSecondaire;
     }
 
-    private static Color Hex(string h)
-    {
-        ColorUtility.TryParseHtmlString(h, out var c);
-        return c;
-    }
 
     // ── Date de révision modifiée manuellement ────────────────────────────────
 
@@ -483,7 +480,7 @@ public class RevisionPanel : MonoBehaviour
         }
 
         btnInitialiser.interactable = false;
-        statusText.text = "Récupération de l'indice de référence...";
+        statusText.text = "Récupération de l'indice de référence…";
 
         var type = (IndiceImmo)indiceDropdown.value;
         List<(string, float)> observations = null;
@@ -527,7 +524,7 @@ public class RevisionPanel : MonoBehaviour
 
         txtIndiceDepart.text = _loc.indiceImmoAuDepart;
         txtIndiceActuel.text = "—";
-        txtLoyerCalcule.text = $"{loyer:N2} €";
+        txtLoyerCalcule.text = $"{Montants.F(loyer, "N2")} €";
         if (txtVariation != null) txtVariation.text = "—";
         if (txtLoyerPrecedent != null) txtLoyerPrecedent.text = "—";
 
@@ -558,7 +555,7 @@ public class RevisionPanel : MonoBehaviour
         { AfficheTrimWarn(refusTrim); ConfirmDialog.Erreur(refusTrim); yield break; }
 
         btnReviser.interactable = false;
-        statusText.text = "Récupération des données INSEE...";
+        statusText.text = "Récupération des données INSEE…";
 
         var type = (IndiceImmo)indiceDropdown.value;
         List<(string, float)> observations = null;
@@ -699,10 +696,10 @@ public class RevisionPanel : MonoBehaviour
 
         txtIndiceDepart.text = precedentAvant;   // retour de BW5 (12/11) : l'indice de la dernière révision (sinon la référence)
         txtIndiceActuel.text = _loc.indiceImmoActuel;
-        txtLoyerCalcule.text = $"{loyerRevise:N2} €";
+        txtLoyerCalcule.text = $"{Montants.F(loyerRevise, "N2")} €";
         if (txtVariation != null) txtVariation.text = VariationIndice(precedentAvant, obsActuel.valeur);
         if (txtLoyerPrecedent != null)
-            txtLoyerPrecedent.text = $"{_loc.loyerAnnuelPrecedent:N2} €";
+            txtLoyerPrecedent.text = $"{Montants.F(_loc.loyerAnnuelPrecedent, "N2")} €";
         if (selonCA)
         {
             // Le résultat parle de CA, de bornes et de loyer ; les indices n'en sont
@@ -728,14 +725,14 @@ public class RevisionPanel : MonoBehaviour
             _caMax.text = Nombre(maxRev);
         }
         else
-            statusText.text = $"{InseeIndiceService.GetLabel(type)} — loyer révisé : {loyerRevise:N2} € " +
+            statusText.text = $"{InseeIndiceService.GetLabel(type)} — loyer révisé : {Montants.F(loyerRevise, "N2")} € " +
                               $"(prochaine révision {_loc.MoisDeRevision:dd/MM/yyyy})";
 
         _onSaved?.Invoke();
         // Revue 16c (D7b-01) : le panneau se ferme, comme après « Initialiser » : un second clic sur « Réviser » repoussait
         // la prochaine révision d'un an de plus et écrasait le loyer précédent.
         // Revue 17 (D7b-01, lot D) : la variation du loyer est dite (le panneau se ferme : « +0,0 % » ne se voyait plus).
-        UndoToast.Instance?.ShowInfo($"Loyer révisé : {loyerRevise:N2} €/an{VariationLoyer(_loc.loyerAnnuelPrecedent, loyerRevise)} — prochaine révision le {_loc.MoisDeRevision:dd/MM/yyyy}.");
+        UndoToast.Instance?.ShowInfo($"Loyer révisé : {Montants.F(loyerRevise, "N2")} €/an{VariationLoyer(_loc.loyerAnnuelPrecedent, loyerRevise)} — prochaine révision le {_loc.MoisDeRevision:dd/MM/yyyy}.");
         // Retour de BW5 (12/11, décision) : le volet reste ouvert sur le résultat enregistré (cadre du bas, déjà rempli ci-dessus) ;
         // le bouton est grisé jusqu'à la réouverture, au lieu de fermer le volet (on ne voyait le résultat qu'en le rouvrant).
         _reviseeIci = true;
@@ -758,7 +755,7 @@ public class RevisionPanel : MonoBehaviour
         var refT = trimestreVoulu.GetComponentInChildren<TMP_Text>(true);
         if (refT != null) t.font = refT.font;
         t.fontSize = UITheme.Role.Aide;
-        t.color = Hex("#A32D2D");                        // rouge lisible sur fond clair
+        t.color = UITheme.Erreur;                        // rouge lisible sur fond clair
         t.enableWordWrapping = true;
         t.raycastTarget = false;
         t.alignment = TextAlignmentOptions.TopLeft;
@@ -878,13 +875,13 @@ public class RevisionPanel : MonoBehaviour
         if (montrer && CalculApercu(_obsApercu, trimestreDepart.TrimestreValue, voulu, _loc.loyerDepart, out var dep, out var act, out float revise))
         {
             string precedent = IndicePrecedent(_loc);   // comme « Réviser le loyer » l'écrira
-            AfficherResultat(precedent, FormatIndice(act.valeur, act.periode), $"{revise:N2} €",
-                             VariationIndice(precedent, act.valeur), $"{_loc.loyerAnnuel:N2} €");
+            AfficherResultat(precedent, FormatIndice(act.valeur, act.periode), $"{Montants.F(revise, "N2")} €",
+                             VariationIndice(precedent, act.valeur), $"{Montants.F(_loc.loyerAnnuel, "N2")} €");
         }
         else if (modeIndice)
             AfficherResultat(IndicePrecedent(_loc), "—",   // pas d'aperçu : l'indice en vigueur, rien de nouveau
-                             $"{_loc.loyerAnnuel:N2} €", "—",
-                             _loc.loyerAnnuelPrecedent > 0f ? $"{_loc.loyerAnnuelPrecedent:N2} €" : "—");
+                             $"{Montants.F(_loc.loyerAnnuel, "N2")} €", "—",
+                             _loc.loyerAnnuelPrecedent > 0f ? $"{Montants.F(_loc.loyerAnnuelPrecedent, "N2")} €" : "—");
         EnsureApercu();
         if (_apercu == null) return;
         _apercu.text = texte ?? "";
@@ -978,7 +975,7 @@ public class RevisionPanel : MonoBehaviour
         var content = periodBlock.parent;
         int idx = periodBlock.GetSiblingIndex() + 1;
 
-        var l1 = UIFactory.Text(content, "Loyer demandé le … (jour du mois)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        var l1 = UIFactory.Text(content, "Loyer demandé le … (jour du mois)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         l1.transform.SetSiblingIndex(idx++);
         _jourLabelGO = l1.gameObject;
         _jourDemande = UIFactory.Input(content, "1");
@@ -990,7 +987,7 @@ public class RevisionPanel : MonoBehaviour
         _tvaToggle = UIFactory.Toggle(content, "TVA sur le loyer (option du bailleur)", true);
         _tvaToggle.transform.SetSiblingIndex(idx++);
         _tvaToggle.onValueChanged.AddListener(_ => { _tvaTouche = true; RefreshTvaVisibility(_volet == Volet.Initialisation); });
-        _tvaLabelGO = UIFactory.Text(content, "Taux de TVA du bail (%)", UITheme.Role.Donnee, UITheme.TexteSecondaire).gameObject;
+        _tvaLabelGO = UIFactory.Text(content, "Taux de TVA du bail (%)", UITheme.Role.Libelle, UITheme.TexteSecondaire).gameObject;
         _tvaLabelGO.transform.SetSiblingIndex(idx++);
         _tvaTaux = UIFactory.Input(content, Tva.TauxDefaut.ToString("0.##", FacturePdfService.FrCulture));
         SaisieNumerique.Montant(_tvaTaux);   // retour BN2 (04/11) : la virgule aussi
@@ -1009,7 +1006,7 @@ public class RevisionPanel : MonoBehaviour
         _dImpaye = ChampJours(_delaisBlockGO.transform, "Sans règlement, la facture passe « Impayé » … jours après l'échéance");
         _dAutres = ChampJours(_delaisBlockGO.transform, "Les autres factures (charges, régularisation, dépôt) sont à payer … jours après leur date");
 
-        var l2 = UIFactory.Text(content, "Mois facturés (si trimestriel / bi-annuel)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        var l2 = UIFactory.Text(content, "Mois facturés (si trimestriel / bi-annuel)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         l2.transform.SetSiblingIndex(idx++);
         _moisLabelGO = l2.gameObject;
         var wrap = BuildMoisChips(content);
@@ -1053,7 +1050,7 @@ public class RevisionPanel : MonoBehaviour
         _revisionToggle = UIFactory.Toggle(rb.transform, "Révision du loyer", true);
         var tr = UIFactory.VBox(rb.transform, 4, 0, 0, 0, 0, "TypeRevision");
         _typeRevRowGO = tr.gameObject;
-        UIFactory.Text(tr.transform, "Type de révision", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(tr.transform, "Type de révision", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _typeRevDD = UIDropdown.Create(tr.transform, TypesLibelles, TypesIds, 0, _ => RefreshBoutonInit());
         _revisionToggle.onValueChanged.AddListener(_ => { RefreshInitVisibility(); RefreshBoutonInit(); });
 
@@ -1100,11 +1097,11 @@ public class RevisionPanel : MonoBehaviour
             var cote = UIFactory.HBox(crv.transform, 12, true, "CAPrecedentNouveau");
             cote.childAlignment = TextAnchor.UpperLeft;
             var gauche = UIFactory.VBox(cote.transform, 4, 0, 0, 0, 0, "CAPrecedent");
-            _caTitrePrecedent = UIFactory.Text(gauche.transform, "CA précédent", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            _caTitrePrecedent = UIFactory.Text(gauche.transform, "CA précédent", UITheme.Role.Libelle, UITheme.TexteSecondaire);
             _caPrecedent = UIFactory.Input(gauche.transform, "—");
             _caPrecedent.interactable = false;
             var droite = UIFactory.VBox(cote.transform, 4, 0, 0, 0, 0, "CANouveau");
-            _caTitre = UIFactory.Text(droite.transform, "Nouveau CA HT", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            _caTitre = UIFactory.Text(droite.transform, "Nouveau CA HT", UITheme.Role.Libelle, UITheme.TexteSecondaire);
             _caMontant = UIFactory.Input(droite.transform, "CA HT de l'année (€)");
             SaisieNumerique.Montant(_caMontant);   // retour BN2 (04/11) : la virgule aussi
             _caRevisionGO.SetActive(false);
@@ -1147,7 +1144,7 @@ public class RevisionPanel : MonoBehaviour
         // locataire est un événement du BAIL : il se saisit dans la section Bail de la
         // fiche (LocataireBailFields), pas ici.
         _avenantBlockGO = BlocCaseDate(content, "AvenantBlock",
-            "Avenant : le nouveau loyer s'applique en cours de bail", "Nouvelles conditions à compter du",
+            "Avenant : le nouveau loyer s'applique en cours de bail", "Nouveau loyer à compter du",   // BU24 (22/11) : « Nouvelles conditions » se confondait avec « Nouvelle périodicité à compter du »
             out _avenantToggle, out _avenantDate);
         _franchiseBlockGO = BlocCaseDate(content, "FranchiseBlock",
             "Franchise de loyer (les provisions restent dues)", "Loyer facturé à partir du (fin de la franchise)",
@@ -1218,6 +1215,41 @@ public class RevisionPanel : MonoBehaviour
         csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
         _scroll.viewport = viewport; _scroll.content = corps;
+        // Revue 17 (B-13, lot G) : « Modifier » et « Fermer » restent sous le défilement (pied fixe). Avant : au bout du contenu, donc
+        // invisibles à 150 % tant qu'on n'avait pas fait défiler jusqu'en bas.
+        var boutons = btnFermer != null ? btnFermer.transform.parent as RectTransform : null;
+        if (boutons != null && boutons.parent == corps && boutons.GetComponent<HorizontalLayoutGroup>() is HorizontalLayoutGroup rangee)
+        {
+            boutons.SetParent(_fenetre, false);
+            boutons.SetSiblingIndex(srGO.GetSiblingIndex() + 1);
+            rangee.padding = new RectOffset(18, 18, 10, 18);   // les marges du corps, qu'elle n'a plus autour d'elle
+            // Revue visuelle du 16/11 (V-05 à V-08 ; décisions du 16/11) : l'abandon avant l'action, compacts à droite, 40 de haut ;
+            // « Annuler » à côté d'une action (c'était « Modifier · Fermer », en deux moitiés de 42 et 38).
+            rangee.childForceExpandWidth = false; rangee.childAlignment = TextAnchor.MiddleRight; rangee.spacing = 8;
+            var espace = UIFactory.Rect("Espace", boutons);
+            UIFactory.LE(espace.gameObject, flexW: 1);
+            espace.SetAsFirstSibling();
+            btnFermer.transform.SetSiblingIndex(1);
+            var texteFermer = btnFermer.GetComponentInChildren<TMP_Text>(true);
+            if (texteFermer != null) texteFermer.text = "Annuler";
+            foreach (var b in boutons.GetComponentsInChildren<Button>(true))
+            {
+                var le = b.GetComponent<LayoutElement>();
+                if (le != null) { le.minHeight = le.preferredHeight = 40f; le.flexibleWidth = 0f; }
+                UIFactory.LargeurDuTexte(b);
+            }
+            // Revue visuelle du 16/11 : le fond blanc de la fenêtre est celui du corps (bas arrondi). Sortie du corps, la rangée
+            // flottait sur le voile sombre : elle reprend ce fond et son bas arrondi ; le corps, au-dessus, devient droit.
+            var fondCorps = corps.GetComponent<Image>();
+            if (fondCorps != null && boutons.GetComponent<Graphic>() == null)
+            {
+                var fond = boutons.gameObject.AddComponent<Image>();
+                fond.sprite = fondCorps.sprite; fond.type = fondCorps.type; fond.color = fondCorps.color;
+                fond.pixelsPerUnitMultiplier = fondCorps.pixelsPerUnitMultiplier;
+                fondCorps.sprite = null;
+            }
+            _pied = boutons;
+        }
         LayoutRebuilder.ForceRebuildLayoutImmediate(corps);
         PlafonnerHauteur();
     }
@@ -1229,7 +1261,8 @@ public class RevisionPanel : MonoBehaviour
     {
         var ecran = (RectTransform)transform;
         float titre = _leTitre != null ? LayoutUtility.GetPreferredHeight((RectTransform)_leTitre.transform) : 0f;
-        float h = Mathf.Min(LayoutUtility.GetPreferredHeight(_scroll.content), ecran.rect.height - 2 * MargeEcran - titre);
+        float pied = _pied != null && _pied.gameObject.activeSelf ? LayoutUtility.GetPreferredHeight(_pied) : 0f;
+        float h = Mathf.Min(LayoutUtility.GetPreferredHeight(_scroll.content), ecran.rect.height - 2 * MargeEcran - titre - pied);
         if (!Mathf.Approximately(_leScroll.preferredHeight, h)) _leScroll.preferredHeight = h;
         float y = -ecran.rect.height / 2f;   // centrée : la scène la posait à une hauteur fixe, pensée pour un contenu court
         if (!Mathf.Approximately(_fenetre.anchoredPosition.y, y)) _fenetre.anchoredPosition = new Vector2(_fenetre.anchoredPosition.x, y);
@@ -1268,7 +1301,7 @@ public class RevisionPanel : MonoBehaviour
     // « ceux de l'entreprise » est décochée, pré-remplis avec les délais de l'entreprise.
     TMP_InputField ChampJours(Transform parent, string libelle)
     {
-        UIFactory.Text(parent, libelle, UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(parent, libelle, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var f = UIFactory.Input(parent, "15");
         f.contentType = TMP_InputField.ContentType.IntegerNumber;
         return f;
@@ -1293,6 +1326,18 @@ public class RevisionPanel : MonoBehaviour
         bool avecListes = ListesCharges.Specifiques().Count > 0;
         if (_regulBlockGO != null) _regulBlockGO.SetActive(show && !avecListes);
         ProvContainer().SetActive(toggleProvisions.isOn && !avecListes);
+        // Revue visuelle (V-19, décision du 16/11) : la case du prefab (un carré gris sous le titre « Provisions ») devient une
+        // case ronde verte avec son libellé à côté, comme les autres cases de la fenêtre. Le libellé coche aussi.
+        if (_libelleProvisions == null)
+        {
+            UIFactory.CaseRonde(toggleProvisions);
+            _libelleProvisions = UIFactory.Text(toggleProvisions.transform.parent, "Provisions pour charges", UITheme.Role.Libelle, UITheme.TextePrincipal);
+            _libelleProvisions.alignment = TextAlignmentOptions.MidlineLeft;
+            _libelleProvisions.raycastTarget = true;
+            _libelleProvisions.gameObject.AddComponent<Button>().onClick.AddListener(
+                () => { if (toggleProvisions.interactable) toggleProvisions.isOn = !toggleProvisions.isOn; });
+            _libelleProvisions.transform.SetSiblingIndex(toggleProvisions.transform.GetSiblingIndex() + 1);
+        }
         // Les listes n'existent qu'avec une provision : sans elle, le locataire relève de
         // toutes les charges, comme avant les listes (voir ListesCharges.ConcerneParListe).
         if (_listesBlockGO != null) _listesBlockGO.SetActive(show && avecListes);
@@ -1363,7 +1408,7 @@ public class RevisionPanel : MonoBehaviour
                 + ".\n\nFaites la régularisation de toutes les charges de cette liste et attendez son "
                 + "paiement avant de la lui retirer.";
             if (ConfirmDialog.Instance != null)
-                ConfirmDialog.Instance.Show($"Impossible de retirer « {nom} »", detail, () => { }, "Compris");
+                ConfirmDialog.Erreur($"Impossible de retirer « {nom} ».\n\n" + detail);   // Revue 17 (D10-12, lot F)
             else UndoToast.Instance?.ShowInfo(detail);
             return false;
         }
@@ -1425,7 +1470,7 @@ public class RevisionPanel : MonoBehaviour
             else { date.dayInput.text = ""; date.monthInput.text = ""; date.yearInput.text = ""; }
             date.ModifyDate();
 
-            UIFactory.Text(_lignesListes, $"{nom} — provision par période (€)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            UIFactory.Text(_lignesListes, $"{nom} — provision par période (€)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
             var prov = UIFactory.Input(_lignesListes, "0");
             SaisieNumerique.Montant(prov);   // retour BN2 (04/11) : la virgule aussi
             // Revue 17 (lot 16) : la provision enregistrée, ramenée à la périodicité choisie à l'écran (telle quelle tant que la
@@ -1855,8 +1900,8 @@ public class RevisionPanel : MonoBehaviour
     {
         if (!mod) { ApplyTheme(LoyerSummaryUI.EstRevisionDue(_loc)); return; }
         var header = transform.Find("Content/titre")?.GetComponent<Image>();
-        if (header != null) header.color = Hex("#A9741C");
-        ColorButton(_btnEnregistrer, Hex("#A9741C"));
+        if (header != null) header.color = UITheme.Hex("#A9741C");
+        ColorButton(_btnEnregistrer, UITheme.Hex("#854F0B"));   // Revue 17 (D10-10, lot F)
     }
 
     // ── Validation de l'écran « Initialiser » ─────────────────────────────────

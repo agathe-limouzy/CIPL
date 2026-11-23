@@ -169,6 +169,11 @@ public static class DocumentsCloud
 {
     const string Compartiment = "documents";
     const float Periode = 20f;
+    // Revue 17 (D9-11, lot E ; décision du 16/11) : temps réel connecté, la liste du serveur n'est relue que toutes les 120 s (le
+    // direct annonce déjà les documents des collègues : Bientot). Toutes les 20 s, un passage léger regarde seulement ce dossier
+    // (en tâche de fond) et ne va au serveur que s'il y a quelque chose à envoyer ou à supprimer.
+    const float PeriodeEnDirect = 120f;
+    static float _dernierComplet = float.MinValue;
 
     [Serializable] class Fichier { public string c, e, m; public long t, d; }   // chemin, empreinte ici, empreinte au dernier passage, taille, date
     [Serializable] class Etat { public List<Fichier> fichiers = new List<Fichier>(); }
@@ -210,6 +215,7 @@ public static class DocumentsCloud
         _etat = Charger();
         Ranger(racine, _etat);
         _prochain = 0;   // premier passage tout de suite (il envoie les documents déjà sur ce PC)
+        _dernierComplet = float.MinValue;
     }
 
     /// Rangement du 23/10, avant le premier passage : les documents de ce PC rangés à l'ancienne
@@ -320,9 +326,12 @@ public static class DocumentsCloud
     {
         if (_entreprise == null || _enCours || !SessionCloud.Active) return;
         if (maintenant < _prochain && (_bientot < 0 || maintenant < _bientot)) return;
+        bool complet = (_bientot >= 0 && maintenant >= _bientot)
+                       || maintenant >= _dernierComplet + (DirectCloud.Connecte ? PeriodeEnDirect : Periode);
         _prochain = maintenant + Periode;
         _bientot = -1;
-        _ = Passer();
+        if (complet) _dernierComplet = maintenant;
+        _ = Passer(complet);
     }
 
     /// Revue 17 (D2-07, lot D, décision du 11/11) : la synchronisation suspendue ne le disait qu'au journal, sans issue : un
@@ -381,10 +390,18 @@ public static class DocumentsCloud
         _suspendue = false;
         _suspensionsDeSuite = 0;
         _prochain = 0;      // passage tout de suite
+        _dernierComplet = float.MinValue;
         UndoToast.Instance?.ShowInfo("Les documents sont retéléchargés depuis le cloud…");
     }
 
-    static async Task Passer()
+    /// Revue 17 (D9-11, lot E) : quelque chose de ce dossier est à transmettre (fichier nouveau ou changé depuis le dernier
+    /// passage, fichier connu disparu).
+    static bool ChangementLocal(Dictionary<string, Fichier> locaux, Dictionary<string, Fichier> connus) =>
+        locaux.Any(kv => !connus.TryGetValue(kv.Key, out var k) || k.m != kv.Value.e)
+        || connus.Any(kv => kv.Value.m != null && !locaux.ContainsKey(kv.Key));
+
+    /// `complet` faux (Revue 17, D9-11) : passage léger, qui s'arrête après la liste de ce dossier si rien n'est à transmettre.
+    static async Task Passer(bool complet = true)
     {
         int generation = _generation;
         string ent = _entreprise, racine = _racine;
@@ -420,6 +437,7 @@ public static class DocumentsCloud
             }
             _suspendue = false;
             _suspensionsDeSuite = 0;
+            if (!complet && retraits.Count == 0 && !ChangementLocal(locaux, connus)) return;   // Revue 17 (D9-11, lot E)
             // Revue 17 (D2-06, lot D) : toute la table, page après page, dans l'ordre de sa clé (entreprise_id, chemin) ; une page
             // en échec = pas de passage (jamais de liste partielle : un fichier absent de la liste serait renvoyé, et une
             // suppression faite par un collègue serait défaite).
@@ -698,19 +716,24 @@ public static class DocumentsCloud
         var (contenu, erreur) = await CloudClient.LireFichier(SessionCloud.Url, SessionCloud.Cle, await SessionCloud.Jeton(),
                                                               Compartiment, ent + "/" + empreinte);
         if (contenu == null) { Debug.LogWarning($"[Documents] Réception de {chemin} : {erreur}"); return null; }
-        if (SyncDocuments.Empreinte(contenu) != empreinte) { Debug.LogWarning($"[Documents] {chemin} : contenu reçu altéré"); return null; }
+        // Revue 17 (D9-20 / D9-V1, lot E) : l'empreinte et l'écriture d'un document reçu se font en tâche de fond (une photo de
+        // téléphone : ≈ 10 ms d'empreinte et 5 à 20 ms d'écriture, une saccade par fichier reçu pendant la première synchronisation).
+        if (await Task.Run(() => SyncDocuments.Empreinte(contenu)) != empreinte) { Debug.LogWarning($"[Documents] {chemin} : contenu reçu altéré"); return null; }
         string abs = Absolu(racine, chemin);
         if (Relatif(racine, abs) == null) { Debug.LogWarning($"[Documents] {chemin} : hors du dossier de l'entreprise, ignoré"); return null; }
         try
         {
             // Une copie d'ici jamais synchronisée part en corbeille avant d'être remplacée : rien n'est perdu.
             if (File.Exists(abs) && ici?.m == null && !MettreEnCorbeille(racine, chemin)) return null;
-            Directory.CreateDirectory(Path.GetDirectoryName(abs));
-            string tmp = abs + ".cipl-recu";
-            File.WriteAllBytes(tmp, contenu);
-            if (File.Exists(abs)) File.Replace(tmp, abs, null); else File.Move(tmp, abs);
-            var fi = new FileInfo(abs);
-            return new Fichier { c = chemin, e = empreinte, m = empreinte, t = fi.Length, d = fi.LastWriteTimeUtc.Ticks };
+            return await Task.Run(() =>
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(abs));
+                string tmp = abs + ".cipl-recu";
+                File.WriteAllBytes(tmp, contenu);
+                if (File.Exists(abs)) File.Replace(tmp, abs, null); else File.Move(tmp, abs);
+                var fi = new FileInfo(abs);
+                return new Fichier { c = chemin, e = empreinte, m = empreinte, t = fi.Length, d = fi.LastWriteTimeUtc.Ticks };
+            });
         }
         catch (Exception e) { Debug.LogWarning($"[Documents] Écriture de {chemin} : {e.Message}"); return null; }
     }
@@ -740,9 +763,14 @@ public static class DocumentsCloud
         catch (Exception) { return new Etat(); }
     }
 
+    // Revue 17 (D9-11, lot E) : l'état n'est réécrit que s'il a changé (avant : à chaque passage, toutes les 20 s).
+    static string _sauve;
+
     static void Sauver(Etat e)
     {
-        if (!AtomicFile.WriteAllText(CheminEtat(), JsonUtility.ToJson(e), out string erreur))
-            Debug.LogWarning("[Documents] État non enregistré : " + erreur);
+        string chemin = CheminEtat(), json = JsonUtility.ToJson(e);
+        if (_sauve == chemin + "\n" + json) return;
+        if (!AtomicFile.WriteAllText(chemin, json, out string erreur)) { Debug.LogWarning("[Documents] État non enregistré : " + erreur); return; }
+        _sauve = chemin + "\n" + json;
     }
 }

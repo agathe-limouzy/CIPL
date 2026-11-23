@@ -14,7 +14,13 @@ public class FacturationHomeSection : MonoBehaviour
 {
     public Sprite Icon;                                            // icône de la bande (assignée par GeneralMenuPanel)
     readonly List<BatimentPrefab> _bps = new List<BatimentPrefab>();
-    readonly HashSet<string> _collapsed = new HashSet<string>();   // locataires repliés (tout déplié par défaut)
+    // Revue 17 (D9-03, lot E ; décision du 16/11) : tout est replié par défaut (une ligne par locataire : nom, nombre de factures,
+    // total dû) ; le détail ne se construit qu'au clic, et 50 locataires au plus avant « Voir les N suivants ». Mesuré le 16/11 :
+    // 0,3 s pour 26 créances, 13 s pour 600, à chaque retour à l'accueil, tout étant déplié et construit.
+    readonly HashSet<string> _ouverts = new HashSet<string>();     // locataires dépliés
+    const int ParPage = 50;
+    int _limite = ParPage;                                         // locataires affichés
+    List<FacturationSuivi.Due> _dues = new List<FacturationSuivi.Due>();   // calculées une fois par Setup
     Transform _tableBox, _body;
     TMP_Text _tAtt, _tImp, _tTot;
     UIDropdown _bankDD, _locDD, _etatDD;
@@ -26,6 +32,7 @@ public class FacturationHomeSection : MonoBehaviour
         _bps.Clear();
         if (bps != null) _bps.AddRange(bps.Where(b => b != null));
         if (_tableBox == null) Build();
+        _dues = FacturationSuivi.Dues(_bps);
         RefreshFilters();
         Rebuild();
     }
@@ -38,7 +45,7 @@ public class FacturationHomeSection : MonoBehaviour
         // La hauteur et la largeur de la carte sont posées par GeneralMenuPanel,
         // qui la place à côté ou en dessous de « À traiter » (voir LargeurMin).
         var frame = gameObject.AddComponent<Image>();
-        frame.color = Hex("#A9741C"); frame.sprite = UIFactory.Rounded(); frame.type = Image.Type.Sliced; // ambre (argent)
+        frame.color = UITheme.Hex("#A9741C"); frame.sprite = UIFactory.Rounded(); frame.type = Image.Type.Sliced; // ambre (argent)
         var outer = gameObject.AddComponent<VerticalLayoutGroup>();
         outer.padding = new RectOffset(Lisere, 0, 0, 0); outer.spacing = 0;   // bleu visible uniquement à gauche (comme À traiter)
         outer.childControlWidth = true; outer.childControlHeight = true;
@@ -54,7 +61,7 @@ public class FacturationHomeSection : MonoBehaviour
         _body = cardBg.transform;
 
         // En-tête accentué : icône + titre (les filtres passent en dessous).
-        var headBar = UIFactory.Panel("HeadBar", _body, Hex("#F4E7CD"));
+        var headBar = UIFactory.Panel("HeadBar", _body, UITheme.Hex("#F4E7CD"));
         UIFactory.LE(headBar.gameObject, minH: 58, prefH: 58, flexH: 0);   // uniforme (comme locataire)
         var head = headBar.gameObject.AddComponent<HorizontalLayoutGroup>();
         head.padding = new RectOffset(12, 12, 2, 2); head.spacing = 8;
@@ -65,10 +72,10 @@ public class FacturationHomeSection : MonoBehaviour
         {
             var ic = UIFactory.Rect("Icon", head.transform);
             var ii = ic.gameObject.AddComponent<Image>();
-            ii.sprite = Icon; ii.color = Hex("#A9741C"); ii.preserveAspect = true; ii.raycastTarget = false;
+            ii.sprite = Icon; ii.color = UITheme.Hex("#A9741C"); ii.preserveAspect = true; ii.raycastTarget = false;
             UIFactory.LE(ic.gameObject, prefW: 22, minW: 22, prefH: 22, minH: 22, flexW: 0);
         }
-        var creTitle = UIFactory.Text(head.transform, "Créances", UITheme.Role.Section, Hex("#A9741C"), true);
+        var creTitle = UIFactory.Text(head.transform, "Créances", UITheme.Role.Section, UITheme.Hex("#A9741C"), true);
         creTitle.enableAutoSizing = false;
 
         // KPIs (3 tuiles avec fond : petit libellé + grand montant).
@@ -76,9 +83,9 @@ public class FacturationHomeSection : MonoBehaviour
         UIFactory.LE(tiles.gameObject, minH: 68, prefH: 68, flexH: 0);
         tiles.childForceExpandWidth = true; tiles.childControlWidth = true;
         tiles.childAlignment = TextAnchor.MiddleLeft;
-        _tAtt = Kpi(tiles.transform, "En attente de paiement", Hex("#E6F1FB"), Hex("#85B7EB"), Hex("#185FA5"));
-        _tImp = Kpi(tiles.transform, "Impayé", Hex("#FCEBEB"), Hex("#F09595"), Hex("#A32D2D"));
-        _tTot = Kpi(tiles.transform, "Total dû", Hex("#F1EFE8"), UITheme.Bordure, UITheme.TextePrincipal);
+        _tAtt = Kpi(tiles.transform, "En attente de paiement", UITheme.Hex("#E6F1FB"), UITheme.Hex("#85B7EB"), UITheme.Hex("#185FA5"));
+        _tImp = Kpi(tiles.transform, "Impayé", UITheme.Hex("#FCEBEB"), UITheme.Hex("#F09595"), UITheme.Erreur);
+        _tTot = Kpi(tiles.transform, "Total dû", UITheme.Fond, UITheme.Bordure, UITheme.TextePrincipal);
 
         // Filtres en ligne (largeur au contenu).
         var filt = UIFactory.HBox(_body, 8, false, "Filtres");
@@ -125,7 +132,7 @@ public class FacturationHomeSection : MonoBehaviour
     List<FacturationSuivi.Due> Filtered()
     {
         string bank = _bankDD?.SelectedId, locId = _locDD?.SelectedId, et = _etatDD?.SelectedId;
-        return FacturationSuivi.Dues(_bps).Where(e =>
+        return _dues.Where(e =>
             (string.IsNullOrEmpty(bank) || (e.rec.ribNom ?? "") == bank) &&
             (string.IsNullOrEmpty(locId) || e.loc.id == locId) &&
             (et == "impaye" ? e.etat == FacturationSuivi.Etat.Impaye
@@ -137,7 +144,7 @@ public class FacturationHomeSection : MonoBehaviour
 
     void RefreshFilters()
     {
-        var all = FacturationSuivi.Dues(_bps);
+        var all = _dues;
 
         var banks = all.Select(e => e.rec.ribNom).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
         var kl = new List<string> { "Toutes les banques" }; var ki = new List<string> { "" };
@@ -159,7 +166,7 @@ public class FacturationHomeSection : MonoBehaviour
 
         foreach (Transform c in _tableBox) Destroy(c.gameObject);
 
-        var head = Row(_tableBox, Hex("#EDEBE3"), 30, null);
+        var head = Row(_tableBox, UITheme.Hex("#EDEBE3"), 30, null);
         Cell(head, "", WCar, false, UITheme.TexteSecondaire, true);
         CellFlex(head, "Locataire / facture", UITheme.TexteSecondaire, true);
         Cell(head, "Échéance", WEch, false, UITheme.TexteSecondaire, true);
@@ -190,21 +197,22 @@ public class FacturationHomeSection : MonoBehaviour
             .OrderByDescending(g => g.imp > 0).ThenByDescending(g => g.total)
             .ToList();
 
-        foreach (var grp in groupes)
+        foreach (var grp in groupes.Take(_limite))
         {
             string locId = grp.loc?.id ?? "";
-            bool ouvert = !_collapsed.Contains(locId);
+            bool ouvert = _ouverts.Contains(locId);
 
             // Ligne récap.
-            var rec = Row(_tableBox, Hex("#E6F1FB"), 34, () => ToggleGroupe(locId));
-            CaretCell(rec, ouvert, Hex("#185FA5"));
-            CellFlex(rec, LocNom(grp.loc) + "  —  " + BatNom(grp.bp), UITheme.TextePrincipal, true);
+            var rec = Row(_tableBox, UITheme.Hex("#E6F1FB"), 34, () => ToggleGroupe(locId));
+            CaretCell(rec, ouvert, UITheme.Hex("#185FA5"));
+            CellFlex(rec, LocNom(grp.loc) + "  —  " + BatNom(grp.bp) + $"  ·  {grp.lignes.Count} facture{(grp.lignes.Count > 1 ? "s" : "")}",
+                     UITheme.TextePrincipal, true);
             Cell(rec, "", WEch, false, UITheme.TexteSecondaire, false);
-            Cell(rec, Montant(grp.total), WMont, true, Hex("#A32D2D"), true);
+            Cell(rec, Montant(grp.total), WMont, true, UITheme.Erreur, true);
             Cell(rec, "", WGap, false, UITheme.TexteSecondaire, false);
             Cell(rec, "", WBank, false, UITheme.TexteSecondaire, false);
-            if (grp.imp > 0) PillCell(rec, grp.imp + " impayé", Hex("#FCEBEB"), Hex("#A32D2D"), WEtat);
-            else PillCell(rec, "À jour", Hex("#E1F5EE"), Hex("#0F6E56"), WEtat);
+            if (grp.imp > 0) PillCell(rec, grp.imp + (grp.imp > 1 ? " impayés" : " impayé"), UITheme.Hex("#FCEBEB"), UITheme.Erreur, WEtat);
+            else PillCell(rec, "À jour", UITheme.PrimaireClair, UITheme.Primaire, WEtat);
 
             if (!ouvert) continue;
 
@@ -213,7 +221,7 @@ public class FacturationHomeSection : MonoBehaviour
             foreach (var e in grp.lignes)
             {
                 var ent = e;
-                var row = Row(_tableBox, (i++ % 2 == 0) ? UITheme.Carte : Hex("#F6F4EC"), 32, () => OpenDetail(ent));
+                var row = Row(_tableBox, (i++ % 2 == 0) ? UITheme.Carte : UITheme.Hex("#F6F4EC"), 32, () => OpenDetail(ent));
                 Cell(row, "", WCar, false, UITheme.TexteSecondaire, false);
                 CellFlex(row, "    " + e.rec.libelle, UITheme.TextePrincipal, false);
                 Cell(row, EchStr(e.rec.echeanceISO), WEch, false, UITheme.TexteSecondaire, false);
@@ -223,11 +231,21 @@ public class FacturationHomeSection : MonoBehaviour
                 Pill(row, FacturationSuivi.EtatAffiche(e.loc, e.rec), WEtat);   // « Partiel » (08/10) ; montant = le reste
             }
         }
+
+        int reste = groupes.Count - _limite;
+        if (reste > 0)
+        {
+            var plus = Row(_tableBox, UITheme.Fond, 34, () => { _limite += ParPage; Rebuild(); });
+            var t = UIFactory.Text(plus, $"Voir les {Math.Min(reste, ParPage)} suivants ({reste} restants)", UITheme.Role.Action,
+                                   UITheme.Hex("#185FA5"), true, TextAlignmentOptions.Center);
+            t.raycastTarget = false;
+            UIFactory.LE(t.gameObject, flexW: 1);
+        }
     }
 
     void ToggleGroupe(string locId)
     {
-        if (!_collapsed.Remove(locId)) _collapsed.Add(locId);
+        if (!_ouverts.Remove(locId)) _ouverts.Add(locId);
         Rebuild();
     }
 
@@ -256,9 +274,12 @@ public class FacturationHomeSection : MonoBehaviour
     /// mêmes constantes que les cellules, elle suit si une colonne change. La
     /// carte l'annonçait à 300 alors qu'il en faut 712 : le menu la serrait donc à
     /// côté de « À traiter » jusqu'à la faire sortir de l'écran (zoom 175 %).
-    public static float LargeurMin =>
+    /// Revue 17 (D10-17, lot F) : la rangée des filtres compte aussi (« Filtrer : » et trois menus de 210) : entre 712 et 735, le
+    /// troisième menu sortait de la carte.
+    public static float LargeurMin => Mathf.Max(
         Lisere + 2 * MargeCorps + 2 * MargeLigne + 6 * EspaceLigne
-        + WCar + MinLibelle + WEch + WMont + WGap + WBank + WEtat;
+        + WCar + MinLibelle + WEch + WMont + WGap + WBank + WEtat,
+        Lisere + 2 * MargeCorps + 60 + 3 * 210 + 3 * 8);
 
     Transform Row(Transform parent, Color bg, float minH, Action onClick)
     {
@@ -392,26 +413,25 @@ public class FacturationHomeSection : MonoBehaviour
     static string EchStr(string iso) => DateTime.TryParse(iso, out var d) ? d.ToString("dd/MM/yyyy") : "—";
     static DateTime Ech(string iso) => DateTime.TryParse(iso, out var d) ? d : DateTime.MaxValue;
 
-    static Color EtatBg(FacturationSuivi.Etat e) => e == FacturationSuivi.Etat.Impaye ? Hex("#FCEBEB")
-        : e == FacturationSuivi.Etat.Partiel || e == FacturationSuivi.Etat.ARembourser ? Hex("#FFE8D6") : Hex("#E6F1FB");
-    static Color EtatFg(FacturationSuivi.Etat e) => e == FacturationSuivi.Etat.Impaye ? Hex("#A32D2D")
-        : e == FacturationSuivi.Etat.Partiel || e == FacturationSuivi.Etat.ARembourser ? Hex("#B4520A") : Hex("#185FA5");
+    static Color EtatBg(FacturationSuivi.Etat e) => e == FacturationSuivi.Etat.Impaye ? UITheme.Hex("#FCEBEB")
+        : e == FacturationSuivi.Etat.Partiel || e == FacturationSuivi.Etat.ARembourser ? UITheme.Hex("#FFE8D6") : UITheme.Hex("#E6F1FB");
+    static Color EtatFg(FacturationSuivi.Etat e) => e == FacturationSuivi.Etat.Impaye ? UITheme.Erreur
+        : e == FacturationSuivi.Etat.Partiel || e == FacturationSuivi.Etat.ARembourser ? UITheme.Hex("#B4520A") : UITheme.Hex("#185FA5");
 
     // Couleur de pastille par banque (banques connues, sinon dérivée du nom).
     static Color BankColor(string bank)
     {
         if (string.IsNullOrWhiteSpace(bank)) return UITheme.Bordure;
         string b = bank.ToLowerInvariant();
-        if (b.Contains("bnp")) return Hex("#185FA5");
-        if (b.Contains("agricole") || b.Contains("crédit agri") || b.Contains("credit agri")) return Hex("#2E8B57");
-        if (b.Contains("épargne") || b.Contains("epargne") || b.Contains("caisse")) return Hex("#C0392B");
-        if (b.Contains("lcl")) return Hex("#0E76A8");
-        if (b.Contains("société") || b.Contains("societe") || b.Contains("sg ")) return Hex("#2C3E50");
-        if (b.Contains("postale") || b.Contains("poste")) return Hex("#D4A017");
+        if (b.Contains("bnp")) return UITheme.Hex("#185FA5");
+        if (b.Contains("agricole") || b.Contains("crédit agri") || b.Contains("credit agri")) return UITheme.Hex("#2E8B57");
+        if (b.Contains("épargne") || b.Contains("epargne") || b.Contains("caisse")) return UITheme.Hex("#C0392B");
+        if (b.Contains("lcl")) return UITheme.Hex("#0E76A8");
+        if (b.Contains("société") || b.Contains("societe") || b.Contains("sg ")) return UITheme.Hex("#2C3E50");
+        if (b.Contains("postale") || b.Contains("poste")) return UITheme.Hex("#D4A017");
         var pal = new[] { "#185FA5", "#2E8B57", "#8E44AD", "#D35400", "#16A085", "#C0392B" };
         int h = 0; foreach (char c in bank) h = (h * 31 + c) & 0x7fffffff;
-        return Hex(pal[h % pal.Length]);
+        return UITheme.Hex(pal[h % pal.Length]);
     }
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }

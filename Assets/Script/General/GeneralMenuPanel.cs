@@ -55,7 +55,6 @@ public class GeneralMenuPanel : MonoBehaviour
     // ── Internes ──────────────────────────────────────────────────────────────
 
     private readonly List<GameObject> _cards = new();
-    private readonly List<GameObject> _rows = new();
     private readonly List<GameObject> _alertRows = new();
     private string _recherche = "";
     private int _tri = 0;
@@ -73,7 +72,7 @@ public class GeneralMenuPanel : MonoBehaviour
     private void Start()
     {
         btnPLU?.onClick.AddListener(() => PLUOverlayPanel.Instance.OpenFreeSearch());
-        btnObjectifs?.onClick.AddListener(() => TogglePanel(objectifsPanel));
+        btnObjectifs?.onClick.AddListener(() => OuvrirPanneau(objectifsPanel));
 
         // Le bouton « Sauvegardes » / « Charger une save » est masqué : le multi-
         // entreprise (bouton « Entreprises » → « Ouvrir un dossier existant ») le
@@ -82,36 +81,22 @@ public class GeneralMenuPanel : MonoBehaviour
         if (btnSauvegardes != null)
             btnSauvegardes.gameObject.SetActive(false);
 
-        btnNouveauBatiment?.onClick.AddListener(() =>
-        {
-            var prefab = batimentManager.AddBatiment(true);
-            menuManager.CreateTab(prefab);
-            menuManager.OnSelect(prefab, true);
-        });
+        btnNouveauBatiment?.onClick.AddListener(() => menuManager.NouveauBatiment());   // Revue 17 (D8-13, lot G) : écrit une seule fois
 
         if (rechercheInput != null)
             rechercheInput.onValueChanged.AddListener(r => { _recherche = r; RebuildBuildings(); });
+        // Revue visuelle du 16/11 (V-37) : le même cadre que le menu « Tri » à côté (gris sans bord, il ne se lisait pas comme un champ).
+        if (rechercheInput != null && rechercheInput.TryGetComponent(out Image fondRecherche))
+        {
+            fondRecherche.color = Color.white;
+            UIFactory.Border(rechercheInput.gameObject, UITheme.BordureChamp);
+        }
         if (triDropdown != null)
         {
             triDropdown.onValueChanged.AddListener(t => { _tri = t; RebuildBuildings(); });
-            // Le contrôle « Tri » et sa liste déroulante passaient DERRIÈRE le Scroll
-            // View des bâtiments (dessiné après). Un Canvas trié les remonte au-dessus.
-            // NB : pas de « ?? » ici — GetComponent d'un composant Unity absent renvoie
-            // un faux-null qui n'active pas le fallback ; on teste avec == null (surcharge Unity).
-            var cv = triDropdown.GetComponent<Canvas>();
-            if (cv == null) cv = triDropdown.gameObject.AddComponent<Canvas>();
-            cv.overrideSorting = true; cv.sortingOrder = 100;
-            if (triDropdown.GetComponent<GraphicRaycaster>() == null)
-                triDropdown.gameObject.AddComponent<GraphicRaycaster>();
-            // La liste instanciée (clone du Template) reçoit un Canvas encore au-dessus.
-            if (triDropdown.template != null)
-            {
-                var tcv = triDropdown.template.GetComponent<Canvas>();
-                if (tcv == null) tcv = triDropdown.template.gameObject.AddComponent<Canvas>();
-                tcv.overrideSorting = true; tcv.sortingOrder = 200;
-                if (triDropdown.template.GetComponent<GraphicRaycaster>() == null)
-                    triDropdown.template.gameObject.AddComponent<GraphicRaycaster>();
-            }
+            // Revue 17 (D10-19, lot F) : plus de Canvas trié (ordre 100) sur le contrôle : il se dessinait et se cliquait par-dessus
+            // Réglages, les voiles et les fenêtres ouvertes depuis l'accueil, et échappait au masque de défilement. La liste ouverte
+            // n'en a pas besoin : TMP_Dropdown lui donne son propre Canvas (ordre 30000).
         }
 
         EnsureHomeReorg();
@@ -186,6 +171,15 @@ public class GeneralMenuPanel : MonoBehaviour
             if (img != null) img.color = IdentityClair;
             b.onClick.RemoveAllListeners();
             b.onClick.AddListener(ToggleCalculRapide);
+            // Revue visuelle du 16/11 (V-26 ; décision du 16/11) : les quatre boutons de l'en-tête à la même teinte (vert pâle, texte vert).
+            // Avant : « Consulter le PLU » violet, « Compte » et « Réglages » bleu pâle, « Calcul rapide » vert pâle.
+            foreach (Transform enfant in ro)
+            {
+                if (enfant.GetComponent<Button>() == null) continue;
+                if (enfant.TryGetComponent(out Image fondBouton)) fondBouton.color = IdentityClair;
+                var texteBouton = enfant.GetComponentInChildren<TMP_Text>(true);
+                if (texteBouton != null) texteBouton.color = IdentityAccent;
+            }
         }
 
         // 5) Uniformise les en-têtes de section (bande colorée + titre ~22, couleur d'accent).
@@ -194,11 +188,10 @@ public class GeneralMenuPanel : MonoBehaviour
 
     // Colorimétrie « groupée par fonction » (menu principal, choix utilisatrice) :
     // Bâtiments → vert (identité), Créances → ambre (argent), À traiter → gris-bleu (notes).
-    static readonly Color IdentityAccent = HexC("#0F6E56");
-    static readonly Color IdentityClair  = HexC("#D6ECE3");
-    static readonly Color NotesAccent    = HexC("#5C6E85");
-    static readonly Color NotesClair     = HexC("#E7ECF2");
-    static Color HexC(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+    static readonly Color IdentityAccent = UITheme.Primaire;
+    static readonly Color IdentityClair  = UITheme.Hex("#D6ECE3");
+    static readonly Color NotesAccent    = UITheme.Hex("#5C6E85");
+    static readonly Color NotesClair     = UITheme.Hex("#E7ECF2");
 
     // Harmonise « À traiter » et « Bâtiments » (objets de scène) avec « Créances » :
     // même bande colorée + même taille de titre, couleurs par famille de fonction.
@@ -391,7 +384,7 @@ public class GeneralMenuPanel : MonoBehaviour
         var srt = (RectTransform)scrim.transform;
         srt.SetParent(root, false);
         srt.anchorMin = Vector2.zero; srt.anchorMax = Vector2.one; srt.offsetMin = Vector2.zero; srt.offsetMax = Vector2.zero;
-        scrim.GetComponent<Image>().color = new Color(0, 0, 0, 0.5f);
+        scrim.GetComponent<Image>().color = new Color(0, 0, 0, 0.45f);   // revue visuelle du 16/11 (V-12) : comme les autres fenêtres
         scrim.GetComponent<Button>().onClick.AddListener(CloseCalculRapide);
         srt.SetAsLastSibling();
         _calcScrim = scrim;
@@ -401,6 +394,17 @@ public class GeneralMenuPanel : MonoBehaviour
         var crt = (RectTransform)_calculRapide;
         crt.anchorMin = crt.anchorMax = crt.pivot = new Vector2(.5f, .5f);
         crt.anchoredPosition = Vector2.zero;
+        // Revue visuelle du 16/11 (V-01, V-04 ; décisions du 16/11) : le bandeau des autres fenêtres, avec un « × » : la fenêtre ne se
+        // fermait que par un clic en dehors. Posé une fois ; l'ancien titre, dans la carte, est masqué.
+        if (_calculRapide.Find("Header") == null)
+        {
+            foreach (Transform enfant in _calculRapide)
+            {
+                var ancienTitre = enfant.GetComponent<TMP_Text>();
+                if (ancienTitre != null && ancienTitre.text.Trim() == "Calcul rapide") enfant.gameObject.SetActive(false);
+            }
+            UIFactory.Bandeau(crt, "Calcul rapide", UITheme.Primaire, CloseCalculRapide);
+        }
         _calculRapide.gameObject.SetActive(true);
     }
 
@@ -532,17 +536,17 @@ public class GeneralMenuPanel : MonoBehaviour
         double cashMois = (loyers - mensAn) / 12d;
         double rend = investi > 0 ? (loyers - chargesAn) / investi * 100d : 0d;
 
-        _gLoyer.text = loyers > 0 ? $"{loyers:N0} €" : "—";
-        _gLoyer.color = loyers > 0 ? HexC("#0F6E56") : HexC("#5F5E5A");
-        _gDepense.text = mensAn > 0.5f ? $"{mensAn:N0} €" : "0 €";
-        _gDepense.color = HexC("#D85A30");
-        _gInvesti.text = investi > 0 ? $"{investi:N0} €" : "—";
-        _gGagne.text = $"{(gagne >= 0 ? "+" : "")}{gagne:N0} €";
-        _gGagne.color = gagne >= 0 ? HexC("#0F6E56") : HexC("#D85A30");
-        _gRend.text = rend != 0 ? $"{rend:F1} %" : "—";
-        _gRend.color = rend > 0 ? HexC("#0F6E56") : rend < 0 ? HexC("#D85A30") : HexC("#5F5E5A");
-        _gCash.text = $"{(cashMois >= 0 ? "+" : "")}{cashMois:N0} €";
-        _gCash.color = cashMois >= 0 ? HexC("#0F6E56") : HexC("#D85A30");
+        _gLoyer.text = loyers > 0 ? $"{Montants.F(loyers, "N0")} €" : "—";
+        _gLoyer.color = loyers > 0 ? UITheme.Primaire : UITheme.TexteSecondaire;
+        _gDepense.text = mensAn > 0.5f ? $"{Montants.F(mensAn, "N0")} €" : "0 €";
+        _gDepense.color = UITheme.Alerte;
+        _gInvesti.text = investi > 0 ? $"{Montants.F(investi, "N0")} €" : "—";
+        _gGagne.text = $"{(gagne >= 0 ? "+" : "")}{Montants.F(gagne, "N0")} €";
+        _gGagne.color = gagne >= 0 ? UITheme.Primaire : UITheme.Alerte;
+        _gRend.text = rend != 0 ? $"{Montants.F(rend, "F1")} %" : "—";
+        _gRend.color = rend > 0 ? UITheme.Primaire : rend < 0 ? UITheme.Alerte : UITheme.TexteSecondaire;
+        _gCash.text = $"{(cashMois >= 0 ? "+" : "")}{Montants.F(cashMois, "N0")} €";
+        _gCash.color = cashMois >= 0 ? UITheme.Primaire : UITheme.Alerte;
     }
 
     // ── Stats globales ────────────────────────────────────────────────────────
@@ -558,7 +562,7 @@ public class GeneralMenuPanel : MonoBehaviour
 
         foreach (var prefab in batimentManager.BatimentPrefab)
         {
-            nbLoc += prefab.listLocataire.Count(l => l != null && !l.archive);   // revue 16c (D8-10) : hors liste, hors compteur
+            nbLoc += prefab.NbEnPlace();   // Revue 17 (D8-05, lot F) : ni archivés, ni partis, ni pas encore arrivés
             loyerTotal += prefab.GetLoyerTotal();
 
             var data = prefab.getBatiment();
@@ -572,16 +576,21 @@ public class GeneralMenuPanel : MonoBehaviour
 
         if (txtNbBatiments != null)
             txtNbBatiments.text = $"{nbBat} bâtiment{(nbBat > 1 ? "s" : "")} · {nbLoc} locataire{(nbLoc > 1 ? "s" : "")}";
-        if (txtLoyerTotal != null) txtLoyerTotal.text = $"{loyerTotal:N0} €";
+        if (txtLoyerTotal != null) txtLoyerTotal.text = $"{Montants.F(loyerTotal, "N0")} €";
         if (txtInvesti != null) txtInvesti.text = FormatInvesti(investi);
     }
 
     private static string FormatInvesti(double v)
-        => v >= 1_000_000d ? $"{v / 1_000_000d:0.0#} M€" : $"{v:N0} €";
+        => v >= 1_000_000d ? $"{Montants.F(v / 1_000_000d, "0.0#")} M€" : $"{Montants.F(v, "N0")} €";
 
     // ── Zone « À traiter » ────────────────────────────────────────────────────
 
     private TuilesATraiter _tuilesATraiter;
+
+    // Revue 17 (D9-14, lot E) : le nombre d'alertes de chaque bâtiment (tri par défaut des bâtiments), compté sur la liste que
+    // BuildAlertes vient de calculer. Avant, le tri refaisait HomeAlertCollector.Collect bâtiment par bâtiment, à chaque
+    // rafraîchissement et à chaque lettre tapée dans la recherche (109 ms par passage pour 300 locataires, mesuré le 16/11).
+    private Dictionary<BatimentPrefab, int> _nbAlertes;
 
     private void BuildAlertes()
     {
@@ -589,8 +598,25 @@ public class GeneralMenuPanel : MonoBehaviour
         _alertRows.Clear();
 
         var toutes = HomeAlertCollector.Collect(batimentManager.BatimentPrefab);
+        _nbAlertes = NbAlertesParBatiment(toutes);
 
-        if (txtNbAlertes != null) txtNbAlertes.text = toutes.Count.ToString();
+        if (txtNbAlertes != null)
+        {
+            txtNbAlertes.text = toutes.Count.ToString();
+            // Revue 17 (B-20, lot F) : deux chiffres sortaient du rond (24 de texte pour 18) : la pastille s'élargit avec son texte.
+            txtNbAlertes.enableWordWrapping = false;
+            if (txtNbAlertes.transform.parent is RectTransform pastille)
+            {
+                // 20 : le rond d'origine. Pas la hauteur mesurée de la pastille : au premier passage, avant la mise en page, elle vaut 100.
+                float largeur = Mathf.Max(20f, txtNbAlertes.preferredWidth + 10f);
+                var le = pastille.GetComponent<LayoutElement>();
+                if (le != null) le.minWidth = le.preferredWidth = largeur;
+                else pastille.sizeDelta = new Vector2(largeur, pastille.sizeDelta.y);
+                var zone = txtNbAlertes.rectTransform;
+                zone.anchorMin = Vector2.zero; zone.anchorMax = Vector2.one; zone.offsetMin = zone.offsetMax = Vector2.zero;
+                txtNbAlertes.alignment = TextAlignmentOptions.Center;
+            }
+        }
         txtAucuneAlerte?.SetActive(toutes.Count == 0);
         alertesSection?.SetActive(toutes.Count > 0);
 
@@ -685,7 +711,6 @@ public class GeneralMenuPanel : MonoBehaviour
         EnsureBuildingsContainer();
 
         _cards.Clear();
-        _rows.Clear();
         var aDetruire = new List<GameObject>();
         foreach (Transform c in buildingsGrid) aDetruire.Add(c.gameObject);
         foreach (var g in aDetruire) Destroy(g);
@@ -723,7 +748,6 @@ public class GeneralMenuPanel : MonoBehaviour
             {
                 var go = Instantiate(buildingRowPrefab, buildingsGrid);
                 go.GetComponent<BuildingRowUI>().Setup(bp, OnBuildingClicked);
-                _rows.Add(go);
             }
         }
         else if (buildingCardPrefab != null)
@@ -752,8 +776,12 @@ public class GeneralMenuPanel : MonoBehaviour
         if (h > 1f) grid.cellSize = new Vector2(grid.cellSize.x, h);
     }
 
+    static Dictionary<BatimentPrefab, int> NbAlertesParBatiment(IEnumerable<HomeAlert> alertes) =>
+        alertes.Where(a => a?.batiment != null).GroupBy(a => a.batiment).ToDictionary(g => g.Key, g => g.Count());
+
     private List<BatimentPrefab> FiltrerTrier(IEnumerable<BatimentPrefab> source)
     {
+        var nb = _nbAlertes ?? (_nbAlertes = NbAlertesParBatiment(HomeAlertCollector.Collect(batimentManager.BatimentPrefab)));
         var liste = source.Where(bp =>
         {
             if (string.IsNullOrEmpty(_recherche)) return true;
@@ -774,7 +802,7 @@ public class GeneralMenuPanel : MonoBehaviour
             default: // alertes : le plus d'alertes d'abord (toutes : révision, dépôt,
                      // régul, fin de bail, objectifs, facturation…), puis sévérité, puis nom.
                 liste = liste
-                    .OrderByDescending(bp => HomeAlertCollector.Collect(new[] { bp }).Count)
+                    .OrderByDescending(bp => nb.TryGetValue(bp, out int n) ? n : 0)
                     .ThenBy(bp => BatimentEtatHelper.Priorite(BatimentEtatHelper.GetEtat(bp)))
                     .ThenBy(bp => bp.getName());
                 break;
@@ -791,7 +819,7 @@ public class GeneralMenuPanel : MonoBehaviour
 
     // ── Outils ────────────────────────────────────────────────────────────────
 
-    private void TogglePanel(GameObject panel)
+    private void OuvrirPanneau(GameObject panel)
     {
         if (panel == null) return;
         panel.SetActive(true);

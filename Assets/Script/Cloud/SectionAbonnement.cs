@@ -83,6 +83,7 @@ public class SectionAbonnement
     void Choix(AbonnementCloud.Lu a, RegleAbonnement.Etat etat)
     {
         UIFactory.Text(_corps, "Choisir l'abonnement", UITheme.Role.Libelle, UITheme.TextePrincipal, true);
+        UIFactory.Text(_corps, RegleAbonnement.AideChoix(etat), UITheme.Role.Aide, UITheme.TexteSecondaire);   // décision du 23/11 : dite AVANT les « - » / « + »
         var formules = UIFactory.HBox(_corps, 8, false, "Formules");
         Puce(formules.transform, "Mensuel", !_annuel, () => { _annuel = false; Reconstruire(); });
         Puce(formules.transform, $"Annuel · {12 - RegleAbonnement.MoisParAn} mois offerts", _annuel, () => { _annuel = true; Reconstruire(); });
@@ -96,9 +97,11 @@ public class SectionAbonnement
         }
         int total = LignesEntreprises(a, _annuel, Choisi, (e, ecart) =>
         {
-            _repartition[e.id] = Math.Max(RegleAbonnement.LicencesMin(e.licences_utilisees), Choisi(e) + ecart);
+            // Demande du 23/11 : « - » sous les licences utilisées : dit au centre, comme pour un abonnement en cours (avant : rien ne se passait).
+            if (Choisi(e) + ecart < RegleAbonnement.LicencesMin(e.licences_utilisees)) { ConfirmDialog.Erreur(UtilisateursCloud.RefusBaisse(e)); return; }
+            _repartition[e.id] = Choisi(e) + ecart;
             Reconstruire();
-        });
+        }, " à l'abonnement");
         int n = Math.Max(1, a.entreprises?.Length ?? 0);
         int ht = RegleAbonnement.Total(n, total) * (_annuel ? RegleAbonnement.MoisParAn : 1);
         decimal ttc = RegleAbonnement.Ttc(ht);
@@ -107,11 +110,9 @@ public class SectionAbonnement
         Ligne("Total", $"{RegleAbonnement.Euros(ttc)} TTC {(_annuel ? "/ an" : "/ mois")}", gras: true);
 
         var premier = RegleAbonnement.PremierPrelevement(etat, AbonnementCloud.FinEssai, AbonnementCloud.Aujourdhui);
-        // Retour du 23/10 : sans cette phrase, on croyait les licences déjà changées (l'onglet
-        // Utilisateurs, lui, montre celles en vigueur).
-        UIFactory.Text(_corps, "Les licences choisies ici s'appliquent au paiement ; d'ici là, chaque entreprise garde les siennes" +
-                       (etat == RegleAbonnement.Etat.Essai ? " (3 pendant l'essai)" : "") +   // Revue 17 (D3-10) : essai fini : plus « pendant l'essai »
-                       ". Carte ou prélèvement SEPA, sur la page sécurisée de Stripe. " +
+        // Retour du 23/10 : sans la phrase des licences, on croyait les licences déjà changées (l'onglet Utilisateurs, lui, montre
+        // celles en vigueur). Décision du 23/11 : elle est montée sous le titre (RegleAbonnement.AideChoix) ; ici, le paiement seul.
+        UIFactory.Text(_corps, "Carte ou prélèvement SEPA, sur la page sécurisée de Stripe. " +
                        RegleAbonnement.TextePrelevement(premier, AbonnementCloud.Aujourdhui), UITheme.Role.Aide, UITheme.TexteSecondaire);
         Bouton(UIFactory.HBox(_corps, 8, false, "Payer").transform, "Continuer vers le paiement", Payer, principal: true);
     }
@@ -196,12 +197,7 @@ public class SectionAbonnement
     void ChangerLicences(AbonnementCloud.Lu a, UtilisateursCloud.Entreprise e, int ecart)
     {
         int nouveau = e.licences_max + ecart, min = RegleAbonnement.LicencesMin(e.licences_utilisees);
-        if (nouveau < min)
-        {
-            ConfirmDialog.Erreur($"{e.nom} : {e.licences_utilisees} licence{S(e.licences_utilisees)} utilisée{S(e.licences_utilisees)}. " +
-                                 $"Retirez quelqu'un de {e.nom} (onglet Utilisateurs) avant de baisser son nombre de licences.");
-            return;
-        }
+        if (nouveau < min) { ConfirmDialog.Erreur(UtilisateursCloud.RefusBaisse(e)); return; }
         ConfirmDialog.Instance?.Show(ecart > 0 ? "Ajouter une licence ?" : "Retirer une licence ?",
             RegleAbonnement.TexteLicences(ecart, a.formule == "annuel", e.nom), async () =>
             {
@@ -216,8 +212,9 @@ public class SectionAbonnement
 
     /// Licences par entreprise (maquette du 23/10) : « Ajouter une entreprise », puis une ligne par
     /// entreprise (prix, licences avec « - » / « + », montant des licences). Renvoie le total des licences.
+    /// `suffixe` (décision du 23/11) : au choix de l'abonnement, « licences à l'abonnement » : celles qu'on paiera, pas celles de l'essai.
     int LignesEntreprises(AbonnementCloud.Lu a, bool annuel, Func<UtilisateursCloud.Entreprise, int> licences,
-                          Action<UtilisateursCloud.Entreprise, int> changer)
+                          Action<UtilisateursCloud.Entreprise, int> changer, string suffixe = "")
     {
         int mois = annuel ? RegleAbonnement.MoisParAn : 1, total = 0;
         var ents = a.entreprises ?? new UtilisateursCloud.Entreprise[0];
@@ -230,9 +227,13 @@ public class SectionAbonnement
             int prix = (i == 0 ? RegleAbonnement.PrixEntreprise : RegleAbonnement.PrixEntrepriseSuivante) * mois;
             var row = Ligne($"{e.nom}  ·  {(i == 0 ? "1re entreprise" : "-30 %")}  ·  {RegleAbonnement.Euros(prix)}", null);
             Bouton(row, "-", () => changer(e, -1));
-            UIFactory.Text(row, l.ToString(), UITheme.Role.Donnee, UITheme.TextePrincipal, true);
+            // Revue visuelle (V-45) : largeurs fixes, pour que « - 2 + » tombe au même endroit sur chaque ligne (avant : il suivait la longueur du texte).
+            var nombre = UIFactory.Text(row, l.ToString(), UITheme.Role.Donnee, UITheme.TextePrincipal, true, TMPro.TextAlignmentOptions.Center);
+            UIFactory.LE(nombre.gameObject, minW: 28, prefW: 28);
             Bouton(row, "+", () => changer(e, +1));
-            UIFactory.Text(row, $"licence{S(l)} · {e.licences_utilisees} utilisée{S(e.licences_utilisees)}", UITheme.Role.Aide, UITheme.TexteSecondaire);
+            var utilisees = UIFactory.Text(row, $"licence{S(l)}{suffixe} · {e.licences_utilisees} utilisée{S(e.licences_utilisees)}", UITheme.Role.Aide, UITheme.TexteSecondaire);
+            float largeur = suffixe.Length > 0 ? 270f : 180f;
+            UIFactory.LE(utilisees.gameObject, minW: largeur, prefW: largeur);
             var montant = UIFactory.Text(row, RegleAbonnement.Euros(l * RegleAbonnement.PrixLicence * mois), UITheme.Role.Donnee,
                                          UITheme.TextePrincipal, false, TMPro.TextAlignmentOptions.Right);
             UIFactory.LE(montant.gameObject, prefW: 90, minW: 90);
@@ -245,7 +246,12 @@ public class SectionAbonnement
     // ── Ajouter une entreprise (maquette du 19/10) ─────────────────────────────
 
     /// Après un refus, la fenêtre se rouvre telle qu'elle était remplie (retour du 19/10).
-    void OuvrirAjout() => OuvrirAjout("societe", "", "");
+    void OuvrirAjout()
+    {
+        // Décision du 22/11 : pendant l'essai, une seule entreprise : refus avant d'ouvrir le formulaire (le serveur refuse aussi).
+        if (RegleAbonnement.AjoutRefuse(AbonnementCloud.Etat)) { ConfirmDialog.Erreur(RegleAbonnement.RefusAjoutEssai); return; }
+        OuvrirAjout("societe", "", "");
+    }
 
     void OuvrirAjout(string typeAvant, string siretAvant, string nomAvant)
     {

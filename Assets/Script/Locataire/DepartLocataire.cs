@@ -59,7 +59,7 @@ public static class DepartLocataire
             if (r == null || Math.Abs(r.ht) < 0.005f) continue;
             d.lignes.Add(new KeyValuePair<string, float>(
                 "Retenue — " + (string.IsNullOrWhiteSpace(r.libelle) ? "remise en état" : r.libelle.Trim())
-                + (r.tva && taux > 0f ? $" (HT, TVA {taux:0.##} %)" : ""), Cents(r.ht)));
+                + (r.tva && taux > 0f ? $" (HT, TVA {Montants.F(taux, "0.##")} %)" : ""), Cents(r.ht)));
             d.retenuesHT += Cents(r.ht);
             if (r.tva && taux > 0f) tva += r.ht * taux / 100.0;
         }
@@ -309,6 +309,14 @@ public static class DepartLocataire
         { "Départ", "Dernier loyer", "État des lieux", "Décompte de sortie", "Régul de sortie", "Archiver" };
 
     /// « Non, pas d'état des lieux », ou date ET PDF (décision du 02/10).
+    /// Lot F (décision du 16/11) : ce qui reste à prévoir avant le départ, pour l'alerte de la fiche : l'état des lieux (réglé
+    /// s'il est fait ou si « Non, pas d'état des lieux » est choisi), le décompte de sortie ; null si les deux sont réglés.
+    public static string ResteAvantDepart(Locataire loc)
+    {
+        bool edl = !EtatDesLieuxFait(loc), decompte = !DecompteFait(loc);
+        return edl && decompte ? "état des lieux et décompte de sortie" : edl ? "état des lieux" : decompte ? "décompte de sortie" : null;
+    }
+
     public static bool EtatDesLieuxFait(Locataire loc)
         => loc != null && (loc.sansEtatDesLieux
            || (FacturationSuivi.TryEcheance(loc.dateEtatDesLieuxISO, out _) && !string.IsNullOrEmpty(loc.etatDesLieux)));

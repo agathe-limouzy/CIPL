@@ -30,18 +30,22 @@ public static class ImportLocal
     }
 
     /// Entreprises connues de ce PC (registre de l'app), avec ce qu'elles contiennent.
-    public static List<Source> EntreprisesDuPC()
+    /// Revue 17 (D9-15, lot E) : le repère est lu d'abord ; `compter` faux (entreprise déjà importée), ses bâtiments ne sont ni
+    /// lus ni décodés (0 bâtiment). Avant : tous les batiment_*.json de chaque entreprise relus à chaque démarrage (235 ms pour
+    /// 12 entreprises sur ce PC, mesuré le 16/11), puis écartés.
+    public static List<Source> EntreprisesDuPC(Func<Repere, bool> compter = null)
     {
         var res = new List<Source>();
         foreach (var e in EntrepriseService.All())
         {
             if (e == null || string.IsNullOrEmpty(e.racine) || !Directory.Exists(e.racine)) continue;
-            var bats = LireBatiments(e.racine, out _);
+            var repere = LireRepere(e.racine);
+            var bats = compter == null || compter(repere) ? LireBatiments(e.racine, out _) : new List<Batiment>();
             res.Add(new Source
             {
                 Nom = e.nom, Racine = e.racine, NbBatiments = bats.Count,
                 NbLocataires = bats.Sum(b => b.locataireDuBatiment?.Count(l => l != null) ?? 0),
-                Repere = LireRepere(e.racine),
+                Repere = repere,
             });
         }
         return res;

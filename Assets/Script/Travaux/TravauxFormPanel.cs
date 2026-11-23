@@ -39,6 +39,7 @@ public class TravauxFormPanel : MonoBehaviour
         _onSave = onSave;
         _onClose = onClose;
         gameObject.SetActive(true);
+        PlafondFenetre.Poser(transform.GetChild(0) as RectTransform, "Body/Bouton");   // BZ7 (22/11) : jamais plus haute que l'écran, boutons fixes
 
         InitDropdownDuree();
         ApplyToUI(_data);
@@ -140,10 +141,10 @@ public class TravauxFormPanel : MonoBehaviour
             ? RentabiliteCalculator.Mensualite(montant, taux, duree) : 0d;
         double coutCreditTotal = mens * duree;
 
-        if (txtApport != null) txtApport.text = double.IsNaN(apport) ? "—" : $"{System.Math.Max(0d, apport):N0} €";
-        if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? (double.IsNaN(mens) ? "—" : $"{mens:N0} € / mois") : "Comptant";
+        if (txtApport != null) txtApport.text = double.IsNaN(apport) ? "—" : $"{Montants.F(System.Math.Max(0d, apport), "N0")} €";
+        if (txtMensualite != null) txtMensualite.text = DropdownComptant.value == 1 ? (double.IsNaN(mens) ? "—" : $"{Montants.F(mens, "N0")} € / mois") : "Comptant";
         if (txtCoutTotalCredit != null) txtCoutTotalCredit.text = DropdownComptant.value == 1 && !double.IsNaN(coutCreditTotal)
-            ? $"{coutCreditTotal:N0} €" : "—";
+            ? $"{Montants.F(coutCreditTotal, "N0")} €" : "—";
     }
 
     private void Save()
@@ -173,7 +174,8 @@ public class TravauxFormPanel : MonoBehaviour
         _data.mensualiteCalculee = _data.emprunt
             ? RentabiliteCalculator.Mensualite(_data.montantEmprunte, _data.tauxInteretAnnuel, _data.dureeMois)
             : 0f;
-        _data.apportPersonnel = _data.coutTotal - _data.montantEmprunte;
+        // Revue 17 (D7b-N9, lot G) : en « Comptant », le montant d'un ancien emprunt resté dans le champ caché rendait l'apport négatif.
+        _data.apportPersonnel = _data.coutTotal - (_data.emprunt ? _data.montantEmprunte : 0d);
         _data.dateDebutTravaux = datePicker?.saveThedate().ToString("yyyy-MM-dd") ?? "";
         _onSave?.Invoke(_data);
         gameObject.SetActive(false);

@@ -134,7 +134,7 @@ public static class DemarrageCloud
             foreach (var mienne in liste) MarquerDossierRetenu(mienne);
 
             // Import proposé si le cloud est vide, ou si un import précédent est à reprendre.
-            var sources = ImportLocal.EntreprisesDuPC()
+            var sources = ImportLocal.EntreprisesDuPC(r => ImportLocal.Statut(r, SessionCloud.Url, liste) != ImportLocal.Etat.DejaImportee)   // Revue 17 (D9-15)
                 .Select(s => (source: s, etat: ImportLocal.Statut(s.Repere, SessionCloud.Url, liste)))
                 .Where(x => x.etat != ImportLocal.Etat.DejaImportee && x.source.NbBatiments > 0)
                 .ToList();
@@ -229,11 +229,12 @@ public static class DemarrageCloud
             SaveLocationService.UseRoot(dossier);
             ReglageService.Load();
             Debug.Log($"[Cloud] Ouverture de « {e.nom} », dossier {dossier}{(telecharger ? "" : " (Drive partagé)")}");
+            var lectureAbo = AbonnementCloud.Lire(e);   // Revue 17 (D9-08, lot E) : en même temps que les Réglages
             await ReglagesCloud.Synchroniser(e);   // étape 9a : Réglages et secrets de l'entreprise
             // Revue 16c (D3-10, BH3 du 02/11) : sans connexion, Réglages, abonnement puis lecture attendaient chacun 15 s sans rien
             // à l'écran (45 s « gelées », le temps de recliquer partout). Le premier échec suffit.
             if (HorsLigne.Actif) { EchecLecture(e, "pas de connexion"); return; }
-            string abo = await AbonnementCloud.Lire(e);   // étape 9c1 : expiré → lecture seule
+            string abo = await lectureAbo;   // étape 9c1 : expiré → lecture seule
             if (abo != null) Debug.LogWarning("[Cloud] Abonnement illisible : " + abo);
 
             await EcritureCloud.VerifierNom(Canvas);   // « Votre nom », à la première ouverture
@@ -245,10 +246,11 @@ public static class DemarrageCloud
             // les fiches et leurs onglets dans la scène d'édition (retour du 16/10).
             if (_bm == null) return;
 
-            Afficher(e, bats, telecharger);
+            await Afficher(e, bats, telecharger, attente);
+            if (_bm == null || SessionCloud.Entreprise != e) return;
             CopieLocale.Retenir(e.id);                  // étape 8b : celle qu'on ouvre sans connexion
             EcritureCloud.GarderCopie(maintenant: true);
-            UndoToast.Instance?.ShowInfo($"{e.nom} : {bats.Count} bâtiment(s) lu(s) depuis le cloud.");
+            UndoToast.Instance?.ShowInfo($"{e.nom} : {bats.Count} {(bats.Count > 1 ? "bâtiments lus" : "bâtiment lu")} depuis le cloud.");   // revue visuelle du 16/11 (V-34)
         }
         finally { _ouvertures--; if (attente != null) UnityEngine.Object.Destroy(attente.gameObject); }
     }
@@ -262,11 +264,16 @@ public static class DemarrageCloud
         ConfirmDialog.Erreur($"Lecture de « {e.nom} » impossible : {erreur}", ChangerEntreprise);
     }
 
-    static void Afficher(EntrepriseCloud e, System.Collections.Generic.List<Batiment> bats, bool telecharger)
+    /// Revue 17 (D9-01, lot E ; décision du 16/11) : les fiches s'installent un bâtiment par image, avec la barre d'avancement
+    /// dans le voile `attente` (sans voile : un voile est ouvert le temps de l'installation).
+    static async Task Afficher(EntrepriseCloud e, System.Collections.Generic.List<Batiment> bats, bool telecharger, RectTransform attente = null)
     {
         EcritureCloud.FermerEcrans();   // un écran resté ouvert écrirait l'ancienne fiche
         _bm.Vider();
-        _bm.Installer(bats);
+        var voile = attente != null ? attente : EcransCloud.Attente(Canvas, $"Ouverture de {e.nom}…");
+        try { await _bm.Installer(bats, EcransCloud.Avancement(voile)); }
+        finally { if (attente == null && voile != null) UnityEngine.Object.Destroy(voile.gameObject); }
+        if (_bm == null || SessionCloud.Entreprise != e) return;   // Play arrêté, ou une autre entreprise s'ouvre
         EcritureCloud.Recaler(bats);   // les mises à niveau du chargement ne repartent pas au serveur
         _bm.AppliquerCessionsDues();   // revue 16c (D2-02) : une cession datée arrivée à son jour s'applique maintenant
         _bm.menuManager.OpenGeneralMenu();
@@ -291,7 +298,8 @@ public static class DemarrageCloud
         ReglageService.Load();
         if (_bm == null) return true;
         EcritureCloud.ReprendreCopie(etats);
-        Afficher(e, CopieLocale.Recomposer(etats), telecharger);
+        await Afficher(e, CopieLocale.Recomposer(etats), telecharger);
+        if (_bm == null) return true;
         UndoToast.Instance?.ShowInfo($"Hors ligne : {e.nom} est affichée telle qu'au {aJour:dd'/'MM} à {aJour.Hour} h {aJour:mm}.");
         return true;
     }

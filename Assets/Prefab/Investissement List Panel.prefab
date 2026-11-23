@@ -315,7 +315,7 @@ MonoBehaviour:
     m_Right: 16
     m_Top: 8
     m_Bottom: 14
-  m_ChildAlignment: 3
+  m_ChildAlignment: 5
   m_Spacing: 0
   m_ChildForceExpandWidth: 0
   m_ChildForceExpandHeight: 0
@@ -381,8 +381,8 @@ MonoBehaviour:
   m_Padding:
     m_Left: 18
     m_Right: 14
-    m_Top: 14
-    m_Bottom: 14
+    m_Top: 4
+    m_Bottom: 4
   m_ChildAlignment: 3
   m_Spacing: 8
   m_ChildForceExpandWidth: 0
@@ -458,9 +458,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_IgnoreLayout: 0
   m_MinWidth: -1
-  m_MinHeight: 54
+  m_MinHeight: 52
   m_PreferredWidth: -1
-  m_PreferredHeight: -1
+  m_PreferredHeight: 52
   m_FlexibleWidth: -1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
@@ -1111,10 +1111,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_IgnoreLayout: 0
-  m_MinWidth: 190
-  m_MinHeight: 38
-  m_PreferredWidth: 190
-  m_PreferredHeight: -1
+  m_MinWidth: 240
+  m_MinHeight: 40
+  m_PreferredWidth: 240
+  m_PreferredHeight: 40
   m_FlexibleWidth: 0
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
@@ -1257,7 +1257,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 0, g: 0, b: 0, a: 0.42}
+  m_Color: {r: 0, g: 0, b: 0, a: 0.45}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1

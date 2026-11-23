@@ -383,6 +383,20 @@ public static class FacturationSuivi
         return statut;
     }
 
+    /// Décision du 17/11 (vu pendant l'essai D5-N2) : une facture RÉGLÉE PAR SES VERSEMENTS (« Paiement partiel… » jusqu'au total) ne repasse
+    /// pas « Envoyé » ni « Impayé » par le menu de la pastille : ses versements restaient, le suivi disait « Partiel · reste — » et proposait
+    /// « Rappel ». Elle se rouvre en retirant un versement (StatutApresVersements la remet « Envoyé »). Un « Payé » cliqué sans versement, ou
+    /// avec un acompte, se défait toujours par « Envoyé » ; un trop-perçu suit sa règle (BN17) ; un avoir n'est pas concerné (pas de
+    /// « Paiement partiel… » pour le rouvrir). Null : rien à refuser.
+    public static string RefusQuitterPaye(Locataire loc, FactureEtat ligne, string statut)
+    {
+        if (ligne == null || (statut != "Envoye" && statut != "Impaye")) return null;
+        Solde(loc, ligne.key, out float total, out float paye);
+        if (total <= 0.005f || Math.Abs(total - paye) > 0.005f) return null;
+        return $"« {ligne.libelle} » est réglée par ses versements ({paye.ToString("#,##0.00", FacturePdfService.FrCulture)} €) : elle ne peut pas repasser "
+             + $"« {(statut == "Envoye" ? "Envoyé" : "Impayé")} ». Pour la rouvrir, retirez un versement (« Paiement partiel… »).";
+    }
+
     /// Contrôle d'un nouveau versement : message d'erreur, ou null s'il est accepté.
     public static string VerifierVersement(float montant, float reste)
     {

@@ -31,7 +31,7 @@ public class LocataireRowUI : MonoBehaviour
 
     /// Revue 16c (D7a-07) : « Lot 1 · 1250 m² » — la surface est celle que le bâtiment calcule (TailleLotEffective),
     /// pas le champ brut (0 quand le lot suit le bâtiment).
-    public static string SousTitre(int lot, float surface) => $"Lot {lot} · {surface:F0} m²";
+    public static string SousTitre(int lot, float surface) => $"Lot {lot} · {Montants.F(surface, "F0")} m²";
 
     public void Setup(Locataire loc, float surface, Action onOpenFiche)
     {
@@ -70,7 +70,7 @@ public class LocataireRowUI : MonoBehaviour
         if (txtSousTitre != null)
             txtSousTitre.text = SousTitre(loc.lotBatiment, surface);
         if (txtLoyer != null)
-            txtLoyer.text = loc.loyerAnnuel > 0 ? $"{loc.loyerAnnuel:N0} €/an" : "—";
+            txtLoyer.text = loc.loyerAnnuel > 0 ? $"{Montants.F(loc.loyerAnnuel, "N0")} €/an" : "—";
 
         // État révision → avatar + badge
         bool suivie = loc.RevisionIndiceSuivie;

@@ -10,12 +10,11 @@ using UnityEngine.UI;
 /// rappels automatiques en tête de « À faire ». Construit par code dans la section Objectifs.
 public static class ObjectifsTableau
 {
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
-    static readonly Color FondColonne = Hex("#F1EEE6"), BordCarte = Hex("#E2DDD0");
-    static readonly Color FondAuto = Hex("#F7F5EF"), Ambre = Hex("#BA7517");
-    static readonly Color FondRetard = Hex("#FCEBEB"), TxRetard = Hex("#A32D2D");
-    static readonly Color FondProche = Hex("#FAEEDA"), TxProche = Hex("#854F0B");
-    static readonly Color Gris = Hex("#888780"), Bleu = Hex("#185FA5");
+    static readonly Color FondColonne = UITheme.Hex("#F1EEE6"), BordCarte = UITheme.Hex("#E2DDD0");
+    static readonly Color FondAuto = UITheme.Hex("#F7F5EF"), Ambre = UITheme.Hex("#BA7517");
+    static readonly Color FondRetard = UITheme.Hex("#FCEBEB"), TxRetard = UITheme.Erreur;
+    static readonly Color FondProche = UITheme.AttentionClair, TxProche = UITheme.Hex("#854F0B");
+    static readonly Color Gris = UITheme.Hex("#888780"), Bleu = UITheme.Hex("#185FA5");
 
     /// Largeur sous laquelle une colonne ne descend pas (unités d'interface : suit le zoom).
     /// Une carte y tient sur deux lignes : « Obligatoire · Retard 15 j », puis
@@ -34,9 +33,9 @@ public static class ObjectifsTableau
 
     static Color PointColonne(Objective.Avancement a) => a switch
     {
-        Objective.Avancement.EnCours => Hex("#185FA5"),
-        Objective.Avancement.Fait => Hex("#0F6E56"),
-        _ => Hex("#5F5E5A")
+        Objective.Avancement.EnCours => UITheme.Hex("#185FA5"),
+        Objective.Avancement.Fait => UITheme.Primaire,
+        _ => UITheme.TexteSecondaire
     };
 
     /// Une colonne vide (fond, mise en page verticale). Le contenu est reconstruit à chaque rafraîchissement.
@@ -89,7 +88,7 @@ public static class ObjectifsTableau
 
     public static TextMeshProUGUI Note(Transform parent, string texte)
     {
-        var t = UIFactory.Text(parent, texte, UITheme.Role.Mention, Gris, false, TextAlignmentOptions.Center);
+        var t = UIFactory.Text(parent, texte, UITheme.Role.Aide, UITheme.TexteSecondaire, false, TextAlignmentOptions.Center);   // revue visuelle du 16/11 (V-35) : « Rien ici » était en 12, gris pâle
         UIFactory.LE(t.gameObject, minH: 28);
         return t;
     }

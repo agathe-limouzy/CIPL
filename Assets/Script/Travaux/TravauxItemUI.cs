@@ -14,10 +14,11 @@ public class TravauxItemUI : MonoBehaviour
 
     public void Setup(TravauxFinancement data, Action onEdit, Action onDelete)
     {
+        AchatItemUI.SurUneLigne(txtDescription, txtMensualite, txtDate);   // Revue 17 (B-17, lot F)
         txtDescription.text = string.IsNullOrEmpty(data.description) ? "Travaux" : data.description;
-        txtCout.text = $"{data.coutTotal:N0} €";
+        txtCout.text = $"{Montants.F(data.coutTotal, "N0")} €";
         txtMensualite.text = data.emprunt
-            ? $"{RentabiliteCalculator.Mensualite(data.montantEmprunte, data.tauxInteretAnnuel, data.dureeMois):N0} € / mois"
+            ? $"{Montants.F(RentabiliteCalculator.Mensualite(data.montantEmprunte, data.tauxInteretAnnuel, data.dureeMois), "N0")} € / mois"
             : "Comptant";
         // Revue 17 (D7b-18, lot D) : date en jj/mm/aaaa, comme la liste des achats.
         txtDate.text = $"{AchatItemUI.DateLisible(data.dateDebutTravaux)} · {(data.emprunt ? "emprunt" : "comptant")}";

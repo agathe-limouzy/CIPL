@@ -23,14 +23,14 @@ public class FactureRefacPanel : MonoBehaviour
     public static FactureRefacPanel Instance { get; private set; }
 
     static readonly Color CoVert = UITheme.Primaire, CoVertL = UITheme.PrimaireClair;
-    static readonly Color CoBleu = Hex("#2C3E5E"), CoBleuL = Hex("#DEE3EB");
+    static readonly Color CoBleu = UITheme.Hex("#2C3E5E"), CoBleuL = UITheme.Hex("#DEE3EB");
     // Couleurs de cartes. `CoContenu` et `CoReglement` portent le même rôle — donc la
     // même teinte — dans les quatre panneaux ; seule la carte du type change de couleur.
     // (`CoCharge` s'appelait `CoAmbre` alors qu'il est violet : nom corrigé, l'ambre
     // désigne désormais le règlement dans les quatre fichiers.)
-    static readonly Color CoCharge    = Hex("#7A5AA6"), CoChargeL    = Hex("#ECE4F5");   // violet — charges
-    static readonly Color CoContenu   = Hex("#5F5E5A"), CoContenuL   = Hex("#E9E6DE");
-    static readonly Color CoReglement = Hex("#854F0B"), CoReglementL = Hex("#F6E6C8");
+    static readonly Color CoCharge    = UITheme.Hex("#7A5AA6"), CoChargeL    = UITheme.Hex("#ECE4F5");   // violet — charges
+    static readonly Color CoContenu   = UITheme.TexteSecondaire, CoContenuL   = UITheme.Hex("#E9E6DE");
+    static readonly Color CoReglement = UITheme.Hex("#854F0B"), CoReglementL = UITheme.Hex("#F6E6C8");
 
     // Source unique : FactureNumerotation (les quatre panneaux dupliquaient ces listes).
     static List<string> NumFmtLabels => FactureNumerotation.Labels;
@@ -40,7 +40,8 @@ public class FactureRefacPanel : MonoBehaviour
 
     TMP_Text _titre, _entetePreview, _modeInfo, _previewHint, _tHT, _tTVA, _tTTC;
     Button _btnSauver;   // décision du 11/11 : « Corriger et envoyer » pendant une correction
-    TMP_InputField _nom, _adresse, _siret, _date, _echeance, _numeroId, _refInterne, _sommePhrase, _emailEnvoi;
+    TMP_InputField _nom, _adresse, _siret, _numeroId, _refInterne, _sommePhrase, _emailEnvoi;
+    ChampDate _date, _echeance;   // Revue visuelle (V-17) : trois cases, lues « jj/mm/aaaa » comme l'ancien champ unique
     // Charges proposées : une case et un montant HT chacune ; les cochées partent
     // ensemble sur UNE facture (une ligne par charge).
     Transform _chargesBox;
@@ -157,7 +158,7 @@ public class FactureRefacPanel : MonoBehaviour
         var back = UIFactory.Button(header.transform, "←  Retour", UITheme.Carte, UITheme.TextePrincipal, 42, UITheme.Role.Bouton);
         UIFactory.Border(back.gameObject); UIFactory.LE(back.gameObject, prefW: 140, flexW: 0);
         back.onClick.AddListener(Retour);
-        _titre = UIFactory.Text(header.transform, "Information Facture — Refacturation", UITheme.Role.Page, UITheme.TextePrincipal, true);
+        _titre = UIFactory.Text(header.transform, "Refacturation de charges", UITheme.Role.Page, UITheme.TextePrincipal, true);
         UIFactory.LE(_titre.gameObject, flexW: 1);
 
         var main = UIFactory.HBox(col.transform, 16, false, "Main");
@@ -172,7 +173,7 @@ public class FactureRefacPanel : MonoBehaviour
 
         var d = UIFactory.Section(content, "Destinataire", CoVert, CoVertL);
         _nom = Labeled(d, "Nom");
-        UIFactory.Text(d.transform, "Adresse", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(d.transform, "Adresse", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _adresse = UIFactory.Input(d.transform, "Adresse (plusieurs lignes possibles)", 88, true);
         _siret = Labeled(d, "SIRET");
         _siret.onValueChanged.AddListener(_ => RefreshPlateforme());   // Revue 17 (D5-10, lot 13) : le SIRET tapé décide aussitôt de la plateforme
@@ -184,19 +185,19 @@ public class FactureRefacPanel : MonoBehaviour
 
         // ── 1. En-tête du document ──
         var e = UIFactory.Section(content, "En-tête du document", CoBleu, CoBleuL);
-        _date = Labeled(e, "Date");
+        _date = ChampDate.Avec(e.transform, "Date");
         _date.onValueChanged.AddListener(_ => { RefreshNumero(); SuivreEcheance(); });
         _refInterne = Labeled(e, "Texte / N° interne (optionnel, en rouge au-dessus du n°)");
         _refInterne.onValueChanged.AddListener(_ => RefreshEntetePreview());
-        UIFactory.Text(e.transform, "Format du n° de facture", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(e.transform, "Format du n° de facture", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _numeroFormatDD = UIDropdown.Create(e.transform, NumFmtLabels, NumFmtIds, 1, _ => RefreshNumero());
         BuildNumeroRow(e);
 
         // ── 2. Contenu ──
         var c = UIFactory.Section(content, "Contenu", CoContenu, CoContenuL);
-        UIFactory.Text(c.transform, "Texte de présentation (entête / paragraphe)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(c.transform, "Texte de présentation (entête / paragraphe)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _enteteDD = BuildEnteteDropdown(c.transform);
-        UIFactory.Text(c.transform, "Aperçu (variables remplacées) :", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(c.transform, "Aperçu (variables remplacées) :", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var pv = UIFactory.Panel("Preview", c.transform, Color.white);
         UIFactory.Border(pv.gameObject);
         var pvv = pv.gameObject.AddComponent<VerticalLayoutGroup>();
@@ -226,8 +227,9 @@ public class FactureRefacPanel : MonoBehaviour
         _tTVA = MontRow(g, "TVA 20 %");
         _tTTC = MontRow(g, "Total TTC");
         _origineBox = UIFactory.VBox(g.transform, 4, 0, 0, 0, 0, "OrigineBox").gameObject;
-        UIFactory.Text(_origineBox.transform, "Avoir sur la facture n° (imprimé sous le titre de l'avoir)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(_origineBox.transform, "Avoir sur la facture n° (imprimé sous le titre de l'avoir)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _origineDD = UIDropdown.Create(_origineBox.transform, new List<string> { "— (aucune)" }, new List<string> { "" }, 0, _ => { });
+        _origineDD.AvantOuverture = () => RechargerOrigines(true);   // lot F : les factures émises depuis l'ouverture du formulaire
         _pj = UIFactory.Toggle(g.transform, "Joindre le justificatif de la charge (PJ)", true);
         // Locataire à provisions : la charge entre dans sa régularisation (affichée et
         // déduite comme déjà réglée) ou reste hors des provisions (case décochée).
@@ -245,11 +247,11 @@ public class FactureRefacPanel : MonoBehaviour
         // voit, d'où la mention « (défaut de la phrase de règlement) » retirée du
         // libellé de l'échéance — elle ne servait qu'à compenser l'éloignement.
         var p = UIFactory.Section(content, "Règlement", CoReglement, CoReglementL);
-        _echeance = Labeled(p, "Date d'échéance");
+        _echeance = ChampDate.Avec(p.transform, "Date d'échéance");
         _echeance.onValueChanged.AddListener(_ => { RefreshSommeDefault(); RefreshEntetePreview(); });   // coutures (10/11) : l'aperçu de l'entête suit l'échéance ({echeance})
         _sommePhrase = Labeled(p, "Phrase de règlement (bas de facture, ex. « Valeur en votre aimable règlement »)");
         SlashAutocomplete.Attach(_sommePhrase);
-        UIFactory.Text(p.transform, "RIB CIPL", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(p.transform, "RIB CIPL", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _ribDD = BuildRibDropdown(p.transform);
         _retard = UIFactory.Toggle(p.transform, "Ajouter la phrase de retard / pénalités de paiement", true);
 
@@ -258,14 +260,14 @@ public class FactureRefacPanel : MonoBehaviour
         _modeInfo = UIFactory.Text(o.transform, "", UITheme.Role.Donnee, UITheme.TexteSecondaire);
 
         // Message d'accompagnement. Il appartient bien à l'envoi, donc à cette carte.
-        UIFactory.Text(o.transform, "Objet du message", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(o.transform, "Objet du message", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _emailObjet = UIFactory.Input(o.transform, EmailService.ObjetDefaut);
         SlashAutocomplete.Attach(_emailObjet);
-        UIFactory.Text(o.transform, "Corps du message", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(o.transform, "Corps du message", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         _emailCorps = UIFactory.Input(o.transform, EmailService.CorpsDefaut, 110, true);
         SlashAutocomplete.Attach(_emailCorps);
         _aideEmail = UIFactory.Text(o.transform, EmailService.Aide(false, false), UITheme.Role.Aide, UITheme.TexteSecondaire);   // lot 13 : suit le mode
-        _emailEnvoi = Labeled(o, "Email d'envoi");
+        _emailEnvoi = Labeled(o, "E-mail d'envoi");
 
         var gen = UIFactory.Button(left.transform, "Générer facture", UITheme.Primaire, Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(gen.gameObject, minH: 56, flexH: 0);
@@ -276,7 +278,7 @@ public class FactureRefacPanel : MonoBehaviour
         right.childForceExpandHeight = false;
         UIFactory.Text(right.transform, "Facture générée", UITheme.Role.Section, UITheme.TextePrincipal, true);
 
-        var backdrop = UIFactory.Panel("PvBackdrop", right.transform, Hex("#D2D0CB"));
+        var backdrop = UIFactory.Panel("PvBackdrop", right.transform, UITheme.Hex("#D2D0CB"));
         UIFactory.Border(backdrop.gameObject);
         UIFactory.LE(backdrop.gameObject, flexH: 1);
         var backRT = (RectTransform)backdrop.transform;
@@ -284,7 +286,7 @@ public class FactureRefacPanel : MonoBehaviour
         backdrop.gameObject.AddComponent<RectMask2D>();
 
         _previewHint = UIFactory.Text(backdrop.transform,
-            "Clique sur « Générer facture »\npour afficher l'aperçu ici.", UITheme.Role.Aide, UITheme.TexteSecondaire, false,
+            "Cliquez sur « Générer facture »\npour afficher l'aperçu ici.", UITheme.Role.Aide, UITheme.TexteSecondaire, false,   // revue visuelle du 16/11 (V-21) : vouvoiement
             TextAlignmentOptions.Center);
         _previewHint.raycastTarget = false;
         var hintRT = (RectTransform)_previewHint.transform;
@@ -303,11 +305,14 @@ public class FactureRefacPanel : MonoBehaviour
         var zbarRT = (RectTransform)zbar.transform;
         zbarRT.anchorMin = zbarRT.anchorMax = new Vector2(1, 1); zbarRT.pivot = new Vector2(1, 1);
         zbarRT.anchoredPosition = new Vector2(-10, -10);
+        // Revue 17 (B-03, lot F) : la barre prend la largeur de ses boutons (sans taille, elle serrait « Ajuster » sur trois lignes).
+        var zfit = zbar.gameObject.AddComponent<ContentSizeFitter>();
+        zfit.horizontalFit = zfit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         ZoomBtn(zbar.transform, "−", () => _viewer.ZoomBy(1f / 1.25f));
         ZoomBtn(zbar.transform, "Ajuster", () => _viewer.Fit(), 84);
         ZoomBtn(zbar.transform, "+", () => _viewer.ZoomBy(1.25f));
 
-        var save = UIFactory.Button(right.transform, "Sauvegarder et envoyer", Hex("#854F0B"), Color.white, 46, UITheme.Role.Bouton);
+        var save = UIFactory.Button(right.transform, "Sauvegarder et envoyer", UITheme.Hex("#854F0B"), Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(save.gameObject, minH: 56, flexH: 0);
         _btnSauver = save;
         // Revue 17 (D5-17, coutures) : un taux de TVA inhabituel tapé pour cette facture, autre que celui du bail ou de la facture
@@ -357,8 +362,7 @@ public class FactureRefacPanel : MonoBehaviour
         _refInterne.text = f?.refInterne ?? "";
 
         ChargerCharges();
-        FacturationSuivi.FacturesOrigine(_loc, out var origLabels, out var origIds);
-        _origineDD.SetOptions(origLabels, origIds, "");
+        RechargerOrigines(false);
         _pj.isOn = f?.joindrePj ?? true;
         // Facture rouverte : la case reprend le choix fait à son émission.
         _deduit.SetIsOnWithoutNotify(Selection().Any(x => x.c.FacturationDe(_loc.id)?.deduitProvisions == true));
@@ -590,6 +594,14 @@ public class FactureRefacPanel : MonoBehaviour
     // provisionnée. Elle ne s'applique qu'à celles-là.
     void RefreshDeduit() => _deduit.gameObject.SetActive(Selection().Any(x => AProvision(x.c)));
 
+    /// Les factures qu'un avoir peut citer. `garder` : le choix en cours est gardé s'il existe encore (liste rouverte).
+    void RechargerOrigines(bool garder)
+    {
+        if (_origineDD == null || _loc == null) return;
+        FacturationSuivi.FacturesOrigine(_loc, out var labels, out var ids);
+        _origineDD.SetOptions(labels, ids, garder ? _origineDD.SelectedId : "");
+    }
+
     void RefreshTotaux()
     {
         float ht = Selection().Sum(x => x.ht);
@@ -639,7 +651,7 @@ public class FactureRefacPanel : MonoBehaviour
                                            "N° de facture — repris : cette facture a déjà ce numéro", ref _idGarde);
         // Revue 17 (D4-10, coutures) : le titre annonce la correction, comme le loyer (la règle de l'émission : SeraUneCorrection), et
         // suit les charges cochées. Avant : rien ne disait qu'une « corrigée(X) » allait partir.
-        if (_titre != null) _titre.text = $"Refacturation{(FactureEmission.SeraUneCorrection(_loc, CleFacture()) ? " (correction)" : "")} · {_loc.Name ?? ""}";
+        if (_titre != null) _titre.text = $"Refacturation de charges{(FactureEmission.SeraUneCorrection(_loc, CleFacture()) ? " (correction)" : "")} · {_loc.Name ?? ""}";
         FactureEmission.NommerBouton(_btnSauver, FactureEmission.SeraUneCorrection(_loc, CleFacture()));   // décision du 11/11
         RefreshEntetePreview();
     }
@@ -734,7 +746,7 @@ public class FactureRefacPanel : MonoBehaviour
     string FactureDir() => DossiersDonnees.DossierFactures(
         _fiche.batimentPrefabOrigin.getName(), _loc.Name);
 
-    void GenererApercu()
+    async void GenererApercu()
     {
         // Revue 17 (D6-05) : une date vide ou illisible est refusée au centre, le formulaire reste ouvert avec la saisie. Avant,
         // SaveFromUI l'enregistrait vide : facture et nom du PDF au jour, échéance du jour dans le suivi.
@@ -742,11 +754,14 @@ public class FactureRefacPanel : MonoBehaviour
         SaveFromUI();
         var d = BuildData();
         string png = DossiersDonnees.Apercu("apercu_refac.png");
-        if (FacturePdfService.GeneratePreviewPng(d, png, out string err)) ShowPreview(png);
+        string err;
+        using (FacturePdfService.Occuper(this)) err = await FacturePdfService.GeneratePreviewPngAsync(d, png);   // Revue 17 (D9-07, lot E)
+        if (this == null || !isActiveAndEnabled) return;   // Revue 17 (D9-07, lot E) : fenêtre fermée pendant le rendu : rien de plus
+        if (err == null) ShowPreview(png);
         else ConfirmDialog.Erreur("Échec de l'aperçu : " + err);
     }
 
-    void SauvegarderEtEnvoyer()
+    async void SauvegarderEtEnvoyer()
     {
         // L'envoi est asynchrone : sans cette garde, un double clic partirait deux fois.
         if (_envoiEnCours) { UndoToast.Instance?.ShowInfo("Un envoi est déjà en cours."); return; }
@@ -767,6 +782,9 @@ public class FactureRefacPanel : MonoBehaviour
         // Revue 17 (D6-19, coutures ; décision du 09/11) : un total nul est refusé, comme pour le loyer : rien à facturer (avant : émis, il
         // prenait un numéro). Revue 17 (D6-15) : sans RIB, le relevé d'identité bancaire serait vide. Les deux avant le PDF.
         if (FactureEmission.RefusTotalNul(d.ttc, d.subtitle) is string refusNul) { ConfirmDialog.Erreur(refusNul); return; }
+        // D5-20 (décision du 17/11, essai D5-N2) : transmise par une autre entreprise : ce refus d'abord, avant celui du RIB (l'entreprise où
+        // le locataire vient d'être transféré n'en a souvent pas encore : on en ajoutait un pour apprendre ensuite que la correction est impossible).
+        if (FactureElectronique.RefusOrigine(_loc.facturesEtat?.Find(x => x.key == key), d.subtitle) is string refusOrigine) { ConfirmDialog.Erreur(refusOrigine); return; }
         if (FactureEmission.RefusSansRib(ReglageService.GetRib(_ribDD?.SelectedId)) is string refusRib) { ConfirmDialog.Erreur(refusRib); return; }
         string dir = FactureDir();
         DateTime dt = TryDate(_date.text, out var dd) ? dd : DateTime.Today;
@@ -798,14 +816,21 @@ public class FactureRefacPanel : MonoBehaviour
         string fname = Sanitize($"{type}-{emission.NumeroFichier}-{quoi}-{_nom.text}-{dt:MM-yyyy}{emission.SuffixeFichier}") + ".pdf";
         string pdf = DossiersDonnees.CheminFacture(dir, fname);
 
-        if (!FacturePdfService.GeneratePdf(d, pdf, out string err))
+        // Revue 17 (D9-07, lot E) : Edge attendu en tâche de fond.
+        string err, png = DossiersDonnees.Apercu("apercu_refac.png");
+        bool apercu = false;
+        using (FacturePdfService.Occuper(this, _btnSauver))
+        {
+            err = await FacturePdfService.GeneratePdfAsync(d, pdf);
+            if (err == null) apercu = await FacturePdfService.GeneratePreviewPngAsync(d, png) == null;
+        }
+        if (this == null || !isActiveAndEnabled) return;   // Revue 17 (D9-07, lot E) : fenêtre fermée pendant le rendu : rien de plus
+        if (err != null)
         {
             ConfirmDialog.Erreur("Échec génération PDF : " + err);
             return;
         }
-
-        string png = DossiersDonnees.Apercu("apercu_refac.png");
-        if (FacturePdfService.GeneratePreviewPng(d, png, out _)) ShowPreview(png);
+        if (apercu) ShowPreview(png);
 
         // Revue 17 (D5-10 / D5-26, lot 13) : dès la bascule (1/9/2027), comme le loyer : plus de PDF par e-mail, la facture part par Super PDP
         // après confirmation, puis la notification (FactureElectronique.Notifier). Avant : l'e-mail de facture avec le PDF, puis la notification.
@@ -876,7 +901,7 @@ public class FactureRefacPanel : MonoBehaviour
         if (!envoi.Succes)
         {
             ConfirmDialog.Erreur("Envoi échoué — " + envoi.Erreur
-                + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : tu peux réessayer.");
+                + " Le PDF est enregistré, la facture n'est PAS marquée envoyée : vous pouvez réessayer.");
             if (_fermerApresEnvoi) Close();   // D4-07 : la fermeture demandée pendant l'envoi
             yield break;
         }
@@ -1165,8 +1190,8 @@ public class FactureRefacPanel : MonoBehaviour
 
     TMP_InputField Labeled(VerticalLayoutGroup body, string label)
     {
-        UIFactory.Text(body.transform, label, UITheme.Role.Donnee, UITheme.TexteSecondaire);
-        return UIFactory.Input(body.transform, label);
+        UIFactory.Text(body.transform, label, UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        return UIFactory.Input(body.transform, "");   // Revue 17 (B-07, lot F) : pas de libellé répété dans le champ
     }
 
     TMP_Text MontRow(VerticalLayoutGroup body, string label)
@@ -1184,7 +1209,6 @@ public class FactureRefacPanel : MonoBehaviour
     // espaces de milliers acceptes (cette copie locale ne gerait que la virgule).
     static float ParseF(string s) => SaisieNumerique.Parse(s);
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
     static bool TryDate(string s, out DateTime d) => SaisieDate.TryParse(s, out d);
 }

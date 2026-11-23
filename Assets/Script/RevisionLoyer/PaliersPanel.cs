@@ -16,9 +16,9 @@ using UnityEngine.UI;
 /// les afficher et travaille sur une copie, écrite sur le locataire à la validation.
 public class PaliersPanel
 {
-    static readonly Color Ambre = Hex("#A9741C");
-    static readonly Color AmbreClair = Hex("#FBF5E8");
-    static readonly Color Erreur = Hex("#A32D2D");
+    static readonly Color Ambre = UITheme.Hex("#A9741C");
+    static readonly Color AmbreClair = UITheme.Hex("#FBF5E8");
+    static readonly Color Erreur = UITheme.Erreur;
     // Palier · Loyer · Du · Au · Durée (les actions prennent le reste).
     static readonly float[] Largeurs = { 90, 150, 110, 110, 220 };
 
@@ -80,6 +80,7 @@ public class PaliersPanel
         v.childControlWidth = true; v.childControlHeight = true;
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
         cardImg.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        PlafondFenetre.Poser(card);   // Revue 17 (D10-01, lot F) : jamais plus haute que l'écran
 
         // Bandeau ambre pleine largeur, comme les modales Loyer et Dépôt.
         var header = UIFactory.Panel("Header", v.transform, Ambre);
@@ -94,7 +95,7 @@ public class PaliersPanel
         UIFactory.Text(header.transform, $"Paliers de loyer · {loc.Name}", UITheme.Role.Section, Color.white, true);
 
         var body = UIFactory.VBox(v.transform, 10, 18, 18, 14, 16, "Body");
-        UIFactory.Text(body.transform, $"Loyer de départ : {loc.loyerDepart:N2} € / an HT", UITheme.Role.Donnee, UITheme.TextePrincipal, true);
+        UIFactory.Text(body.transform, $"Loyer de départ : {Montants.F(loc.loyerDepart, "N2")} € / an HT", UITheme.Role.Donnee, UITheme.TextePrincipal, true);
         UIFactory.Text(body.transform, BailTexte(), UITheme.Role.Donnee, UITheme.TexteSecondaire);
         UIFactory.Text(body.transform, FranchiseTexte(), UITheme.Role.Donnee, UITheme.TexteSecondaire);
         if (FacturationSuivi.TryEcheance(loc.debutConditionsISO, out var avenant))
@@ -122,12 +123,11 @@ public class PaliersPanel
 
         var actions = UIFactory.HBox(body.transform, 10);
         UIFactory.LE(actions.gameObject, minH: 46);
-        var fermer = UIFactory.Button(actions.transform, "Fermer", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
-        UIFactory.Border(fermer.gameObject);
-        UIFactory.LE(fermer.gameObject, flexW: 1);
+        // Revue visuelle (17/11) : le bas de fenêtre du modèle (compact, à droite, « Annuler » d'abord) ; « Enregistrer les paliers »
+        // (décision du 17/11) ne se confond pas avec le « Enregistrer » du palier en cours de saisie. Avant : « Fermer » / « Valider ».
+        var (fermer, enregistrer) = UIFactory.PiedFenetre(actions.transform, "Annuler", "Enregistrer les paliers", Ambre);
         fermer.onClick.AddListener(Fermer);
-        _btnValider = UIFactory.Button(actions.transform, "Valider", Ambre, Color.white, 44, UITheme.Role.Bouton);
-        UIFactory.LE(_btnValider.gameObject, flexW: 1);
+        _btnValider = enregistrer;
         _btnValider.onClick.AddListener(Valider);
 
         Rafraichir();
@@ -143,7 +143,7 @@ public class PaliersPanel
     {
         foreach (Transform c in _table) UnityEngine.Object.Destroy(c.gameObject);
 
-        var tete = Ligne(Hex("#EDEBE3"));
+        var tete = Ligne(UITheme.Hex("#EDEBE3"));
         string[] titres = { "Palier", "Loyer / an HT", "Du", "Au", "Durée" };
         for (int k = 0; k < titres.Length; k++) Cellule(tete, titres[k], k, false, UITheme.TexteSecondaire);
 
@@ -153,9 +153,9 @@ public class PaliersPanel
             var p = _liste[i];
             int idx = i;
             bool courant = i == enCours;
-            var row = Ligne(courant ? UITheme.PrimaireClair : (i % 2 == 0 ? UITheme.Carte : Hex("#F6F4EC")));
+            var row = Ligne(courant ? UITheme.PrimaireClair : (i % 2 == 0 ? UITheme.Carte : UITheme.Hex("#F6F4EC")));
             Cellule(row, courant ? $"Palier {i + 1} ●" : $"Palier {i + 1}", 0, courant, UITheme.TextePrincipal);
-            Cellule(row, $"{p.loyer:N2} €", 1, true, UITheme.TextePrincipal);
+            Cellule(row, $"{Montants.F(p.loyer, "N2")} €", 1, true, UITheme.TextePrincipal);
             Cellule(row, Fmt(p.debutISO), 2, false, UITheme.TextePrincipal);
             Cellule(row, Fmt(p.finISO), 3, false, UITheme.TextePrincipal);
             Cellule(row, Duree(p), 4, false, UITheme.TexteSecondaire);
@@ -282,7 +282,7 @@ public class PaliersPanel
     {
         var col = UIFactory.VBox(parent, 4, 0, 0, 0, 0, "Colonne");
         UIFactory.LE(col.gameObject, flexW: largeur, minW: 0);
-        UIFactory.Text(col.transform, libelle, UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(col.transform, libelle, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         return col.transform;
     }
 
@@ -370,7 +370,7 @@ public class PaliersPanel
         _loc.paliers = _liste;
         Loyers.Actualiser(_loc, DateTime.Today);
         _onSaved?.Invoke();
-        UndoToast.Instance?.ShowInfo($"Paliers enregistrés — loyer actuel : {_loc.loyerAnnuel:N2} € / an");
+        UndoToast.Instance?.ShowInfo($"Paliers enregistrés — loyer actuel : {Montants.F(_loc.loyerAnnuel, "N2")} € / an");
         Fermer();
     }
 
@@ -407,5 +407,4 @@ public class PaliersPanel
         return null;
     }
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }

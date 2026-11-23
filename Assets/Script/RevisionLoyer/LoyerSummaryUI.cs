@@ -56,12 +56,12 @@ public class LoyerSummaryUI : MonoBehaviour
         _btnModalites = clone.GetComponent<Button>();
 
         var lbl = _btnModalites.GetComponentInChildren<TMP_Text>(true);
-        if (lbl != null) { lbl.text = "Modalités"; lbl.color = Col("#A9741C"); }
+        if (lbl != null) { lbl.text = "Modalités"; lbl.color = UITheme.Hex("#A9741C"); }
         // Bouton secondaire CONTRASTÉ : fond crème + liseré ambre (sinon invisible :
         // l'ancien fond #F4E7CD = la couleur de la bande de titre).
         var img = _btnModalites.GetComponent<Image>();
         if (img != null) img.color = UITheme.Carte;       // crème, ressort sur la bande ambre-clair
-        UIFactory.Border(_btnModalites.gameObject, Col("#A9741C"));   // liseré ambre → bouton défini
+        UIFactory.Border(_btnModalites.gameObject, UITheme.Hex("#A9741C"));   // liseré ambre → bouton défini
 
         _btnModalites.onClick.RemoveAllListeners();
         _btnModalites.onClick.AddListener(() =>
@@ -110,24 +110,24 @@ public class LoyerSummaryUI : MonoBehaviour
         float perHTCharge = perHT + provision;     // charges comprises
         string labelP = LabelPeriode(loc.periodiciteLoyer);
 
-        Set(txtLoyerAnnuelHT, $"{annuel:N2} €");
-        Set(txtLoyerAnnuelTTC, $"{annuel * TVA:N2} €");
-        Set(txtLoyerM2, taille > 0 ? $"{annuel / taille:N2} €/m²" : "—");
+        Set(txtLoyerAnnuelHT, $"{Montants.F(annuel, "N2")} €");
+        Set(txtLoyerAnnuelTTC, $"{Montants.F(annuel * TVA, "N2")} €");
+        Set(txtLoyerM2, taille > 0 ? $"{Montants.F(annuel / taille, "N2")} €/m²" : "—");
         Set(txtLoyerPrecedent, loc.loyerAnnuelPrecedent > 0f
-            ? $"{loc.loyerAnnuelPrecedent:N2} €"
+            ? $"{Montants.F(loc.loyerAnnuelPrecedent, "N2")} €"
             : "—");   // nul tant qu'aucune révision n'a eu lieu
         Set(txtProvisions, loc.provisionPourCharges
-            ? $"{provision:N2} € / {labelP}" : "Aucune");
+            ? $"{Montants.F(provision, "N2")} € / {labelP}" : "Aucune");
 
         // 4 lignes de loyer par période : HT/TTC hors charges (toujours) +
         // HT/TTC charges comprises (masquées s'il n'y a pas de provision).
         EnsureLoyerLinesBuilt();
         ClearUnits();   // les valeurs incluent déjà « € » → on masque l'unité du prefab (évite « €€ »)
         bool aCharges = loc.provisionPourCharges && provision > 0f;
-        Set(_htHors, $"{perHT:N2} € / {labelP}");
-        Set(_ttcHors, $"{perHT * TVA:N2} € / {labelP}");
-        Set(txtLoyerPeriodeHT, $"{perHTCharge:N2} € / {labelP}");
-        Set(txtLoyerPeriodeTTC, $"{perHTCharge * TVA:N2} € / {labelP}");
+        Set(_htHors, $"{Montants.F(perHT, "N2")} € / {labelP}");
+        Set(_ttcHors, $"{Montants.F(perHT * TVA, "N2")} € / {labelP}");
+        Set(txtLoyerPeriodeHT, $"{Montants.F(perHTCharge, "N2")} € / {labelP}");
+        Set(txtLoyerPeriodeTTC, $"{Montants.F(perHTCharge * TVA, "N2")} € / {labelP}");
         if (_rowAvecCharge != null) _rowAvecCharge.SetActive(aCharges);
 
         // Récap lecture seule (demande / mois facturés / révision / régularisation)
@@ -138,17 +138,17 @@ public class LoyerSummaryUI : MonoBehaviour
         BuildCompact();
         if (_cHT != null)
         {
-            _cHT.text = $"{annuel:N2} €";
-            _cTTC.text = $"{annuel * TVA:N2} €";
-            _cPrec.text = loc.loyerAnnuelPrecedent > 0f ? $"{loc.loyerAnnuelPrecedent:N2} €" : "—";
-            _cM2.text = taille > 0 ? $"{annuel / taille:N2} €/m²" : "—";
+            _cHT.text = $"{Montants.F(annuel, "N2")} €";
+            _cTTC.text = $"{Montants.F(annuel * TVA, "N2")} €";
+            _cPrec.text = loc.loyerAnnuelPrecedent > 0f ? $"{Montants.F(loc.loyerAnnuelPrecedent, "N2")} €" : "—";
+            _cM2.text = taille > 0 ? $"{Montants.F(annuel / taille, "N2")} €/m²" : "—";
             _cProv.text = loc.provisionPourCharges
-                ? $"Provision pour charges : {provision:N2} € / {labelP}"
+                ? $"Provision pour charges : {Montants.F(provision, "N2")} € / {labelP}"
                 : "Provision pour charges : aucune";
-            _hHt.text = $"{perHT:N2} €";
-            _hTtc.text = $"{perHT * TVA:N2} €";
-            _aHt.text = $"{perHTCharge:N2} €";
-            _aTtc.text = $"{perHTCharge * TVA:N2} €";
+            _hHt.text = $"{Montants.F(perHT, "N2")} €";
+            _hTtc.text = $"{Montants.F(perHT * TVA, "N2")} €";
+            _aHt.text = $"{Montants.F(perHTCharge, "N2")} €";
+            _aTtc.text = $"{Montants.F(perHTCharge * TVA, "N2")} €";
             if (_perLabel != null) _perLabel.text = $"Loyer par période ({labelP})";
         }
 
@@ -161,9 +161,9 @@ public class LoyerSummaryUI : MonoBehaviour
         if (btnOuvrirRevision != null)
         {
             var img = btnOuvrirRevision.GetComponent<Image>();
-            if (img != null) img.color = due ? Col("#D85A30") : Col("#A9741C");
+            if (img != null) img.color = due ? UITheme.Alerte : UITheme.Hex("#A9741C");
             var lbl = btnOuvrirRevision.GetComponentInChildren<TMP_Text>(true);
-            if (lbl != null) lbl.color = due ? Color.white : Col("#FBF5E8");
+            if (lbl != null) lbl.color = due ? Color.white : UITheme.Hex("#FBF5E8");
         }
     }
 
@@ -250,7 +250,7 @@ public class LoyerSummaryUI : MonoBehaviour
         // Filet de séparation + titre du bloc.
         var sep = UIFactory.Panel("Sep", v.transform, UITheme.Bordure, false);
         UIFactory.LE(sep.gameObject, minH: 1, prefH: 1);
-        UIFactory.Text(v.transform, "Modalités du loyer", UITheme.Role.Libelle, Col("#A9741C"), true);
+        UIFactory.Text(v.transform, "Modalités du loyer", UITheme.Role.Libelle, UITheme.Hex("#A9741C"), true);
 
         _valDemande  = Row(v.transform, "Loyer demandé le");
         _valMois     = Row(v.transform, "Mois facturés");
@@ -355,7 +355,7 @@ public class LoyerSummaryUI : MonoBehaviour
                 _lblRevision.text = "Prochain palier";
                 var prochain = Loyers.Prochain(loc, System.DateTime.Today);
                 _valRevision.text = prochain != null && System.DateTime.TryParse(prochain.debutISO, out var dp)
-                    ? $"{dp:dd/MM/yyyy} ({prochain.loyer:N0} €/an)" : "—";
+                    ? $"{dp:dd/MM/yyyy} ({Montants.F(prochain.loyer, "N0")} €/an)" : "—";
                 break;
             case TypeRevision.Aucune:
                 _lblRevision.text = "Révision";
@@ -366,7 +366,7 @@ public class LoyerSummaryUI : MonoBehaviour
                 _valRevision.text = loc.IndiceInitialise ? loc.MoisDeRevision.ToString("dd/MM/yyyy") : "—";
                 break;
         }
-        _valRevision.color = EstRevisionDue(loc) ? Col("#D85A30") : UITheme.TextePrincipal;
+        _valRevision.color = EstRevisionDue(loc) ? UITheme.Alerte : UITheme.TextePrincipal;
 
         // Selon le CA : le % et les bornes en vigueur (révisées, sinon de base).
         bool selonCA = loc.typeRevision == TypeRevision.ChiffreAffaires;
@@ -375,7 +375,7 @@ public class LoyerSummaryUI : MonoBehaviour
         {
             float min = loc.loyerMinRevise > 0f ? loc.loyerMinRevise : loc.loyerMinBase;
             float max = loc.loyerMaxRevise > 0f ? loc.loyerMaxRevise : loc.loyerMaxBase;
-            _valCA.text = $"{loc.pourcentageCA:0.##} % · min {min:N0} € · max {max:N0} €";
+            _valCA.text = $"{Montants.F(loc.pourcentageCA, "0.##")} % · min {Montants.F(min, "N0")} € · max {Montants.F(max, "N0")} €";
         }
 
         // Franchise : la date à partir de laquelle on facture.
@@ -403,7 +403,6 @@ public class LoyerSummaryUI : MonoBehaviour
         DemanderMesure();   // des lignes viennent peut-être d'apparaître
     }
 
-    private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
     /// Révision annuelle (indice, ou selon le CA) arrivée à échéance. Jamais pour des
     /// paliers (ils s'appliquent seuls) ni pour un bail sans révision.
@@ -461,8 +460,8 @@ public class LoyerSummaryUI : MonoBehaviour
 
         // Loyer annuel : stats réparties sur la largeur ; HT/TTC en avant (gros/gras),
         // le tout dans une tuile à fond léger pour mettre en valeur.
-        UIFactory.Text(box.transform, "Loyer annuel", UITheme.Role.Libelle, Col("#A9741C"), true);
-        var annualCard = UIFactory.Panel("AnnualCard", box.transform, Col("#FBF5E8"));
+        UIFactory.Text(box.transform, "Loyer annuel", UITheme.Role.Libelle, UITheme.Hex("#A9741C"), true);
+        var annualCard = UIFactory.Panel("AnnualCard", box.transform, UITheme.Hex("#FBF5E8"));
         UIFactory.Border(annualCard.gameObject);
         var annual = annualCard.gameObject.AddComponent<HorizontalLayoutGroup>();
         annual.padding = new RectOffset(14, 14, 10, 10); annual.spacing = 12;
@@ -488,13 +487,13 @@ public class LoyerSummaryUI : MonoBehaviour
         var leftCol = UIFactory.VBox(cols.transform, 4, 0, 0, 0, 0, "ColPeriode");
         leftCol.childControlWidth = true; leftCol.childForceExpandWidth = true;
         UIFactory.LE(leftCol.gameObject, flexW: 1, minW: 250);
-        _perLabel = UIFactory.Text(leftCol.transform, "Loyer par période", UITheme.Role.Libelle, Col("#A9741C"), true);
+        _perLabel = UIFactory.Text(leftCol.transform, "Loyer par période", UITheme.Role.Libelle, UITheme.Hex("#A9741C"), true);
         var card = MakeTable(leftCol.transform, "PerTable");
-        var head = PerRow(card, Col("#FBF5E8"), 32);
+        var head = PerRow(card, UITheme.Hex("#FBF5E8"), 32);
         PerCell(head, "", 52, 17, false, L); PerCell(head, "Hors ch.", 0, 17, false, R); PerCell(head, "Ch. compr.", 0, 17, false, R);
-        var r1 = PerRow(card, Col("#FCF8EE"), 34);
+        var r1 = PerRow(card, UITheme.Hex("#FCF8EE"), 34);
         PerCell(r1, "HT", 52, 17, false, L); _hHt = PerCell(r1, "—", 0, 18, true, R); _aHt = PerCell(r1, "—", 0, 18, true, R);
-        var r2 = PerRow(card, Col("#F5EBD5"), 34);
+        var r2 = PerRow(card, UITheme.Hex("#F5EBD5"), 34);
         PerCell(r2, "TTC", 52, 17, false, L); _hTtc = PerCell(r2, "—", 0, 18, true, R); _aTtc = PerCell(r2, "—", 0, 18, true, R);
 
         // Colonne droite : « Facturation du loyer » (récap réparenté depuis Content).

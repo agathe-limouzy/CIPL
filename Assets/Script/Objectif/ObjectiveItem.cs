@@ -25,13 +25,12 @@ public class ObjectiveItem : MonoBehaviour
     private bool _prepare;
 
     // Paires fond pastel / texte foncé, alignées sur le thème
-    private static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
-    private static readonly Color BgGris = Hex("#F1EFE8"), TxGris = Hex("#5F5E5A"), AcGris = Hex("#B4B2A9");
-    private static readonly Color BgBleu = Hex("#E6F1FB"), TxBleu = Hex("#185FA5");
-    private static readonly Color BgVert = Hex("#E1F5EE"), TxVert = Hex("#0F6E56");
-    private static readonly Color BgCorail = Hex("#FAECE7"), TxCorail = Hex("#712B13"), AcCorail = Hex("#D85A30");
-    private static readonly Color BgAmbre = Hex("#FAEEDA"), TxAmbre = Hex("#633806"), AcAmbre = Hex("#EF9F27");
-    private static readonly Color AcRouge = Hex("#E24B4A");
+    private static readonly Color BgGris = UITheme.Fond, TxGris = UITheme.TexteSecondaire, AcGris = UITheme.Hex("#B4B2A9");
+    private static readonly Color BgBleu = UITheme.Hex("#E6F1FB"), TxBleu = UITheme.Hex("#185FA5");
+    private static readonly Color BgVert = UITheme.PrimaireClair, TxVert = UITheme.Primaire;
+    private static readonly Color BgCorail = UITheme.AlerteClair, TxCorail = UITheme.AlerteTexte, AcCorail = UITheme.Alerte;
+    private static readonly Color BgAmbre = UITheme.AttentionClair, TxAmbre = UITheme.AttentionTexte, AcAmbre = UITheme.Attention;
+    private static readonly Color AcRouge = UITheme.Hex("#E24B4A");
 
     public void Setup(Objective obj, Action<Objective> onAvancer, Action<Objective> onDeleted,
         Action<Objective> onOuvrir, string source = null)

@@ -119,8 +119,7 @@ public static class PremiersPas
 
     // ── La carte ───────────────────────────────────────────────────────────────
 
-    static readonly Color Accent = Hex("#0F6E56"), Clair = Hex("#D6ECE3"), Encre = Hex("#085041"), Gris = Hex("#D3D1C7");
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+    static readonly Color Accent = UITheme.Primaire, Clair = UITheme.Hex("#D6ECE3"), Encre = UITheme.Hex("#085041"), Gris = UITheme.Bordure;
     static GameObject _carte;
 
     /// Construit (ou retire) la carte sous l'en-tête de l'accueil. Appelé par GeneralMenuPanel.Refresh,
@@ -143,7 +142,11 @@ public static class PremiersPas
 
         var bandeau = UIFactory.HBox(_carte.transform, 8, false, "Bandeau");
         bandeau.padding = new RectOffset(14, 14, 8, 8);
-        bandeau.gameObject.AddComponent<Image>().color = Clair;
+        var fondBandeau = bandeau.gameObject.AddComponent<Image>();
+        fondBandeau.color = Clair;
+        // Revue visuelle (V-47) : coins du haut arrondis, comme la carte (le bandeau carré dépassait de ses coins) ; le sprite des fenêtres.
+        var haut = Resources.FindObjectsOfTypeAll<Sprite>().FirstOrDefault(sp => sp != null && sp.name == "RoundedTop");
+        if (haut != null) { fondBandeau.sprite = haut; fondBandeau.type = Image.Type.Sliced; }
         var titre = UIFactory.Text(bandeau.transform, Titre(lignes), UITheme.Role.Section, Accent, true);
         UIFactory.LE(titre.gameObject, flexW: 1);
         Lien(bandeau.transform, BatimentExemple.Trouver() == null ? "Essayer avec un exemple" : "Voir l'exemple", BatimentExemple.Ouvrir);
@@ -166,7 +169,8 @@ public static class PremiersPas
         var cadre = UIFactory.HBox(Marge("Prochaine"), 12, false, "Cadre");
         cadre.padding = new RectOffset(12, 12, 8, 8);
         cadre.childAlignment = TextAnchor.MiddleLeft;
-        cadre.gameObject.AddComponent<Image>().color = Clair;
+        var fondCadre = cadre.gameObject.AddComponent<Image>();
+        fondCadre.color = Clair; fondCadre.sprite = UIFactory.Rounded(); fondCadre.type = Image.Type.Sliced;   // V-47 : arrondi, comme les cartes
         UIFactory.Border(cadre.gameObject, Accent);
         var col = UIFactory.VBox(cadre.transform, 2, name: "Texte");
         UIFactory.LE(col.gameObject, flexW: 1);

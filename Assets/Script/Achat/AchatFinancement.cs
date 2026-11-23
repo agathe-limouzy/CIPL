@@ -17,9 +17,9 @@ public class AchatFinancement
     public bool emprunt;
     public double montantEmprunte;
     public double tauxInteretAnnuel;
-    public double apportPersonnel;
+    public double apportPersonnel;     // écrit, jamais lu (Revue 17, D7b-N9) : gardé, le retirer changerait le modèle des données (DonneesCloud.Modele)
     public int dureeMois;
-    public double mensualiteCalculee;
+    public double mensualiteCalculee;  // idem
     public string dateAchat;           // "YYYY-MM-DD"
     // Revue 17 (D7b-02) : frais de notaire calculés (8 % du prix) ou saisis ; faux pour les achats déjà enregistrés, qui gardent
     // leurs frais (la case, cochée d'office, les remplaçait par 8 % à chaque ouverture).

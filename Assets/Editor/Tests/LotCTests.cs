@@ -431,6 +431,55 @@ public class LotCTests
         Assert.That(FactureElectronique.RefusCorrection(avant, 1200f, "Loyer Août 2026"), Is.Null, "sans marque d'origine : la rectificative part, comme avant");
     }
 
+    /// D5-20, décisions du 17/11 (essai D5-N2 au bac à sable de Démo CIPL) : le refus d'origine se lit dès le clic sur « Corriger » du suivi
+    /// (le formulaire ne s'ouvre pas) et, dans les trois formulaires, avant le refus « Aucun RIB » : l'entreprise où le locataire vient d'être
+    /// transféré n'a pas encore de RIB, on en ajoutait un pour apprendre ensuite que la correction était impossible.
+    [Test]
+    public void D5_20_le_refus_d_origine_vient_des_le_clic_et_avant_le_RIB()
+    {
+        var avant = new FactureEtat { libelle = "Loyer Août 2026", plateformeId = "42", plateformeOrigine = "SCI (JBC)", plateformeOrigineId = "id-jbc" };
+        Assert.That(FactureElectronique.RefusOrigine(avant, "Loyer Août 2026"), Is.EqualTo(FactureElectronique.RefusCorrection(avant, 1200f, "Loyer Août 2026")),
+            "le même texte que dans les formulaires");
+        Assert.That(FactureElectronique.RefusOrigine(avant, "Loyer Août 2026"), Does.Contain("SCI (JBC)").And.Contain("Rien n'a été émis"));
+        Assert.That(FactureElectronique.RefusOrigine(new FactureEtat { plateformeId = "42" }, "Loyer"), Is.Null, "transmise par l'entreprise ouverte : elle se corrige");
+        Assert.That(FactureElectronique.RefusOrigine(new FactureEtat { plateformeOrigine = "SCI (JBC)" }, "Loyer"), Is.Null, "jamais transmise");
+        Assert.That(FactureElectronique.RefusOrigine(null, "Loyer"), Is.Null);
+        StringAssert.Contains("if (FactureElectronique.RefusOrigine(ligneCiblee, ligneCiblee?.libelle) is string origine) { ConfirmDialog.Erreur(origine); return; }",
+            Src("Facturation/LocataireSuiviInline.cs"), "suivi : refus dès le clic, avant d'ouvrir le formulaire");
+        foreach (var p in new[] { "FactureLoyerPanel", "FactureRegulPanel", "FactureRefacPanel" })
+        {
+            string src = Src("Facturation/" + p + ".cs");
+            int origine = src.IndexOf("FactureElectronique.RefusOrigine(_loc.facturesEtat?.Find(x => x.key == key), d.subtitle)", StringComparison.Ordinal);
+            Assert.That(origine, Is.GreaterThan(0).And.LessThan(src.IndexOf("FactureEmission.RefusSansRib(", StringComparison.Ordinal)), p + " : avant le refus « Aucun RIB »");
+        }
+    }
+
+    /// Décision du 17/11 (vu pendant l'essai D5-N2) : une facture réglée par ses versements ne repasse pas « Envoyé » ni « Impayé » par le menu
+    /// de la pastille (elle gardait ses versements : « Partiel · reste — », bouton « Rappel ») ; elle se rouvre en retirant un versement.
+    [Test]
+    public void Une_facture_reglee_par_ses_versements_ne_repasse_pas_Envoye_par_le_menu()
+    {
+        var ligne = new FactureEtat { key = "loyer-2026-P9", type = "Loyer", libelle = "Loyer Septembre 2026", statut = "Paye", montant = 480f,
+            versements = new List<Versement> { new Versement { dateISO = "2026-09-05", montant = 600f }, new Versement { dateISO = "2026-11-17", montant = -120f } } };
+        var loc = new Locataire { id = "A", facturesEtat = new List<FactureEtat> { ligne } };
+        Assert.That(FacturationSuivi.RefusQuitterPaye(loc, ligne, "Envoye"),
+            Does.Contain("réglée par ses versements").And.Contain("« Envoyé »").And.Contain("« Paiement partiel… »").And.Contain(480f.ToString("#,##0.00", FacturePdfService.FrCulture)));
+        Assert.That(FacturationSuivi.RefusQuitterPaye(loc, ligne, "Impaye"), Does.Contain("« Impayé »"));
+        Assert.That(FacturationSuivi.RefusQuitterPaye(loc, ligne, "Paye"), Is.Null, "« Payé » n'est pas concerné");
+        ligne.versements.RemoveAt(1);   // 600 € pour 480 € : trop-perçu, « À rembourser » : une autre règle (BN17)
+        Assert.That(FacturationSuivi.RefusQuitterPaye(loc, ligne, "Envoye"), Is.Null);
+        ligne.versements = new List<Versement> { new Versement { dateISO = "2026-09-05", montant = 200f } };
+        Assert.That(FacturationSuivi.RefusQuitterPaye(loc, ligne, "Envoye"), Is.Null, "« Payé » cliqué avec un acompte : il se défait par « Envoyé »");
+        ligne.versements = new List<Versement>();
+        Assert.That(FacturationSuivi.RefusQuitterPaye(loc, ligne, "Envoye"), Is.Null, "« Payé » cliqué sans versement : il se défait par « Envoyé »");
+        var avoir = new FactureEtat { key = "refac-2026-1", type = "Refac", libelle = "Avoir", statut = "Paye", montant = -120f,
+            versements = new List<Versement> { new Versement { dateISO = "2026-11-17", montant = -120f } } };
+        loc.facturesEtat.Add(avoir);
+        Assert.That(FacturationSuivi.RefusQuitterPaye(loc, avoir, "Envoye"), Is.Null, "un avoir remboursé : pas de « Paiement partiel… » pour le rouvrir");
+        Assert.That(FacturationSuivi.RefusQuitterPaye(loc, null, "Envoye"), Is.Null);
+        StringAssert.Contains("if (FacturationSuivi.RefusQuitterPaye(_loc, ligne, statut) is string reglee)", Src("Facturation/LocataireSuiviInline.cs"), "lu par le menu de la pastille");
+    }
+
     /// D5-23 / D5-27 : RecopierPlateforme (fiche relue pendant l'appel à Super PDP) recopie TOUS les champs plateforme* et encaissee* (le montant
     /// et la date déclarés manquaient), et le retour « en attente d'envoi » d'un refus après la bascule, sur toutes les lignes de la facture ;
     /// le statut n'est pas recopié dans les autres cas.

@@ -66,9 +66,9 @@ public class RentabiliteGlobaleController : MonoBehaviour
             _btnCharges = Instantiate(btnOuvrirTravaux, btnOuvrirTravaux.transform.parent);
             _btnCharges.name = "btnOuvrirCharges";
             var lbl = _btnCharges.GetComponentInChildren<TMP_Text>(true);
-            if (lbl != null) { lbl.text = "+ Charges"; lbl.color = Col("#7A5AA6"); }
+            if (lbl != null) { lbl.text = "+ Charges"; lbl.color = UITheme.Hex("#7A5AA6"); }
             var img = _btnCharges.GetComponent<Image>();
-            if (img != null) img.color = Col("#ECE4F5");
+            if (img != null) img.color = UITheme.Hex("#ECE4F5");
             _btnCharges.transform.SetSiblingIndex(btnOuvrirTravaux.transform.GetSiblingIndex() + 1);
         }
         if (_btnCharges != null)
@@ -143,29 +143,28 @@ public class RentabiliteGlobaleController : MonoBehaviour
         double chargesAnnuel = mensTotales * 12d;
         double cashFlowAnnuel = loyerAnnuel - chargesAnnuel;
         double cashFlowMois = cashFlowAnnuel / 12d;
-        double rendNet = investTotal > 0 ? cashFlowAnnuel / investTotal * 100d : 0d;
         double breakEven = RentabiliteCalculator.BreakEvenAns(investTotal, cashFlowAnnuel);
 
         // ── Affichage résumé ──────────────────────────────────────────────────
-        Set(txtInvestissementAchat, $"{investAchat:N0} €  ({bat.historiquesAchat.Count})");
-        Set(txtInvestissementTravaux, $"{investTravaux:N0} €  ({bat.travaux.Count})");
-        Set(txtInvestissementTotal, $"{investTotal:N0} €");
-        Set(txtMensualitesTotales, $"{mensTotales:N0} € / mois");
-        Set(txtLoyerAnnuel, $"{loyerAnnuel:N0} € / an");
-        Set(txtCashFlowAnnuel, Signe(cashFlowAnnuel) + $"{cashFlowAnnuel:N0} € / an");
-        Set(txtCashFlowMensuel, Signe(cashFlowMois) + $"{cashFlowMois:N0} € / mois");
-        Set(txtBreakEven, cashFlowAnnuel > 0 ? $"{breakEven:F1} ans" : "—");
+        Set(txtInvestissementAchat, $"{Montants.F(investAchat, "N0")} €  ({bat.historiquesAchat.Count})");
+        Set(txtInvestissementTravaux, $"{Montants.F(investTravaux, "N0")} €  ({bat.travaux.Count})");
+        Set(txtInvestissementTotal, $"{Montants.F(investTotal, "N0")} €");
+        Set(txtMensualitesTotales, $"{Montants.F(mensTotales, "N0")} € / mois");
+        Set(txtLoyerAnnuel, $"{Montants.F(loyerAnnuel, "N0")} € / an");
+        Set(txtCashFlowAnnuel, Signe(cashFlowAnnuel) + $"{Montants.F(cashFlowAnnuel, "N0")} € / an");
+        Set(txtCashFlowMensuel, Signe(cashFlowMois) + $"{Montants.F(cashFlowMois, "N0")} € / mois");
+        Set(txtBreakEven, cashFlowAnnuel > 0 ? $"{Montants.F(breakEven, "F1")} ans" : "—");
 
-        Color cfCol = cashFlowAnnuel >= 0 ? Col("#0F6E56") : Col("#D85A30");
+        Color cfCol = cashFlowAnnuel >= 0 ? UITheme.Primaire : UITheme.Alerte;
         if (txtCashFlowAnnuel != null) txtCashFlowAnnuel.color = cfCol;
         if (txtCashFlowMensuel != null) txtCashFlowMensuel.color = cfCol;
 
         if (txtStatus != null)
         {
-            if (cashFlowAnnuel < 0) { txtStatus.text = "Effort d'épargne"; txtStatus.color = Col("#D85A30"); }
-            else if (breakEven <= 10f) { txtStatus.text = "Rentable < 10 ans"; txtStatus.color = Col("#0F6E56"); }
-            else if (breakEven <= 20f) { txtStatus.text = "Rentable < 20 ans"; txtStatus.color = Col("#854F0B"); }
-            else { txtStatus.text = "Rentabilité longue"; txtStatus.color = Col("#888780"); }
+            if (cashFlowAnnuel < 0) { txtStatus.text = "Effort d'épargne"; txtStatus.color = UITheme.Alerte; }
+            else if (breakEven <= 10f) { txtStatus.text = "Rentable < 10 ans"; txtStatus.color = UITheme.Primaire; }
+            else if (breakEven <= 20f) { txtStatus.text = "Rentable < 20 ans"; txtStatus.color = UITheme.Hex("#854F0B"); }
+            else { txtStatus.text = "Rentabilité longue"; txtStatus.color = UITheme.Hex("#888780"); }
         }
 
         // ── Tableau annuel (Rentrées / Coût achat / Coût travaux / Cumulé) ────
@@ -338,5 +337,4 @@ public class RentabiliteGlobaleController : MonoBehaviour
 
     private static void Set(TMP_Text t, string v) { if (t != null) t.text = v; }
     private static string Signe(double v) => v >= 0 ? "+" : "";
-    private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }

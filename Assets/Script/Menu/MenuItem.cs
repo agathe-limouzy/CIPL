@@ -40,7 +40,7 @@ public class MenuItem : MonoBehaviour
         _libelle = string.IsNullOrWhiteSpace(nom) ? "Sans nom" : nom;
         Afficher();
 
-        tabButton.onClick.AddListener(() => MainMenu.OnSelect(_BatLocLinked, this));
+        tabButton.onClick.AddListener(() => MainMenu.OnSelect(_BatLocLinked));
 
     }
 

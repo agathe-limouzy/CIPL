@@ -114,6 +114,10 @@ public class BatimentPrefab : PrefabBatLoc
         UndoToast.Instance?.ShowInfo("Création du locataire abandonnée.");
     }
 
+    /// Revue 17 (D7a-10 / D8-05, lot F) : le nombre de locataires qui comptent dans le bâtiment (ni archivés, ni partis, ni pas encore
+    /// arrivés), pour la carte, la ligne du mode liste et l'en-tête de l'accueil : une seule règle (EnPlace).
+    public int NbEnPlace() => EnPlace(listLocataire).Count();
+
 public float GetLoyerTotal()
 {
     float total = 0f;
@@ -175,7 +179,10 @@ public float GetLoyerTotal()
 
     /// Réaffiche les lots dont la surface découle du bâtiment. Ne touche PAS à
     /// `batiment.tailleBatiment` : elle n'appartient qu'à la saisie du bâtiment.
-    public void RefreshTailleBatiment()
+    /// `avertir` (Revue 17, B-10, lot F ; décision du 16/11) : le dépassement n'est annoncé qu'à l'enregistrement d'une surface (fiche
+    /// du bâtiment, d'un locataire, lots), quand il apparaît ou change. Avant : à l'ouverture de l'entreprise, puis à chaque fiche
+    /// reconstruite (ouverture et fermeture d'un formulaire de facture), parfois deux fois.
+    public void RefreshTailleBatiment(bool avertir = false)
     {
         if (listLocataire == null) return;
         foreach (var loc in listLocataire)
@@ -188,14 +195,14 @@ public float GetLoyerTotal()
         // Avertissement une fois par dépassement : cette méthode est appelée à chaque
         // enregistrement, un toast à chaque fois serait insupportable.
         float trop = TailleLotDepassement();
-        if (trop > 0.01f && Mathf.Abs(trop - _depassementSignale) > 0.01f)
+        if (avertir && trop > 0.01f && Mathf.Abs(trop - _depassementSignale) > 0.01f)
         {
             // Retour du 01/11 : le message nomme les lots saisis, sinon on ne sait pas lequel corriger.
             var saisis = EnPlace(listLocataire).Where(l => l.tailleLot > 0f)
-                .Select(l => $"{(string.IsNullOrEmpty(l.Name) ? "(sans nom)" : l.Name)} : {l.tailleLot:0.##} m²").ToList();
+                .Select(l => $"{(string.IsNullOrEmpty(l.Name) ? "(sans nom)" : l.Name)} : {Montants.F(l.tailleLot, "0.##")} m²").ToList();
             ConfirmDialog.Erreur(
                 $"Les surfaces saisies des locataires ({string.Join(", ", saisis)}) dépassent celle du bâtiment "
-                + $"({batiment.tailleBatiment:0.##} m²) de {trop:0.##} m². Corrigez la surface du bâtiment ou celle d'un de ces lots.");
+                + $"({Montants.F(batiment.tailleBatiment, "0.##")} m²) de {Montants.F(trop, "0.##")} m². Corrigez la surface du bâtiment ou celle d'un de ces lots.");
         }
         _depassementSignale = trop;
     }
@@ -376,7 +383,7 @@ public float GetLoyerTotal()
         if (multiLocataire && txtLoyerTotalAnnuel != null)
         {
             float total = GetLoyerTotal();
-            txtLoyerTotalAnnuel.text = $"{total:F2} € / an";
+            txtLoyerTotalAnnuel.text = $"{Montants.F(total, "N2")} € / an";   // revue visuelle du 16/11 (V-20) : « 31 082,05 », avec le séparateur de milliers
         }
         rentabiliteGlobale?.Refresh();
         if (summaryView != null && summaryView.gameObject.activeSelf)
@@ -578,6 +585,15 @@ public float GetLoyerTotal()
         });
 
         TransfertEntrepriseUI.AjouterBouton(Delete, () => TransfertEntrepriseUI.OuvrirBatiment(this));
+        Styler(transform);   // Revue 17 (D9-02, lot E) : couleurs et icônes posées une fois, fiches cachées comprises
+    }
+
+    /// Revue 17 (D9-02, lot E) : les scanners du Canvas ne visitent plus que l'écran affiché ; une fiche construite est donc
+    /// colorée ici, une fois, pour ne pas « sauter » de couleur à son premier affichage.
+    static void Styler(Transform t)
+    {
+        AppSectionColors.Styler(t);
+        AppIconResizer.Styler(t);
     }
 
 
@@ -616,6 +632,7 @@ public float GetLoyerTotal()
         data.lotBatiment = LotsBatiment.Libres(batiment).FirstOrDefault()?.numero ?? 0;
 
         var prefab = SpawnPrefabLocataireInPanel(data, menulocataire.ContentPrefab.transform, needToModify);
+        Styler(prefab.transform);   // Revue 17 (D9-02, lot E)
         listLocataire.Add(data);
         dictionnairelocataire.Add(data, prefab);
         // Revue 16c (D7a-08) : pas encore dans le bâtiment : « Sauvegarder » l'y inscrit (Inscrire). Avant, n'importe quel
@@ -664,7 +681,7 @@ public float GetLoyerTotal()
     public void ApresLots()
     {
         tailleBatimentText.ApplySave(LotsBatiment.SurfaceTotale(batiment).ToString());
-        RefreshTailleBatiment();
+        RefreshTailleBatiment(avertir: true);
         MajBoutonLots();
         RebuildLocataireRows();
         BatimentManager.Instance.SaveBatiment(batiment);
@@ -732,6 +749,7 @@ public float GetLoyerTotal()
         }
 
         var prefab = SpawnPrefabLocataireInPanel(data, menulocataire.ContentPrefab.transform, false);
+        Styler(prefab.transform);   // Revue 17 (D9-02, lot E)
         listLocataire.Add(data);
         dictionnairelocataire.Add(data, prefab);
         BatimentManager.RestaurerDossierLocataire(data.id, getName(), data.Name);   // revue 16c, D7a-09
@@ -853,7 +871,7 @@ public float GetLoyerTotal()
         // La surface saisie fait foi ; les lots non définis se replient dessus.
         if (LotsBatiment.Definis(batiment)) tailleBatimentText.ApplySave(LotsBatiment.SurfaceTotale(batiment).ToString());   // 04/11
         else SaveCorrectlyFloat(ref batiment.tailleBatiment, tailleBatimentText.GetNewSave());
-        RefreshTailleBatiment();
+        RefreshTailleBatiment(avertir: true);
         SaveCorrectlyFloat(ref batiment.tailleTerrain, tailleTerrainText.GetNewSave());
         Debug.Log(batiment.tailleBatiment);
         batiment.adressBatiment = mapController.GetAdress();
@@ -874,9 +892,30 @@ public float GetLoyerTotal()
         if (_sectionStateSnapshot != null)
             for (int i = 0; i < sections.Length; i++)
                 sections[i].SetOpen(_sectionStateSnapshot[i]);
-        InitializeBatiment(batiment, false);
+        ApresEnregistrement();
         ShowFiche();   // après sauvegarde : rester sur la fiche complète (pas de retour au résumé)
         RefreshBatimentTabAlert();
+    }
+
+    /// Revue 17 (D9-N4 / D7a-N8, lot E ; décision du 16/11) : après « Sauvegarder », seul ce que la fiche du bâtiment a pu
+    /// changer est réaffiché (nom, surfaces, cadastre, lots, en-tête, liste, résumé, sous-titre des fiches locataires). Avant :
+    /// InitializeBatiment détruisait et recréait toutes les fiches locataires (737 ms pour 3 locataires, mesuré le 16/11), et le
+    /// premier locataire était resélectionné. Désormais le locataire regardé, ses sections et son défilement restent tels quels.
+    void ApresEnregistrement()
+    {
+        nameOfTheBuiding.ApplySave(batiment.Name);
+        tailleBatimentText.ApplySave(LotsBatiment.SurfaceTotale(batiment).ToString());
+        tailleTerrainText.ApplySave(batiment.tailleTerrain.ToString());
+        cadastralTxt?.ApplySave(batiment.cadastral ?? "");
+        ParkingDropdown.value = (int)batiment.parkingEtat;
+        MajBoutonLots();
+        RefreshFicheHeader();
+        foreach (var kv in dictionnairelocataire)
+            if (kv.Value != null) kv.Value.RefreshHeader(kv.Key);   // « bâtiment · lot » : le nom a pu changer
+        RefreshTailleBatiment();
+        RefreshLoyerTotal();
+        RebuildLocataireRows();
+        summaryView?.Refresh();
     }
    public override string getName()
     {

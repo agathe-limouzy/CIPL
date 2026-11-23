@@ -62,13 +62,13 @@ public static class BatimentExemple
         var bande = UIFactory.HBox(contenu, 10, false, "BandeauExemple");
         bande.padding = new RectOffset(14, 14, 8, 8);
         bande.childAlignment = TextAnchor.MiddleLeft;
-        bande.gameObject.AddComponent<Image>().color = Hex("#FAEEDA");
+        bande.gameObject.AddComponent<Image>().color = UITheme.AttentionClair;
         bande.transform.SetSiblingIndex(0);
         var t = UIFactory.Text(bande.transform, "Bâtiment d'exemple : essayez tout, rien n'est envoyé, et il ne compte pas dans vos premiers pas.",
-                               UITheme.Role.Donnee, Hex("#633806"));
+                               UITheme.Role.Donnee, UITheme.AttentionTexte);
         UIFactory.LE(t.gameObject, flexW: 1);
-        var b = UIFactory.Button(bande.transform, "Supprimer l'exemple", UITheme.Carte, Hex("#854F0B"), 34, UITheme.Role.Action);
-        UIFactory.Border(b.gameObject, Hex("#854F0B"));
+        var b = UIFactory.Button(bande.transform, "Supprimer l'exemple", UITheme.Carte, UITheme.Hex("#854F0B"), 34, UITheme.Role.Action);
+        UIFactory.Border(b.gameObject, UITheme.Hex("#854F0B"));
         UIFactory.LargeurDuTexte(b);
         b.onClick.AddListener(() => Supprimer(bp));
     }
@@ -84,5 +84,4 @@ public static class BatimentExemple
         }, "Supprimer");
     }
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }

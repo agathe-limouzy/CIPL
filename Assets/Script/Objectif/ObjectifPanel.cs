@@ -10,7 +10,7 @@ using UnityEngine.UI;
 /// texte, importance, avancement, échéance + « me prévenir », récurrence, documents.
 public static class ObjectifPanel
 {
-    static readonly Color Ardoise = Hex("#2C3E5E");
+    static readonly Color Ardoise = UITheme.Hex("#2C3E5E");
 
     /// `obj` null = création (ajouté en tête de `liste`). `apres` : enregistrer et rafraîchir.
     /// Revue 17 (D7b-09, lot D) : sur le cloud, la fiche qui porte la liste (le locataire, sinon le bâtiment) est réservée
@@ -73,6 +73,7 @@ public static class ObjectifPanel
         v.childControlWidth = true; v.childControlHeight = true;
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
         cardImg.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        PlafondFenetre.Poser(card);   // Revue 17 (D10-01, lot F) : jamais plus haute que l'écran
 
         Entete(v.transform, creation ? "Nouvel objectif" : "Modifier l'objectif");
         var body = UIFactory.VBox(v.transform, 10, 18, 18, 14, 16, "Body");
@@ -92,13 +93,13 @@ public static class ObjectifPanel
 
         // Échéance · Me prévenir (jours avant)
         var l2 = UIFactory.HBox(body.transform, 16, false, "Ligne2");
-        var echeance = ChampDate(l2.transform, "Échéance (facultative)", obj != null ? Objectifs.Echeance(obj) : null);
+        var echeance = ChampDate.Colonne(l2.transform, "Échéance (facultative)", obj != null ? Objectifs.Echeance(obj) : null);
         var prevenir = DepartPanel.Champ(l2.transform, "Me prévenir (jours avant)", Objectifs.PREVENIR_DEFAUT.ToString(), 1f);
         prevenir.contentType = TMP_InputField.ContentType.IntegerNumber;
         prevenir.text = (obj?.prevenirJours ?? Objectifs.PREVENIR_DEFAUT).ToString();
 
         // Récurrence : Aucune / Répéter · tous les N · unité
-        UIFactory.Text(body.transform, "Récurrence", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Récurrence", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var l3 = UIFactory.HBox(body.transform, 10, false, "Ligne3");
         bool repete = (obj?.repeterTous ?? 0) > 0;
         Action majRepet = null;
@@ -123,12 +124,11 @@ public static class ObjectifPanel
                 : "Saisissez une échéance : la répétition part de cette date.";
         };
         n.onValueChanged.AddListener(_ => majRepet());
-        foreach (var c in new[] { echeance.dayInput, echeance.monthInput, echeance.yearInput })
-            c.onValueChanged.AddListener(_ => majRepet());
+        echeance.onValueChanged.AddListener(_ => majRepet());
         majRepet();
 
         // Documents (copiés dans le dossier « Objectifs » du bâtiment ou du locataire)
-        UIFactory.Text(body.transform, "Documents", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Documents", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var docs = UIFactory.VBox(body.transform, 4, name: "Documents").transform;
         string dossier = DossiersDonnees.DossierObjectifs(nomBat, nomLoc);
         Action majDocs = null;
@@ -164,7 +164,7 @@ public static class ObjectifPanel
         var precedentes = creation ? new List<Objective>() : Objectifs.Precedentes(liste, obj);
         if (precedentes.Count > 0)
         {
-            UIFactory.Text(body.transform, $"Occurrences précédentes ({precedentes.Count})", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            UIFactory.Text(body.transform, $"Occurrences précédentes ({precedentes.Count})", UITheme.Role.Libelle, UITheme.TexteSecondaire);
             var occ = UIFactory.VBox(body.transform, 4, name: "Occurrences").transform;
             foreach (var p in precedentes)
             {
@@ -198,8 +198,7 @@ public static class ObjectifPanel
 
         enregistrer.onClick.AddListener(() =>
         {
-            bool vide = string.IsNullOrWhiteSpace(echeance.dayInput.text) && string.IsNullOrWhiteSpace(echeance.monthInput.text)
-                        && string.IsNullOrWhiteSpace(echeance.yearInput.text);
+            bool vide = echeance.Vide();
             DateTime e = default;
             if (!vide && !echeance.LireDate(out e)) { ConfirmDialog.Erreur("Échéance : date incomplète (JJ/MM/AAAA), ou laissez-la vide."); return; }
             string iso = vide ? "" : Objectifs.Iso(e);
@@ -281,28 +280,8 @@ public static class ObjectifPanel
     {
         var col = UIFactory.VBox(parent, 4, name: libelle);
         UIFactory.LE(col.gameObject, flexW: 1);
-        UIFactory.Text(col.transform, libelle, UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(col.transform, libelle, UITheme.Role.Libelle, UITheme.TexteSecondaire);
         return col.transform;
-    }
-
-    // Champ date cloné de celui de la fiche locataire (JJ / MM / AAAA, comme partout) :
-    // même construction que DepartPanel.ChampDate, sans exiger une fiche locataire ouverte.
-    static DateInputController ChampDate(Transform parent, string titre, DateTime? valeur)
-    {
-        var modele = Resources.FindObjectsOfTypeAll<LocatairePrefab>().Select(p => p.dateFinBail).First(d => d != null);
-        var bloc = UnityEngine.Object.Instantiate(modele.gameObject, parent);
-        bloc.name = titre;
-        bloc.SetActive(true);
-        var d = bloc.GetComponent<DateInputController>();
-        d.OnModify.RemoveAllListeners();
-        var t = bloc.transform.Find("Titre")?.GetComponent<TMP_Text>();
-        if (t != null) t.text = titre;
-        var le = bloc.GetComponent<LayoutElement>() ?? bloc.AddComponent<LayoutElement>();
-        le.flexibleWidth = 1;
-        if (valeur.HasValue) d.ApplyDate(valeur.Value);
-        else { d.dayInput.text = ""; d.monthInput.text = ""; d.yearInput.text = ""; }
-        d.ModifyDate();
-        return d;
     }
 
     static Button PetitBouton(Transform parent, string libelle)
@@ -353,5 +332,4 @@ public static class ObjectifPanel
         UIFactory.LE(t.gameObject, flexW: 1, minW: 0);
     }
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }

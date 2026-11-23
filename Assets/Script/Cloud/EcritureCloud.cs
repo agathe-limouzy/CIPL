@@ -275,10 +275,13 @@ public static class EcritureCloud
         // Revue 17 (D2-06, lot D) : lecture page après page (CloudClient.TableTout) : au-delà du plafond de lignes du
         // serveur, une lecture en une fois rendait une liste coupée, sans erreur. L'ordre est total (clé unique), pour
         // qu'aucune ligne ne soit sautée ni lue deux fois d'une page à l'autre.
-        var rb = await CloudClient.TableTout(Url, CleApi, jeton, "batiments", $"entreprise_id=eq.{entrepriseId}&select=id,version,data&order=id.asc");
+        // Revue 17 (D9-08, lot E) : les deux lectures partent ensemble (un aller-retour de moins à l'ouverture).
+        var tb = CloudClient.TableTout(Url, CleApi, jeton, "batiments", $"entreprise_id=eq.{entrepriseId}&select=id,version,data&order=id.asc");
+        var tl = CloudClient.TableTout(Url, CleApi, jeton, "locataires",
+                                       $"entreprise_id=eq.{entrepriseId}&select=id,batiment_id,ordre,version,data&order=ordre.asc,id.asc");
+        var rb = await tb;
+        var rl = await tl;
         if (!rb.Ok) return (null, rb.Erreur);
-        var rl = await CloudClient.TableTout(Url, CleApi, jeton, "locataires",
-                                             $"entreprise_id=eq.{entrepriseId}&select=id,batiment_id,ordre,version,data&order=ordre.asc,id.asc");
         if (!rl.Ok) return (null, rl.Erreur);
         try
         {
@@ -303,9 +306,15 @@ public static class EcritureCloud
     /// Objets Batiment remplacés par une relecture (changement d'un collègue, rechargement) :
     /// un écran resté ouvert sur l'ancien ne doit plus rien écrire, sinon il renverrait des
     /// locataires périmés avec la version à jour et effacerait le travail du collègue.
-    static readonly HashSet<Batiment> _perimes = new HashSet<Batiment>();
-    public static void Perimer(Batiment b) { if (b != null) _perimes.Add(b); }
-    public static bool Perime(Batiment b) => b != null && _perimes.Contains(b);
+    // Revue 17 (D9-09, lot E) : une table à clés faibles : l'entrée disparaît quand plus rien ne tient l'ancien bâtiment. Le
+    // HashSet ne faisait qu'ajouter : chaque rechargement, reconnexion ou relecture d'un collègue y gardait des bâtiments entiers
+    // (+19 Mo jamais rendus après 20 relectures d'un bâtiment de 10 locataires, mesuré le 16/11). Un écran resté ouvert sur
+    // l'ancien bâtiment le tient encore : il reste périmé, comme avant.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Batiment, object> _perimes =
+        new System.Runtime.CompilerServices.ConditionalWeakTable<Batiment, object>();
+    static readonly object Marque = new object();
+    public static void Perimer(Batiment b) { if (b != null) _perimes.GetValue(b, _ => Marque); }
+    public static bool Perime(Batiment b) => b != null && _perimes.TryGetValue(b, out _);
 
     /// Fiches que j'ai supprimées : leur écho (sans auteur) ne doit pas passer pour un collègue.
     static readonly HashSet<string> _supprimesParMoi = new HashSet<string>();
@@ -378,10 +387,13 @@ public static class EcritureCloud
     {
         string jeton = await SessionCloud.Jeton();
         string id = Uri.EscapeDataString(batimentId);
-        var rb = await CloudClient.Table("GET", Url, CleApi, jeton, "batiments", $"entreprise_id=eq.{entrepriseId}&id=eq.{id}&select=id,version,data");
+        // Revue 17 (D9-08, lot E) : les deux lectures partent ensemble.
+        var tb = CloudClient.Table("GET", Url, CleApi, jeton, "batiments", $"entreprise_id=eq.{entrepriseId}&id=eq.{id}&select=id,version,data");
+        var tl = CloudClient.Table("GET", Url, CleApi, jeton, "locataires",
+                                   $"entreprise_id=eq.{entrepriseId}&batiment_id=eq.{id}&select=id,batiment_id,ordre,version,data&order=ordre.asc,id.asc");   // D2-05 (lot D) : ordre total, comme Charger
+        var rb = await tb;
+        var rl = await tl;
         if (!rb.Ok) return (null, null, rb.Erreur);
-        var rl = await CloudClient.Table("GET", Url, CleApi, jeton, "locataires",
-                                         $"entreprise_id=eq.{entrepriseId}&batiment_id=eq.{id}&select=id,batiment_id,ordre,version,data&order=ordre.asc,id.asc");   // D2-05 (lot D) : ordre total, comme Charger
         if (!rl.Ok) return (null, null, rl.Erreur);
         var etat = new Dictionary<string, Etat>();
         try { return (Lire(rb.Corps, rl.Corps, etat).FirstOrDefault(), etat, null); }
@@ -403,6 +415,20 @@ public static class EcritureCloud
             cache.Remove(k);
         foreach (var kv in etat) cache[kv.Key] = kv.Value;
         if (b != null) Recaler(cache, new[] { b });
+    }
+
+    /// Revue 17 (D9-04, lot E) : la relecture d'un bâtiment n'apporte rien : les mêmes fiches (bâtiment et locataires), aux
+    /// mêmes versions que l'état connu. Il n'y a alors rien à reconstruire (après une reconnexion, tous les bâtiments sont relus :
+    /// 27,6 s pour 30 bâtiments de 10 locataires, mesuré le 16/11). Une fiche refusée a une version connue en retard sur le
+    /// serveur : elle n'est jamais « inchangée ». Pure, testée.
+    public static bool Inchange(string batimentId, IDictionary<string, Etat> etat) => Inchange(_cache, batimentId, etat);
+
+    public static bool Inchange(IDictionary<string, Etat> cache, string batimentId, IDictionary<string, Etat> etat)
+    {
+        if (cache == null || etat == null || string.IsNullOrEmpty(batimentId)) return false;
+        var connues = cache.Where(kv => kv.Key == Cle(true, batimentId) || kv.Value?.BatimentId == batimentId).ToList();
+        return connues.Count > 0 && connues.Count == etat.Count
+               && connues.All(kv => etat.TryGetValue(kv.Key, out var e) && e != null && e.Version == kv.Value.Version);
     }
 
     static Task _file = Task.CompletedTask;   // un enregistrement à la fois, dans l'ordre
@@ -968,7 +994,7 @@ public static class EcritureCloud
             }
             if (now >= _prochainesBandes && SessionCloud.Active && SessionCloud.Entreprise != null)
             {
-                _prochainesBandes = now + 10f;
+                _prochainesBandes = now + (DirectCloud.Connecte ? 60f : 10f);   // Revue 17 (D9-12, lot E) : le direct prévient déjà
                 MettreAJourBandeaux();
             }
         }
@@ -1006,6 +1032,7 @@ public static class EcritureCloud
         void OnApplicationQuit()
         {
             GarderCopie(maintenant: true);   // étape 8b : la copie locale suit jusqu'à la fermeture
+            CopieLocale.Terminer();          // Revue 17 (D9-10, lot E) : elle s'écrit en tâche de fond
             LibererTout();   // au mieux ; sinon les verrous expirent après 2 min
         }
 
@@ -1034,16 +1061,27 @@ public static class EcritureCloud
                 _detenteurs.Clear();
                 foreach (var x in autres) _detenteurs[Cle(x.cible_type == "batiment", x.cible_id)] = RegleVerrou.Prenom(x.nom);
                 var liste = autres.Select(x => (x.cible_type, x.cible_id, x.nom)).ToList();
+                // Revue 17 (D9-12, lot E) : les fiches et les lignes sont prises dans les listes déjà tenues (bâtiments installés,
+                // fiches de chaque bâtiment, lignes du résumé), sans fouiller toute l'interface (70 ms pour SCI (JBC), 0,8 s pour
+                // 300 locataires, mesuré le 16/11).
                 var bm = BatimentManager.Instance;
-                foreach (var f in FindObjectsOfType<BatimentPrefab>(true))
+                if (bm == null) return;
+                foreach (var f in bm.BatimentPrefab)
                 {
+                    if (f == null) continue;
                     Bandeau(f, "batiment", autres.FirstOrDefault(x => x.cible_type == "batiment" && x.cible_id == f.getID()));
                     var locs = new HashSet<string>(f.listLocataire.Where(l => l != null).Select(l => l.id));
-                    if (bm != null) bm.menuManager.SetDetenteur(f, RegleVerrou.Detenteurs(liste, f.getID(), locs));
-                    foreach (var ligne in f.GetComponentsInChildren<LocataireRowUI>(true)) ligne.SetDetenteur(Detenteur(false, ligne.LocataireId));
+                    bm.menuManager.SetDetenteur(f, RegleVerrou.Detenteurs(liste, f.getID(), locs));
+                    if (f.locataireRowContainer != null)
+                        foreach (Transform t in f.locataireRowContainer)
+                        {
+                            var ligne = t.GetComponent<LocataireRowUI>();
+                            if (ligne != null) ligne.SetDetenteur(Detenteur(false, ligne.LocataireId));
+                        }
+                    foreach (var fiche in f.dictionnairelocataire.Values)
+                        if (fiche != null)
+                            Bandeau(fiche, "locataire", autres.FirstOrDefault(x => x.cible_type == "locataire" && x.cible_id == fiche.getID()));
                 }
-                foreach (var f in FindObjectsOfType<LocatairePrefab>(true))
-                    Bandeau(f, "locataire", autres.FirstOrDefault(x => x.cible_type == "locataire" && x.cible_id == f.getID()));
             }
             catch (Exception ex) { Debug.LogWarning("[Verrou] Bandeaux : " + ex.Message); }
         }

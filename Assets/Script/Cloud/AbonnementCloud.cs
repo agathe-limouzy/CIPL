@@ -179,6 +179,7 @@ public static class AbonnementCloud
       : a?.refus == "nom" ? "Saisissez la raison sociale."
       : a?.refus == "deja_sur_cipl" ? "Cette société est déjà sur CIPL. Si elle n'est pas dans votre groupe, demandez une invitation à son administrateur."
       : a?.refus == "abonnement" ? "Abonnement expiré : aucune entreprise ne peut être ajoutée."
+      : a?.refus == "essai" ? RegleAbonnement.RefusAjoutEssai   // décision du 22/11
       : "Ajout impossible : " + (a?.erreur ?? "réponse vide.");
 
     // ── Bandeau sous la barre d'onglets (maquette du 19/10) ────────────────────

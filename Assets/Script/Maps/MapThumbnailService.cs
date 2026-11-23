@@ -27,6 +27,9 @@ public static class MapThumbnailService
             return;
         }
         if (_enCours.Contains(adresse)) return;   // déjà en chargement
+        // Lot F (relevé le 14/11) : un résumé de bâtiment caché (installation, relecture) lançait la coroutine sur un objet
+        // inactif : « Coroutine couldn't be started … 'VueResume' is inactive ». Caché, il redemandera à son affichage.
+        if (!runner.isActiveAndEnabled) return;
 
         runner.StartCoroutine(Fetch(adresse, onReady));
     }

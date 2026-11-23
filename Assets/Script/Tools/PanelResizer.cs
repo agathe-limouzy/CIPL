@@ -29,8 +29,6 @@ public class PanelResizer : MonoBehaviour,
     private float _bottomHeight;
     private float _bottomScrollContentOtherH; // hauteur fixe = titre + tab bar
 
-    // Enfants directs de panelTop à étirer
-    private readonly List<RectTransform> _topDirectChildren = new List<RectTransform>();
 
 
     [Header("Curseur")]
@@ -96,10 +94,6 @@ public class PanelResizer : MonoBehaviour,
         float resizerH = GetComponent<RectTransform>().rect.height;
         float containerH = _parentRt.rect.height;
 
-        // Espace consommé par le layout parent (padding + espacements entre les 3 blocs)
-        float extra = 0f;
-        if (_parentVLG != null)
-            extra = _parentVLG.padding.vertical + _parentVLG.spacing * 2f;
 
         _topHeight = Mathf.Max(minTop, panelTop.rect.height);
         _bottomHeight = Mathf.Max(minBottom,
@@ -116,14 +110,12 @@ public class PanelResizer : MonoBehaviour,
         panelBottom.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, _bottomHeight);
 
         // Enfants directs de panelTop
-        _topDirectChildren.Clear();
         foreach (Transform child in panelTop)
         {
             var rt = child as RectTransform;
             if (rt == null) continue;
             var csf = child.GetComponent<ContentSizeFitter>();
             if (csf != null) csf.enabled = false;
-            _topDirectChildren.Add(rt);
             rt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, _topHeight);
         }
 
@@ -165,9 +157,6 @@ public class PanelResizer : MonoBehaviour,
         Canvas.ForceUpdateCanvases();
 
         float resizerH = GetComponent<RectTransform>().rect.height;
-        float extra = 0f;
-        if (_parentVLG != null)
-            extra = _parentVLG.padding.vertical + _parentVLG.spacing * 2f;
 
         _topHeight = panelTop.rect.height;
         _bottomHeight = _parentRt.rect.height - resizerH - _topHeight - GetHauteurAutresElements();
@@ -181,14 +170,12 @@ public class PanelResizer : MonoBehaviour,
         }
 
         // panelTop : désactive les CSF des enfants directs
-        _topDirectChildren.Clear();
         foreach (Transform child in panelTop)
         {
             var rt = child as RectTransform;
             if (rt == null) continue;
             var csf = child.GetComponent<ContentSizeFitter>();
             if (csf != null) csf.enabled = false;
-            _topDirectChildren.Add(rt);
         }
 
         LayoutRebuilder.ForceRebuildLayoutImmediate(panelBottom);

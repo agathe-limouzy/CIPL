@@ -25,7 +25,13 @@ public class HomeAlertRowUI : MonoBehaviour
             txtType.text = alerte.typeTodo;
             txtType.color = alerte.typeTexte;
         }
-        if (txtRappel != null) txtRappel.text = alerte.nomRappel;
+        if (txtRappel != null)
+        {
+            txtRappel.text = alerte.nomRappel;
+            txtRappel.enableWordWrapping = true;   // Revue 17 (D8-15, lot F) : deux lignes plutôt que « … » quand la colonne est étroite
+            // La ligne (32 de haut dans le prefab) grandit alors avec son texte : 32 devient son minimum.
+            if (TryGetComponent(out LayoutElement ligne) && ligne.preferredHeight > 0f) { ligne.minHeight = ligne.preferredHeight; ligne.preferredHeight = -1f; }
+        }
         if (txtLocataire != null) txtLocataire.text = alerte.nomLocataire ?? "";  // vide pour un objectif de bâtiment
         if (txtBatiment != null) txtBatiment.text = alerte.nomBatiment;
 

@@ -17,6 +17,15 @@ public class SectionUtilisateurs
 
     // Largeurs des colonnes : Nom, E-mail, Rôle, Entreprises (le reste), Statut, actions.
     const float LNom = 220, LEmail = 300, LRole = 170, LStatut = 220, LActions = 230;
+    // Revue 17 (D3-16, lot F) : chaque colonne peut se resserrer jusqu'à son minimum (le nom et l'e-mail passent à la ligne) : le
+    // tableau exigeait 1 370 unités, et à 150-175 % « Inviter », « Retirer », « Renvoyer » et « Annuler » étaient hors de la fenêtre
+    // (mesuré le 16/11 : jusqu'à 337 unités dehors). À 175 %, la fenêtre offre 1 011 unités.
+    // Le minimum du statut est donné à part : LStatut et LNom ont la même largeur (220), une table par valeur les confondrait.
+    const float LEntreprisesMin = 110, LStatutMin = 200;
+    static float Min(float l) => l == LNom ? 120 : l == LEmail ? 180 : l == LRole ? 150 : l == LActions ? 170 : l;
+
+    /// La largeur sous laquelle une ligne déborde : minimums des colonnes, espacements (10) et marges (10 + 10). Pure, testée.
+    public static float LargeurMinimale() => Min(LNom) + Min(LEmail) + Min(LRole) + LEntreprisesMin + LStatutMin + Min(LActions) + 5 * 10 + 20;
 
     readonly ReglagePanel _panel;
     readonly GameObject _section;
@@ -72,7 +81,7 @@ public class SectionUtilisateurs
         Cellule(titres, "E-mail", LEmail, UITheme.TexteSecondaire, true);
         Cellule(titres, "Rôle", LRole, UITheme.TexteSecondaire, true);
         Cellule(titres, "Entreprises", 0, UITheme.TexteSecondaire, true);
-        Cellule(titres, "Statut", LStatut, UITheme.TexteSecondaire, true);
+        Cellule(titres, "Statut", LStatut, UITheme.TexteSecondaire, true, LStatutMin);
         Cellule(titres, "", LActions, UITheme.TexteSecondaire);
 
         foreach (var m in _a.membres ?? new UtilisateursCloud.Membre[0]) LigneMembre(m);
@@ -90,22 +99,22 @@ public class SectionUtilisateurs
         {
             var dd = UIDropdown.Create(row, new List<string> { "Admin", "Utilisateur" }, new List<string> { "admin", "utilisateur" },
                                        m.role == "admin" ? 0 : 1, i => ChangerRole(m, i == 0 ? "admin" : "utilisateur"), 34);
-            UIFactory.LE(dd.gameObject, prefW: LRole, minW: LRole, flexW: 0);
+            UIFactory.LE(dd.gameObject, prefW: LRole, minW: Min(LRole), flexW: 0);
         }
 
         var ents = UIFactory.HBox(row, 6, false, "Entreprises");
-        UIFactory.LE(ents.gameObject, flexW: 1, minW: 160);
+        UIFactory.LE(ents.gameObject, flexW: 1, minW: LEntreprisesMin);
         var t = UIFactory.Text(ents.transform, NomsEntreprises(m.entreprises), UITheme.Role.Donnee, UITheme.TextePrincipal);
         UIFactory.LE(t.gameObject, flexW: 1);
         if (!m.moi && (_a.entreprises?.Length ?? 0) > 1) Bouton(ents.transform, "Modifier…", () => OuvrirAcces(m));
 
         var statut = UIFactory.HBox(row, 0, false, "Statut");
-        UIFactory.LE(statut.gameObject, prefW: LStatut, minW: LStatut, flexW: 0);
+        UIFactory.LE(statut.gameObject, prefW: LStatut, minW: LStatutMin, flexW: 0);
         if (m.en_ligne) ObjectifsTableau.Pastille(statut.transform, "En ligne", EnLigneFond, EnLigneEncre, UITheme.Role.Donnee);
         else ObjectifsTableau.Pastille(statut.transform, "Hors ligne", HorsFond, HorsEncre, UITheme.Role.Donnee);
 
         var actions = UIFactory.HBox(row, 6, false, "Actions");
-        UIFactory.LE(actions.gameObject, prefW: LActions, minW: LActions, flexW: 0);
+        UIFactory.LE(actions.gameObject, prefW: LActions, minW: Min(LActions), flexW: 0);
         if (!m.moi) Bouton(actions.transform, "Retirer", () => ConfirmerRetrait(m), alerte: true);
     }
 
@@ -118,13 +127,13 @@ public class SectionUtilisateurs
         Cellule(row, NomsEntreprises(i.entreprises), 0, UITheme.TextePrincipal);
 
         var statut = UIFactory.HBox(row, 0, false, "Statut");
-        UIFactory.LE(statut.gameObject, prefW: LStatut, minW: LStatut, flexW: 0);
+        UIFactory.LE(statut.gameObject, prefW: LStatut, minW: LStatutMin, flexW: 0);
         var fin = CloudClient.Date(i.expire_le);
         int jours = fin.HasValue ? Math.Max(0, (int)Math.Ceiling((fin.Value - DateTime.Now).TotalDays)) : 0;
         ObjectifsTableau.Pastille(statut.transform, $"Invitation envoyée · {jours} j", InviteFond, InviteEncre, UITheme.Role.Donnee);
 
         var actions = UIFactory.HBox(row, 6, false, "Actions");
-        UIFactory.LE(actions.gameObject, prefW: LActions, minW: LActions, flexW: 0);
+        UIFactory.LE(actions.gameObject, prefW: LActions, minW: Min(LActions), flexW: 0);
         Bouton(actions.transform, "Renvoyer", () => Renvoyer(i));
         Bouton(actions.transform, "Annuler", () => AnnulerInvitation(i));
     }
@@ -138,7 +147,13 @@ public class SectionUtilisateurs
     // ── Actions ────────────────────────────────────────────────────────────────
 
     /// Après un refus, la fenêtre se rouvre telle qu'elle était remplie (retour du 19/10).
-    void OuvrirInvitation() => OuvrirInvitation("", "utilisateur", null);
+    void OuvrirInvitation()
+    {
+        // Demande du 23/11 : plus aucune licence libre : dit au centre, sans ouvrir un formulaire où rien ne peut se cocher.
+        if (UtilisateursCloud.RefusInvitation(_a?.entreprises, AbonnementCloud.Etat == RegleAbonnement.Etat.Essai) is string refus)
+        { ConfirmDialog.Erreur(refus); return; }
+        OuvrirInvitation("", "utilisateur", null);
+    }
 
     void OuvrirInvitation(string emailAvant, string roleAvant, string[] entreprisesAvant)
     {
@@ -269,11 +284,11 @@ public class SectionUtilisateurs
         return row.transform;
     }
 
-    static void Cellule(Transform row, string texte, float largeur, Color couleur, bool gras = false)
+    static void Cellule(Transform row, string texte, float largeur, Color couleur, bool gras = false, float min = -1)
     {
         var t = UIFactory.Text(row, texte ?? "", UITheme.Role.Donnee, couleur, gras);
-        if (largeur > 0) UIFactory.LE(t.gameObject, prefW: largeur, minW: largeur, flexW: 0);
-        else UIFactory.LE(t.gameObject, flexW: 1, minW: 160);
+        if (largeur > 0) UIFactory.LE(t.gameObject, prefW: largeur, minW: min >= 0 ? min : Min(largeur), flexW: 0);
+        else UIFactory.LE(t.gameObject, flexW: 1, minW: LEntreprisesMin);
     }
 
     static void Texte(Transform parent, string texte, Color couleur) => UIFactory.Text(parent, texte, UITheme.Role.Donnee, couleur);

@@ -68,14 +68,17 @@ public static class ReglagesCloud
     static async Task<bool?> Lire(EntrepriseCloud e)
     {
         string jeton = await SessionCloud.Jeton();
-        var r = await CloudClient.Table("GET", Url, CleApi, jeton, "reglages", $"entreprise_id=eq.{e.id}&select=version,maj_par,data");
+        // Revue 17 (D9-08, lot E) : Réglages et secrets lus ensemble (un aller-retour de moins à l'ouverture).
+        var tr = CloudClient.Table("GET", Url, CleApi, jeton, "reglages", $"entreprise_id=eq.{e.id}&select=version,maj_par,data");
+        var ts = CloudClient.Table("GET", Url, CleApi, jeton, "secrets", $"entreprise_id=eq.{e.id}&select=cle,valeur");
+        var r = await tr;
         if (!r.Ok) { Debug.LogWarning("[Réglages] Lecture : " + r.Erreur); return null; }
         var l = JsonUtility.FromJson<LignesReglages>("{\"items\":" + r.Corps + "}")?.items?.FirstOrDefault();
         if (l?.data == null) return false;
         _version = l.version;
         ReglageService.Remplacer(l.data);
 
-        var s = await CloudClient.Table("GET", Url, CleApi, jeton, "secrets", $"entreprise_id=eq.{e.id}&select=cle,valeur");
+        var s = await ts;
         var secrets = s.Ok ? JsonUtility.FromJson<LignesSecrets>("{\"items\":" + s.Corps + "}")?.items : null;
         if (secrets != null && secrets.Length > 0)
             ReglageService.RemplacerSecrets(secrets.Where(x => !string.IsNullOrEmpty(x?.cle))

@@ -20,8 +20,8 @@ public class LocataireSuiviInline : MonoBehaviour
     Transform _tableBox, _yearRow;
     bool _built;
 
-    static readonly Color Accent = Hex("#9A5B2E");
-    static readonly Color AccentClair = Hex("#F3E7D9");
+    static readonly Color Accent = UITheme.Hex("#9A5B2E");
+    static readonly Color AccentClair = UITheme.Hex("#F3E7D9");
     static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
 
     Transform _extBody, _extTitre;
@@ -33,6 +33,7 @@ public class LocataireSuiviInline : MonoBehaviour
     public void Setup(LocatairePrefab fiche, Transform extBody, Transform extTitre)
     {
         _fiche = fiche;
+        _tous.Add(this);
         // La coquille n'est fournie qu'au premier appel, par LocataireFacturationFields.
         // Les appels suivants (Load, après chaque enregistrement) arrivent sans elle :
         // l'écraser ferait reconstruire le décor interne PAR-DESSUS la section de la
@@ -96,9 +97,18 @@ public class LocataireSuiviInline : MonoBehaviour
     // (RevisionPanel) et le dépôt (pop-up de révision) alimentent le suivi sans
     // passer par un panneau de facture, et laissaient donc un tableau périmé — ou
     // vide, sur une fiche tout juste créée.
+    // Revue 17 (D9-13, lot E) : les suivis construits, tenus ici (ajout dans Setup, retrait à la destruction). Avant, chaque
+    // enregistrement les cherchait dans toute la mémoire (Resources.FindObjectsOfTypeAll : 19 ms pour SCI (JBC), ≈ 250 ms
+    // pour 300 locataires, mesuré le 16/11).
+    static readonly HashSet<LocataireSuiviInline> _tous = new HashSet<LocataireSuiviInline>();
+
+    void OnDestroy() => _tous.Remove(this);
+
+    static LocataireSuiviInline[] Tous() { _tous.RemoveWhere(s => s == null); return _tous.ToArray(); }
+
     public static void RefreshTous()
     {
-        foreach (var s in Resources.FindObjectsOfTypeAll<LocataireSuiviInline>())
+        foreach (var s in Tous())
             if (s != null && s._fiche != null) s.Refresh();
     }
 
@@ -106,7 +116,7 @@ public class LocataireSuiviInline : MonoBehaviour
     public static void RefreshFor(LocatairePrefab fiche)
     {
         if (fiche == null) return;
-        foreach (var s in Resources.FindObjectsOfTypeAll<LocataireSuiviInline>())
+        foreach (var s in Tous())
             if (s != null && s._fiche == fiche) s.Refresh();
         fiche.RefreshParcours();   // le bandeau du départ suit les factures émises
         fiche.RafraichirAlertesFacturation();
@@ -120,7 +130,7 @@ public class LocataireSuiviInline : MonoBehaviour
     public static void MontrerPour(LocatairePrefab fiche, int annee)
     {
         if (fiche == null) return;
-        foreach (var s in Resources.FindObjectsOfTypeAll<LocataireSuiviInline>())
+        foreach (var s in Tous())
             if (s != null && s._fiche == fiche) { s.Montrer(annee); return; }
     }
 
@@ -212,12 +222,44 @@ public class LocataireSuiviInline : MonoBehaviour
         _tableBox = tbl.transform;
     }
 
+    /// Les années d'avant les boutons (plus de trois ans avant `anneeCourante`) où le locataire a une facture (par son échéance),
+    /// la plus récente d'abord. Pure, testée.
+    public static List<int> AnneesAnciennes(Locataire loc, int anneeCourante)
+    {
+        var res = new List<int>();
+        if (loc?.facturesEtat == null) return res;
+        foreach (var f in loc.facturesEtat)
+            if (f != null && FacturationSuivi.TryEcheance(f.echeanceISO, out var d) && d.Year < anneeCourante - 3 && !res.Contains(d.Year))
+                res.Add(d.Year);
+        res.Sort((a, b) => b.CompareTo(a));
+        return res;
+    }
+
     void RebuildYears()
     {
         foreach (Transform c in _yearRow) if (c.GetComponent<Button>() != null) Destroy(c.gameObject);
         // Chip modèle = un bouton de filtre des « améliorations » (même sprite/forme).
         var src = (_fiche != null && _fiche.objectivesManager != null) ? _fiche.objectivesManager.filterAllButton : null;
         int cur = DateTime.Today.Year;
+        // Revue 17 (D10-21, lot F ; décision du 16/11) : les factures d'avant la première année à bouton restent consultables par
+        // un menu « Avant AAAA » ; l'année choisie s'y affiche, allumée. Sans facture ancienne, pas de menu.
+        var anciennes = AnneesAnciennes(_loc, cur);
+        if (anciennes.Count > 0)
+        {
+            var labels = new List<string> { $"Avant {cur - 3}" };
+            var ids = new List<string> { "" };
+            foreach (int a in anciennes) { labels.Add(a.ToString()); ids.Add(a.ToString()); }
+            bool choisie = anciennes.Contains(_year);
+            var menu = UIDropdown.Create(_yearRow, labels, ids, choisie ? ids.IndexOf(_year.ToString()) : 0,
+                i => { if (i > 0 && int.TryParse(ids[i], out int a)) { _year = a; RebuildYears(); RebuildTable(); } }, 34);
+            menu.name = "AnneesAnciennes";
+            UIFactory.LE(menu.gameObject, prefW: 132, minW: 132, flexW: 0, minH: 34, prefH: 34, flexH: 0);
+            if (choisie)
+            {
+                menu.GetComponent<Image>().color = UITheme.Hex("#A9741C");
+                foreach (var t in menu.GetComponentsInChildren<TMP_Text>(true)) t.color = Color.white;
+            }
+        }
         for (int y = cur - 3; y <= cur + 1; y++)
         {
             int yy = y;
@@ -232,9 +274,9 @@ public class LocataireSuiviInline : MonoBehaviour
                 chip = go;
                 b = go.GetComponent<Button>();
                 var lbl = go.GetComponentInChildren<TMP_Text>(true);
-                if (lbl != null) { lbl.text = y.ToString(); lbl.color = on ? Color.white : Hex("#2C2C2A"); }
+                if (lbl != null) { lbl.text = y.ToString(); lbl.color = on ? Color.white : UITheme.TextePrincipal; }
                 var im = go.GetComponent<Image>();
-                if (im != null) im.color = on ? Hex("#A9741C") : Hex("#E6E3DA");
+                if (im != null) im.color = on ? UITheme.Hex("#A9741C") : UITheme.Hex("#E6E3DA");
                 var le = go.GetComponent<LayoutElement>() ?? go.AddComponent<LayoutElement>();
                 le.minWidth = 62; le.preferredWidth = 62; le.flexibleWidth = 0;
                 le.minHeight = 34; le.preferredHeight = 34; le.flexibleHeight = 0;
@@ -242,8 +284,8 @@ public class LocataireSuiviInline : MonoBehaviour
             }
             else
             {
-                b = UIFactory.Button(_yearRow, y.ToString(), on ? Hex("#A9741C") : Hex("#E6E3DA"),
-                    on ? Color.white : Hex("#2C2C2A"), 34, UITheme.Role.Action, false);
+                b = UIFactory.Button(_yearRow, y.ToString(), on ? UITheme.Hex("#A9741C") : UITheme.Hex("#E6E3DA"),
+                    on ? Color.white : UITheme.TextePrincipal, 34, UITheme.Role.Action, false);
                 UIFactory.LE(b.gameObject, prefW: 62, minW: 62, flexW: 0, minH: 34, prefH: 34, flexH: 0);
                 chip = b.gameObject;
             }
@@ -266,8 +308,8 @@ public class LocataireSuiviInline : MonoBehaviour
             if (e == FacturationSuivi.Etat.Impaye) impaye = true;
             else if (e == FacturationSuivi.Etat.AFaire || e == FacturationSuivi.Etat.AttenteEnvoi) autre = true;
         }
-        if (impaye) return Hex("#D85A30");
-        if (autre) return Hex("#A9741C");
+        if (impaye) return UITheme.Alerte;
+        if (autre) return UITheme.Hex("#A9741C");
         return null;
     }
 
@@ -314,7 +356,7 @@ public class LocataireSuiviInline : MonoBehaviour
         card.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
         Ligne(prefab, cv.transform).SetupEntete("Facture", "Échéance", "Montant TTC", "État", "Actions",
-            Hex("#EDEBE3"), UITheme.TexteSecondaire);
+            UITheme.Hex("#EDEBE3"), UITheme.TexteSecondaire);
 
         if (lignes.Count == 0)
         {
@@ -335,9 +377,9 @@ public class LocataireSuiviInline : MonoBehaviour
             var etat = FacturationSuivi.EtatDe(l, _loc);
             bool clot = FacturationSuivi.EstGrisee(etat);   // reprise, franchise, hors bail → grisée
             var couleurs = new SuiviRowUI.Couleurs(
-                clot ? Hex("#F0EEE8") : ((i % 2 == 0) ? UITheme.Carte : Hex("#F6F4EC")),
-                clot ? Hex("#A8A7A1") : UITheme.TextePrincipal,
-                clot ? Hex("#B7B6B0") : UITheme.TexteSecondaire);
+                clot ? UITheme.Hex("#F0EEE8") : ((i % 2 == 0) ? UITheme.Carte : UITheme.Hex("#F6F4EC")),
+                clot ? UITheme.TexteSecondaire : UITheme.TextePrincipal,
+                clot ? UITheme.Hex("#B7B6B0") : UITheme.TexteSecondaire);
             i++;
             var lgn = l;
             var row = Ligne(prefab, cv.transform);
@@ -443,6 +485,9 @@ public class LocataireSuiviInline : MonoBehaviour
 
         Action<string> set = statut =>
         {
+            // Décision du 17/11 : réglée par ses versements, elle ne repasse pas « Envoyé » ni « Impayé » d'ici (elle gardait ses versements :
+            // « Partiel · reste — »). Elle se rouvre par « Paiement partiel… », en retirant un versement.
+            if (FacturationSuivi.RefusQuitterPaye(_loc, ligne, statut) is string reglee) { Destroy(scrim.gameObject); ConfirmDialog.Erreur(reglee); return; }
             // Retour BN17 (décisions du 04/11) : « Payé » attend le remboursement de ce que nous devons (trop-perçu, avoir).
             float aRendre = FacturationSuivi.ARembourser(_loc, ligne.key);
             if (statut == "Paye" && aRendre > 0f && FacturationSuivi.EtatAffiche(_loc, ligne) == FacturationSuivi.Etat.ARembourser)
@@ -556,6 +601,9 @@ public class LocataireSuiviInline : MonoBehaviour
         // Revue 17 (lot 6b, décision du 09/11) : un loyer parti puis retiré du suivi (départ annulé ou repoussé : « Refaire » revient)
         // ne se refait pas, son numéro et le PDF reçu seraient écrasés : il se remet « Envoyé » ou « Payé » par son état.
         if (FactureEmission.RefusRetire(ligneCiblee) is string retire) { ConfirmDialog.Erreur(retire); return; }
+        // D5-20 (décision du 17/11, essai D5-N2) : une facture transmise par une autre entreprise ne se corrige jamais d'ici : refus dès le
+        // clic, le formulaire ne s'ouvre pas (avant : il s'ouvrait, et le refus venait à « Corriger et envoyer », après celui du RIB).
+        if (FactureElectronique.RefusOrigine(ligneCiblee, ligneCiblee?.libelle) is string origine) { ConfirmDialog.Erreur(origine); return; }
         switch (type)
         {
             case "Loyer": FactureLoyerPanel.OpenLoyer(_fiche, ligneCiblee); break;
@@ -604,10 +652,10 @@ public class LocataireSuiviInline : MonoBehaviour
         float aRendre = emise ? FacturationSuivi.ARembourser(_loc, l.key) : 0f;
         if (aRendre > 0f && total > 0f) return $"{Montant(l.montant)}\n<size=80%><color=#854F0B>trop-perçu {Montant(aRendre)}</color></size>";
         if (aRendre > 0f && Math.Abs(aRendre + total) > 0.005f)
-            return $"reste {Montant(aRendre)}\n<size=80%><color=#888780>sur {Montant(total)}</color></size>";
+            return $"reste {Montant(aRendre)}\n<size=80%><color=#5F5E5A>sur {Montant(total)}</color></size>";
         if (aRendre > 0f) return Montant(l.montant);
         if (paye <= 0f || etat == FacturationSuivi.Etat.Paye) return Montant(l.montant);
-        return $"reste {Montant(total - paye)}\n<size=80%><color=#888780>sur {Montant(total)}</color></size>";
+        return $"reste {Montant(total - paye)}\n<size=80%><color=#5F5E5A>sur {Montant(total)}</color></size>";
     }
     static string Ech(string iso) => DateTime.TryParse(iso, out var d) ? d.ToString("dd/MM/yyyy") : "—";
 
@@ -615,17 +663,17 @@ public class LocataireSuiviInline : MonoBehaviour
     {
         switch (e)
         {
-            case FacturationSuivi.Etat.AVenir: return Hex("#F1EFE8");
-            case FacturationSuivi.Etat.AFaire: return Hex("#FAEEDA");
-            case FacturationSuivi.Etat.AttenteEnvoi: return Hex("#EDE8F6");
-            case FacturationSuivi.Etat.Envoye: return Hex("#E6F1FB");
-            case FacturationSuivi.Etat.Impaye: return Hex("#FCEBEB");
+            case FacturationSuivi.Etat.AVenir: return UITheme.Fond;
+            case FacturationSuivi.Etat.AFaire: return UITheme.AttentionClair;
+            case FacturationSuivi.Etat.AttenteEnvoi: return UITheme.Hex("#EDE8F6");
+            case FacturationSuivi.Etat.Envoye: return UITheme.Hex("#E6F1FB");
+            case FacturationSuivi.Etat.Impaye: return UITheme.Hex("#FCEBEB");
             case FacturationSuivi.Etat.ARembourser:
-            case FacturationSuivi.Etat.Partiel: return Hex("#FFE8D6");
+            case FacturationSuivi.Etat.Partiel: return UITheme.Hex("#FFE8D6");
             case FacturationSuivi.Etat.Cloture:
             case FacturationSuivi.Etat.Franchise:
-            case FacturationSuivi.Etat.HorsBail: return Hex("#ECEAE3");
-            default:                           return Hex("#E1F5EE");
+            case FacturationSuivi.Etat.HorsBail: return UITheme.Hex("#ECEAE3");
+            default:                           return UITheme.PrimaireClair;
         }
     }
 
@@ -633,19 +681,18 @@ public class LocataireSuiviInline : MonoBehaviour
     {
         switch (e)
         {
-            case FacturationSuivi.Etat.AVenir: return Hex("#888780");
-            case FacturationSuivi.Etat.AFaire: return Hex("#854F0B");
-            case FacturationSuivi.Etat.AttenteEnvoi: return Hex("#6A5AA0");
-            case FacturationSuivi.Etat.Envoye: return Hex("#185FA5");
-            case FacturationSuivi.Etat.Impaye: return Hex("#A32D2D");
+            case FacturationSuivi.Etat.AVenir: return UITheme.TexteSecondaire;
+            case FacturationSuivi.Etat.AFaire: return UITheme.Hex("#854F0B");
+            case FacturationSuivi.Etat.AttenteEnvoi: return UITheme.Hex("#6A5AA0");
+            case FacturationSuivi.Etat.Envoye: return UITheme.Hex("#185FA5");
+            case FacturationSuivi.Etat.Impaye: return UITheme.Erreur;
             case FacturationSuivi.Etat.ARembourser:
-            case FacturationSuivi.Etat.Partiel: return Hex("#B4520A");
+            case FacturationSuivi.Etat.Partiel: return UITheme.Hex("#B4520A");
             case FacturationSuivi.Etat.Cloture:
             case FacturationSuivi.Etat.Franchise:
-            case FacturationSuivi.Etat.HorsBail: return Hex("#9B9A94");
-            default:                           return Hex("#0F6E56");
+            case FacturationSuivi.Etat.HorsBail: return UITheme.TexteSecondaire;
+            default:                           return UITheme.Primaire;
         }
     }
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }

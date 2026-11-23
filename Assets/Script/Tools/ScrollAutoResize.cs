@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Runtime.InteropServices;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -82,11 +81,4 @@ trackedText.gameObject.activeSelf)
         Canvas.ForceUpdateCanvases();   // ← ajouter : propage le résultat
     }
 
-
-    private IEnumerator DoScrollToBottom(ScrollRect scrollRect)
-    {
-        yield return new WaitForEndOfFrame();
-        Canvas.ForceUpdateCanvases();
-        scrollRect.verticalNormalizedPosition = 0f;
-    }
 }

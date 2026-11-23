@@ -11,7 +11,6 @@ public class TrimestreInput : MonoBehaviour
     public TMP_Text validationText;
 
     public string TrimestreValue { get; private set; }
-    public bool IsValid { get; private set; }
 
     public event Action<string> OnTrimestreChanged;
 
@@ -27,7 +26,6 @@ public class TrimestreInput : MonoBehaviour
         string annee = anneeDropdown.options[anneeDropdown.value].text;
 
         TrimestreValue = $"{annee}-{t}";
-        IsValid = true;
 
         if (validationText != null)
             validationText.text = $"{t} {annee}";

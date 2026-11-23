@@ -620,6 +620,27 @@ public class Revue17Tests
             "pas d'« Encaissée » avant le remboursement");
     }
 
+    /// Revue 17 (D5-11, lot 8 ; décision du 09/11, essai au bac à sable le 17/11) : l'« Encaissée » d'un avoir part en positif, comme
+    /// l'avoir lui-même (type 381, montants positifs) ; chez Super PDP, le négatif veut dire « annulation d'un encaissement ».
+    [Test]
+    public void D5_11_encaissee_d_un_avoir_en_positif()
+    {
+        var loc = new Locataire { id = "A" };
+        var avoir = new FactureEtat { key = "regul-2026", type = "Regul", statut = "Paye", montant = -297.6f,
+            versements = new List<Versement> { new Versement { dateISO = "2026-11-12", montant = -297.6f } } };
+        var trop = new FactureEtat { key = "loyer-2026-P7", type = "Loyer", statut = "Paye", montant = 880f,
+            versements = new List<Versement> { new Versement { dateISO = "2026-07-03", montant = 1000f }, new Versement { dateISO = "2026-11-10", montant = -120f } } };
+        loc.facturesEtat = new List<FactureEtat> { avoir, trop };
+        var e = FactureElectronique.Encaissement(loc, avoir);
+        Assert.That(e.montant, Is.EqualTo(297.6f).Within(0.01f), "en positif");
+        Assert.That(e.dateISO, Is.EqualTo("2026-11-12"), "daté du dernier remboursement");
+        e = FactureElectronique.Encaissement(loc, trop);
+        Assert.That(e.montant, Is.EqualTo(880f).Within(0.01f), "une facture ne change pas");
+        Assert.That(e.dateISO, Is.EqualTo("2026-07-03"), "la date du paiement, pas celle du remboursement");
+        StringAssert.Contains("Math.Abs(r.encaisseeMontant) > 0.005f ? r.encaisseeMontant", Src("Facturation/FactureElectronique.cs"),
+            "l'annulation part à l'opposé de ce qui a été déclaré, quel que soit son signe (avoirs déclarés en négatif avant le 17/11)");
+    }
+
     /// Revue 17, lot 2b (04/11) : abonnement et comptes, côté serveur (script etape17b, fonctions Stripe).
     [Test]
     public void Lot2b_le_serveur_porte_les_corrections()
@@ -1479,8 +1500,9 @@ public class Revue17Tests
         }
         finally
         {
-            foreach (var champ in new[] { "_enAttente", "_perimes" })
-                ((HashSet<Batiment>)typeof(EcritureCloud).GetField(champ, BindingFlags.NonPublic | BindingFlags.Static).GetValue(null)).Remove(b);
+            ((HashSet<Batiment>)typeof(EcritureCloud).GetField("_enAttente", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null)).Remove(b);
+            ((System.Runtime.CompilerServices.ConditionalWeakTable<Batiment, object>)typeof(EcritureCloud)
+                .GetField("_perimes", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null)).Remove(b);   // Revue 17 (D9-09)
         }
     }
 

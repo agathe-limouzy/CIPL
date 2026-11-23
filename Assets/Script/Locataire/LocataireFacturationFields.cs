@@ -10,7 +10,7 @@ using UnityEngine.UI;
 ///           InputAndText existant (rendu natif).
 /// Dépôt de garantie : carte dédiée dans la Colone 2 (entre « Loyer » et « Autre »)
 ///           avec un récap lecture seule (montant · équivalent en mois de loyer ·
-///           date de révision) et le bouton « Révision dépôt de garantie » (pop-up).
+///           date de révision) et le bouton « Réviser » de la carte Dépôt (pop-up).
 ///           La colonne « Depot de garantie » d'origine (carte « Autre ») est masquée.
 /// (Les paramètres LOYER — jour de demande, mois facturés, régularisation — sont
 ///  dans le pop-up « Révision du loyer » : voir RevisionPanel.)
@@ -40,18 +40,17 @@ public class LocataireFacturationFields : MonoBehaviour
     // ── Colorimétrie « groupée par fonction » ───────────────────────────────
     // 🟢 Identité/contrat : General, Bail   🟡 Argent : Loyer, Dépôt, Facturation,
     // Suivi   🔵 Notes : Commentaire, Objectif.
-    static readonly Color IdentityAccent = HexC("#0F6E56"); // vert primaire
-    static readonly Color IdentityClair  = HexC("#D6ECE3");
-    static readonly Color MoneyAccent    = HexC("#A9741C"); // ambre
-    static readonly Color MoneyClair     = HexC("#F4E7CD");
-    static readonly Color MoneyTileClair = HexC("#FBF5E8"); // éléments plus clairs que le bandeau
-    static readonly Color NotesAccent    = HexC("#5C6E85"); // gris-bleu doux
-    static readonly Color NotesClair     = HexC("#E7ECF2");
+    static readonly Color IdentityAccent = UITheme.Primaire; // vert primaire
+    static readonly Color IdentityClair  = UITheme.Hex("#D6ECE3");
+    static readonly Color MoneyAccent    = UITheme.Hex("#A9741C"); // ambre
+    static readonly Color MoneyClair     = UITheme.Hex("#F4E7CD");
+    static readonly Color MoneyTileClair = UITheme.Hex("#FBF5E8"); // éléments plus clairs que le bandeau
+    static readonly Color NotesAccent    = UITheme.Hex("#5C6E85"); // gris-bleu doux
+    static readonly Color NotesClair     = UITheme.Hex("#E7ECF2");
 
     // Accent de l'action « Révision du dépôt (facture) » (bouton CTA, distinct).
-    static readonly Color DepotAccent = HexC("#2A6F82");
-    static readonly Color FactAccent = HexC("#9A5B2E");
-    static Color HexC(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+    static readonly Color DepotAccent = UITheme.Hex("#2A6F82");
+    static readonly Color FactAccent = UITheme.Hex("#9A5B2E");
 
     // Parse une date au format français JJ/MM/AAAA (évite l'ambiguïté mois/jour
     // de DateTime.TryParse qui interprète parfois en mois-d'abord façon US).
@@ -332,7 +331,7 @@ public class LocataireFacturationFields : MonoBehaviour
         row1.childControlWidth = true; row1.childForceExpandWidth = true; row1.childControlHeight = true;
         var bLoyer = GridBtn(row1.transform, "Facturer le loyer", UITheme.Primaire, () => FactureLoyerPanel.OpenLoyer(_fiche));
         var bRegul = GridBtn(row1.transform, "Régularisation des charges", FactAccent, () => FactureRegulPanel.OpenRegul(_fiche));
-        GridBtn(row1.transform, "Refacturation d'une charge", HexC("#7A5AA6"), () => FactureRefacPanel.OpenRefac(_fiche));
+        GridBtn(row1.transform, "Refacturation d'une charge", UITheme.Hex("#7A5AA6"), () => FactureRefacPanel.OpenRefac(_fiche));
         // Une fois le départ saisi, ce bouton ouvre le décompte de sortie (libellé : RefreshAlertes).
         var bDepot = GridBtn(row1.transform, "Révision du dépôt (facture)", DepotAccent, () => FactureDepotPanel.OpenDepot(_fiche));
         _btnDepotFactLbl = bDepot.GetComponentInChildren<TMP_Text>(true);
@@ -350,6 +349,9 @@ public class LocataireFacturationFields : MonoBehaviour
     {
         var b = UIFactory.Button(row, label, bg, Color.white, 46, UITheme.Role.Bouton);
         UIFactory.LE(b.gameObject, flexW: 1, minW: 0, minH: 46, prefH: 46);
+        // Revue 17 (B-21, lot G) : à 175 %, « Régularisation des charges » demandait 250 pour 221 : le libellé passe sur deux lignes.
+        var lib = b.GetComponentInChildren<TMP_Text>(true);
+        if (lib != null) lib.enableWordWrapping = true;
         b.onClick.AddListener(() =>
         {
             // Parcours : aucune facture tant que général, bail, loyer et dépôt manquent.
@@ -395,8 +397,8 @@ public class LocataireFacturationFields : MonoBehaviour
 
                 if (_alertesBox == null) continue;
                 bool urgent = a.niveau == FacturationAlertes.Niveau.Urgent;
-                var panel = UIFactory.Panel("Alerte", _alertesBox, urgent ? HexC("#F6DED6") : HexC("#FBEFD6"));
-                UIFactory.Border(panel.gameObject, urgent ? HexC("#D85A30") : HexC("#C79A3E"));
+                var panel = UIFactory.Panel("Alerte", _alertesBox, urgent ? UITheme.Hex("#F6DED6") : UITheme.Hex("#FBEFD6"));
+                UIFactory.Border(panel.gameObject, urgent ? UITheme.Alerte : UITheme.Hex("#C79A3E"));
                 var hl = panel.gameObject.AddComponent<HorizontalLayoutGroup>();
                 // Explicite : le defaut d'Unity est TRUE, et un groupe qui « veut s'etendre »
                 // propage un flexibleHeight jusqu'en haut de la hierarchie — c'est ce qui
@@ -405,7 +407,7 @@ public class LocataireFacturationFields : MonoBehaviour
                 hl.padding = new RectOffset(10, 10, 6, 6);
                 hl.childControlWidth = true; hl.childControlHeight = true; hl.childForceExpandWidth = true;
                 panel.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-                UIFactory.Text(panel.transform, a.message, UITheme.Role.Donnee, urgent ? HexC("#B23A12") : HexC("#8A6D1E"), true);
+                UIFactory.Text(panel.transform, a.message, UITheme.Role.Donnee, urgent ? UITheme.Hex("#B23A12") : UITheme.Hex("#8A6D1E"), true);
             }
 
         if (_pastilleLoyer != null) _pastilleLoyer.SetActive(loyerDue);
@@ -510,8 +512,8 @@ public class LocataireFacturationFields : MonoBehaviour
         tiles.childControlWidth = true; tiles.childForceExpandWidth = true;
         tiles.childControlHeight = true; tiles.childForceExpandHeight = false;
         tiles.childAlignment = TextAnchor.UpperLeft;
-        _valMontant   = DepotTile(tiles.transform, "Montant du dépôt", 24);
-        _valMoisEquiv = DepotTile(tiles.transform, "Équivalent", 24);
+        _valMontant   = DepotTile(tiles.transform, "Montant du dépôt", UITheme.Role.ChiffreCle);
+        _valMoisEquiv = DepotTile(tiles.transform, "Équivalent", UITheme.Role.ChiffreCle);
 
         _valDateRev = DepotRow(body, "Date de révision");
 
@@ -544,10 +546,10 @@ public class LocataireFacturationFields : MonoBehaviour
         // quand la révision du dépôt est due (comme le badge de la carte Loyer).
         if (titre != null)
         {
-            var badge = UIFactory.Panel("BadgeDepotRevision", titre, HexC("#FBEFD6"));
-            UIFactory.Border(badge.gameObject, HexC("#C79A3E"));
+            var badge = UIFactory.Panel("BadgeDepotRevision", titre, UITheme.Hex("#FBEFD6"));
+            UIFactory.Border(badge.gameObject, UITheme.Hex("#C79A3E"));
             var bl = badge.gameObject.AddComponent<LayoutElement>(); bl.ignoreLayout = true;
-            var bt = UIFactory.Text(badge.transform, "Révision à faire", UITheme.Role.Pastille, HexC("#8A6D1E"), true, TextAlignmentOptions.Center);
+            var bt = UIFactory.Text(badge.transform, "Révision à faire", UITheme.Role.Pastille, UITheme.Hex("#8A6D1E"), true, TextAlignmentOptions.Center);
             var btr = (RectTransform)bt.transform;
             btr.anchorMin = Vector2.zero; btr.anchorMax = Vector2.one; btr.offsetMin = new Vector2(10, 0); btr.offsetMax = new Vector2(-10, 0);
             var br = (RectTransform)badge.transform;
@@ -603,7 +605,7 @@ public class LocataireFacturationFields : MonoBehaviour
     void RefreshDepotRecap(Locataire loc)
     {
         if (_valMontant == null || loc == null) return;
-        _valMontant.text = $"{loc.depotDeGarantie:N2} €";
+        _valMontant.text = $"{Montants.F(loc.depotDeGarantie, "N2")} €";
 
         // Équivalent en périodes de loyer (hors charges), sur la même base que le
         // calcul : TTC si le locataire est soumis à TVA, HT sinon. La période suit
@@ -617,7 +619,7 @@ public class LocataireFacturationFields : MonoBehaviour
             string suf = loc.depotSurTTC ? "TTC" : "HT";
             // Chiffre en gros + descripteur petit et gris sur la même ligne (2 lignes au total,
             // même épaisseur que la tuile « Loyer annuel »).
-            _valMoisEquiv.text = $"≈ {nb:0.#} <size=71%><color=#888780>{per} de loyer {suf}</color></size>";
+            _valMoisEquiv.text = $"≈ {Montants.F(nb, "0.#")} <size=71%><color=#888780>{per} de loyer {suf}</color></size>";
         }
         else
         {
@@ -632,7 +634,7 @@ public class LocataireFacturationFields : MonoBehaviour
             _valDateRev.text = $"{dp:dd/MM/yyyy} en attente de sa facture · prochaine {_valDateRev.text}";
 
         bool due = RevisionDepotDue(loc);
-        _valDateRev.color = due ? HexC("#D85A30") : UITheme.TextePrincipal;
+        _valDateRev.color = due ? UITheme.Alerte : UITheme.TextePrincipal;
         if (_depotBadge != null) _depotBadge.SetActive(due);
         if (_depotBtnLbl != null) _depotBtnLbl.text = loc.DepotInitialise ? "Réviser" : "Initialiser";
         // Départ saisi : le dépôt sera rendu (décompte de sortie, carte Facturation), plus révisé.
@@ -727,6 +729,7 @@ public class LocataireFacturationFields : MonoBehaviour
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
         var csf = cardImg.gameObject.AddComponent<ContentSizeFitter>();
         csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        PlafondFenetre.Poser(card);   // Revue 17 (D10-01, lot F) : jamais plus haute que l'écran
 
         // En-tête : bandeau PLEIN pleine largeur en tête (comme la modale « Révision
         // du loyer ») — fond ambre, icône + titre en blanc, coins arrondis en haut.
@@ -755,8 +758,8 @@ public class LocataireFacturationFields : MonoBehaviour
         var body = UIFactory.VBox(v.transform, 10, 18, 18, 14, 16, "Body");
 
         UIFactory.Text(body.transform, init ? "Date de la prochaine révision" : "Date de révision",
-            UITheme.Role.Donnee, UITheme.TexteSecondaire);
-        var dateInput = UIFactory.Input(body.transform, "JJ / MM / AAAA");
+            UITheme.Role.Libelle, UITheme.TexteSecondaire);
+        var dateInput = new ChampDate(body.transform);   // Revue visuelle (V-17) : trois cases, comme les fiches
         // Initialisation sans date : un an après le début du bail.
         DateTime dateDefaut = DateTime.Today;
         if (init && FacturationSuivi.TryEcheance(loc.dateDebutBailISO, out var debutBail)) dateDefaut = debutBail.AddYears(1);
@@ -766,15 +769,15 @@ public class LocataireFacturationFields : MonoBehaviour
         var ttcToggle = UIFactory.Toggle(body.transform, "Locataire soumis à la TVA (loyer TTC)", loc.depotSurTTC && Tva.Soumis(loc));
         ttcToggle.gameObject.SetActive(Tva.Soumis(loc));   // Revue 17 (D6-06) : bail exonéré : pas de base TTC
 
-        UIFactory.Text(body.transform, "Loyer par période hors charges (prérempli)", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Loyer par période hors charges (prérempli)", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var loyerLine = UIFactory.Text(body.transform, "", UITheme.Role.Valeur, UITheme.TextePrincipal, true);
         Func<float> currentPeriode = () => ttcToggle.isOn ? Tva.Ttc(periodeHT, Tva.Taux(loc)) : periodeHT;   // Revue 17 (D6-06)
         Action refreshLoyer = () =>
-            loyerLine.text = $"{currentPeriode():0.00} € / période {(ttcToggle.isOn ? "TTC" : "HT")}";
+            loyerLine.text = $"{Montants.F(currentPeriode(), "0.00")} € / période {(ttcToggle.isOn ? "TTC" : "HT")}";
         ttcToggle.onValueChanged.AddListener(_ => refreshLoyer());
         refreshLoyer();
 
-        UIFactory.Text(body.transform, "Nombre de périodes", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+        UIFactory.Text(body.transform, "Nombre de périodes", UITheme.Role.Libelle, UITheme.TexteSecondaire);
         var moisInput = UIFactory.Input(body.transform, "ex. 3");
         moisInput.contentType = TMP_InputField.ContentType.IntegerNumber;
         if (currentPeriode() > 0f && loc.depotDeGarantie > 0f)
@@ -785,7 +788,7 @@ public class LocataireFacturationFields : MonoBehaviour
         UIDropdown demande = null;
         if (init)
         {
-            UIFactory.Text(body.transform, "Dépôt demandé et reçu ?", UITheme.Role.Donnee, UITheme.TexteSecondaire);
+            UIFactory.Text(body.transform, "Dépôt demandé et reçu ?", UITheme.Role.Libelle, UITheme.TexteSecondaire);
             demande = UIDropdown.Create(body.transform,
                 new List<string> { "Demandé et reçu", "Demandé, pas encore reçu", "Pas encore demandé" },
                 new List<string> { "recu", "attendu", "ademander" }, 0, _ => { });
@@ -795,21 +798,18 @@ public class LocataireFacturationFields : MonoBehaviour
         }
         else
             // Ancien dépôt (fixe) + nouveau dépôt possible (recalculé en direct).
-            UIFactory.Text(body.transform, $"Ancien dépôt : {FactureDepotPanel.AncienDepot(loc):0.00} €"
+            UIFactory.Text(body.transform, $"Ancien dépôt : {Montants.F(FactureDepotPanel.AncienDepot(loc), "0.00")} €"
                 + (loc.depotPrecedent > 0f ? " — révision en attente de sa facture : vous pouvez encore la corriger." : ""),
                 UITheme.Role.Donnee, UITheme.TexteSecondaire);
         var nouveauLine = UIFactory.Text(body.transform, "", UITheme.Role.Valeur, UITheme.Primaire, true);
-        var hintLine = UIFactory.Text(body.transform, "", UITheme.Role.Donnee, UITheme.Alerte);
+        var hintLine = UIFactory.Text(body.transform, "", UITheme.Role.Donnee, UITheme.Erreur);
 
         var actions = UIFactory.HBox(body.transform, 10);
         UIFactory.LE(actions.gameObject, minH: 46);
 
-        var cancel = UIFactory.Button(actions.transform, "Fermer", UITheme.Carte, UITheme.TextePrincipal, 44, UITheme.Role.Bouton);
-        UIFactory.Border(cancel.gameObject); UIFactory.LE(cancel.gameObject, flexW: 1);
+        // Revue visuelle (17/11) : le bas de fenêtre du modèle (compact, à droite, « Annuler » d'abord). Avant : deux boutons en pleine largeur.
+        var (cancel, reviser) = UIFactory.PiedFenetre(actions.transform, "Annuler", init ? "Initialiser" : "Réviser", UITheme.Primaire);
         cancel.onClick.AddListener(() => Destroy(scrim.gameObject));
-
-        var reviser = UIFactory.Button(actions.transform, init ? "Initialiser" : "Réviser", UITheme.Primaire, Color.white, 44, UITheme.Role.Bouton);
-        UIFactory.LE(reviser.gameObject, flexW: 1);
 
         // Recalcul auto du nouveau dépôt + état du bouton : la révision n'est
         // possible qu'à partir de la date de révision (à/après ce jour). À
@@ -819,7 +819,7 @@ public class LocataireFacturationFields : MonoBehaviour
             refreshLoyer();
             bool nbOk = int.TryParse(moisInput.text, out int nb) && nb >= 0;
             float nouveau = currentPeriode() * Mathf.Max(0, nb);
-            nouveauLine.text = init ? $"Dépôt de garantie : {nouveau:0.00} €" : $"Nouveau dépôt : {nouveau:0.00} €";
+            nouveauLine.text = init ? $"Dépôt de garantie : {Montants.F(nouveau, "0.00")} €" : $"Nouveau dépôt : {Montants.F(nouveau, "0.00")} €";
 
             bool dateOk = TryParseFr(dateInput.text, out var dr);
             if (init)
@@ -867,7 +867,7 @@ public class LocataireFacturationFields : MonoBehaviour
             RefreshDepotRecap(loc);
             _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
             UndoToast.Instance?.ShowInfo(
-                $"Dépôt révisé : {loc.depotDeGarantie:0.00} € — prochaine révision {next:dd/MM/yyyy}");
+                $"Dépôt révisé : {Montants.F(loc.depotDeGarantie, "0.00")} € — prochaine révision {next:dd/MM/yyyy}");
             Destroy(scrim.gameObject);
         });
     }
@@ -899,7 +899,7 @@ public class LocataireFacturationFields : MonoBehaviour
         RefreshDepotRecap(loc);
         _fiche.batimentPrefabOrigin.SaveAfterModifyToDoListLocataire();
         LocataireSuiviInline.RefreshFor(_fiche);
-        UndoToast.Instance?.ShowInfo($"Dépôt initialisé : {montant:0.00} €{suite}");
+        UndoToast.Instance?.ShowInfo($"Dépôt initialisé : {Montants.F(montant, "0.00")} €{suite}");
         _fiche.OnDepotInitialise();   // dernière étape du parcours de création
     }
 

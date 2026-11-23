@@ -63,7 +63,7 @@ public static class ParcoursLocataire
 public class ParcoursLocataireUI : MonoBehaviour
 {
     static readonly string[] Titres = { "1  Général", "2  Bail", "3  Loyer", "4  Dépôt de garantie" };
-    static readonly Color Ambre = Hex("#A9741C");
+    static readonly Color Ambre = UITheme.Hex("#A9741C");
 
     LocatairePrefab _fiche;
     GameObject _bandeau;
@@ -77,8 +77,8 @@ public class ParcoursLocataireUI : MonoBehaviour
         if (_bandeau != null) return;
         _fiche = fiche;
 
-        var fond = UIFactory.Panel("ParcoursLocataire", fiche.transform, Hex("#E7ECF2"));
-        UIFactory.Border(fond.gameObject, Hex("#5C6E85"));
+        var fond = UIFactory.Panel("ParcoursLocataire", fiche.transform, UITheme.Hex("#E7ECF2"));
+        UIFactory.Border(fond.gameObject, UITheme.Hex("#5C6E85"));
         var header = fiche.transform.Find("HeaderLocataire");
         fond.transform.SetSiblingIndex(header != null ? header.GetSiblingIndex() + 1 : 0);
         var v = fond.gameObject.AddComponent<VerticalLayoutGroup>();
@@ -87,7 +87,7 @@ public class ParcoursLocataireUI : MonoBehaviour
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
         _bandeau = fond.gameObject;
 
-        UIFactory.Text(fond.transform, "Nouveau locataire — à remplir dans l'ordre", UITheme.Role.Libelle, Hex("#5C6E85"), true);
+        UIFactory.Text(fond.transform, "Nouveau locataire — à remplir dans l'ordre", UITheme.Role.Libelle, UITheme.Hex("#5C6E85"), true);
 
         var etapes = UIFactory.HBox(fond.transform, 8, true, "Etapes");
         for (int i = 0; i < 4; i++)
@@ -141,5 +141,4 @@ public class ParcoursLocataireUI : MonoBehaviour
         _continuer.gameObject.SetActive(!enModification);
     }
 
-    static Color Hex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 }

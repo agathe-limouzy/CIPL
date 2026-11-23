@@ -333,9 +333,9 @@ public class Revue16cTests
         StringAssert.DoesNotContain("Directory.Delete(d, true)", transfert, "D8-08");
         string accueil = File.ReadAllText(Path.Combine(Application.dataPath, "Script", "General", "GeneralMenuPanel.cs"));
         StringAssert.Contains("RappelsAuto.Ouvrir(alerte);", accueil, "D8-09");
-        StringAssert.Contains("listLocataire.Count(l => l != null && !l.archive)", accueil, "D8-10");
+        StringAssert.Contains("nbLoc += prefab.NbEnPlace();", accueil, "D8-10, puis Revue 17 (D8-05, lot F) : locataires en place seulement");
         // BJ7 (02/11) : la carte de bâtiment de l'accueil disait « 5 lots » quand la fiche en comptait 3 (partis, archivés).
-        StringAssert.Contains("BatimentPrefab.EnPlace(batiment.listLocataire)", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "General", "BuildingCard.cs")), "D7a-02 sur la carte de l'accueil");
+        StringAssert.Contains("int nbLoc = batiment.NbEnPlace();", File.ReadAllText(Path.Combine(Application.dataPath, "Script", "General", "BuildingCard.cs")), "D7a-02 sur la carte de l'accueil");
     }
 
     [Test]

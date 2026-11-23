@@ -63,12 +63,12 @@ public static class VersementsPanel
         var soldes = UIFactory.HBox(body.transform, 16, false, "Soldes");
         var txtPaye = UIFactory.Text(soldes.transform, "", UITheme.Role.Libelle, UITheme.TextePrincipal, true);
         UIFactory.LE(txtPaye.gameObject, flexW: 1);
-        var txtReste = UIFactory.Text(soldes.transform, "", UITheme.Role.Libelle, UITheme.Alerte, true);
+        var txtReste = UIFactory.Text(soldes.transform, "", UITheme.Role.Libelle, UITheme.Erreur, true);
 
         UIFactory.Text(body.transform, "Nouveau versement", UITheme.Role.Donnee, UITheme.TexteSecondaire);
         var ajout = UIFactory.HBox(body.transform, 12, false, "Ajout");
         ajout.childAlignment = TextAnchor.LowerLeft;
-        var date = DepartPanel.ChampDate(fiche, ajout.transform, "Date", DateTime.Today);
+        var date = ChampDate.Colonne(ajout.transform, "Date", DateTime.Today);
         var montant = DepartPanel.Champ(ajout.transform, "Montant (€)", "", 1f);
         var ajouter = UIFactory.Button(ajout.transform, "Ajouter", UITheme.Carte, UITheme.TextePrincipal, 40, UITheme.Role.Bouton, false);
         UIFactory.Border(ajouter.gameObject);
@@ -98,7 +98,7 @@ public static class VersementsPanel
             float paye = liste.Sum(x => x.montant), reste = Mathf.Max(0f, total - paye);
             txtPaye.text = "Payé : " + Euros(paye);
             txtReste.text = reste > 0.005f ? "Reste à payer : " + Euros(reste) : "Facture réglée";
-            txtReste.color = reste > 0.005f ? UITheme.Alerte : UITheme.Primaire;
+            txtReste.color = reste > 0.005f ? UITheme.Erreur : UITheme.Primaire;
             if (montant.placeholder is TMP_Text ph) ph.text = reste > 0.005f ? Euros(reste) : "";
         };
         maj();
@@ -174,6 +174,7 @@ public static class VersementsPanel
         v.childControlWidth = true; v.childControlHeight = true;
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
         cardImg.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        PlafondFenetre.Poser(card);   // Revue 17 (D10-01, lot F) : jamais plus haute que l'écran
 
         DepartPanel.Entete(v.transform, $"Remboursement — {ligne.libelle}", UITheme.Primaire);
         var body = UIFactory.VBox(v.transform, 10, 18, 18, 14, 16, "Body");
@@ -183,7 +184,7 @@ public static class VersementsPanel
             UITheme.Role.Aide, UITheme.TexteSecondaire).enableWordWrapping = true;
         var champs = UIFactory.HBox(body.transform, 12, false, "Champs");
         champs.childAlignment = TextAnchor.LowerLeft;
-        var date = DepartPanel.ChampDate(fiche, champs.transform, "Date du remboursement", DateTime.Today);
+        var date = ChampDate.Colonne(champs.transform, "Date du remboursement", DateTime.Today);
         var montant = DepartPanel.Champ(champs.transform, "Montant (€)", "", 1f);
         SaisieNumerique.Montant(montant);
         montant.text = du.ToString("0.00", FacturePdfService.FrCulture);

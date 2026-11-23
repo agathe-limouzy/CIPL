@@ -365,9 +365,8 @@ public class FactureEnvoiAuto : MonoBehaviour
         v.childControlWidth = true; v.childControlHeight = true;
         v.childForceExpandWidth = true; v.childForceExpandHeight = false;
 
-        UIFactory.Text(carte.transform,
-            liste.Count == 1 ? "Une facture est à envoyer" : $"{liste.Count} factures sont à envoyer",
-            UITheme.Role.Section, UITheme.TextePrincipal, true);
+        // Revue visuelle du 16/11 (V-01 ; relevé par Agathe) : le bandeau des autres fenêtres, à la couleur de l'argent.
+        UIFactory.Bandeau(crt, liste.Count == 1 ? "Une facture est à envoyer" : $"{liste.Count} factures sont à envoyer", UITheme.Hex("#854F0B"));
         UIFactory.Text(carte.transform,
             "Leur date d'envoi est atteinte et elles n'ont pas encore été expédiées. "
             + "Décochez celles que vous ne voulez pas envoyer maintenant.",
@@ -386,13 +385,13 @@ public class FactureEnvoiAuto : MonoBehaviour
         UIFactory.LE(spacer.gameObject, flexW: 1);
 
         _btnPlusTard = UIFactory.Button(boutons.transform, "Plus tard", UITheme.Carte,
-            UITheme.TextePrincipal, 44, UITheme.Role.Bouton, false);
+            UITheme.TextePrincipal, 40, UITheme.Role.Bouton, false);
         UIFactory.Border(_btnPlusTard.gameObject);
         UIFactory.LE(_btnPlusTard.gameObject, prefW: 150, flexW: 0);
         _btnPlusTard.onClick.AddListener(() => { MarquerReporte(); Destroy(gameObject); });
 
         _btnEnvoyer = UIFactory.Button(boutons.transform, "Tout envoyer", UITheme.Primaire,
-            Color.white, 44, UITheme.Role.Bouton, true);
+            Color.white, 40, UITheme.Role.Bouton, true);
         UIFactory.LE(_btnEnvoyer.gameObject, prefW: 200, flexW: 0);
         _btnEnvoyer.onClick.AddListener(Confirmer);
     }

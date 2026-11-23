@@ -337,8 +337,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3abdb7885f789414188562556f85d93e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  mapboxAccessToken: VOTRE-TOKEN-MAPBOX-ICI
-  mapStyle: 0
   zoomLevel: 17
   imageWidth: 400
   imageHeight: 200
@@ -1463,7 +1461,7 @@ MonoBehaviour:
   m_fontColor32:
     serializedVersion: 2
     rgba: 2150773298
-  m_fontColor: {r: 0.65882355, g: 0.6509804, b: 0.61960787, a: 1}
+  m_fontColor: {r: 0.5411765, g: 0.53333336, b: 0.5019608, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:

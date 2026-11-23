@@ -12,13 +12,16 @@ public static class BatimentEtatHelper
     /// Priorité : Retard > Bientôt > Vacant > À jour.
     public static BatimentEtat GetEtat(BatimentPrefab bp)
     {
-        if (bp == null || bp.listLocataire == null || bp.listLocataire.Count == 0)
+        // Revue 17 (D7a-10, lot F) : l'état se lit sur les locataires en place (un locataire parti ou archivé ne met plus le
+        // bâtiment « en retard », et un bâtiment que tous ont quitté est vacant).
+        var enPlace = bp == null ? null : System.Linq.Enumerable.ToList(BatimentPrefab.EnPlace(bp.listLocataire));
+        if (enPlace == null || enPlace.Count == 0)
             return BatimentEtat.Vacant;   // bâtiment sans locataire = lot vide
 
         bool retard = false, bientot = false, vacant = false;
         var today = DateTime.Today;
 
-        foreach (var loc in bp.listLocataire)
+        foreach (var loc in enPlace)
         {
             if (string.IsNullOrEmpty(loc.Name))
             {
@@ -26,7 +29,7 @@ public static class BatimentEtatHelper
                 continue;
             }
 
-            if (!loc.RevisionIndiceSuivie) continue;   // paliers / sans révision : rien à réviser
+            if (!loc.RevisionAAnnoncer) continue;   // paliers / sans révision, ou parti avant la date (D8-06) : rien à réviser
 
             int jours = (loc.MoisDeRevision - today).Days;
             if (jours < 0) retard = true;

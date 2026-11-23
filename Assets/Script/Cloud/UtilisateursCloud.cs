@@ -56,6 +56,23 @@ public static class UtilisateursCloud
 
     public static int Libres(Entreprise e) => e.licences_max - e.licences_utilisees;
 
+    /// Demande du 23/11 : « - » sous les licences utilisées : le refus, au centre, au choix de l'abonnement comme pour un abonnement en cours.
+    public static string RefusBaisse(Entreprise e) =>
+        $"{e.nom} : {e.licences_utilisees} licence{(e.licences_utilisees > 1 ? "s" : "")} utilisée{(e.licences_utilisees > 1 ? "s" : "")}. " +
+        $"Retirez quelqu'un de {e.nom} (onglet Utilisateurs) avant de baisser son nombre de licences.";
+
+    /// Demande du 23/11 : « Inviter » alors qu'aucune entreprise n'a de licence libre : le refus, au centre, sans ouvrir un formulaire où
+    /// rien ne peut se cocher. Null s'il en reste une (ou si la liste est illisible : le serveur décidera).
+    public static string RefusInvitation(System.Collections.Generic.IEnumerable<Entreprise> entreprises, bool essai)
+    {
+        var ents = (entreprises ?? Enumerable.Empty<Entreprise>()).Where(e => e != null).ToList();
+        if (ents.Count == 0 || ents.Any(e => Libres(e) > 0)) return null;
+        return essai
+            ? $"L'essai gratuit comprend {RegleAbonnement.LicencesEssai} utilisateurs : toutes les licences sont utilisées. " +
+              "Abonnez-vous (Réglages › Abonnement) pour inviter d'autres personnes, ou retirez quelqu'un."
+            : "Aucune licence libre. Ajoutez une licence (Réglages › Abonnement) ou retirez quelqu'un.";
+    }
+
     /// Case d'une entreprise dans « Inviter » ou « Entreprises de … » : ses licences libres.
     public static string CaseEntreprise(Entreprise e, bool dejaDedans) =>
         dejaDedans ? $"{e.nom} · sa licence"

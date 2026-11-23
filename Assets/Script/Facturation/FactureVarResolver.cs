@@ -70,7 +70,7 @@ public static class FactureVarResolver
         m["{loc.lot}"]         = loc != null ? loc.lotBatiment.ToString() : "";
         // Surface effective : la saisie, sinon la part du disponible du bâtiment (revue 16c, D6-01 : « 0 m² »).
         m["{loc.taille}"]      = loc == null ? ""
-            : $"{(bat != null ? LotsBatiment.Surface(bat, loc) : loc.tailleLot):0.##} m²";   // 04/11 : celle de son lot
+            : $"{Montants.F((bat != null ? LotsBatiment.Surface(bat, loc) : loc.tailleLot), "0.##")} m²";   // 04/11 : celle de son lot
         m["{loc.bail}"]        = loc != null ? Locataire.LibelleBail(loc.typeDeBail) : "";   // libellé, pas le nom interne
         m["{loc.debutBail}"]   = D(loc?.dateDebutBailISO);
         m["{loc.finBail}"]     = D(loc?.dateFinBailISO);
@@ -80,13 +80,13 @@ public static class FactureVarResolver
         m["{loc.periodicite}"] = periodicite;
         m["{loc.provision}"]   = loc != null && loc.provisionPourCharges
                                  ? $"{N2(ProvisionFacturee(loc, ctx.periodicite))} €" : "—";   // toutes listes
-        m["{loc.taux}"]        = loc != null ? $"{loc.tauxDeRentabilité:0.##} %" : "";
+        m["{loc.taux}"]        = loc != null ? $"{Montants.F(loc.tauxDeRentabilité, "0.##")} %" : "";
 
         // ── Bâtiment ──
         m["{bat.nom}"]         = S(bat?.Name);
         m["{bat.adresse}"]     = S(bat?.adressBatiment);
-        m["{bat.taille}"]      = bat != null ? $"{bat.tailleBatiment:0.##} m²" : "";
-        m["{bat.terrain}"]     = bat != null ? $"{bat.tailleTerrain:0.##} ca" : "";
+        m["{bat.taille}"]      = bat != null ? $"{Montants.F(bat.tailleBatiment, "0.##")} m²" : "";
+        m["{bat.terrain}"]     = bat != null ? $"{Montants.F(bat.tailleTerrain, "0.##")} ca" : "";
         m["{bat.cadastre}"]    = S(bat?.cadastral);
         m["{bat.acquisition}"] = D(bat?.dateAcquisitionISO);
 

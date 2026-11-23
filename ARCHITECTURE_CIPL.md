@@ -219,6 +219,8 @@ Save…()         → vérifications (bail, unicité du nom, parcours) → champ
         └─ AtomicFile → batiments/batiment_<id>.json
 ```
 
+Revue 17 (lot E, 16/11) : après « Sauvegarder », la fiche bâtiment n'est plus reconstruite (`ApresEnregistrement` : nom, surfaces, lots, en-têtes, liste, résumé) ; ses fiches locataires et la sélection restent.
+
 Les écrans secondaires (loyer, dépôt, factures, charges) écrivent **directement dans le modèle du locataire**, puis appellent `batimentPrefabOrigin.SaveAfterModifyToDoListLocataire()`. Cette méthode enregistre le bâtiment et rafraîchit la surface, le loyer total, la liste des locataires, l'alerte d'onglet et le suivi.
 
 ### 6.4 Fermeture
@@ -473,6 +475,7 @@ Tous les appels réseau passent par `UnityWebRequest` dans des coroutines, sauf 
 - Session : `CloudClient.Deconnecter` (scope=local), `CloudClient.Session.ExpireLe` (= maintenant + expires_in, posé par `LireSession`), `SessionCloud.RefusDefinitif(code)`, `SessionCloud.Fermee` (message au centre puis `DemarrageCloud.SeDeconnecter`), `Restaurer` tolérant au 429 ; `CloudClient.FicheEssai` / `Fiches` / `LireFiches` retirés, `EssaiCloudWindow` réduite.
 - Abonnement et comptes : `AbonnementCloud.Lire` (état gardé sur échec), `RegleAbonnement.LicencesProposees(utilisees)`, `SectionAbonnement._entreprise` (choix et attente par entreprise, fin après 10 minutes), `UtilisateursCloud.EnvoyerEmail` (invitant = `EcritureCloud.MonNom`), `UtilisateursCloud.Motif` (« dernier_admin » nommé, « membre », « deja_membre »), `PremiersPas.Etat.expire`, `EcransCloud.AfficherInvitation` (session oubliée si l'adresse change), `ReglagesCloud` (refus « admin » traduit, relecture), `SyncDocuments.ReserveAdmin` (DocumentsCloud), `TileLoader.Motif` (« quota »), `RegleInscription.Reglages` (loyersSoumisTva = societe), `ReglagePanel.OpenRibForm` (exemples neutres).
 - Serveur : `Serveur/etape17c_supabase.sql` (sections 1 à 7 : detenteur_autre, documenter, supprimer_document, enregistrer_reglages, retirer_membre, changer_role, changer_acces, creer_entreprise_import, prendre_lecture_pappers, cartes_journal, prendre_lecture_cartes ; repère « Lot D : à compléter ») ; fonctions Deno abonnement-stripe (always_invoice, métadonnées l_<entreprise>, Number.isInteger, impayé refusé), stripe-webhook (repartir par clés l_, canceled / incomplete_expired, resource_missing, page de retour), emails-abonnement (always_invoice, textes), facture-electronique (réservation rendue, identifiant contrôlé), pappers et cartes (réservation avant l'appel, QUOTA).
+- Serveur : `Serveur/etape17d_supabase.sql` (22/11, à passer après etape17c) : essai limité à une entreprise et 2 licences (`entreprises.licences_max` à 2 par défaut ; `ajouter_entreprise` rend le refus « essai » ; `creer_entreprise_import` refuse une seconde entreprise dans un groupe en essai). Client : `RegleAbonnement.LicencesEssai`, `AjoutRefuse`, `RefusAjoutEssai`. Le 23/11 : `RegleAbonnement.AideChoix` (phrase sous « Choisir l'abonnement »), `UtilisateursCloud.RefusBaisse` et `RefusInvitation` (refus dits au centre : « − » sous les licences utilisées, « Inviter » sans licence libre).
 - Tests : `LotBStripeTests`, `LotBPlateformeTests`, `LotBSqlTests` (dont la comparaison de chaque fonction recréée à sa dernière définition), `LotBSessionTests`, `LotBEcransTests` ; `CloudAbonnementTests` (PSiret), `CloudInscriptionTests`, `CloudPremiersPasTests`, `CloudTests` et `Revue17Tests.D1_01` ajustés.
 
 ## Revue 17, lot C (facturation), vague 1 : lots 6, 6b, 7 et 9 (09/11)
@@ -521,3 +524,30 @@ Tous les appels réseau passent par `UnityWebRequest` dans des coroutines, sauf 
 - Révision : `InseeIndiceService.TrimestreSuivant`, `RefusTrimestre`, `MessageEchec` ; `LoyerHistoryService.Manquants` ; `Loyers.PaliersDesalignesApres` ; `RevisionPanel.Nombre`, `LibellesPeriodicite`.
 - Cartes, PLU, achats, objectifs : `MapController.Deplacer` et `Adresse`, `TileLoader.ImagePosee`, `GeoCodingService.Decision`, `CadastreService.MessageCommune`, `SaisieNumerique.OuNaN` et `RefusIllisible`, `AchatItemUI.DateLisible`, `ObjectifPanel.Ouvrir` (réserve la fiche).
 - Tests : `Assets/Editor/Tests/LotDSqlTests.cs`, `LotDEcritureTests.cs`, `LotDDocumentsTests.cs`, `LotDDemarrageTests.cs`, `LotDDepartTests.cs`, `LotDFichesTests.cs`, `LotDRevisionTests.cs`, `LotDCartesTests.cs` (104 tests de plus) ; 959 tests EditMode verts.
+
+## Revue 17, lot E (performances) (16/11, modèle 11 inchangé)
+
+- Ouverture : `BatimentManager.Installer(bats, avancement)` (async : un bâtiment par image, caché dès construit ; un `Vider` l'arrête), `EcransCloud.Avancement(voile)`, `DemarrageCloud.Afficher` async ; lectures en parallèle (`EcritureCloud.Charger` et `ChargerUn`, `ReglagesCloud.Lire`, abonnement pendant les Réglages) ; `ImportLocal.EntreprisesDuPC(compter)`.
+- Fiches : `BatimentPrefab.ApresEnregistrement` ; `AppSectionColors.Styler` et `AppIconResizer.Styler` (couleurs et icônes posées à la construction ; le passage périodique ne voit que l'écran affiché).
+- Cloud : `EcritureCloud.Inchange` (relecture aux mêmes versions : `DirectCloud.LireUn` ne reconstruit rien) ; `_perimes` en `ConditionalWeakTable` ; `DirectCloud.Connecte` (documents 120 s, verrous 60 s) ; `MettreAJourBandeaux` sur les listes tenues ; `CopieLocale.Garder` en tâche de fond, `CopieLocale.Terminer` à la fermeture ; `DocumentsCloud` : passage léger (`ChangementLocal`), `Sauver` seulement si l'état change, réception en tâche de fond.
+- Facturation : `FacturePdfService.Preparer` / `Executer` (sans API Unity), versions `…Async`, `Occuper` ; `FactureDepotPanel.Document.Pdf` et `.Apercu` rendent une `Task<string>` ; `FacturationHomeSection` (`_ouverts`, `ParPage`) ; `LocataireSuiviInline._tous` (registre des suivis).
+- Photos et cartes : `PhotoService.Charger(chemin, cote)` (`CotePhoto` 1 600, `CoteCarte` 512, 20 au plus en mémoire) ; `TileLoader.OnDestroy`.
+- Tests : `CloudEcritureTests.E_D9_04_relecture_inchangee_seulement_si_memes_fiches_et_versions` ; 968 tests EditMode verts.
+
+## Revue 17, lot F (interface), passes 1 et 2 (16/11, modèle 11 inchangé)
+
+- Nouveaux fichiers, `Assets/Script/Tools/` : `PlafondFenetre` (carte d'une fenêtre plafonnée à l'écran, corps « Corps » ou « Body » dans une zone qui défile ; règle pure `Hauteur`), `ClavierUI` (Tab, Maj+Tab, touches des messages ; règle pure `Ordre`), `Montants` (`F(valeur, format)` : tout nombre affiché, en culture française), `LargeurMinTexte` (largeur minimale d'un bouton à la largeur de son texte).
+- `UIFactory` : `DansEcran` (menus ramenés dans l'écran par `PlacePopup`), `LargeurDuTexte` pose `LargeurMinTexte`, `Section` au rôle Section. `UIDropdown.AvantOuverture`. `ConfirmDialog.Touche` et `BoutonPour`. `UIZoom.PalierPourEcran`.
+- Barre d'onglets : `EcransCloud.ZoneEtat()` répartit la barre (onglets flexibles, « + » 60, zone d'état, place de la croix) ; `EcransCloud.Pastille` (nom de l'entreprise) et `DirectCloud.AfficherEnLigne` écrivent dans cette zone.
+- Règles : `DepartLocataire.ResteAvantDepart`, `Locataire.TexteFinDeBailCourt`, `BatimentPrefab.NbEnPlace` et `RefreshTailleBatiment(avertir)`, `Messagerie.PermissionEnvoiManquante`, `SectionUtilisateurs.LargeurMinimale`.
+- Tests : `Assets/Editor/Tests/LotFTests.cs` (7 tests) ; 975 tests EditMode verts.
+- Passe 3 : `UITheme.Erreur` (texte d'erreur) et `UITheme.BordureChamp` (bord des champs de `UIFactory.Input` et `UIDropdown`) ; `UIFactory.TogglePastille` ; `LocataireSuiviInline.AnneesAnciennes` ; `MenuManager.TruncateLabel` retiré ; 976 tests EditMode verts.
+
+## Revue 17, lot G (mineurs restants et tests) (16/11, modèle 11 inchangé)
+
+- Règles : `Locataire.RevisionAAnnoncer` (lue par `HomeAlertCollector` et `BatimentEtatHelper.GetEtat`) ; `HomeAlertCollector.Ajouter(alertes, nom, données, locataires, fiche)` et `Trier` : la collecte de l'accueil lit des données, la fiche à l'écran ne sert qu'au clic ; `QuickCalcInline.Resultat`, `NomMode`, `NbModes` ; `ReglagePanel.ExempleEnvoi`, `ExempleImpaye` ; `BuildingRowUI.Ville` (adresse sans virgule).
+- Couleurs : `UITheme.Hex` est la seule lecture d'un « #RRGGBB » ; une couleur du thème ne s'écrit plus en dur (test `LotGTests.D10_09_…`) ; `UITheme.TexteExemple` `#8A8880`, la même dans les prefabs et la scène (`TexteExempleTests`).
+- Écrans : `RevisionPanel` : rangée des boutons en pied fixe (`_pied`), texte de la case « Provisions » (`_sansProvision`) ; `MenuManager.NouveauBatiment` (le « + » de la barre et l'accueil) ; `MenuManager.OnSelect(fiche)` sans booléen.
+- Argent : `FactureElectronique.Encaissement` : somme en décimal, arrondie au centime.
+- Gardés : `AchatFinancement` et `TravauxFinancement` portent toujours `apportPersonnel` et `mensualiteCalculee` (écrits, jamais lus) : les retirer changerait le modèle des données.
+- Tests : `Assets/Editor/Tests/LotGTests.cs` (8 tests) ; 984 tests EditMode verts.

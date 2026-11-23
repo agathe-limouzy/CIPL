@@ -35,9 +35,8 @@ public class InvestissementListPanel : MonoBehaviour
     private int _chargeYear;              // 0 = toutes
     private GameObject _yearBarGO;
     private Transform _yearChips;
-    private static readonly Color ChargeAccent = ColHex("#7A5AA6");
-    private static readonly Color ChargeAccentClair = ColHex("#ECE4F5");
-    private static Color ColHex(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+    private static readonly Color ChargeAccent = UITheme.Hex("#7A5AA6");
+    private static readonly Color ChargeAccentClair = UITheme.Hex("#ECE4F5");
 
     public void Open(BatimentPrefab bp, TypeInvestissement type, Action onChanged)
     {
@@ -50,8 +49,8 @@ public class InvestissementListPanel : MonoBehaviour
         bool achat = type == TypeInvestissement.Achat;
         txtTitre.text = achat ? "Historique des achats" : "Historique des travaux";
 
-        Color acc = achat ? Col("#185FA5") : Col("#854F0B");
-        Color accT = achat ? Col("#E6F1FB") : Col("#FAEEDA");
+        Color acc = achat ? UITheme.Hex("#185FA5") : UITheme.Hex("#854F0B");
+        Color accT = achat ? UITheme.Hex("#E6F1FB") : UITheme.AttentionClair;
         if (headerBg != null) headerBg.color = acc;
         if (txtTitre != null) txtTitre.color = accT;
         if (ajouterBg != null) ajouterBg.color = acc;
@@ -191,7 +190,6 @@ public class InvestissementListPanel : MonoBehaviour
         });
     }
 
-    private static Color Col(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
 
     private void SaveAndRefresh()
     {
@@ -252,16 +250,17 @@ public class InvestissementListPanel : MonoBehaviour
             var ui = go.GetComponent<AchatItemUI>();
             if (ui == null) continue;
 
+            AchatItemUI.SurUneLigne(ui.txtLabel, ui.txtMensualite, ui.txtDate);   // Revue 17 (B-17, lot F)
             if (ui.txtLabel != null) ui.txtLabel.text = string.IsNullOrWhiteSpace(ch.nom) ? "(charge)" : ch.nom;
-            if (ui.txtPrix != null) ui.txtPrix.text = $"{ch.cout:N0} €";
+            if (ui.txtPrix != null) ui.txtPrix.text = $"{Montants.F(ch.cout, "N0")} €";
             if (ui.txtMensualite != null)
             {
                 // Trois états, pas deux : une charge facturée n'est pas payée, mais
                 // l'afficher « impayé » laisserait croire qu'elle reste à refacturer.
                 ui.txtMensualite.text = ch.Etat;
-                ui.txtMensualite.color = ch.EstPayee ? Col("#0F6E56")
-                                       : ch.EstFacturee ? Col("#EF9F27")   // ambre : en attente
-                                       : Col("#D85A30");
+                ui.txtMensualite.color = ch.EstPayee ? UITheme.Primaire
+                                       : ch.EstFacturee ? UITheme.Attention   // ambre : en attente
+                                       : UITheme.Alerte;
             }
             if (ui.txtDate != null)
             {
